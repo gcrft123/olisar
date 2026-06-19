@@ -15,13 +15,21 @@ until it expires. Allowlisted operators are exempt (admitted by user id, not rol
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import discord
 from fastapi import Cookie, Header, HTTPException, Request
 
 from api.auth.sessions import COOKIE_NAME, delete_session, get_admin_for_token
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, Guild
+from olisar.db.models import AdminUser, Guild, utcnow
+
+# When each non-allowlisted admin was last verified against the live bot. Bounds how long a
+# session may coast while the bot is unavailable (restarting, or powered off) before it must
+# re-authenticate — so a just-revoked admin can't ride a powered-down bot. Cleared on restart
+# (the bot is up at startup, so sessions re-verify on their next request).
+_last_check: dict[int, datetime] = {}
+_OFFLINE_GRACE_SECONDS = 300  # 5 min: comfortably covers restarts; bounds powered-down exposure
 
 
 def _live_bot(request: Request):
@@ -63,6 +71,19 @@ async def _still_managed(bot, user_id: int, claimed: list[str]) -> list[str]:
     return still
 
 
+def _recently_verified(admin: AdminUser) -> bool:
+    """Whether ``admin`` was verified recently enough — by a live re-check or a fresh OAuth
+    login — to keep their session while the bot is temporarily unavailable."""
+    newest = _last_check.get(admin.discord_user_id)
+    login = admin.last_login
+    if login is not None:
+        if login.tzinfo is None:
+            login = login.replace(tzinfo=timezone.utc)
+        if newest is None or login > newest:
+            newest = login
+    return newest is not None and (utcnow() - newest).total_seconds() < _OFFLINE_GRACE_SECONDS
+
+
 async def _revalidate(request: Request, admin: AdminUser, token: str) -> None:
     """Re-check the admin's Discord permissions so a Manage-Server revocation takes
     effect on the next request, not only when the session expires."""
@@ -70,7 +91,13 @@ async def _revalidate(request: Request, admin: AdminUser, token: str) -> None:
         return  # the operator — admitted by user id, not by Discord roles
     bot = _live_bot(request)
     if bot is None:
-        return  # can't verify right now — fall back to the stored grant
+        # Can't verify against Discord right now (bot restarting or powered off). Coast on
+        # the last good check/login for a short grace window, then fail closed so a revoked
+        # admin can't keep access by virtue of the bot being down.
+        if _recently_verified(admin):
+            return
+        await delete_session(token)
+        raise HTTPException(status_code=401, detail="please sign in again — the bot is offline")
     claimed = [str(g) for g in (admin.managed_guild_ids or [])]
     fresh = await _still_managed(bot, admin.discord_user_id, claimed)
     if set(fresh) != set(claimed):
@@ -82,8 +109,10 @@ async def _revalidate(request: Request, admin: AdminUser, token: str) -> None:
         admin.managed_guild_ids = fresh
     if not fresh:
         # Lost Manage Server everywhere Olisar is — revoke the session outright.
+        _last_check.pop(admin.discord_user_id, None)
         await delete_session(token)
         raise HTTPException(status_code=401, detail="access revoked: Manage Server removed")
+    _last_check[admin.discord_user_id] = utcnow()  # record this successful live verification
 
 
 async def require_admin(
