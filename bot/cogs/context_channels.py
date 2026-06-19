@@ -24,7 +24,6 @@ from discord.ext import commands, tasks
 from sqlalchemy import select
 
 from bot.content import message_text
-from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,

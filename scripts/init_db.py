@@ -17,10 +17,6 @@ from olisar.config import settings
 from olisar.db.engine import get_engine, session_scope
 from olisar.db.models import (
     Base,
-    Guild,
-    GuildConfig,
-    Persona,
-    ProactivityConfig,
 )
 from olisar.guild_setup import ensure_guild_defaults
 from olisar.memory.vectors import create_fts_tables, create_vector_tables
