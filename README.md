@@ -72,6 +72,13 @@ address with **no domain and no port-forwarding required**. The operator needs a
 Tailscale account; the admins who sign in don't need Tailscale at all. See
 [SETUP.md](SETUP.md#4-remote-access-optional--tailscale-funnel).
 
+## Updates
+
+Olisar checks this repo's latest **GitHub Release** on launch and every few hours (and on
+demand from the tray → *Check for Updates…*). When a newer version is published it notifies
+you and opens the right installer to download. Maintainers: see **[RELEASING.md](RELEASING.md)**
+for how to cut a release (a tag push builds and publishes the installers via GitHub Actions).
+
 ## How it's built
 
 - **Python 3.13** (managed with [uv](https://docs.astral.sh/uv/)) — discord.py bot +

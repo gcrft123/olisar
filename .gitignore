@@ -33,6 +33,8 @@ desktop/dist/
 # Bundled native helper binaries (built from desktop/funnel-sidecar/)
 desktop/resources/olisar-funnel
 desktop/resources/olisar-funnel.exe
+desktop/funnel-sidecar/olisar-funnel
+desktop/funnel-sidecar/olisar-funnel.exe
 
 # Editor / OS / tooling
 .DS_Store
