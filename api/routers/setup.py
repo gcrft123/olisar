@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.schemas import ApiKeysIn, SetupSaveIn, SetupTokenIn
+from api.trust import is_local_request
 from olisar import runtime_config, runtime_keys
 from olisar.config import settings
 from olisar.db.engine import session_scope
@@ -22,7 +23,6 @@ from olisar.db.models import AppSecret
 log = logging.getLogger("olisar.api.setup")
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 _ME_URL = "https://discord.com/api/users/@me"
 _KEY_FIELDS = (
     "gemini_api_key",
@@ -36,8 +36,7 @@ async def require_setup_access(request: Request) -> None:
     """Admit only local, pre-configuration requests. This closes the pre-OAuth hole:
     remote (tunnel-forwarded or LAN) callers are refused, and once configured every
     mutating setup endpoint 403s."""
-    host = request.client.host if request.client else ""
-    if host not in _LOOPBACK:
+    if not is_local_request(request):
         raise HTTPException(status_code=403, detail="setup is only available on this machine")
     if await runtime_config.is_configured():
         raise HTTPException(status_code=403, detail="Olisar is already configured")
@@ -75,8 +74,7 @@ async def status(request: Request) -> dict:
         "redirect_uri": await runtime_config.oauth_redirect_uri(),
         "tunnel_enabled": await runtime_config.tunnel_enabled(),
     }
-    host = request.client.host if request.client else ""
-    if not configured and host in _LOOPBACK:
+    if not configured and is_local_request(request):
         body["prefill"] = _env_prefill()
     return body
 

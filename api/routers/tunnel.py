@@ -13,18 +13,18 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.schemas import TunnelEnableIn
+from api.trust import is_local_request
 from olisar import runtime_config
 from olisar.runtime.paths import tailscale_state_dir
 
 log = logging.getLogger("olisar.api.tunnel")
 router = APIRouter(prefix="/api/tunnel", tags=["tunnel"])
 
-_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
-
 
 async def _local_only(request: Request) -> None:
-    host = request.client.host if request.client else ""
-    if host not in _LOOPBACK:
+    # Toggling remote access is a machine-level action: only a request made directly to the
+    # loopback backend qualifies, never one proxied in through the Funnel itself.
+    if not is_local_request(request):
         raise HTTPException(status_code=403, detail="remote-access control is local-only")
 
 
