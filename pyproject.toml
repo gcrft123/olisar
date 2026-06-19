@@ -1,0 +1,44 @@
+[project]
+name = "discord-olisar"
+version = "0.1.0"
+description = "Olisar — an AI Discord bot that feels like a living member of the server, plus an admin dashboard."
+requires-python = ">=3.11"
+
+# Core runtime deps shared by the bot and the API. Heavier, phase-specific deps
+# (web crawler, document parsers) are added in the `knowledge` optional group so
+# the base install stays fast.
+dependencies = [
+    "discord.py>=2.4",          # Discord gateway + slash commands
+    "google-genai>=1.0",        # Gemini SDK: chat, embeddings, search grounding
+    "SQLAlchemy[asyncio]>=2.0",  # async ORM
+    "aiosqlite>=0.20",          # async SQLite driver
+    "sqlite-vec>=0.1.6",        # vector search as a loadable SQLite extension
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",   # env/.env-driven config
+    "fastapi>=0.110",           # admin dashboard API
+    "uvicorn[standard]>=0.30",  # ASGI server for the API
+    "httpx>=0.27",              # OAuth token exchange + URL fetch
+    "itsdangerous>=2.2",        # signed session cookies
+    "platformdirs>=4.0",        # per-user data dir for the packaged desktop app
+]
+
+[project.optional-dependencies]
+# Installed once we reach Phase 4 (knowledge base / website crawling).
+knowledge = [
+    "trafilatura>=1.9",         # main-content extraction from web pages
+    "beautifulsoup4>=4.12",     # link discovery for the crawler
+    "pypdf>=4.2",               # PDF text extraction
+    "python-docx>=1.1",         # DOCX text extraction
+]
+dev = [
+    "alembic>=1.13",
+    "ruff>=0.5",
+    "pyinstaller>=6.6",  # package the unified backend for the desktop app
+]
+
+[tool.uv]
+package = false  # this is an app, not a library — no build step needed
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
