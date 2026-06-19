@@ -1,0 +1,44 @@
+{
+  "name": "olisar-desktop",
+  "productName": "Olisar",
+  "version": "0.1.0",
+  "description": "Olisar — a self-hosted AI Discord bot you run on your own machine.",
+  "main": "main.js",
+  "author": "Olisar",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.7.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.olisar.desktop",
+    "productName": "Olisar",
+    "directories": { "output": "out", "buildResources": "assets" },
+    "files": ["main.js", "preload.js", "assets/**"],
+    "extraResources": [
+      { "from": "../dist/olisar-backend", "to": "backend" },
+      { "from": "resources", "to": ".", "filter": ["olisar-funnel", "olisar-funnel.exe"] }
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.png",
+      "identity": null
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon-web.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "assets/icon-web.png",
+      "category": "Network"
+    }
+  }
+}

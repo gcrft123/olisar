@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Environment & secrets
+.env
+*.env
+!.env.example
+
+# Data (database, uploaded knowledge files, backups)
+data/
+*.db
+*.db-wal
+*.db-shm
+*.bak
+*.bak-*
+*.orig
+
+# Node / frontend
+node_modules/
+web/node_modules/
+web/dist/
+desktop/node_modules/
+
+# Build artifacts (PyInstaller + Electron)
+/build/
+/dist/
+desktop/out/
+desktop/dist/
+
+# Bundled native helper binaries (built from desktop/funnel-sidecar/)
+desktop/resources/olisar-funnel
+desktop/resources/olisar-funnel.exe
+
+# Editor / OS / tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
