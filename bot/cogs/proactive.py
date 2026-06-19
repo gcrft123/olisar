@@ -17,7 +17,6 @@ from sqlalchemy import select
 
 from bot.actions import BotActions, MessageActions
 from bot.replies import record_bot_messages, send_reply
-from olisar.config import settings
 from olisar.context import name_map
 from olisar.db.engine import session_scope
 from olisar.db.models import (

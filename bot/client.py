@@ -7,7 +7,6 @@ import logging
 import discord
 from discord.ext import commands
 
-from olisar.config import settings
 
 log = logging.getLogger("olisar.bot")
 

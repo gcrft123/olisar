@@ -3,14 +3,17 @@
 This directory holds the Electron wrapper that turns Olisar into a self-hosted
 desktop application (macOS + Windows). It spawns the PyInstaller-packaged Python
 backend (`python -m olisar.runtime`) as a sidecar, opens the dashboard in an
-embedded window, and provides a system-tray menu (open dashboard, toggle
-Tailscale Funnel remote access, start/stop the bot, quit).
+embedded window, and provides a system-tray menu (open dashboard, bot status,
+toggle Tailscale Funnel remote access, check for updates, quit).
 
-Populated across the packaging phases:
+Contents:
 
-- `main.js` / `preload.js` / `tray.js` — Electron main process, tray, lifecycle (Phase 4)
-- `backend.spec` — PyInstaller spec for the unified backend, incl. the sqlite-vec binary (Phase 3)
-- `electron-builder` config — unsigned `.dmg`/`.app` (macOS) + NSIS `.exe` (Windows) (Phase 4)
-- bundled `olisar-funnel` helper (Tailscale `tsnet`) for remote access — see `resources/README.md` (Phase 5)
+- `main.js` / `preload.js` — Electron main process: backend lifecycle, tray, window.
+- `updater.js` — in-app updater (checks GitHub Releases; self-installs).
+- `backend.spec` — PyInstaller spec for the unified backend, incl. the sqlite-vec binary.
+- `package.json` — `electron-builder` config: unsigned `.dmg`/`.app` (macOS) + NSIS `.exe`
+  (Windows), the GitHub publish target, and the bundled resources.
+- `funnel-sidecar/` — the Go Tailscale Funnel helper (`tsnet`); built into
+  `resources/olisar-funnel[.exe]` — see `resources/README.md`.
 
-See the implementation plan for the full architecture.
+Build instructions: [`../SETUP.md`](../SETUP.md) and [`../RELEASING.md`](../RELEASING.md).

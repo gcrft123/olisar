@@ -15,7 +15,6 @@ import logging
 import discord
 from discord.ext import commands
 
-from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.memory.writer import extract_roles, upsert_profile
 

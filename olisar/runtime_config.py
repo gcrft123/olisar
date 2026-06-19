@@ -159,13 +159,6 @@ async def is_configured() -> bool:
     a populated ``.env`` no longer auto-skips the wizard, so the operator/dev confirms
     each install once (with the wizard pre-filled from ``.env`` if available)."""
     return bool((await _load()).get("configured"))
-    # legacy heuristic (kept for reference): a fully-populated .env used to count as
-    # configured too — but that prevented pre-fill, since the wizard wouldn't show.
-    return bool(
-        await discord_token()
-        and await discord_client_id()
-        and await discord_client_secret()
-    )
 
 
 async def save(**fields: object) -> None:
