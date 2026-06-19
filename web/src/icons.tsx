@@ -23,6 +23,7 @@ import {
   DangerTriangle,
   KeyMinimalistic,
   UsersGroupRounded,
+  Power,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -46,6 +47,7 @@ export const Icon = {
   warn: DangerTriangle,
   keys: KeyMinimalistic,
   members: UsersGroupRounded,
+  power: Power,
 } as const
 
 export type IconName = keyof typeof Icon

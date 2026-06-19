@@ -96,4 +96,8 @@ export const api = {
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
   // Remote-access status (loopback-readable): { available, running, helper, hostname, public_url }.
   tunnelStatus: () => req('/api/tunnel/status'),
+
+  // Bot power (operator only): { available, running, ready, can_power }.
+  botStatus: () => req('/api/bot/status'),
+  botPower: (on: boolean) => req('/api/bot/power', { method: 'POST', body: JSON.stringify({ on }) }),
 }
