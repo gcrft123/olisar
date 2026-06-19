@@ -2,9 +2,11 @@
 
 The desktop app checks this repo's **latest GitHub Release** on launch (and every 6 hours,
 and on demand from the tray → *Check for Updates…*). When a release with a **higher version
-number** than the running app is found, it notifies the user and opens the matching
-installer (`.dmg` / `.exe`) to download. (The app is unsigned, so it can't silently
-self-install — the user downloads and replaces it.)
+number** than the running app is found, it **installs it in place**: *Install & Restart*
+downloads the release `.dmg`, swaps the app bundle, and relaunches into the new version.
+This works even though the app is unsigned — a file the app downloads itself isn't
+Gatekeeper-quarantined. (On platforms it can't self-install yet, it opens the installer to
+download instead.)
 
 So "cutting a release" = publishing a GitHub Release whose tag/version is newer than what
 people are running, with the installers attached as assets.

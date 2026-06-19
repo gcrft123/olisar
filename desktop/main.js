@@ -239,7 +239,10 @@ function rebuildTray() {
     : []
   const update = updater.getAvailableUpdate()
   const updateItems = update
-    ? [{ label: `Download update — v${update.version}`, click: updater.openDownload }]
+    ? [{
+        label: (updater.canSelfUpdate() ? 'Install update & restart' : 'Download update') + ` — v${update.version}`,
+        click: () => updater.installUpdate(update),
+      }]
     : [{ label: 'Check for Updates…', click: checkForUpdatesInteractive }]
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Dashboard', click: createWindow },
@@ -293,6 +296,7 @@ async function boot() {
   createWindow()
   setInterval(refreshStatus, 10000)  // keep the tray status fresh
   // Check for a newer GitHub release shortly after launch, then periodically.
+  updater.init({ getMainWindow: () => win })  // lets it show download progress on the dock
   setTimeout(checkUpdates, 8000)
   setInterval(checkUpdates, UPDATE_INTERVAL_MS)
 }
