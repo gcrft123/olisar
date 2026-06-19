@@ -9,6 +9,14 @@
   with a private admin dashboard, persistent memory, and a teachable knowledge base.
 </p>
 
+<p align="center">
+  <a href="https://gcrft123.github.io/olisar/"><b>Landing page →</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/gcrft123/olisar/releases/latest">Download</a>
+  &nbsp;·&nbsp;
+  <a href="SETUP.md">Setup</a>
+</p>
+
 ---
 
 Olisar reads the channels you allow, remembers context, builds a sense of who people
