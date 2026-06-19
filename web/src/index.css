@@ -189,6 +189,57 @@ body::after {
 .weblink.off { gap: 4px; }
 .weblink.off .weblink-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
 
+/* ── Bot power (operator-only, sidebar footer) ──────────────────────────────── */
+.botpower {
+  display: flex; align-items: center; gap: 11px; padding: 8px 11px;
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: 10px;
+}
+.power-btn {
+  position: relative; flex: none; width: 38px; height: 38px; border-radius: 50%;
+  display: grid; place-items: center; padding: 0; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text-2);
+  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s; touch-action: none; user-select: none;
+}
+.power-btn:disabled { cursor: default; }
+.power-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; }
+.power-ring circle {
+  fill: none; stroke: var(--danger); stroke-width: 2.5; stroke-linecap: round;
+  stroke-dasharray: 119.4; stroke-dashoffset: 119.4;        /* 2π·19 ≈ 119.4, empty */
+  transform: rotate(-90deg); transform-origin: 50% 50%;
+  opacity: 0; transition: stroke-dashoffset 0.25s ease, opacity 0.2s ease;
+}
+.botpower-text { min-width: 0; }
+.bp-status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--text); }
+.bp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--text-3); }
+.bp-hint { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+
+.botpower.online .power-btn { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); box-shadow: 0 0 0 3px var(--ok-soft); }
+.botpower.online .bp-dot { background: var(--ok); box-shadow: 0 0 6px var(--ok); animation: bp-breathe 2.6s ease-in-out infinite; }
+
+.botpower.holding .power-btn { color: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.botpower.holding .power-ring circle { opacity: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1.4s linear, opacity 0.15s ease; }
+.botpower.holding .bp-dot { background: var(--danger); }
+.botpower.holding .bp-status { color: var(--danger); }
+
+.botpower.stopping .power-btn { color: var(--danger); border-color: var(--danger); animation: bp-shutdown 0.9s ease-out; }
+.botpower.stopping .bp-dot { background: var(--warn); animation: bp-blink 0.6s steps(2, jump-none) infinite; }
+
+.botpower.starting .power-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); }
+.botpower.starting .power-ring { animation: bp-spin 0.9s linear infinite; }
+.botpower.starting .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
+.botpower.starting .bp-dot { background: var(--accent); }
+
+.botpower.offline .power-btn { color: var(--text-3); }
+.botpower.offline .power-btn:hover { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--border-strong)); }
+
+@keyframes bp-breathe { 0%, 100% { box-shadow: 0 0 5px var(--ok); } 50% { box-shadow: 0 0 10px var(--ok); } }
+@keyframes bp-blink { to { opacity: 0.3; } }
+@keyframes bp-spin { to { transform: rotate(360deg); } }
+@keyframes bp-shutdown { 0% { box-shadow: 0 0 0 3px var(--danger-soft); } 45% { box-shadow: 0 0 0 9px var(--danger-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) {
+  .botpower .bp-dot, .botpower.stopping .power-btn, .botpower.starting .power-ring { animation: none; }
+}
+
 .main { padding: 40px 44px 96px; max-width: 880px; }
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }

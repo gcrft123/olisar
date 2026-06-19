@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Icon, type IconName } from './icons'
 import {
@@ -153,6 +153,7 @@ export default function App() {
         })}
         <div className="spacer" />
         <div className="sidebar-foot">
+          <BotPower />
           <WebLink tunnel={tunnel} />
           <div className="who">
             Signed in as <b>{me?.username}</b>
@@ -230,6 +231,94 @@ function AccessDenied() {
         <a className="btn-discord" href={api.loginUrl()}>
           <Icon.login size={18} weight="Bold" /> Sign in again
         </a>
+      </div>
+    </div>
+  )
+}
+
+type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean }
+const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
+
+// Operator-only control to take the Discord bot offline (and back). Powering down is a
+// deliberate press-and-hold — a ring fills around the button and only fires if you keep
+// holding — so it can't be hit by accident. Powering on is a single tap.
+function BotPower() {
+  const [st, setSt] = useState<BotState | null>(null)
+  const [phase, setPhase] = useState<'idle' | 'holding' | 'stopping' | 'starting'>('idle')
+  const hold = useRef<number | null>(null)
+
+  const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
+  useEffect(() => {
+    let alive = true
+    const tick = () => api.botStatus().then((s: BotState) => { if (alive) setSt(s) }).catch(() => {})
+    tick()
+    const id = setInterval(tick, 5000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  if (!st || !st.available || !st.can_power) return null
+
+  const busy = phase === 'stopping' || phase === 'starting'
+  const online = st.running && st.ready && !busy
+  const starting = phase === 'starting' || (st.running && !st.ready && phase !== 'stopping')
+  const offline = !st.running && !busy
+
+  const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null } }
+
+  async function powerDown() {
+    setPhase('stopping')
+    try { setSt(await api.botPower(false)) } catch { /* ignore */ }
+    setPhase('idle'); pull()
+  }
+  async function powerUp() {
+    setPhase('starting')
+    try { setSt(await api.botPower(true)) } catch { /* ignore */ }
+    // poll until the gateway connection is actually ready
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 700))
+      const s = await api.botStatus().catch(() => null)
+      if (s) { setSt(s); if (s.ready || !s.running) break }
+    }
+    setPhase('idle')
+  }
+
+  const startHold = () => {
+    if (!online) return
+    setPhase('holding')
+    hold.current = window.setTimeout(() => { hold.current = null; powerDown() }, HOLD_MS)
+  }
+  const endHold = () => { clearHold(); setPhase((p) => (p === 'holding' ? 'idle' : p)) }
+
+  const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
+    : starting ? 'starting' : online ? 'online' : 'offline'
+  const label = phase === 'holding' ? 'Keep holding…'
+    : phase === 'stopping' ? 'Powering down…'
+    : starting ? 'Starting up…'
+    : online ? 'Bot online' : 'Bot offline'
+  const hint = phase === 'holding' ? 'release to cancel'
+    : online ? 'hold to power down'
+    : offline ? 'tap to power on' : ' '
+
+  return (
+    <div className={'botpower ' + cls}>
+      <button
+        className="power-btn"
+        disabled={busy}
+        title={online ? 'Hold to power down' : offline ? 'Power on' : ''}
+        onPointerDown={online ? startHold : undefined}
+        onPointerUp={endHold}
+        onPointerLeave={endHold}
+        onPointerCancel={endHold}
+        onClick={offline ? powerUp : undefined}
+      >
+        <svg className="power-ring" viewBox="0 0 44 44" aria-hidden="true">
+          <circle cx="22" cy="22" r="19" />
+        </svg>
+        <Icon.power size={17} weight="Bold" />
+      </button>
+      <div className="botpower-text">
+        <div className="bp-status"><span className="bp-dot" />{label}</div>
+        <div className="bp-hint">{hint}</div>
       </div>
     </div>
   )
