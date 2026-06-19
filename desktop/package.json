@@ -23,7 +23,7 @@
     "directories": { "output": "out", "buildResources": "assets" },
     "files": ["main.js", "preload.js", "updater.js", "assets/**"],
     "publish": [
-      { "provider": "github", "owner": "gcrft123", "repo": "olisar" }
+      { "provider": "github", "owner": "gcrft123", "repo": "olisar", "releaseType": "release" }
     ],
     "extraResources": [
       { "from": "../dist/olisar-backend", "to": "backend" },

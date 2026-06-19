@@ -110,6 +110,7 @@ function startBackend(port) {
       ...(funnelPath() ? { OLISAR_FUNNEL: funnelPath() } : {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,  // don't pop a console window for the backend on Windows
   })
   backend.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`))
   backend.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`))
