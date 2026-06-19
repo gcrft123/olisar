@@ -6,6 +6,7 @@
 // the backend so nothing is left running.
 
 const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog } = require('electron')
+const updater = require('./updater')
 const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
@@ -236,6 +237,10 @@ function rebuildTray() {
         click: toggleTunnel,
       }]
     : []
+  const update = updater.getAvailableUpdate()
+  const updateItems = update
+    ? [{ label: `Download update — v${update.version}`, click: updater.openDownload }]
+    : [{ label: 'Check for Updates…', click: checkForUpdatesInteractive }]
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Dashboard', click: createWindow },
     { type: 'separator' },
@@ -243,6 +248,9 @@ function rebuildTray() {
     ...(lastTunnel.running ? [{ label: `Remote: ${lastTunnel.public_url || 'on'}`, enabled: false }] : []),
     ...tunnelItem,
     { label: 'Refresh status', click: refreshStatus },
+    { type: 'separator' },
+    { label: `Olisar ${app.getVersion()}`, enabled: false },
+    ...updateItems,
     { type: 'separator' },
     { label: 'Quit Olisar', click: () => { app.isQuitting = true; app.quit() } },
   ]))
@@ -254,6 +262,20 @@ function createTray() {
   rebuildTray()
   tray.on('click', createWindow)  // Windows/Linux convenience
 }
+
+// Background poll of GitHub Releases; refresh the tray if an update is found.
+async function checkUpdates() {
+  await updater.checkForUpdates()
+  rebuildTray()
+}
+
+// User-initiated check from the tray — shows a dialog either way.
+async function checkForUpdatesInteractive() {
+  await updater.checkForUpdates({ interactive: true })
+  rebuildTray()
+}
+
+const UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000  // re-check every 6 hours
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
 
@@ -270,6 +292,9 @@ async function boot() {
   await refreshStatus()
   createWindow()
   setInterval(refreshStatus, 10000)  // keep the tray status fresh
+  // Check for a newer GitHub release shortly after launch, then periodically.
+  setTimeout(checkUpdates, 8000)
+  setInterval(checkUpdates, UPDATE_INTERVAL_MS)
 }
 
 // Single-instance: a second launch just focuses the existing window.

@@ -1,0 +1,63 @@
+# Builds and publishes the Olisar desktop app to a GitHub Release when a v* tag is pushed.
+# The in-app updater (desktop/updater.js) then picks up the new release automatically.
+#
+# Currently builds macOS (Apple Silicon). Windows needs a `windows-latest` job running the
+# same chain with `npm run dist:win` — add it as a sibling job when you ship Windows builds.
+#
+# Note: the app is unsigned (CSC_IDENTITY_AUTO_DISCOVERY=false). See RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  macos:
+    runs-on: macos-14 # Apple Silicon → arm64 .dmg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/funnel-sidecar/go.mod
+
+      - name: Build the Tailscale Funnel helper
+        run: |
+          cd desktop/funnel-sidecar
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../resources/olisar-funnel .
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the dashboard
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Package the backend (PyInstaller)
+        run: uv run pyinstaller desktop/backend.spec --noconfirm --clean
+
+      - name: Build & publish the desktop app
+        working-directory: desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned build
+        run: |
+          npm install
+          npm run release
