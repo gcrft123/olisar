@@ -1,11 +1,11 @@
 // GitHub Releases updater for the Olisar desktop app.
 //
 // Olisar ships UNSIGNED, so it can't use Squirrel's signed auto-install. Instead it applies
-// updates itself on macOS: download the latest release's .dmg, mount it, copy the new
-// Olisar.app out, and a small detached script swaps it over the running bundle and
-// relaunches. Gatekeeper allows this even unsigned because a file the app writes itself
-// (not via a browser) isn't quarantined. On other platforms / non-packaged builds it falls
-// back to opening the installer download.
+// updates itself: on macOS it downloads the release .dmg, mounts it, and a detached script
+// swaps the new Olisar.app over the running one and relaunches (works unsigned because a
+// file the app writes itself isn't Gatekeeper-quarantined); on Windows it downloads the
+// NSIS installer and runs it (which closes the app, installs over it, and relaunches).
+// Non-packaged / unsupported builds fall back to opening the installer download.
 
 const https = require('https')
 const fs = require('fs')
@@ -98,9 +98,13 @@ function getAvailableUpdate() { return available }
 function isInstalling() { return installing }
 function openDownload() { shell.openExternal(available ? available.downloadUrl : RELEASES_PAGE) }
 
-// Whether this build can replace itself in place (vs. just opening the download).
+// Whether this build can apply an update itself (vs. just opening the download). macOS
+// swaps the .app bundle; Windows runs the NSIS installer (which replaces + relaunches).
 function canSelfUpdate() {
-  return process.platform === 'darwin' && app.isPackaged && !!currentAppPath()
+  if (!app.isPackaged) return false
+  if (process.platform === 'darwin') return !!currentAppPath()
+  if (process.platform === 'win32') return true
+  return false
 }
 
 // Check the latest release. `interactive` = user-triggered (always shows a dialog);
@@ -238,21 +242,57 @@ open "$TARGET" 2>/dev/null || true
 async function installUpdate(update) {
   if (installing) return
   if (!canSelfUpdate() || !update || !update.hasInstaller) { shell.openExternal(update ? update.downloadUrl : RELEASES_PAGE); return }
-  const appPath = currentAppPath()
-  if (!appPath) { shell.openExternal(update.downloadUrl); return }
 
   installing = true
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'olisar-upd-'))
+  try {
+    if (Notification.isSupported()) new Notification({ title: 'Updating Olisar', body: `Downloading ${update.version}…` }).show()
+    setProgress(0)
+    if (process.platform === 'win32') await _applyWindows(update, tmpRoot)
+    else await _applyMac(update, tmpRoot)
+    setProgress(-1)
+    app.isQuitting = true
+    app.quit() // before-quit stops the backend; the installer/script then swaps + relaunches
+  } catch (err) {
+    installing = false
+    setProgress(-1)
+    try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch { /* ignore */ }
+    dialog
+      .showMessageBox({
+        type: 'error',
+        buttons: ['Open Download', 'Close'],
+        defaultId: 0,
+        cancelId: 1,
+        message: 'Update failed',
+        detail: `${String(err && err.message ? err.message : err)}\n\nYou can download ${update.version} manually instead.`,
+      })
+      .then(({ response }) => { if (response === 0) shell.openExternal(update.downloadUrl) })
+  }
+}
+
+// Windows: download the NSIS installer and run it. electron-builder's installer closes the
+// running app, installs over it, and relaunches. The temp file is left in place because the
+// installer executes from it (the OS reaps temp later).
+async function _applyWindows(update, tmpRoot) {
+  const installer = path.join(tmpRoot, 'OlisarSetup.exe')
+  await downloadFile(update.downloadUrl, installer, setProgress)
+  setProgress(2)
+  spawn(installer, [], { detached: true, stdio: 'ignore' }).unref()
+}
+
+// macOS: download the .dmg, mount it, stage the new .app on the target volume, and hand a
+// detached script the swap + relaunch (works unsigned — a self-downloaded file isn't
+// Gatekeeper-quarantined).
+async function _applyMac(update, tmpRoot) {
+  const appPath = currentAppPath()
+  if (!appPath) throw new Error('could not locate the app bundle')
   const dmgPath = path.join(tmpRoot, 'Olisar.dmg')
   const mountPoint = path.join(tmpRoot, 'mnt')
   const staging = path.join(path.dirname(appPath), `.olisar-update-${Date.now()}`)
   let mounted = false
   try {
-    if (Notification.isSupported()) new Notification({ title: 'Updating Olisar', body: `Downloading ${update.version}…` }).show()
-    setProgress(0)
     await downloadFile(update.downloadUrl, dmgPath, setProgress)
     setProgress(2) // indeterminate while we swap
-
     fs.mkdirSync(mountPoint, { recursive: true })
     await execFileP('hdiutil', ['attach', dmgPath, '-nobrowse', '-noverify', '-mountpoint', mountPoint])
     mounted = true
@@ -264,30 +304,13 @@ async function installUpdate(update) {
     mounted = false
     const newApp = path.join(staging, 'Olisar.app')
     if (!fs.existsSync(newApp)) throw new Error('failed to stage the new app')
-
     const scriptPath = path.join(tmpRoot, 'swap.sh')
     fs.writeFileSync(scriptPath, swapScript({ pid: process.pid, newApp, target: appPath, staging, tmpRoot }), { mode: 0o755 })
     spawn('/bin/bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref()
-
-    setProgress(-1)
-    app.isQuitting = true
-    app.quit() // before-quit kills the backend; the script then swaps + relaunches
   } catch (err) {
-    installing = false
-    setProgress(-1)
     if (mounted) { try { await execFileP('hdiutil', ['detach', mountPoint, '-force']) } catch { /* ignore */ } }
-    try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch { /* ignore */ }
     try { fs.rmSync(staging, { recursive: true, force: true }) } catch { /* ignore */ }
-    dialog
-      .showMessageBox({
-        type: 'error',
-        buttons: ['Open Download', 'Close'],
-        defaultId: 0,
-        cancelId: 1,
-        message: 'Update failed',
-        detail: `${String(err && err.message ? err.message : err)}\n\nYou can download ${update.version} manually instead.`,
-      })
-      .then(({ response }) => { if (response === 0) shell.openExternal(update.downloadUrl) })
+    throw err
   }
 }
 

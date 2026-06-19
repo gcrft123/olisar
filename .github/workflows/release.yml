@@ -1,10 +1,10 @@
-# Builds and publishes the Olisar desktop app to a GitHub Release when a v* tag is pushed.
-# The in-app updater (desktop/updater.js) then picks up the new release automatically.
+# Builds and publishes the Olisar desktop app to a GitHub Release when a v* tag is pushed —
+# macOS (Apple Silicon .dmg) and Windows (NSIS .exe) in parallel. The in-app updater
+# (desktop/updater.js) then picks up the new release automatically.
 #
-# Currently builds macOS (Apple Silicon). Windows needs a `windows-latest` job running the
-# same chain with `npm run dist:win` — add it as a sibling job when you ship Windows builds.
-#
-# Note: the app is unsigned (CSC_IDENTITY_AUTO_DISCOVERY=false). See RELEASING.md.
+# Both jobs run electron-builder --publish always (releaseType "release" in package.json),
+# so they upload their installers to the same published v<tag> release. The app is unsigned
+# (CSC_IDENTITY_AUTO_DISCOVERY=false). See RELEASING.md.
 name: Release
 
 on:
@@ -58,6 +58,56 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned build
+        run: |
+          npm install
+          npm run release
+
+  windows:
+    runs-on: windows-latest # x64 NSIS .exe
+    defaults:
+      run:
+        shell: bash # uniform shell for the build commands (git-bash ships on the runner)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: desktop/funnel-sidecar/go.mod
+
+      - name: Build the Tailscale Funnel helper
+        run: |
+          cd desktop/funnel-sidecar
+          # -H windowsgui: GUI subsystem so the helper doesn't pop a console window
+          # (its stdout is still captured by the backend's pipe).
+          go build -ldflags="-s -w -H windowsgui" -o ../resources/olisar-funnel.exe .
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the dashboard
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - name: Package the backend (PyInstaller)
+        run: uv run pyinstaller desktop/backend.spec --noconfirm --clean
+
+      - name: Build & publish the desktop app
+        working-directory: desktop
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm install
           npm run release

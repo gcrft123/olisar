@@ -36,9 +36,10 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The workflow builds the macOS installer (the full chain: Tailscale sidecar → dashboard →
-PyInstaller backend → electron-builder) and publishes a GitHub Release with the `.dmg`
-attached, using the repo's `GITHUB_TOKEN`.
+The workflow builds **both** installers in parallel — macOS (Apple-Silicon `.dmg`) and
+Windows (`.exe`) — each running the full chain (Tailscale sidecar → dashboard → PyInstaller
+backend → electron-builder) on its own runner, and both publish to the same `v<tag>` GitHub
+Release using the repo's `GITHUB_TOKEN` (`releaseType: "release"`, so it's live immediately).
 
 ### Manual
 
@@ -74,6 +75,7 @@ Running an older build, open the tray → **Check for Updates…**. It should re
 version and offer **Download**. (Or wait — it polls automatically a few seconds after launch
 and every 6 hours.)
 
-> **Windows:** the same flow applies — bump the version, build `dist:win` (NSIS `.exe`) on a
-> Windows machine or CI runner, and attach it to the release. The updater picks the `.exe`
-> asset on Windows and the `arm64.dmg` on Apple-Silicon macOS automatically.
+> **Cross-platform:** the tag-push CI builds macOS *and* Windows automatically. The updater
+> picks the `.exe` asset on Windows and the `arm64.dmg` on Apple-Silicon macOS, and self-installs
+> on both (macOS swaps the `.app`; Windows runs the NSIS installer). To build a Windows
+> installer by hand instead, run `npm run dist:win` (or `npm run release`) on a Windows machine.
