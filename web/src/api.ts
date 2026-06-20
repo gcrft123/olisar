@@ -69,6 +69,9 @@ export const api = {
 
   getExtensions: () => req('/api/extensions'),
   putExtension: (b: any) => req('/api/extensions', { method: 'PUT', body: JSON.stringify(b) }),
+  getExtensionSettings: (key: string) => req(`/api/extensions/${key}/settings`),
+  putExtensionSettings: (key: string, b: any) =>
+    req(`/api/extensions/${key}/settings`, { method: 'PUT', body: JSON.stringify(b) }),
 
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),

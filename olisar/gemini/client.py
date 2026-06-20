@@ -46,6 +46,29 @@ def safe_text(resp) -> str:
         return ""
 
 
+def was_truncated(resp) -> bool:
+    """True if the model stopped because it ran out of output budget
+    (``finish_reason`` MAX_TOKENS) — i.e. the reply was cut off mid-thought and
+    the caller should ask it to continue."""
+    try:
+        fr = resp.candidates[0].finish_reason
+    except Exception:
+        return False
+    if fr is None:
+        return False
+    name = getattr(fr, "name", None) or str(fr)
+    return "MAX_TOKENS" in str(name).upper()
+
+
+def _supports_thinking(model: str) -> bool:
+    """Whether a model accepts ``thinking_config``. Thinking landed with Gemini 2.5;
+    the 2.0/1.x fallbacks reject the field with a 400, so we only set it for newer
+    models. ``gemini-flash-latest`` / ``-lite-latest`` have no version digit and are
+    2.5+ today, so they default to supported."""
+    m = model.lower()
+    return not any(v in m for v in ("2.0", "1.5", "1.0"))
+
+
 class GeminiClient:
     def __init__(self) -> None:
         self._client: genai.Client | None = None
@@ -63,7 +86,10 @@ class GeminiClient:
             self._key = key
         return self._client
 
-    async def _raw_generate(self, *, contents, config, model: str, chain: list[str] | None = None):
+    async def _raw_generate(
+        self, *, contents, config, model: str, chain: list[str] | None = None,
+        thinking_budget: int | None = None,
+    ):
         """Generate, walking the model fallback chain. The first immediately
         available model is used; if it errors transiently — a 429 (rate limit) or a
         5xx (server/overload, e.g. 503 under high demand) — that model is briefly
@@ -82,8 +108,17 @@ class GeminiClient:
             limiter.reserve(candidate)
             try:
                 client = await self.aclient()
+                # Per-candidate config: only the thinking-capable models in the chain
+                # get thinking_config; the 2.0/1.x fallbacks would 400 on the field.
+                cand_config = config
+                if thinking_budget is not None and _supports_thinking(candidate):
+                    cand_config = config.model_copy(
+                        update={"thinking_config": types.ThinkingConfig(
+                            thinking_budget=thinking_budget
+                        )}
+                    )
                 resp = await client.aio.models.generate_content(
-                    model=candidate, contents=contents, config=config
+                    model=candidate, contents=contents, config=cand_config
                 )
             except genai_errors.APIError as exc:
                 code = getattr(exc, "code", None)
@@ -126,7 +161,8 @@ class GeminiClient:
         system_instruction: str,
         model: str | None = None,
         temperature: float = 0.9,
-        max_output_tokens: int = 600,
+        max_output_tokens: int = 1024,
+        thinking_budget: int | None = 0,
     ) -> GenResult:
         model = model or settings.gemini_chat_model
         config = types.GenerateContentConfig(
@@ -134,7 +170,9 @@ class GeminiClient:
             temperature=temperature,
             max_output_tokens=max_output_tokens,
         )
-        resp = await self._raw_generate(contents=contents, config=config, model=model)
+        resp = await self._raw_generate(
+            contents=contents, config=config, model=model, thinking_budget=thinking_budget
+        )
         tokens = (
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
         ) or 0
@@ -148,14 +186,23 @@ class GeminiClient:
         tools: list,
         model: str | None = None,
         temperature: float = 0.9,
-        max_output_tokens: int = 700,
+        max_output_tokens: int = 2048,
         force_text: bool = False,
+        thinking_budget: int | None = 1024,
     ):
         """One tool-enabled turn. Returns the raw response so the caller can read
         `.function_calls`. Automatic function calling is disabled — we run the
         loop ourselves so tools get our DB/Discord context. With ``force_text``
         the model is barred from calling tools (function-calling mode NONE), so it
-        must answer in plain text — used to close out the loop without a blank."""
+        must answer in plain text — used to close out the loop without a blank.
+
+        This is the conversational/reasoning path, so thinking is ON but *bounded*:
+        ``thinking_budget`` is a cap, not a floor, so the model scales reasoning to
+        task difficulty (little for "hi", more for a hard question). Crucially
+        ``max_output_tokens`` (a combined ceiling over thinking + visible text) is set
+        well above the thinking budget so reasoning can't starve the reply — the bug
+        that made replies cut off after ~15 words. Pass ``thinking_budget=0`` to
+        disable thinking for a cheap/short call."""
         model = model or settings.gemini_chat_model
         tool_config = None
         if force_text:
@@ -170,7 +217,9 @@ class GeminiClient:
             tool_config=tool_config,
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
-        return await self._raw_generate(contents=contents, config=config, model=model)
+        return await self._raw_generate(
+            contents=contents, config=config, model=model, thinking_budget=thinking_budget
+        )
 
     async def caption_images(
         self,

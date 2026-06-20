@@ -12,7 +12,12 @@ import logging
 from discord.ext import commands, tasks
 
 from olisar.knowledge.ingest import process_pending_sources
-from olisar.memory.maintenance import embed_pending, run_personas, run_summaries
+from olisar.memory.maintenance import (
+    embed_pending,
+    run_glossary,
+    run_personas,
+    run_summaries,
+)
 
 log = logging.getLogger("olisar.memory_worker")
 
@@ -33,6 +38,7 @@ class MemoryWorker(commands.Cog):
             if embedded:
                 log.info("embedded %d items", embedded)
             await run_summaries()
+            await run_glossary()
             await run_personas()
         except Exception:
             log.exception("memory worker tick failed")

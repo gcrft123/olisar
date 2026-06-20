@@ -48,7 +48,9 @@ class ConfigIn(BaseModel):
     grounding_enabled: bool | None = None
     grounding_daily_cap: int | None = None
     summary_token_threshold: int | None = None
+    glossary_mine_token_threshold: int | None = None
     user_persona_msg_threshold: int | None = None
+    presence_tools_enabled: bool | None = None
     # Role ids as strings (snowflake precision). Empty lists = open access.
     allowed_role_ids: list[str] | None = None
     blocked_role_ids: list[str] | None = None
@@ -64,6 +66,10 @@ class ProactivityIn(BaseModel):
     max_per_hour: int | None = None
     quiet_hours: dict | None = None
     allowed_channels: list | None = None
+    reaction_enabled: bool | None = None
+    reaction_threshold: float | None = None
+    reaction_cooldown_sec: int | None = None
+    reaction_max_per_hour: int | None = None
 
 
 class ChannelModeIn(BaseModel):

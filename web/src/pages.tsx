@@ -88,9 +88,13 @@ export function Behavior() {
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
         <Field label="Web search (grounding)"><Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" /></Field>
+        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice, only when asked. Requires the Presence Intent in the Discord Developer Portal; disclosed in /privacy.">
+          <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
+        </Field>
         <div className="row">
           <Field label="Grounding daily cap"><Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} /></Field>
           <Field label="Summary token threshold"><Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} /></Field>
+          <Field label="Glossary mine threshold"><Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} /></Field>
           <Field label="Persona rebuild (msgs)"><Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} /></Field>
         </div>
       </Card>
@@ -123,6 +127,13 @@ export function Behavior() {
             <Field label="To (hour)"><Num value={qh.end ?? 7} onChange={(v) => setQuiet({ ...qh, end: v })} min={0} max={23} /></Field>
           </div>
         )}
+      </Card>
+      <Card title="Passive reactions" hint="A much looser path than chiming in: Olisar sometimes adds a single emoji reaction (no reply) when one fits. It picks the emoji itself and often declines; the cooldown and hourly cap keep it sparse.">
+        <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
+        <div className="row">
+          <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} /></Field>
+          <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} /></Field>
+        </div>
       </Card>
       <SaveDock dirty={configEd.dirty || proEd.dirty} saver={saver} onReset={() => { configEd.reset(); proEd.reset() }} />
     </>
@@ -437,6 +448,38 @@ export function Knowledge() {
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
+function WelcomeConfig(props: { enabled: boolean }) {
+  const { data: chans } = useAsync<any[]>(api.getChannels)
+  const { data: loaded } = useAsync<any>(() => api.getExtensionSettings('welcome'))
+  const [enabled, setEnabled] = useState(false)
+  const [channelId, setChannelId] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [init, setInit] = useState(false)
+  useEffect(() => {
+    if (loaded && !init) {
+      setEnabled(props.enabled)
+      setChannelId(String(loaded.settings?.channel_id || ''))
+      setPrompt(loaded.settings?.prompt || '')
+      setInit(true)
+    }
+  }, [loaded, init, props.enabled])
+  const saver = useSaver(async () => {
+    await api.putExtensionSettings('welcome', { channel_id: channelId, prompt })
+    await api.putExtension({ key: 'welcome', enabled })
+  })
+  const opts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
+  return (
+    <Card title="Welcome message" hint="Greets new members in Olisar's voice plus your prompt. Use {user} for the new member. Enable it here — there's no separate toggle.">
+      <Field label="Enabled"><Toggle value={enabled} onChange={setEnabled} label="Greet new members on join" /></Field>
+      <Field label="Channel"><Select value={channelId} onChange={setChannelId} options={opts} /></Field>
+      <Field label="Prompt" desc="Layered on top of the persona — e.g. 'warmly welcome {user} and ask what brought them here', or 'roast {user} on their username'.">
+        <Area value={prompt} onChange={setPrompt} rows={3} />
+      </Field>
+      <SaveBar saver={saver} label="Save welcome" />
+    </Card>
+  )
+}
+
 export function Extensions() {
   const ed = useEditable<any[]>(api.getExtensions)
   const saver = useSaver(async () => {
@@ -450,7 +493,8 @@ export function Extensions() {
     ed.setData((prev: any[] | null) => (prev ?? []).map((e) => (e.key === key ? { ...e, enabled: v } : e)))
   if (ed.loading) return <Spinner />
   const rows = ed.data ?? []
-  const cats = Array.from(new Set(rows.map((e) => e.category)))
+  // 'welcome' has its own panel (with its own enable toggle), so keep it out of the list.
+  const cats = Array.from(new Set(rows.filter((e) => e.key !== 'welcome').map((e) => e.category)))
   return (
     <>
       <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features. Flip one on and it's live on Olisar's next reply — no restart." />
@@ -459,7 +503,7 @@ export function Extensions() {
       )}
       {cats.map((cat) => (
         <Card key={cat} title={cat}>
-          {rows.filter((e) => e.category === cat).map((e) => (
+          {rows.filter((e) => e.category === cat && e.key !== 'welcome').map((e) => (
             <div className="list-row" key={e.key}>
               <div className="grow">
                 <div className="title">{e.name}</div>
@@ -470,6 +514,7 @@ export function Extensions() {
           ))}
         </Card>
       ))}
+      {rows.some((e) => e.key === 'welcome') && <WelcomeConfig enabled={!!rows.find((e) => e.key === 'welcome')?.enabled} />}
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
     </>
   )

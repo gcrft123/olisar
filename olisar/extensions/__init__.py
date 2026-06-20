@@ -20,9 +20,11 @@ from olisar.extensions.base import (
 )
 from olisar.extensions.builtin import register_builtins
 from olisar.extensions.star_citizen import register_star_citizen
+from olisar.extensions.welcome import register_welcome
 
 register_builtins()
 register_star_citizen()
+register_welcome()
 
 __all__ = [
     "Extension",
