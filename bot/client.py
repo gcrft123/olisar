@@ -64,3 +64,30 @@ class OlisarBot(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("Olisar is online as %s (id=%s)", self.user, self.user and self.user.id)
+        await self._sync_profile_bio()
+
+    async def _sync_profile_bio(self) -> None:
+        """Push the home/target guild's persona bio to the bot's profile About Me
+        (its Application Description). Once per process — on_ready can fire on every
+        reconnect, and the bio rarely changes. A blank bio is left alone so we don't
+        wipe a description set in the Developer Portal."""
+        if getattr(self, "_bio_applied", False):
+            return
+        try:
+            from olisar.db.engine import session_scope
+            from olisar.db.models import Persona
+            from olisar.discord_bio import apply_bot_bio
+            from olisar.runtime_config import discord_token
+
+            gid = settings.target_guild_id
+            if not gid:
+                return
+            async with session_scope() as session:
+                persona = await session.get(Persona, gid)
+            bio = (persona.desired_bio if persona else "") or ""
+            if not bio.strip():
+                return
+            if await apply_bot_bio(await discord_token(), bio):
+                self._bio_applied = True
+        except Exception:
+            log.exception("profile bio sync failed")

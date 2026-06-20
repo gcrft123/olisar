@@ -17,7 +17,7 @@ function PageHead(props: { icon: IconName; title: string; sub: string }) {
   )
 }
 
-// ── Persona ──────────────────────────────────────────────────────────────
+// ── Persona (identity + an enclosed test-chat panel) ───────────────────────
 export function Persona() {
   const ed = useEditable<any>(api.getPersona)
   const { data, loading, setData } = ed
@@ -26,28 +26,33 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" sub="Who Olisar is. This shapes its voice in every reply — edits go live on the next message." />
-      <Card title="Identity">
-        <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
-        <Field label="System prompt" desc="Core character, lore, and rules. The operating/safety rules are appended automatically.">
-          <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
-        </Field>
-        <Field label="Style notes" desc="Tone and formatting guidance.">
-          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
-        </Field>
-      </Card>
-      <Card title="Profile bio" hint="Discord doesn't let bots set their own About Me at runtime — paste this into the Developer Portal → your app → Description.">
-        <Field label="Desired bio (copy-paste)"><Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} /></Field>
-      </Card>
+      <PageHead icon="persona" title="Persona" sub="Who Olisar is. This shapes its voice in every reply — edits go live on the next message. Try it in the test chat alongside." />
+      <div className="persona-grid">
+        <Card title="Identity">
+          <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
+          <Field label="System prompt" desc="Core character, lore, and rules. The operating/safety rules are appended automatically.">
+            <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
+          </Field>
+          <Field label="Style notes" desc="Tone and formatting guidance.">
+            <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
+          </Field>
+          <Field label="Profile bio (About Me)" desc="The bot's public About Me. Applied to Discord on save — bot-wide (not per-server), max 400 characters.">
+            <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} />
+          </Field>
+        </Card>
+        <SandboxPanel />
+      </div>
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
     </>
   )
 }
 
-// ── Test chat (enclosed sandbox: persona + KB + tools, but no memory) ───────
+// ── Test-chat panel (enclosed sandbox: persona + KB + tools, but no memory) ──
+// Lives beside Identity on the Persona tab so persona edits can be tried live.
+// Save the persona first — the sandbox reads the saved persona, not the draft.
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
-export function TestChat() {
+function SandboxPanel() {
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -78,54 +83,47 @@ export function TestChat() {
   }
 
   return (
-    <>
-      <PageHead
-        icon="sandbox"
-        title="Test chat"
-        sub="Talk to Olisar in an enclosed sandbox — full persona, knowledge base, and tools, but no memory. Nothing here is remembered, and it never reads or writes the server's glossary or chat history."
-      />
-      <Card>
-        <div className="sandbox">
-          <div className="sandbox-log" ref={logRef}>
-            {messages.length === 0 && !busy && (
-              <div className="sandbox-empty">
-                Say something to try Olisar's persona, knowledge-base lookups, and tools.
-                This conversation is wiped when you leave — nothing is saved.
-              </div>
-            )}
-            {messages.map((m, i) => (
-              <div key={i} className={'sb-msg ' + m.role}>
-                <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
-                <div className="sb-bubble">
-                  {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
-                </div>
-              </div>
-            ))}
-            {busy && (
-              <div className="sb-msg assistant">
-                <div className="sb-who">Olisar</div>
-                <div className="sb-bubble sb-typing"><span /><span /><span /></div>
-              </div>
-            )}
-          </div>
-          {err && <div className="sandbox-err">{err}</div>}
-          <div className="sandbox-input">
-            <textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-              placeholder="Message Olisar…  ·  Enter to send, Shift+Enter for a new line"
-              rows={2}
-              disabled={busy}
-            />
-            <div className="sandbox-actions">
-              <button className="ghost" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0}>Clear</button>
-              <button className="primary" onClick={() => void send()} disabled={busy || !input.trim()}>Send</button>
+    <Card title="Test chat" hint="An enclosed sandbox — full persona, knowledge base, and tools, but no memory. Nothing here is saved, and it never touches the server's glossary or chat history.">
+      <div className="sandbox">
+        <div className="sandbox-log" ref={logRef}>
+          {messages.length === 0 && !busy && (
+            <div className="sandbox-empty">
+              Say something to try Olisar's persona, knowledge-base lookups, and tools.
+              This conversation is wiped when you leave — nothing is saved.
             </div>
+          )}
+          {messages.map((m, i) => (
+            <div key={i} className={'sb-msg ' + m.role}>
+              <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
+              <div className="sb-bubble">
+                {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
+              </div>
+            </div>
+          ))}
+          {busy && (
+            <div className="sb-msg assistant">
+              <div className="sb-who">Olisar</div>
+              <div className="sb-bubble sb-typing"><span /><span /><span /></div>
+            </div>
+          )}
+        </div>
+        {err && <div className="sandbox-err">{err}</div>}
+        <div className="sandbox-input">
+          <textarea
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+            placeholder="Message Olisar…  ·  Enter to send, Shift+Enter for a new line"
+            rows={2}
+            disabled={busy}
+          />
+          <div className="sandbox-actions">
+            <button className="ghost" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0}>Clear</button>
+            <button className="primary" onClick={() => void send()} disabled={busy || !input.trim()}>Send</button>
           </div>
         </div>
-      </Card>
-    </>
+      </div>
+    </Card>
   )
 }
 
