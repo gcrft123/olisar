@@ -134,7 +134,9 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "grounding_enabled": c.grounding_enabled,
             "grounding_daily_cap": c.grounding_daily_cap,
             "summary_token_threshold": c.summary_token_threshold,
+            "glossary_mine_token_threshold": c.glossary_mine_token_threshold,
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
+            "presence_tools_enabled": c.presence_tools_enabled,
             "allowed_role_ids": [str(r) for r in (c.allowed_role_ids or [])],
             "blocked_role_ids": [str(r) for r in (c.blocked_role_ids or [])],
         }
@@ -280,6 +282,10 @@ async def get_proactivity(gctx: GuildContext = Depends(require_guild_admin)):
             "max_per_hour": p.max_per_hour,
             "quiet_hours": p.quiet_hours,
             "allowed_channels": p.allowed_channels,
+            "reaction_enabled": p.reaction_enabled,
+            "reaction_threshold": p.reaction_threshold,
+            "reaction_cooldown_sec": p.reaction_cooldown_sec,
+            "reaction_max_per_hour": p.reaction_max_per_hour,
         }
 
 
@@ -541,6 +547,40 @@ async def put_extension(body: ExtensionToggleIn, gctx: GuildContext = Depends(re
                 await ext.on_enable(session, gctx.guild_id)
             except Exception:
                 log.exception("on_enable hook failed for extension %s", body.key)
+    return {"ok": True}
+
+
+@router.get("/extensions/{key}/settings")
+async def get_extension_settings(key: str, gctx: GuildContext = Depends(require_guild_admin)):
+    """Per-extension config (e.g. the welcome message's channel + prompt)."""
+    from olisar.extensions import get_extension
+
+    if get_extension(key) is None:
+        raise HTTPException(status_code=404, detail="unknown extension")
+    async with session_scope() as session:
+        row = await session.get(ExtensionState, (gctx.guild_id, key))
+        return {"settings": (row.settings if row and row.settings else {})}
+
+
+@router.put("/extensions/{key}/settings")
+async def put_extension_settings(
+    key: str, body: dict, gctx: GuildContext = Depends(require_guild_admin)
+):
+    """Merge new values into an extension's per-guild settings JSON."""
+    from olisar.extensions import get_extension
+
+    if get_extension(key) is None:
+        raise HTTPException(status_code=404, detail="unknown extension")
+    async with session_scope() as session:
+        row = await session.get(ExtensionState, (gctx.guild_id, key))
+        if row is None:
+            row = ExtensionState(guild_id=gctx.guild_id, key=key)
+            session.add(row)
+        row.settings = {**(row.settings or {}), **(body or {})}
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="update_extension_settings",
+            target_type="extension", target_id=key, after=(body or {}),
+        )
     return {"ok": True}
 
 

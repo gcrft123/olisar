@@ -18,7 +18,6 @@ from olisar.context import name_map
 from olisar.db.models import ChannelAllowlist, ChannelSummary, Message, utcnow
 from olisar.gemini.client import get_gemini
 from olisar.gemini.rate_limiter import RateLimitExceeded
-from olisar.memory.facts import extract_and_store_facts
 from olisar.memory.writer import estimate_tokens
 
 log = logging.getLogger("olisar.summarizer")
@@ -98,14 +97,5 @@ async def maybe_summarize_channel(
     row.unsummarized_tokens = 0
     row.last_summary_at = utcnow()
     log.info("summarized %d messages in channel %s", len(msgs), channel_id)
-
-    # Mine the same slice for durable server lore (the guild glossary). Guarded so
-    # a failure here can never roll back the summary we just committed above.
-    try:
-        await extract_and_store_facts(
-            session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
-        )
-    except Exception:
-        log.exception("guild-fact extraction failed (summary kept)")
-
+    # Glossary mining now runs on its own, more frequent pass (maintenance.run_glossary).
     return True

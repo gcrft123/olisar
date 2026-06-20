@@ -17,9 +17,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
+from olisar.context import name_map
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,
+    ChannelMode,
     ChannelSummary,
     GuildConfig,
     KBChunk,
@@ -29,13 +31,17 @@ from olisar.db.models import (
 )
 from olisar.gemini.embeddings import embed_documents
 from olisar.gemini.rate_limiter import RateLimitExceeded
+from olisar.memory.facts import extract_and_store_facts
 from olisar.memory.personas import maybe_build_user_persona
 from olisar.memory.summarizer import maybe_summarize_channel
 from olisar.memory.vectors import upsert_embedding
+from olisar.memory.writer import estimate_tokens
 
 log = logging.getLogger("olisar.maintenance")
 
 EMBED_BATCH = 50
+GLOSSARY_MINE_MIN_MESSAGES = 6
+GLOSSARY_MINE_BATCH = 200
 
 
 def _text_of(row) -> str:
@@ -116,12 +122,69 @@ async def run_summaries() -> None:
             )
 
 
+async def run_glossary() -> None:
+    """Mine un-mined messages in memory/both channels for durable guild facts once a
+    channel has accumulated enough un-mined text. Independent of summarization and on
+    a much lower threshold, so the glossary grows actively."""
+    guild_id = settings.target_guild_id
+    try:
+        async with session_scope() as session:
+            config = await session.get(GuildConfig, guild_id)
+            threshold = config.glossary_mine_token_threshold if config else 1500
+            channel_ids = (
+                await session.scalars(
+                    select(ChannelAllowlist.channel_id).where(
+                        ChannelAllowlist.guild_id == guild_id,
+                        ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+                    )
+                )
+            ).all()
+    except Exception:
+        log.exception("failed to scan channels for glossary mining")
+        return
+
+    for channel_id in channel_ids:
+        try:
+            async with session_scope() as session:
+                msgs = [
+                    m
+                    for m in (
+                        await session.scalars(
+                            select(Message)
+                            .where(
+                                Message.channel_id == channel_id,
+                                Message.fact_mined == False,  # noqa: E712
+                                Message.author_is_bot == False,  # noqa: E712
+                            )
+                            .order_by(Message.created_at.asc())
+                            .limit(GLOSSARY_MINE_BATCH)
+                        )
+                    ).all()
+                    if (m.content or "").strip()
+                ]
+                if len(msgs) < GLOSSARY_MINE_MIN_MESSAGES:
+                    continue
+                if sum(estimate_tokens(m.content) for m in msgs) < threshold:
+                    continue
+                names = await name_map(session, {m.author_id for m in msgs})
+                transcript = "\n".join(
+                    f"{names.get(m.author_id, str(m.author_id))}: {m.content}" for m in msgs
+                )
+                await extract_and_store_facts(
+                    session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
+                )
+                for m in msgs:
+                    m.fact_mined = True
+        except Exception:
+            log.exception("glossary mining failed for channel %s", channel_id)
+
+
 async def run_personas() -> None:
     guild_id = settings.target_guild_id
     try:
         async with session_scope() as session:
             config = await session.get(GuildConfig, guild_id)
-            threshold = config.user_persona_msg_threshold if config else 30
+            threshold = config.user_persona_msg_threshold if config else 15
             user_ids = (
                 await session.scalars(
                     select(UserProfile.user_id).where(

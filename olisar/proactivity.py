@@ -103,3 +103,53 @@ async def classify(transcript: str) -> tuple[bool, float, str]:
         float(data.get("confidence", 0.0) or 0.0),
         str(data.get("reason", ""))[:200],
     )
+
+
+_REACT_SYSTEM = (
+    "You are Olisar, a member of this Discord server skimming the latest message. "
+    "Decide whether to add a quick emoji reaction to it — the way a person reacts "
+    "without replying. React ONLY if a single emoji fits naturally and adds a light, "
+    "friendly touch: agreement, amusement, celebration, sympathy, or simple "
+    "acknowledgement. Most messages need no reaction; don't react to questions aimed "
+    "at you (answer those normally) or to anything where a reaction would feel random. "
+    "Reply with ONLY one emoji, or the single word none if no reaction fits."
+)
+
+
+def _first_emoji(s: str) -> str | None:
+    """Pull a single leading emoji (incl. skin-tone, ZWJ sequences, flags, and
+    variation selectors) out of a short model reply; None if it doesn't start with one."""
+    token = (s or "").strip().split()[:1]
+    if not token:
+        return None
+    out: list[str] = []
+    for ch in token[0]:
+        o = ord(ch)
+        is_emoji = (
+            o >= 0x1F000
+            or 0x2190 <= o <= 0x2BFF
+            or 0x1F1E6 <= o <= 0x1F1FF  # regional indicators (flags)
+            or o in (0x200D, 0xFE0F)    # ZWJ + variation selector
+            or 0x1F3FB <= o <= 0x1F3FF  # skin-tone modifiers
+        )
+        if is_emoji:
+            out.append(ch)
+        else:
+            break
+    return "".join(out) or None
+
+
+async def pick_reaction_emoji(transcript: str) -> str | None:
+    """A tiny Flash-Lite call that returns one emoji to react with, or None if no
+    reaction fits. Used by the passive-reaction path (no reply is generated)."""
+    result = await get_gemini().generate(
+        contents=[transcript],
+        system_instruction=_REACT_SYSTEM,
+        model=settings.gemini_lite_model,
+        temperature=0.4,
+        max_output_tokens=12,
+    )
+    text = (result.text or "").strip()
+    if not text or text.lower().startswith("none"):
+        return None
+    return _first_emoji(text)

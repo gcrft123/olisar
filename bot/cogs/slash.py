@@ -33,6 +33,7 @@ from olisar.db.models import (
     ProactivityLevel,
     SearchMessage,
 )
+from olisar.catchup import generate_catchup
 from olisar.knowledge.extract import SUPPORTED_SUFFIXES
 from olisar.memory.purge import forget_user
 from olisar.memory.vectors import delete_embedding
@@ -94,6 +95,42 @@ class Slash(commands.Cog):
                 display_name=interaction.user.display_name,
                 user_text=prompt,
                 actions=BotActions(self.bot, channel=interaction.channel),
+            )
+        chunks = chunk_text(text) or ["…"]
+        await interaction.followup.send(chunks[0])
+        for extra in chunks[1:]:
+            await interaction.followup.send(extra)
+
+    @app_commands.command(
+        name="catchup", description="Get caught up on what you missed in this channel."
+    )
+    @app_commands.describe(
+        hours="Optional: how many hours back to cover (default: since you last posted)."
+    )
+    async def catchup(
+        self, interaction: discord.Interaction, hours: int | None = None
+    ) -> None:
+        async with session_scope() as session:
+            cfg = await session.get(GuildConfig, settings.target_guild_id)
+            allowed = cfg.allowed_role_ids if cfg else []
+            blocked = cfg.blocked_role_ids if cfg else []
+            denied_msg = render_message(
+                cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
+            )
+        member = resolve_member(self.bot, interaction.user)
+        if not member_allowed(member, allowed=allowed, blocked=blocked):
+            await interaction.response.send_message(denied_msg, ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+        guild_id = interaction.guild_id or DM_GUILD_ID
+        async with session_scope() as session:
+            text = await generate_catchup(
+                session,
+                guild_id=guild_id,
+                channel_id=interaction.channel_id,
+                user_id=interaction.user.id,
+                hours=hours if (hours and hours > 0) else None,
             )
         chunks = chunk_text(text) or ["…"]
         await interaction.followup.send(chunks[0])

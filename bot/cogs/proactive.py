@@ -33,6 +33,7 @@ from olisar.proactivity import (
     classify,
     heuristic_score,
     level_threshold,
+    pick_reaction_emoji,
 )
 
 log = logging.getLogger("olisar.proactive")
@@ -40,6 +41,12 @@ log = logging.getLogger("olisar.proactive")
 SCAN_SECONDS = 25
 MIN_AGE = 15.0   # let humans answer first
 MAX_AGE = 600.0  # don't resurrect stale messages
+
+# Passive reactions run on their own looser cadence: react faster (low stakes) and
+# skip the classifier entirely — the emoji picker is the gate.
+REACT_SCAN_SECONDS = 30
+REACT_MIN_AGE = 5.0
+REACT_MAX_AGE = 300.0
 
 
 def _age_seconds(dt: datetime) -> float:
@@ -55,10 +62,16 @@ class Proactive(commands.Cog):
         self._channel_cooldown: dict[int, float] = {}  # per-channel (ids are unique)
         self._recent: dict[int, list[float]] = {}  # per-guild timestamps for the hourly cap
         self._last_considered: dict[int, int] = {}
+        # Separate state for the passive-reaction path so it never interferes with chiming.
+        self._react_cooldown: dict[int, float] = {}      # per-channel
+        self._react_recent: dict[int, list[float]] = {}  # per-guild, hourly cap
+        self._react_considered: dict[int, int] = {}
         self.scan.start()
+        self.react_scan.start()
 
     def cog_unload(self) -> None:
         self.scan.cancel()
+        self.react_scan.cancel()
 
     @tasks.loop(seconds=SCAN_SECONDS)
     async def scan(self) -> None:
@@ -69,6 +82,22 @@ class Proactive(commands.Cog):
 
     @scan.before_loop
     async def _before(self) -> None:
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(seconds=REACT_SCAN_SECONDS)
+    async def react_scan(self) -> None:
+        try:
+            for guild in list(self.bot.guilds):
+                try:
+                    if await self._scan_reactions_guild(guild.id):
+                        return  # at most one reaction per tick
+                except Exception:
+                    log.exception("reaction scan failed for guild %s", guild.id)
+        except Exception:
+            log.exception("reaction scan failed")
+
+    @react_scan.before_loop
+    async def _before_react(self) -> None:
         await self.bot.wait_until_ready()
 
     def _in_quiet_hours(self, pconf: ProactivityConfig) -> bool:
@@ -164,6 +193,69 @@ class Proactive(commands.Cog):
             log.info("proactive chimed in guild=%s ch=%s conf=%.2f", guild_id, cid, confidence)
             return True
         return False
+
+    async def _scan_reactions_guild(self, guild_id: int) -> bool:
+        """Looser, emoji-only path: find one fresh message worth a reaction, ask the
+        model for a single emoji, and add it. No reply, no classifier."""
+        now = time.monotonic()
+        recent = self._react_recent.setdefault(guild_id, [])
+        recent[:] = [t for t in recent if now - t < 3600]
+
+        candidate: tuple[int, int] | None = None
+        async with session_scope() as session:
+            pconf = await session.get(ProactivityConfig, guild_id)
+            if pconf is None or not pconf.reaction_enabled:
+                return False
+            if self._in_quiet_hours(pconf):
+                return False
+            if len(recent) >= pconf.reaction_max_per_hour:
+                return False
+            threshold = pconf.reaction_threshold
+            for cid in await self._candidate_channels(session, guild_id, pconf):
+                if now - self._react_cooldown.get(cid, 0.0) < pconf.reaction_cooldown_sec:
+                    continue
+                latest = await session.scalar(
+                    select(Message)
+                    .where(Message.channel_id == cid)
+                    .order_by(Message.created_at.desc())
+                    .limit(1)
+                )
+                if latest is None or latest.author_is_bot:
+                    continue
+                if latest.message_id <= self._react_considered.get(cid, 0):
+                    continue
+                if len((latest.content or "").strip()) < 3:
+                    continue
+                age = _age_seconds(latest.created_at)
+                if age < REACT_MIN_AGE or age > REACT_MAX_AGE:
+                    continue
+                self._react_considered[cid] = latest.message_id  # don't re-evaluate
+                if heuristic_score(latest.content, age) < threshold:
+                    continue
+                candidate = (cid, latest.message_id)
+                break
+
+        if candidate is None:
+            return False
+        cid, msg_id = candidate
+
+        emoji = await pick_reaction_emoji(await self._transcript(cid))
+        if not emoji:
+            return False
+        channel = self.bot.get_channel(cid)
+        if channel is None:
+            return False
+        try:
+            msg = await channel.fetch_message(msg_id)
+            await msg.add_reaction(emoji)
+        except Exception:
+            log.info("couldn't add reaction %s in ch=%s", emoji, cid)
+            return False
+        ts = time.monotonic()
+        self._react_cooldown[cid] = ts
+        recent.append(ts)
+        log.info("reacted %s guild=%s ch=%s", emoji, guild_id, cid)
+        return True
 
     async def _transcript(self, channel_id: int) -> str:
         async with session_scope() as session:

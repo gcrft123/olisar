@@ -7,6 +7,7 @@ import logging
 import discord
 from discord.ext import commands
 
+from olisar.config import settings
 
 log = logging.getLogger("olisar.bot")
 
@@ -24,15 +25,25 @@ INITIAL_COGS = [
     "bot.cogs.self_destruct",
     "bot.cogs.star_citizen",
     "bot.cogs.proactive",
+    "bot.cogs.reminders",
+    "bot.cogs.welcome",
 ]
 
 
 def _build_intents() -> discord.Intents:
     intents = discord.Intents.default()
     # Privileged — must ALSO be toggled on in the Developer Portal. message_content
-    # lets Olisar read what people say; members lets it track per-user profiles.
+    # lets Olisar read what people say; members lets it track per-user profiles;
+    # presences lets the situational-awareness tools see a member's status/activity
+    # (gated per-server by GuildConfig.presence_tools_enabled, default off).
     intents.message_content = True
     intents.members = True
+    intents.voice_states = True  # who's in voice (non-privileged)
+    # presences is privileged AND requires a Developer-Portal toggle, so it's opt-in:
+    # enabling it blindly would stop the bot connecting for anyone who hasn't turned it
+    # on in the portal. who_is_in_voice works without it; get_user_status needs it.
+    if settings.enable_presence_intent:
+        intents.presences = True
     return intents
 
 

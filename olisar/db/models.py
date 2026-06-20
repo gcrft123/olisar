@@ -148,8 +148,15 @@ class GuildConfig(Base):
     grounding_daily_cap: Mapped[int] = mapped_column(Integer, default=100)
     # When a channel accumulates this many unsummarized tokens, roll a summary.
     summary_token_threshold: Mapped[int] = mapped_column(Integer, default=4000)
+    # Mine the guild glossary once a channel has this many un-mined tokens — runs
+    # independently of (and far more often than) summarization, so lore accrues fast.
+    glossary_mine_token_threshold: Mapped[int] = mapped_column(Integer, default=1500)
     # Regenerate a user's persona after this many new messages from them.
-    user_persona_msg_threshold: Mapped[int] = mapped_column(Integer, default=30)
+    user_persona_msg_threshold: Mapped[int] = mapped_column(Integer, default=15)
+    # Situational-awareness tools (get_user_status / who_is_in_voice) read members'
+    # live Discord presence — privileged + sensitive, so opt-in per server and
+    # disclosed in /privacy. Off by default.
+    presence_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # Deprecated: the rate-limit reply now lives in command_messages["rate_limit"]
     # (editable under Command replies). Column kept to avoid a destructive migration.
     rate_limit_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -289,6 +296,8 @@ class Message(Base):
     embedded: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     # Set once this message has been folded into a channel_summary (prune-eligible).
     summarized: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Set once mined for guild glossary facts (independent of summarization).
+    fact_mined: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
 
 class ChannelSummary(Base):
@@ -351,7 +360,29 @@ class UserMemory(Base):
     content: Mapped[str] = mapped_column(Text)
     salience: Mapped[float] = mapped_column(Float, default=0.5)
     source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # For kind='event': when the thing happens / a follow-up should fire (drives the
+    # auto-reminder created alongside the fact).
+    event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embedded: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Reminder(Base):
+    """A scheduled nudge — set by a member ('remind me in 2h…') or created
+    automatically from a time-bound fact. A 30s dispatch loop fires the ones whose
+    time has come (see bot/cogs/reminders.py)."""
+
+    __tablename__ = "reminder"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, default=0)  # where it was set / posts
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    target: Mapped[str] = mapped_column(String(8), default="dm")  # "dm" | "channel"
+    content: Mapped[str] = mapped_column(Text)
+    scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    source: Mapped[str] = mapped_column(String(16), default="user")  # "user" | "event_fact"
+    fired: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -550,6 +581,13 @@ class ProactivityConfig(Base):
     max_per_hour: Mapped[int] = mapped_column(Integer, default=6)
     quiet_hours: Mapped[dict] = mapped_column(JSON, default=dict)  # {"start": 23, "end": 7}
     allowed_channels: Mapped[list] = mapped_column(JSON, default=list)  # [] = all allowlisted
+    # Passive emoji reactions — a separate, much looser path than chiming in: skip
+    # the classifier, react (emoji only, no reply) when a reaction fits. The model
+    # picks the emoji and may decline; cooldown + hourly cap keep it sparse.
+    reaction_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    reaction_threshold: Mapped[float] = mapped_column(Float, default=0.0)
+    reaction_cooldown_sec: Mapped[int] = mapped_column(Integer, default=60)
+    reaction_max_per_hour: Mapped[int] = mapped_column(Integer, default=6)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

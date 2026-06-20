@@ -7,6 +7,7 @@ it. The caller handles Discord I/O (typing, sending, recording the reply).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar.config import settings
 from olisar.context import CONTEXT_NOTE, build_contents, people_directory
 from olisar.db.models import GuildConfig, Persona
-from olisar.gemini.client import get_gemini, safe_text
+from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.memory.retriever import recall
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, render_message
@@ -25,7 +26,14 @@ from olisar.persona import (
     build_system_prompt,
 )
 from olisar.extensions import GatheredExtensions, gather_enabled
-from olisar.tools import TOOLS, DiscordActions, ToolContext, execute_tool, tools_with_extensions
+from olisar.tools import (
+    TOOLS,
+    DiscordActions,
+    ToolContext,
+    execute_tool,
+    presence_declarations,
+    tools_with_extensions,
+)
 
 log = logging.getLogger("olisar.pipeline")
 
@@ -35,6 +43,16 @@ FALLBACK_EMPTY = DEFAULT_COMMAND_MESSAGES["blank_fallback"]
 FALLBACK_RATELIMIT = DEFAULT_COMMAND_MESSAGES["rate_limit"]
 
 MAX_TOOL_ITERS = 6
+
+# When a reply hits the output-token ceiling (finish_reason MAX_TOKENS) it gets cut
+# off mid-sentence. We ask the model to keep going and stitch the pieces, up to this
+# many extra rounds. A rate-limit/error during a continuation just sends what we have.
+MAX_CONTINUATIONS = 2
+CONTINUE_NUDGE = (
+    "Your previous message was cut off because it hit the length limit. Continue it "
+    "EXACTLY where it stopped — pick up from the last character, do not repeat or "
+    "re-summarize anything you already wrote, and don't add a preamble."
+)
 
 TOOLS_NOTE = (
     "You have tools — recall_memory, search_messages, query_knowledge, remember, "
@@ -148,6 +166,56 @@ def _fallback_from_gathered(blank_fallback: str, gathered: list[str]) -> str:
     return PARTIAL_PREFIX + body
 
 
+async def _complete_truncated(
+    client, contents: list, system_instruction: str, model: str | None, tools: list,
+    resp, text: str,
+) -> str:
+    """If ``resp`` was cut off at the token ceiling, ask the model to continue and
+    stitch the pieces so the reply finishes instead of stopping mid-sentence. Bounded
+    by ``MAX_CONTINUATIONS``; a rate-limit/error mid-continuation returns what we have
+    so far (the partial is never thrown away)."""
+    if not was_truncated(resp):
+        return text
+    log.info(
+        "reply truncated at token cap (%d chars); attempting up to %d continuation(s)",
+        len(text), MAX_CONTINUATIONS,
+    )
+    pieces = [text]
+    cur = resp
+    for n in range(MAX_CONTINUATIONS):
+        if not was_truncated(cur):
+            break
+        try:
+            contents.append(cur.candidates[0].content)  # the partial we just got
+        except Exception:
+            break
+        contents.append(types.Content(role="user", parts=[types.Part(text=CONTINUE_NUDGE)]))
+        try:
+            cur = await client.generate_with_tools(
+                contents=contents,
+                system_instruction=system_instruction,
+                tools=tools,
+                model=model,
+                force_text=True,
+            )
+        except Exception:
+            log.exception("continuation %d after truncation failed; sending the partial", n + 1)
+            break
+        more = _response_text(cur)
+        if not more:
+            log.info("continuation %d returned no text; sending what we have", n + 1)
+            break
+        log.info("continuation %d added %d chars", n + 1, len(more))
+        pieces.append(more)
+    stitched = "".join(pieces)
+    if was_truncated(cur):
+        log.warning(
+            "reply still truncated after %d continuation(s) (%d chars total)",
+            MAX_CONTINUATIONS, len(stitched),
+        )
+    return stitched
+
+
 async def _force_final_answer(
     client, contents: list, system_instruction: str, model: str | None, tools: list
 ) -> str:
@@ -166,7 +234,7 @@ async def _force_final_answer(
         )
         text = _response_text(resp)
         if text:
-            return text
+            return await _complete_truncated(client, contents, nudged, model, tools, resp, text)
     except Exception:
         log.exception("forced final answer (tools barred) failed")
     # The model kept trying to call tools — remove tools entirely so it can't, and
@@ -176,7 +244,7 @@ async def _force_final_answer(
             contents=contents,
             system_instruction=nudged,
             model=model,
-            max_output_tokens=700,
+            max_output_tokens=1024,  # match the other chat paths so this fallback isn't the one that cuts off
         )
         if result.text:
             return result.text
@@ -208,7 +276,9 @@ async def _run_tool_loop(
         if not calls:
             text = _response_text(resp)
             if text:
-                return text
+                return await _complete_truncated(
+                    client, contents, system_instruction, model, tools, resp, text
+                )
             break  # no calls and no text — go force a final answer
 
         contents.append(resp.candidates[0].content)  # the model's tool-call turn
@@ -270,6 +340,10 @@ async def generate_reply(
             runtime_note=runtime_note,
         )
     system_instruction += "\n\n" + CONTEXT_NOTE + "\n\n" + TOOLS_NOTE
+    system_instruction += (
+        f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M} — use it "
+        "to resolve any 'remind me' / scheduling request before calling add_reminder."
+    )
 
     config = await session.get(GuildConfig, cfg_guild)
     model = config.default_model if config and config.default_model else None
@@ -321,11 +395,16 @@ async def generate_reply(
         ext = await gather_enabled(session, cfg_guild)
     except Exception:
         log.exception("extension gather failed; continuing without extensions")
+    # Per-reply tool set: extension tools, plus the situational-awareness tools when
+    # the server has opted in (presence is privileged + sensitive, off by default).
+    extra_decls = list(ext.declarations)
+    if config is not None and getattr(config, "presence_tools_enabled", False):
+        extra_decls += presence_declarations()
     for note in ext.notes:
         system_instruction += "\n\n" + note
-    if ext.declarations:
+    if extra_decls:
         system_instruction += "\n\nAlso enabled: " + ", ".join(
-            d.name for d in ext.declarations
+            d.name for d in extra_decls
         ) + " — use these when they fit the request."
 
     ctx = ToolContext(
@@ -344,7 +423,7 @@ async def generate_reply(
             model,
             ctx,
             blank_fallback=blank_fallback,
-            tools=tools_with_extensions(ext.declarations),
+            tools=tools_with_extensions(extra_decls),
         )
     except RateLimitExceeded:
         return rate_limit_msg

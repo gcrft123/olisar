@@ -10,14 +10,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar.db.models import GeminiUsage, GuildConfig, UserMemory, UserMemoryKind
+from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
@@ -32,6 +32,8 @@ class DiscordActions(Protocol):
     async def react(self, emoji: str) -> str: ...
     async def send_dm(self, user_id: int, text: str) -> str: ...
     async def send_image(self, data: bytes, *, filename: str = ..., caption: str = ...) -> str: ...
+    async def user_status(self, query: str, guild_id: int) -> str: ...
+    async def who_in_voice(self, guild_id: int) -> str: ...
 
 
 @dataclass
@@ -55,6 +57,18 @@ def _obj(props: dict, required: list[str]) -> types.Schema:
     return types.Schema(type=types.Type.OBJECT, properties=props, required=required)
 
 
+def _parse_dt(value) -> datetime | None:
+    """Parse an ISO8601 string into a tz-aware UTC datetime (None if unparseable)."""
+    if not value:
+        return None
+    s = str(value).strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 _DECLARATIONS = [
     types.FunctionDeclaration(
         name="recall_memory",
@@ -69,9 +83,38 @@ _DECLARATIONS = [
         name="remember",
         description=(
             "Save a durable fact or preference about the user you're talking to so "
-            "you recall it later. Use sparingly, for things clearly worth keeping."
+            "you recall it later. Use sparingly, for things clearly worth keeping. For "
+            "a time-bound plan they mention (a trip, a deadline, an event), set "
+            "kind='event' and remind_at to when a brief, friendly follow-up would help "
+            "— you'll automatically DM them then."
         ),
-        parameters=_obj({"fact": _str("the fact, phrased about the user")}, ["fact"]),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "fact": _str("the fact, phrased about the user"),
+                "kind": _str("fact | preference | event (default fact)"),
+                "remind_at": _str(
+                    "optional ISO8601 UTC time to DM a follow-up; events only"
+                ),
+            },
+            required=["fact"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="remember_server_fact",
+        description=(
+            "Add a durable, server-wide glossary fact about THIS community — an "
+            "acronym, a codename, who someone is, an in-joke, a recurring event. Use "
+            "when you learn lasting server lore worth carrying into every reply. This "
+            "is shared server knowledge; for a fact about one person, use remember."
+        ),
+        parameters=_obj(
+            {
+                "subject": _str("the term or entity (optional)"),
+                "fact": _str("one short, standalone statement"),
+            },
+            ["fact"],
+        ),
     ),
     types.FunctionDeclaration(
         name="query_knowledge",
@@ -155,9 +198,81 @@ _DECLARATIONS = [
             required=["message"],
         ),
     ),
+    types.FunctionDeclaration(
+        name="catchup",
+        description=(
+            "Summarize what the user missed in THIS channel since they were last "
+            "active here. Use when someone asks to be caught up, what they missed, or "
+            "for a tl;dr of recent activity in this channel. Returns a short digest — "
+            "relay it in your own voice."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={"hours": _str("optional: how many hours back to cover")},
+            required=[],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="add_reminder",
+        description=(
+            "Schedule a reminder. Give either delay_minutes (minutes from now) OR "
+            "at_iso (an absolute ISO8601 UTC time you compute from the current time in "
+            "your context). target 'dm' (default) DMs the user; 'channel' posts here "
+            "and @-mentions them."
+        ),
+        parameters=types.Schema(
+            type=types.Type.OBJECT,
+            properties={
+                "content": _str("what to remind them about"),
+                "delay_minutes": _str("minutes from now, e.g. 120 for 2 hours"),
+                "at_iso": _str("absolute ISO8601 UTC time (alternative to delay_minutes)"),
+                "target": _str("'dm' (default) or 'channel'"),
+            },
+            required=["content"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="list_reminders",
+        description="List the current user's pending reminders (with their id numbers).",
+        parameters=_obj({}, []),
+    ),
+    types.FunctionDeclaration(
+        name="cancel_reminder",
+        description="Cancel one of the current user's pending reminders by its id number.",
+        parameters=_obj({"id": _str("the reminder's id number")}, ["id"]),
+    ),
 ]
 
 TOOLS = [types.Tool(function_declarations=_DECLARATIONS)]
+
+# Situational-awareness tools — added to a reply's tool set only when the server
+# has presence_tools_enabled (see pipeline.generate_reply). Kept out of the core
+# set because reading presence is privileged + sensitive and opt-in per guild.
+_PRESENCE_DECLARATIONS = [
+    types.FunctionDeclaration(
+        name="get_user_status",
+        description=(
+            "Check a member's CURRENT Discord presence — whether they're "
+            "online/idle/do-not-disturb/offline and what game or app they're playing, "
+            "streaming, or listening to right now. Use only when asked what someone is "
+            "up to at the moment or whether they're around."
+        ),
+        parameters=_obj({"user": _str("the member's display name or numeric id")}, ["user"]),
+    ),
+    types.FunctionDeclaration(
+        name="who_is_in_voice",
+        description=(
+            "List who is in the server's voice channels right now. Use when asked "
+            "who's in voice / in a call / hanging out in VC."
+        ),
+        parameters=_obj({}, []),
+    ),
+]
+
+
+def presence_declarations() -> list:
+    """Function declarations for the situational-awareness tools."""
+    return _PRESENCE_DECLARATIONS
 
 
 def tools_with_extensions(extra_declarations: list) -> list:
@@ -208,16 +323,55 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             fact = (args.get("fact") or "").strip()
             if not fact:
                 return "Nothing to remember."
+            kind = {
+                "event": UserMemoryKind.event,
+                "preference": UserMemoryKind.preference,
+            }.get((args.get("kind") or "").strip().lower(), UserMemoryKind.fact)
+            remind_at = _parse_dt(args.get("remind_at"))
+            is_event = kind is UserMemoryKind.event
             ctx.session.add(
                 UserMemory(
                     user_id=ctx.user_id,
                     guild_id=ctx.cfg_guild,
-                    kind=UserMemoryKind.fact,
+                    kind=kind,
                     content=fact,
                     embedded=False,
+                    event_date=remind_at if is_event else None,
                 )
             )
+            now = datetime.now(timezone.utc)
+            if is_event and remind_at and remind_at > now:
+                ctx.session.add(
+                    Reminder(
+                        guild_id=ctx.cfg_guild,
+                        channel_id=ctx.channel_id,
+                        user_id=ctx.user_id,
+                        target="dm",
+                        source="event_fact",
+                        content=f"following up on what you mentioned — {fact}",
+                        scheduled_at=remind_at,
+                    )
+                )
+                return f"Saved, and I'll check back with you around then: {fact}"
             return f"Saved to memory: {fact}"
+
+        if name == "remember_server_fact":
+            fact = (args.get("fact") or "").strip()
+            if not fact:
+                return "Nothing to add to the glossary."
+            from olisar.memory.facts import upsert_facts
+
+            added = await upsert_facts(
+                ctx.session,
+                guild_id=ctx.cfg_guild,
+                channel_id=ctx.channel_id,
+                items=[{"subject": (args.get("subject") or "").strip(), "fact": fact}],
+            )
+            return (
+                f"Added to the server glossary: {fact}"
+                if added
+                else f"Already in the glossary: {fact}"
+            )
 
         if name == "query_knowledge":
             block = await search_knowledge(
@@ -295,6 +449,95 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "Can't send DMs from here."
             target = args.get("user_id") or ctx.user_id
             return await ctx.actions.send_dm(target, args.get("message") or "")
+
+        if name == "get_user_status":
+            if ctx.actions is None:
+                return "Can't check status from here."
+            return await ctx.actions.user_status((args.get("user") or "").strip(), ctx.cfg_guild)
+
+        if name == "who_is_in_voice":
+            if ctx.actions is None:
+                return "Can't check voice channels from here."
+            return await ctx.actions.who_in_voice(ctx.cfg_guild)
+
+        if name == "catchup":
+            from olisar.catchup import generate_catchup
+
+            raw = args.get("hours")
+            try:
+                hours = int(raw) if raw not in (None, "") else None
+            except (TypeError, ValueError):
+                hours = None
+            return await generate_catchup(
+                ctx.session,
+                guild_id=ctx.cfg_guild,
+                channel_id=ctx.channel_id,
+                user_id=ctx.user_id,
+                hours=hours,
+            )
+
+        if name == "add_reminder":
+            content = (args.get("content") or "").strip()
+            if not content:
+                return "What should I remind you about?"
+            now = datetime.now(timezone.utc)
+            when: datetime | None = None
+            raw_delay = args.get("delay_minutes")
+            try:
+                if raw_delay not in (None, ""):
+                    when = now + timedelta(minutes=float(raw_delay))
+            except (TypeError, ValueError):
+                when = None
+            if when is None:
+                when = _parse_dt(args.get("at_iso"))
+            if when is None:
+                return "I need a time — say how long from now or an exact time."
+            if when <= now:
+                return "That time is already past — give me a future time."
+            target = "channel" if (args.get("target") or "").strip().lower() == "channel" else "dm"
+            ctx.session.add(
+                Reminder(
+                    guild_id=ctx.cfg_guild,
+                    channel_id=ctx.channel_id,
+                    user_id=ctx.user_id,
+                    target=target,
+                    source="user",
+                    content=content,
+                    scheduled_at=when,
+                )
+            )
+            return f"Reminder set for {when.strftime('%Y-%m-%d %H:%M UTC')}: {content}"
+
+        if name == "list_reminders":
+            rows = (
+                await ctx.session.scalars(
+                    select(Reminder)
+                    .where(
+                        Reminder.user_id == ctx.user_id,
+                        Reminder.guild_id == ctx.cfg_guild,
+                        Reminder.fired == False,  # noqa: E712
+                    )
+                    .order_by(Reminder.scheduled_at.asc())
+                    .limit(20)
+                )
+            ).all()
+            if not rows:
+                return "You have no pending reminders."
+            return "Pending reminders:\n" + "\n".join(
+                f"#{r.id} — {r.scheduled_at.strftime('%Y-%m-%d %H:%M UTC')}: {r.content}"
+                for r in rows
+            )
+
+        if name == "cancel_reminder":
+            try:
+                rid = int(args.get("id"))
+            except (TypeError, ValueError):
+                return "Which reminder? Give me its id number (see list_reminders)."
+            r = await ctx.session.get(Reminder, rid)
+            if r is None or r.user_id != ctx.user_id or r.fired:
+                return "I couldn't find that pending reminder of yours."
+            r.fired = True
+            return f"Cancelled reminder #{rid}."
 
         return f"Unknown tool: {name}"
     except Exception:

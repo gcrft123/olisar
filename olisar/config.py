@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     discord_client_id: str = Field(default="", alias="DISCORD_CLIENT_ID")
     discord_client_secret: str = Field(default="", alias="DISCORD_CLIENT_SECRET")
     target_guild_id: int = Field(default=0, alias="TARGET_GUILD_ID")
+    # Opt-in for the privileged "presences" gateway intent (needed by the
+    # status/voice-awareness tools). Off by default because enabling it requires the
+    # operator to ALSO turn on Presence Intent in the Discord Developer Portal — and
+    # without that, the bot can't connect at all. Voice-channel awareness doesn't need
+    # this (voice_states is non-privileged).
+    enable_presence_intent: bool = Field(default=False, alias="OLISAR_ENABLE_PRESENCE_INTENT")
 
     # ── Gemini ───────────────────────────────────────────────────────────
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")

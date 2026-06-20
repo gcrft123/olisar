@@ -30,20 +30,21 @@ from olisar.gemini.rate_limiter import RateLimitExceeded
 log = logging.getLogger("olisar.facts")
 
 FACTS_SYSTEM = (
-    "You mine a slice of a Discord server's chat for DURABLE, SERVER-SPECIFIC "
-    "lore worth remembering forever. Capture: acronym / abbreviation expansions, "
-    "the names of groups, orgs, teams, or people and how they relate, project or "
-    "place codenames, and the meaning of in-jokes or local slang. IGNORE transient "
-    "chatter, opinions, feelings, questions, and general world knowledge anyone "
-    "would know. Only keep facts tied to THIS community.\n\n"
+    "You mine a slice of a Discord server's chat for DURABLE, SERVER-SPECIFIC facts "
+    "worth remembering. Capture: acronym / abbreviation expansions; the names of "
+    "groups, orgs, teams, or people and how they relate or what role/responsibility "
+    "they hold; project or place codenames; recurring events, rituals, or schedules; "
+    "and the meaning of in-jokes or local slang. Be generous about anything clearly "
+    "specific to THIS community, but IGNORE transient chatter, one-off opinions, "
+    "feelings, questions, and general world knowledge anyone would know.\n\n"
     "Return ONLY a JSON array of objects, each {\"subject\": \"<the term or "
     "entity>\", \"fact\": \"<one short, standalone factual statement>\"}. Return "
     "[] if nothing qualifies. Examples:\n"
     '[{"subject": "ICA", "fact": "ICA is short for Ironclad Assault"}, '
-    '{"subject": "Griefernet", "fact": "Griefernet is an enemy org run by Griefenfuhrer"}]'
+    '{"subject": "Movie Night", "fact": "Movie Night is the Friday watch-party in #cinema"}]'
 )
 
-MAX_FACTS_PER_PASS = 12   # cap how many new facts one summary can introduce
+MAX_FACTS_PER_PASS = 20   # cap how many new facts one mining pass can introduce
 GLOSSARY_LIMIT = 60       # how many facts to carry into a reply's context
 
 
