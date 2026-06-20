@@ -2,7 +2,7 @@
   <img src="web/public/logo.png" alt="Olisar" width="96" height="96" />
 </p>
 
-<h1 align="center">Olisar Secure Console</h1>
+<h1 align="center">Olisar</h1>
 
 <p align="center">
   A self-hosted AI Discord bot that feels like a <em>living member</em> of your server —
