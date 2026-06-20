@@ -118,6 +118,16 @@ async def put_persona(body: PersonaIn, gctx: GuildContext = Depends(require_guil
             session, actor=gctx.admin.discord_user_id, action="update_persona",
             target_type="persona", target_id=gctx.guild_id, after=data,
         )
+    # The profile bio is the bot's bot-wide Application Description (About Me), so it
+    # can only be driven by one persona — the home/target guild's. Apply it live when
+    # that guild's persona is saved; other guilds keep the field as a stored draft.
+    if "desired_bio" in data and settings.target_guild_id and gctx.guild_id == settings.target_guild_id:
+        from olisar.discord_bio import apply_bot_bio
+        from olisar.runtime_config import discord_token
+        try:
+            await apply_bot_bio(await discord_token(), data.get("desired_bio") or "")
+        except Exception:
+            log.exception("applying bot bio on persona save failed")
     return {"ok": True}
 
 
