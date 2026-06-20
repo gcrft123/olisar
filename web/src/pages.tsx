@@ -442,6 +442,61 @@ export function Access() {
 }
 
 // ── Knowledge (knowledge base + glossary) ───────────────────────────────────
+// The server-wide message search index: a re-index action and per-channel backfill
+// progress. Polls while any channel is still queued/indexing.
+function SearchIndexCard() {
+  const [data, setData] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const load = () => api.reindexStatus().then((d) => { if (alive) setData(d) }).catch(() => {})
+    load()
+    const id = setInterval(load, 3500)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+  const start = async () => {
+    setBusy(true)
+    try { await api.reindex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
+  }
+  const pct = data && data.total ? Math.round((data.done / data.total) * 100) : 0
+  const active = (data?.channels || []).filter((c: any) => c.status !== 'done')
+  return (
+    <Card title="Message search index" hint="A server-wide index of past messages so Olisar can search history (the all-channel index). Re-indexing rebuilds it from each channel's history in the background — safe to run anytime.">
+      {!data ? <div className="empty">Loading…</div> : (
+        <>
+          <div className="reindex-top">
+            <div className="reindex-stat">
+              <b>{data.done}</b> / {data.total} channels indexed
+              <span className="rx-dim"> · {data.indexed_messages.toLocaleString()} messages</span>
+            </div>
+            <button className="primary sm" onClick={start} disabled={busy}>
+              <Icon.refresh size={14} /> {busy ? 'Starting…' : 'Re-index all'}
+            </button>
+          </div>
+          <div className="progress"><div className="progress-fill" style={{ width: pct + '%' }} /></div>
+          {active.length > 0 ? (
+            <div className="reindex-list">
+              {active.map((c: any) => (
+                <div className="reindex-row" key={c.channel_id}>
+                  <span className="rx-name">#{c.name}</span>
+                  <div className={'progress sm' + (c.status === 'indexing' ? ' indeterminate' : '')}>
+                    {c.status === 'indexing'
+                      ? <div className="progress-bar" />
+                      : <div className="progress-fill" style={{ width: '0%' }} />}
+                  </div>
+                  <span className="rx-meta">{c.status === 'indexing' ? `indexing… ${c.indexed.toLocaleString()}` : 'queued'}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            data.total > 0 && <div className="reindex-done"><Icon.check size={14} weight="Bold" /> All channels indexed.</div>
+          )}
+        </>
+      )}
+    </Card>
+  )
+}
+
 export function Knowledge() {
   const { data, loading, reload } = useAsync<any[]>(api.getKnowledge)
   const [type, setType] = useState('url')
@@ -500,6 +555,7 @@ export function Knowledge() {
           </div>
         ))}
       </Card>
+      <SearchIndexCard />
       <Card title="Add a glossary fact" hint="Durable server lore — abbreviations, org and person relationships, codenames. Olisar carries these into every reply, and also mines them automatically when it summarizes a channel. Subject is the term (optional); the fact is one short, standalone statement.">
         <div className="row">
           <Field label="Subject"><Text value={subject} onChange={setSubject} placeholder="MN" /></Field>

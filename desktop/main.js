@@ -5,7 +5,7 @@
 // and a system-tray menu. Closing the window hides to the tray; quitting kills
 // the backend so nothing is left running.
 
-const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog } = require('electron')
+const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain } = require('electron')
 const updater = require('./updater')
 const { spawn } = require('child_process')
 const path = require('path')
@@ -28,6 +28,7 @@ let win = null
 let tray = null
 let lastHealth = { ok: false, vec: null }
 let lastTunnel = { available: false, running: false }
+let lastDesktop = { show_in_menu_bar: true }
 
 // ── backend sidecar ─────────────────────────────────────────────────────────
 
@@ -175,6 +176,15 @@ async function refreshStatus() {
   if (!backendPort) return
   try { const { json } = await reqJson('GET', '/api/health'); if (json) lastHealth = json } catch { /* ignore */ }
   try { const { json } = await reqJson('GET', '/api/tunnel/status'); if (json) lastTunnel = json } catch { /* ignore */ }
+  try { const { json } = await reqJson('GET', '/api/settings/desktop'); if (json) lastDesktop = json } catch { /* ignore */ }
+  applyTrayVisibility()
+}
+
+// Show or hide the tray icon to match the dashboard's "Show in the menu bar" setting.
+function applyTrayVisibility() {
+  const show = lastDesktop.show_in_menu_bar !== false
+  if (show && !tray) { createTray(); return }
+  if (!show && tray) { tray.destroy(); tray = null; return }
   rebuildTray()
 }
 
@@ -281,9 +291,38 @@ async function checkForUpdatesInteractive() {
 
 const UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000  // re-check every 6 hours
 
+// Update state for the in-app Settings → Updates panel (a serializable slice of the
+// updater's state, so the dashboard's "Install & restart" button works without the tray).
+function updateState() {
+  const u = updater.getAvailableUpdate()
+  return {
+    available: u ? { version: u.version, hasInstaller: !!u.hasInstaller } : null,
+    canSelfUpdate: updater.canSelfUpdate(),
+    installing: updater.isInstalling(),
+  }
+}
+
+// IPC for the renderer's in-app updater (exposed via preload as window.olisar.updates).
+function registerUpdateIpc() {
+  ipcMain.handle('updates:state', () => updateState())
+  ipcMain.handle('updates:check', async () => {
+    await updater.checkForUpdates()
+    rebuildTray()
+    return updateState()
+  })
+  ipcMain.handle('updates:install', async () => {
+    let u = updater.getAvailableUpdate()
+    if (!u) u = await updater.checkForUpdates()  // renderer may ask before the background poll ran
+    if (!u) return { ok: false, reason: 'up-to-date' }
+    await updater.installUpdate(u)  // self-installs + relaunches, or opens the download page
+    return { ok: true }
+  })
+}
+
 // ── lifecycle ───────────────────────────────────────────────────────────────
 
 async function boot() {
+  registerUpdateIpc()
   backendPort = await choosePort()
   startBackend(backendPort)
   createTray()

@@ -482,6 +482,9 @@ class AppConfig(Base):
     tunnel_hostname: Mapped[str] = mapped_column(Text, default="")
     tunnel_node: Mapped[str] = mapped_column(Text, default="")
     tunnel_token: Mapped[str] = mapped_column(Text, default="")
+    # Desktop app: whether Olisar shows its system tray / menu-bar item. Read by the
+    # Electron shell; ignored when running from source. Default on.
+    show_in_menu_bar: Mapped[bool] = mapped_column(Boolean, default=True)
     configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

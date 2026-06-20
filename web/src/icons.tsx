@@ -25,6 +25,11 @@ import {
   UsersGroupRounded,
   Power,
   TestTube,
+  Settings,
+  Palette,
+  Refresh,
+  Download,
+  Routing,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -50,6 +55,11 @@ export const Icon = {
   members: UsersGroupRounded,
   power: Power,
   sandbox: TestTube,
+  settings: Settings,
+  palette: Palette,
+  refresh: Refresh,
+  update: Download,
+  remote: Routing,
 } as const
 
 export type IconName = keyof typeof Icon

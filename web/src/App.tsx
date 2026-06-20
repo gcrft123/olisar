@@ -5,6 +5,7 @@ import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
 import { SetupWizard, type SetupStatus } from './setup'
+import { SettingsModal } from './settings'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -33,6 +34,7 @@ export default function App() {
   const [guilds, setGuilds] = useState<Guild[] | null>(null)
   const [guild, setGuildState] = useState<string | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
@@ -163,12 +165,16 @@ export default function App() {
             </span>
           </div>
           <div className="foot-row">
+            <button className="ghost sm" onClick={() => setSettingsOpen(true)}>
+              <Icon.settings size={16} /> Settings
+            </button>
             <button className="ghost sm" onClick={async () => { await api.logout(); setAuth('out') }}>
               <Icon.logout size={16} /> Log out
             </button>
           </div>
         </div>
       </aside>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
       <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' ? ' wide' : '')}>{pages[tab]}</main>
     </div>

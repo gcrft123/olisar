@@ -6,13 +6,20 @@ multipart upload from the dashboard lands with the frontend (Phase 7)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from api.auth.deps import GuildContext, require_guild_admin
 from api.schemas import SourceIn
 from olisar.audit import record_audit
 from olisar.db.engine import session_scope
-from olisar.db.models import KBChunk, KBSource, KBSourceType, KBStatus
+from olisar.db.models import (
+    GuildChannelInfo,
+    KBChunk,
+    KBSource,
+    KBSourceType,
+    KBStatus,
+    SearchMessage,
+)
 from olisar.memory.vectors import delete_embedding
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
@@ -73,6 +80,74 @@ async def add_source(body: SourceIn, gctx: GuildContext = Depends(require_guild_
             after={"uri": body.uri, "type": body.type},
         )
     return {"id": source_id, "status": "pending"}
+
+
+@router.post("/reindex")
+async def reindex(gctx: GuildContext = Depends(require_guild_admin)):
+    """Rebuild the server-wide message search index from each channel's history. Resets
+    the backfill cursor on every channel; the background worker re-walks them. The index
+    rows update in place (keyed by message id), so this is safe to run anytime."""
+    async with session_scope() as session:
+        await session.execute(
+            update(GuildChannelInfo)
+            .where(GuildChannelInfo.guild_id == gctx.guild_id)
+            .values(backfill_done=False, last_indexed_message_id=None)
+        )
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="reindex_search",
+            target_type="guild", target_id=gctx.guild_id,
+        )
+    return {"ok": True}
+
+
+@router.get("/reindex/status")
+async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
+    """Per-channel backfill progress for the message search index."""
+    async with session_scope() as session:
+        chans = (
+            await session.scalars(
+                select(GuildChannelInfo)
+                .where(GuildChannelInfo.guild_id == gctx.guild_id)
+                .order_by(GuildChannelInfo.position)
+            )
+        ).all()
+        counts = dict(
+            (
+                await session.execute(
+                    select(SearchMessage.channel_id, func.count())
+                    .where(SearchMessage.guild_id == gctx.guild_id)
+                    .group_by(SearchMessage.channel_id)
+                )
+            ).all()
+        )
+    channels = []
+    done = indexing = queued = 0
+    for c in chans:
+        if c.backfill_done:
+            status = "done"
+            done += 1
+        elif c.last_indexed_message_id is not None:
+            status = "indexing"
+            indexing += 1
+        else:
+            status = "queued"
+            queued += 1
+        channels.append({
+            "channel_id": str(c.channel_id),
+            "name": c.name or str(c.channel_id),
+            "kind": c.kind,
+            "status": status,
+            "indexed": int(counts.get(c.channel_id, 0)),
+        })
+    return {
+        "total": len(chans),
+        "done": done,
+        "indexing": indexing,
+        "queued": queued,
+        "running": (indexing + queued) > 0,
+        "indexed_messages": int(sum(counts.values())),
+        "channels": channels,
+    }
 
 
 @router.delete("/{source_id}")
