@@ -32,6 +32,7 @@ from olisar.tools import (
     ToolContext,
     execute_tool,
     presence_declarations,
+    sandbox_tools,
     tools_with_extensions,
 )
 
@@ -429,4 +430,98 @@ async def generate_reply(
         return rate_limit_msg
     except Exception:
         log.exception("gemini generation failed")
+        return blank_fallback
+
+
+SANDBOX_NOTE = (
+    "This is a private SANDBOX test chat with a server administrator — used to try out "
+    "your persona, knowledge base, and tools. There is no real Discord channel here and "
+    "NO memory: you will not remember anything from this conversation and nothing said "
+    "here is saved. Stay fully in character and use your tools normally, but do not "
+    "claim you'll remember things for next time."
+)
+
+
+async def generate_sandbox_reply(
+    session: AsyncSession,
+    *,
+    guild_id: int,
+    messages: list[dict],
+    runtime_note: str = "",
+) -> str:
+    """Reply for the dashboard's enclosed test chat. Same persona, KB, and tool-calling
+    as a live reply, but deliberately memory-free: context is built only from the
+    supplied transcript (no channel history), there is NO glossary/semantic recall, no
+    message is recorded, and the tool set excludes every memory and Discord-action tool
+    (see ``sandbox_tools``). Nothing here touches or pollutes the server's memory."""
+    cfg_guild = guild_id or settings.target_guild_id
+
+    persona = await session.get(Persona, cfg_guild)
+    if persona is None:
+        system_instruction = build_system_prompt(
+            persona_name=DEFAULT_PERSONA_NAME,
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            tone_notes=DEFAULT_TONE_NOTES,
+            runtime_note=runtime_note,
+        )
+    else:
+        system_instruction = build_system_prompt(
+            persona_name=persona.name,
+            system_prompt=persona.system_prompt,
+            tone_notes=persona.tone_notes,
+            runtime_note=runtime_note,
+        )
+    system_instruction += "\n\n" + SANDBOX_NOTE + "\n\n" + TOOLS_NOTE
+    system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
+
+    config = await session.get(GuildConfig, cfg_guild)
+    model = config.default_model if config and config.default_model else None
+    cmd_msgs = config.command_messages if config and config.command_messages else {}
+    rate_limit_msg = render_message(cmd_msgs, "rate_limit")
+    blank_fallback = render_message(cmd_msgs, "blank_fallback")
+
+    # Context is ONLY the supplied transcript — no channel read, no recall.
+    contents = []
+    for m in messages:
+        text = (m.get("content") or "").strip()
+        if not text:
+            continue
+        role = "model" if m.get("role") == "assistant" else "user"
+        contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
+    if not contents:
+        return blank_fallback
+
+    # Extensions still contribute their tools + behaviour notes (API-based, no Discord),
+    # so the test reflects real KB/extension behaviour. Presence tools are omitted
+    # (they need a live guild). Best-effort; never blocks.
+    ext = GatheredExtensions()
+    try:
+        ext = await gather_enabled(session, cfg_guild)
+    except Exception:
+        log.exception("sandbox extension gather failed; continuing without extensions")
+    for note in ext.notes:
+        system_instruction += "\n\n" + note
+
+    ctx = ToolContext(
+        session=session,
+        cfg_guild=cfg_guild,
+        channel_id=0,
+        user_id=0,
+        display_name="Sandbox admin",
+        actions=None,  # no Discord side-effects in the sandbox
+        extension_tools=ext.handlers,
+    )
+    try:
+        return await _run_tool_loop(
+            contents,
+            system_instruction,
+            model,
+            ctx,
+            blank_fallback=blank_fallback,
+            tools=sandbox_tools(list(ext.declarations)),
+        )
+    except RateLimitExceeded:
+        return rate_limit_msg
+    except Exception:
+        log.exception("sandbox generation failed")
         return blank_fallback

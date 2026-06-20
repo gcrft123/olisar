@@ -21,6 +21,7 @@ from api.schemas import (
     FactIn,
     PersonaIn,
     ProactivityIn,
+    SandboxChatIn,
 )
 from olisar import runtime_keys
 from olisar.audit import record_audit
@@ -118,6 +119,25 @@ async def put_persona(body: PersonaIn, gctx: GuildContext = Depends(require_guil
             target_type="persona", target_id=gctx.guild_id, after=data,
         )
     return {"ok": True}
+
+
+@router.post("/sandbox/chat")
+async def sandbox_chat(body: SandboxChatIn, gctx: GuildContext = Depends(require_guild_admin)):
+    """Enclosed test chat: generate a reply with the live persona, KB, and tools, but
+    no memory — nothing is read from or written to the server's glossary/memory. The
+    transcript is supplied by the client (server keeps no state)."""
+    # Lazy import: the pipeline pulls in the whole bot stack; keep it off the API's
+    # import path until an admin actually opens the test chat.
+    from olisar.pipeline import generate_sandbox_reply
+
+    msgs = [{"role": m.role, "content": m.content} for m in body.messages if m.content.strip()]
+    if not msgs:
+        raise HTTPException(status_code=400, detail="no messages")
+    # Bound the transcript so an admin can't push an unbounded context at the model.
+    msgs = msgs[-40:]
+    async with session_scope() as session:
+        reply = await generate_sandbox_reply(session, guild_id=gctx.guild_id, messages=msgs)
+    return {"reply": reply}
 
 
 @router.get("/config")

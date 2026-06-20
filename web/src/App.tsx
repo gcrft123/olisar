@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Icon, type IconName } from './icons'
 import {
-  Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
+  Persona, TestChat, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
 import { SetupWizard, type SetupStatus } from './setup'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
+  { id: 'sandbox', label: 'Test chat', ic: 'sandbox' },
   { id: 'behavior', label: 'Behavior', ic: 'behavior' },
   { id: 'messages', label: 'Command replies', ic: 'messages' },
   { id: 'channels', label: 'Channels', ic: 'channels' },
@@ -99,6 +100,7 @@ export default function App() {
 
   const pages: Record<string, JSX.Element> = {
     persona: <Persona />,
+    sandbox: <TestChat />,
     behavior: <Behavior />,
     messages: <Messages />,
     channels: <Channels />,

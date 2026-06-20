@@ -283,6 +283,25 @@ def tools_with_extensions(extra_declarations: list) -> list:
     return [types.Tool(function_declarations=[*_DECLARATIONS, *extra_declarations])]
 
 
+# Core tools exposed in the dashboard sandbox (the enclosed test chat). Only the
+# knowledge-base lookup and web search: everything else is deliberately excluded —
+# the memory/glossary tools (remember, remember_server_fact, recall_memory,
+# search_messages, catchup, *_reminder) because the sandbox is memory-free, and the
+# Discord-action tools (react, send_dm, set_status, get_user_status, who_is_in_voice,
+# generate_image) because there's no live channel/member to act on. New tools stay
+# out by default, which is the safe behaviour for an enclosed environment.
+_SANDBOX_CORE = {"query_knowledge", "web_search"}
+
+
+def sandbox_tools(extra_declarations: list) -> list:
+    """Tool set for the enclosed dashboard test chat: the sandbox-safe core tools plus
+    any enabled extensions' tools (those are API-based and need no Discord context).
+    Keeps tool-calling + KB working while guaranteeing a test chat never writes memory
+    or reaches into the live server."""
+    core = [d for d in _DECLARATIONS if d.name in _SANDBOX_CORE]
+    return [types.Tool(function_declarations=[*core, *extra_declarations])]
+
+
 async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
     config = await session.get(GuildConfig, cfg_guild)
     if config is None or not config.grounding_enabled:

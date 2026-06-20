@@ -93,3 +93,14 @@ class SourceIn(BaseModel):
 class ExtensionToggleIn(BaseModel):
     key: str
     enabled: bool
+
+
+class SandboxMessage(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class SandboxChatIn(BaseModel):
+    # Full transcript so far, ending with the admin's new message. The sandbox is
+    # stateless server-side (memory-free), so the client carries the history.
+    messages: list[SandboxMessage]
