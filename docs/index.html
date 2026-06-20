@@ -87,8 +87,8 @@
     padding: 9px 16px; border-radius: 10px; transition: transform .15s, box-shadow .2s, background .2s, border-color .2s;
     border: 1px solid transparent; white-space: nowrap;
   }
-  .btn-primary { background: var(--violet); color: #0a0a14; box-shadow: 0 6px 24px -8px rgba(138,138,242,0.7); }
-  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 30px -8px rgba(138,138,242,0.85); }
+  .btn-primary { background: #6354ec; color: #fff; box-shadow: 0 6px 24px -8px rgba(99,84,236,0.78); }
+  .btn-primary:hover { transform: translateY(-1px); background: #5a4ce6; box-shadow: 0 12px 32px -8px rgba(99,84,236,0.95); }
   .btn-ghost { border-color: var(--line-2); color: var(--ink); background: rgba(255,255,255,0.02); }
   .btn-ghost:hover { border-color: #3a3a44; background: rgba(255,255,255,0.05); }
   @media (max-width: 720px) { .nav-links a:not(.btn) { display: none; } }
@@ -174,12 +174,11 @@
   .field .inp.area { min-height: 92px; line-height: 1.6; color: var(--ink-2); }
   .field .inp.area b { color: var(--ink); font-weight: 500; }
   .field { margin-bottom: 15px; }
-  .savedock { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; align-items: center; gap: 20px; padding: 9px 10px 9px 18px; background: #111113; border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 16px 40px -12px rgba(0,0,0,0.8); }
-  .savedock .m { font-size: 12.5px; color: var(--ink-2); }
-  .savedock .a { display: flex; gap: 8px; }
-  .sd-btn { font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 8px; }
-  .sd-ghost { color: var(--ink-2); border: 1px solid var(--line-2); }
-  .sd-save { background: var(--violet); color: #0a0a14; }
+  .ds-ic { width: 17px; height: 17px; flex: none; }
+  .ds-item.on .ds-ic { color: var(--violet); }
+  .pwr-ic { width: 17px; height: 17px; }
+  .hi-ic { width: 18px; height: 18px; }
+  .fic > svg { width: 20px; height: 20px; }
 
   /* ── section heads ──────────────────────────────────────────── */
   .sec { padding: clamp(70px, 12vh, 130px) 0 0; }
@@ -206,17 +205,6 @@
   .msg .time { font-size: 11.5px; color: #949ba4; }
   .msg .text { color: #dbdee1; font-size: 14.5px; line-height: 1.5; }
   .msg .text .jump { color: var(--violet-bright); background: rgba(138,138,242,0.12); padding: 0 3px; border-radius: 3px; }
-  .gen {
-    margin-top: 9px; width: min(380px, 100%); aspect-ratio: 16/10; border-radius: 10px; overflow: hidden; position: relative;
-    background:
-      radial-gradient(120% 90% at 18% 12%, rgba(138,138,242,0.95), transparent 55%),
-      radial-gradient(110% 90% at 88% 22%, rgba(85,214,255,0.85), transparent 55%),
-      radial-gradient(130% 120% at 60% 110%, rgba(214,90,200,0.8), transparent 60%),
-      #0c0a1a;
-    border: 1px solid rgba(255,255,255,0.07);
-  }
-  .gen svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-  .gen .cap { position: absolute; left: 10px; bottom: 9px; font-family: var(--mono); font-size: 10.5px; color: rgba(255,255,255,0.78); background: rgba(0,0,0,0.32); padding: 3px 7px; border-radius: 5px; backdrop-filter: blur(3px); }
 
   /* ── features ───────────────────────────────────────────────── */
   .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
@@ -251,11 +239,16 @@
   .final h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(36px,6vw,64px); line-height: 1.05; }
   .final .cta { margin-top: 32px; }
 
-  footer { margin-top: clamp(70px,12vh,120px); border-top: 1px solid var(--line); padding: 40px 0 60px; }
-  .foot-in { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; color: var(--ink-3); font-size: 13.5px; }
-  .foot-in a { color: var(--ink-2); } .foot-in a:hover { color: var(--ink); }
-  .foot-in .sep { margin-left: auto; }
-  .foot-links { display: flex; gap: 22px; }
+  footer { margin-top: clamp(70px,12vh,120px); border-top: 1px solid var(--line); padding: 56px 0 0; }
+  .foot { display: flex; gap: 40px; flex-wrap: wrap; justify-content: space-between; padding-bottom: 44px; }
+  .foot-brand { max-width: 320px; }
+  .foot-brand .brand { margin-bottom: 14px; }
+  .foot-brand p { color: var(--ink-3); font-size: 13.5px; line-height: 1.6; }
+  .foot-cols { display: flex; gap: 56px; flex-wrap: wrap; }
+  .foot-col { display: flex; flex-direction: column; gap: 11px; }
+  .foot-col .ttl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 3px; }
+  .foot-col a { font-size: 14px; color: var(--ink-2); } .foot-col a:hover { color: var(--violet-bright); }
+  .foot-bottom { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 22px 0 50px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
 
   @media (prefers-reduced-motion: reduce) {
     .glow::before, .glow::after, .stage .window { animation: none; }
@@ -265,6 +258,21 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="ic-persona" viewBox="0 0 24 24"><circle cx="12" cy="9" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M17.9691 20C17.81 17.1085 16.9247 15 11.9999 15C7.07521 15 6.18991 17.1085 6.03076 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="ic-behavior" viewBox="0 0 24 24"><path d="M9.5 14C11.1569 14 12.5 15.3431 12.5 17C12.5 18.6568 11.1569 20 9.5 20C7.84315 20 6.5 18.6568 6.5 17C6.5 15.3431 7.84315 14 9.5 14Z" stroke="currentColor" stroke-width="1.5"/><path d="M14.5 3.99998C12.8431 3.99998 11.5 5.34312 11.5 6.99998C11.5 8.65683 12.8431 9.99998 14.5 9.99998C16.1569 9.99998 17.5 8.65683 17.5 6.99998C17.5 5.34312 16.1569 3.99998 14.5 3.99998Z" stroke="currentColor" stroke-width="1.5"/><path d="M15 16.9585L22 16.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M9 6.9585L2 6.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 16.9585L4 16.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M22 6.9585L20 6.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="ic-channels" viewBox="0 0 24 24"><path d="M10 3L5 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 3L14 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 9H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="ic-access" viewBox="0 0 24 24"><path d="M3 10.4167C3 7.21907 3 5.62028 3.37752 5.08241C3.75503 4.54454 5.25832 4.02996 8.26491 3.00079L8.83772 2.80472C10.405 2.26824 11.1886 2 12 2C12.8114 2 13.595 2.26824 15.1623 2.80472L15.7351 3.00079C18.7417 4.02996 20.245 4.54454 20.6225 5.08241C21 5.62028 21 7.21907 21 10.4167C21 10.8996 21 11.4234 21 11.9914C21 17.6294 16.761 20.3655 14.1014 21.5273C13.38 21.8424 13.0193 22 12 22C10.9807 22 10.62 21.8424 9.89856 21.5273C7.23896 20.3655 3 17.6294 3 11.9914C3 11.4234 3 10.8996 3 10.4167Z" stroke="currentColor" stroke-width="1.5"/><path d="M11.5 16H12.5C13.0523 16 13.5 15.5523 13.5 15V13.5987C14.3967 13.0799 15 12.1104 15 11C15 9.34315 13.6569 8 12 8C10.3431 8 9 9.34315 9 11C9 12.1104 9.6033 13.0799 10.5 13.5987V15C10.5 15.5523 10.9477 16 11.5 16Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="ic-knowledge" viewBox="0 0 24 24"><path d="M4 8C4 5.17157 4 3.75736 4.87868 2.87868C5.75736 2 7.17157 2 10 2H14C16.8284 2 18.2426 2 19.1213 2.87868C20 3.75736 20 5.17157 20 8V16C20 18.8284 20 20.2426 19.1213 21.1213C18.2426 22 16.8284 22 14 22H10C7.17157 22 5.75736 22 4.87868 21.1213C4 20.2426 4 18.8284 4 16V8Z" stroke="currentColor" stroke-width="1.5"/><path d="M19.8978 16H7.89778C6.96781 16 6.50282 16 6.12132 16.1022C5.08604 16.3796 4.2774 17.1883 4 18.2235" stroke="currentColor" stroke-width="1.5"/><path d="M8 7H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 10.5H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13 16V19.5309C13 19.8065 13 19.9443 12.9051 20C12.8103 20.0557 12.6806 19.9941 12.4211 19.8708L11.1789 19.2808C11.0911 19.2391 11.0472 19.2182 11 19.2182C10.9528 19.2182 10.9089 19.2391 10.8211 19.2808L9.57889 19.8708C9.31943 19.9941 9.18971 20.0557 9.09485 20C9 19.9443 9 19.8065 9 19.5309V16.45" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="ic-extensions" viewBox="0 0 24 24"><path d="M10.0128 21.9673L9.86335 22.7023H9.86335L10.0128 21.9673ZM16.0342 20.4846C15.6622 20.6668 15.5084 21.116 15.6906 21.488C15.8728 21.86 16.3221 22.0138 16.6941 21.8316L16.0342 20.4846ZM10.1622 21.2324C5.93808 20.3736 2.75 16.6065 2.75 12.0832H1.25C1.25 17.3253 4.94577 21.7025 9.86335 22.7023L10.1622 21.2324ZM2.75 12.0832C2.75 6.92275 6.89721 2.75 12 2.75V1.25C6.05709 1.25 1.25 6.10606 1.25 12.0832H2.75ZM12 2.75C17.1028 2.75 21.25 6.92275 21.25 12.0832H22.75C22.75 6.10606 17.9429 1.25 12 1.25V2.75ZM12.75 20.1498V15.1082H11.25V20.1498H12.75ZM21.25 12.0832C21.25 15.7797 19.1208 18.9726 16.0342 20.4846L16.6941 21.8316C20.2798 20.0752 22.75 16.369 22.75 12.0832H21.25ZM9.86335 22.7023C11.5214 23.0394 12.75 21.618 12.75 20.1498H11.25C11.25 20.909 10.6697 21.3355 10.1622 21.2324L9.86335 22.7023Z" fill="currentColor"/><path d="M9 11.8C9 11.3582 9.35817 11 9.8 11H14.2C14.6418 11 15 11.3582 15 11.8V12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12V11.8Z" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 11V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10.5 11V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="ic-power" viewBox="0 0 24 24"><path d="M12 2V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.75 2.75C12.75 2.33579 12.4142 2 12 2C11.5858 2 11.25 2.33579 11.25 2.75V6.75C11.25 7.16421 11.5858 7.5 12 7.5C12.4142 7.5 12.75 7.16421 12.75 6.75V2.75Z" fill="currentColor"/><path d="M8.7919 5.14692C9.17345 4.98571 9.35208 4.54571 9.19087 4.16416C9.02966 3.7826 8.58966 3.60398 8.2081 3.76519C4.70832 5.24386 2.25 8.70905 2.25 12.7501C2.25 18.1349 6.61522 22.5001 12 22.5001C17.3848 22.5001 21.75 18.1349 21.75 12.7501C21.75 8.70905 19.2917 5.24386 15.7919 3.76519C15.4103 3.60398 14.9703 3.7826 14.8091 4.16416C14.6479 4.54571 14.8265 4.98571 15.2081 5.14692C18.1722 6.39927 20.25 9.33293 20.25 12.7501C20.25 17.3065 16.5563 21.0001 12 21.0001C7.44365 21.0001 3.75 17.3065 3.75 12.7501C3.75 9.33293 5.82779 6.39927 8.7919 5.14692Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-memory" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.07868 5.06891C8.87402 1.27893 15.0437 1.31923 18.8622 5.13778C22.6824 8.95797 22.7211 15.1313 18.9262 18.9262C15.1312 22.7211 8.95793 22.6824 5.13774 18.8622C2.87389 16.5984 1.93904 13.5099 2.34047 10.5812C2.39672 10.1708 2.775 9.88377 3.18537 9.94002C3.59575 9.99627 3.88282 10.3745 3.82658 10.7849C3.4866 13.2652 4.27782 15.881 6.1984 17.8016C9.44288 21.0461 14.6664 21.0646 17.8655 17.8655C21.0646 14.6664 21.046 9.44292 17.8015 6.19844C14.5587 2.95561 9.33889 2.93539 6.13935 6.12957L6.88705 6.13333C7.30126 6.13541 7.63535 6.47288 7.63327 6.88709C7.63119 7.3013 7.29372 7.63539 6.87951 7.63331L4.33396 7.62052C3.92269 7.61845 3.58981 7.28556 3.58774 6.8743L3.57495 4.32874C3.57286 3.91454 3.90696 3.57707 4.32117 3.57498C4.73538 3.5729 5.07285 3.907 5.07493 4.32121L5.07868 5.06891ZM11.9999 7.24992C12.4141 7.24992 12.7499 7.58571 12.7499 7.99992V11.6893L15.0302 13.9696C15.3231 14.2625 15.3231 14.7374 15.0302 15.0302C14.7373 15.3231 14.2624 15.3231 13.9696 15.0302L11.2499 12.3106V7.99992C11.2499 7.58571 11.5857 7.24992 11.9999 7.24992Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-knowledge" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.27103 2.11151C5.46135 2.21816 5.03258 2.41324 4.72718 2.71244C4.42179 3.01165 4.22268 3.43172 4.11382 4.225C4.00176 5.04159 4 6.12387 4 7.67568V16.2442C4.38867 15.9781 4.82674 15.7756 5.29899 15.6517C5.82716 15.513 6.44305 15.5132 7.34563 15.5135L20 15.5135V7.67568C20 6.12387 19.9982 5.04159 19.8862 4.22499C19.7773 3.43172 19.5782 3.01165 19.2728 2.71244C18.9674 2.41324 18.5387 2.21816 17.729 2.11151C16.8955 2.00172 15.7908 2 14.2069 2H9.7931C8.2092 2 7.10452 2.00172 6.27103 2.11151ZM6.75862 6.59459C6.75862 6.1468 7.12914 5.78378 7.58621 5.78378H16.4138C16.8709 5.78378 17.2414 6.1468 17.2414 6.59459C17.2414 7.04239 16.8709 7.40541 16.4138 7.40541H7.58621C7.12914 7.40541 6.75862 7.04239 6.75862 6.59459ZM7.58621 9.56757C7.12914 9.56757 6.75862 9.93058 6.75862 10.3784C6.75862 10.8262 7.12914 11.1892 7.58621 11.1892H13.1034C13.5605 11.1892 13.931 10.8262 13.931 10.3784C13.931 9.93058 13.5605 9.56757 13.1034 9.56757H7.58621Z" fill="currentColor"/><path d="M8.68965 17.1351H7.47341C6.39395 17.1351 6.01657 17.1421 5.72738 17.218C4.93365 17.4264 4.30088 18.0044 4.02952 18.7558C4.0463 19.1382 4.07259 19.4746 4.11382 19.775C4.22268 20.5683 4.42179 20.9884 4.72718 21.2876C5.03258 21.5868 5.46135 21.7818 6.27103 21.8885C7.10452 21.9983 8.2092 22 9.7931 22H14.2069C15.7908 22 16.8955 21.9983 17.729 21.8885C18.5387 21.7818 18.9674 21.5868 19.2728 21.2876C19.5782 20.9884 19.7773 20.5683 19.8862 19.775C19.9776 19.1088 19.9956 18.2657 19.9991 17.1351H13.1034V20.1417C13.1034 20.4397 13.1034 20.5886 12.9988 20.6488C12.8941 20.709 12.751 20.6424 12.4647 20.5092L11.0939 19.8713C10.9971 19.8262 10.9486 19.8037 10.8966 19.8037C10.8445 19.8037 10.796 19.8262 10.6992 19.8713L9.32842 20.5092C9.04213 20.6424 8.89899 20.709 8.79432 20.6488C8.68965 20.5886 8.68965 20.4397 8.68965 20.1417V17.1351Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-access" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.37752 5.08241C3 5.62028 3 7.21907 3 10.4167V11.9914C3 17.6294 7.23896 20.3655 9.89856 21.5273C10.62 21.8424 10.9807 22 12 22C13.0193 22 13.38 21.8424 14.1014 21.5273C16.761 20.3655 21 17.6294 21 11.9914V10.4167C21 7.21907 21 5.62028 20.6225 5.08241C20.245 4.54454 18.7417 4.02996 15.7351 3.00079L15.1623 2.80472C13.595 2.26824 12.8114 2 12 2C11.1886 2 10.405 2.26824 8.83772 2.80472L8.26491 3.00079C5.25832 4.02996 3.75503 4.54454 3.37752 5.08241ZM13.5 15C13.5 15.5523 13.0523 16 12.5 16H11.5C10.9477 16 10.5 15.5523 10.5 15V13.5987C9.6033 13.0799 9 12.1104 9 11C9 9.34315 10.3431 8 12 8C13.6569 8 15 9.34315 15 11C15 12.1104 14.3967 13.0799 13.5 13.5987V15Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-extensions" viewBox="0 0 24 24"><path d="M12 2C6.47715 2 2 6.48336 2 12.0139C2 17.2918 6.07759 21.6161 11.2503 22L11.2499 15.9387C9.67737 15.5949 8.5 14.1924 8.5 12.5146V12.0139C8.5 11.4608 8.94772 11.0125 9.5 11.0125H9.75V9.0097C9.75 8.59491 10.0858 8.25866 10.5 8.25866C10.9142 8.25866 11.25 8.59491 11.25 9.0097V11.0125H12.75V9.0097C12.75 8.59491 13.0858 8.25866 13.5 8.25866C13.9142 8.25866 14.25 8.59491 14.25 9.0097V11.0125H14.5C15.0523 11.0125 15.5 11.4608 15.5 12.0139V12.5146C15.5 14.1925 14.3226 15.595 12.7499 15.9388L12.7497 22C17.9224 21.6161 22 17.2918 22 12.0139C22 6.48336 17.5228 2 12 2Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-remote" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M2.02783 11.25C2.41136 6.07745 6.72957 2 12.0001 2C11.1693 2 10.4295 2.36421 9.82093 2.92113C9.21541 3.47525 8.70371 4.24878 8.28983 5.16315C7.87352 6.08292 7.55013 7.15868 7.33126 8.32611C7.1558 9.26194 7.04903 10.2485 7.01344 11.25H2.02783ZM2.02783 12.75H7.01344C7.04903 13.7515 7.1558 14.7381 7.33126 15.6739C7.55013 16.8413 7.87351 17.9171 8.28983 18.8368C8.70371 19.7512 9.21541 20.5247 9.82093 21.0789C10.4295 21.6358 11.1693 22 12.0001 22C6.72957 22 2.41136 17.9226 2.02783 12.75Z" fill="currentColor"/><path d="M12.0001 3.39535C11.7251 3.39535 11.3699 3.51236 10.9567 3.89042C10.5406 4.27126 10.1239 4.86815 9.75585 5.68137C9.3902 6.4892 9.09329 7.46441 8.88897 8.55419C8.72806 9.41242 8.62824 10.3222 8.59321 11.25H15.4071C15.372 10.3222 15.2722 9.41242 15.1113 8.5542C14.907 7.46441 14.6101 6.48921 14.2444 5.68137C13.8763 4.86815 13.4597 4.27126 13.0435 3.89042C12.6304 3.51236 12.2751 3.39535 12.0001 3.39535Z" fill="currentColor"/><path d="M8.88897 15.4458C9.09329 16.5356 9.3902 17.5108 9.75585 18.3186C10.1239 19.1319 10.5406 19.7287 10.9567 20.1096C11.3698 20.4876 11.7251 20.6047 12.0001 20.6047C12.2751 20.6047 12.6304 20.4876 13.0435 20.1096C13.4597 19.7287 13.8763 19.1319 14.2444 18.3186C14.6101 17.5108 14.907 16.5356 15.1113 15.4458C15.2722 14.5876 15.372 13.6778 15.4071 12.75H8.59321C8.62824 13.6778 8.72806 14.5876 8.88897 15.4458Z" fill="currentColor"/><path d="M12.0001 2C12.831 2 13.5708 2.36421 14.1793 2.92113C14.7849 3.47525 15.2966 4.24878 15.7104 5.16315C16.1267 6.08292 16.4501 7.15868 16.669 8.32612C16.8445 9.26194 16.9512 10.2485 16.9868 11.25H21.9724C21.5889 6.07745 17.2707 2 12.0001 2Z" fill="currentColor"/><path d="M16.669 15.6739C16.4501 16.8413 16.1267 17.9171 15.7104 18.8368C15.2966 19.7512 14.7849 20.5247 14.1793 21.0789C13.5708 21.6358 12.831 22 12.0001 22C17.2707 22 21.5889 17.9226 21.9724 12.75H16.9868C16.9512 13.7515 16.8445 14.7381 16.669 15.6739Z" fill="currentColor"/></symbol>
+  <symbol id="ic-f-updates" viewBox="0 0 24 24"><path d="M12.0789 2.25C7.2854 2.25 3.34478 5.913 2.96055 10.5833H2.00002C1.69614 10.5833 1.42229 10.7667 1.30655 11.0477C1.19081 11.3287 1.25606 11.6517 1.47178 11.8657L3.15159 13.5324C3.444 13.8225 3.91567 13.8225 4.20808 13.5324L5.88789 11.8657C6.10361 11.6517 6.16886 11.3287 6.05312 11.0477C5.93738 10.7667 5.66353 10.5833 5.35965 10.5833H4.4668C4.84652 6.75167 8.10479 3.75 12.0789 3.75C14.8484 3.75 17.2727 5.20845 18.6156 7.39279C18.8325 7.74565 19.2944 7.85585 19.6473 7.63892C20.0002 7.42199 20.1104 6.96007 19.8934 6.60721C18.2871 3.99427 15.3873 2.25 12.0789 2.25Z" fill="currentColor"/><path d="M20.8411 10.4666C20.549 10.1778 20.0789 10.1778 19.7867 10.4666L18.1005 12.1333C17.8841 12.3471 17.8184 12.6703 17.9339 12.9517C18.0495 13.233 18.3235 13.4167 18.6277 13.4167H19.5268C19.1455 17.2462 15.8759 20.25 11.8828 20.25C9.10026 20.25 6.66586 18.7903 5.31796 16.6061C5.10042 16.2536 4.63833 16.1442 4.28583 16.3618C3.93334 16.5793 3.82393 17.0414 4.04146 17.3939C5.65407 20.007 8.56406 21.75 11.8828 21.75C16.6906 21.75 20.6475 18.0892 21.0331 13.4167H22.0002C22.3043 13.4167 22.5783 13.233 22.6939 12.9517C22.8095 12.6703 22.7437 12.3471 22.5274 12.1333L20.8411 10.4666Z" fill="currentColor"/></symbol>
+</svg>
 <div class="glow"></div>
 <div class="grid-tex"></div>
 
@@ -280,14 +288,14 @@
 </nav>
 
 <header class="hero wrap" id="top">
-  <div class="reveal in"><span class="eyebrow"><span class="dot"></span> Self-hosted · Free tier · Open source</span></div>
+  <div class="reveal in"><span class="eyebrow"><span class="dot"></span> Free · Open source · Self-hosted</span></div>
   <h1 class="reveal in" style="transition-delay:.05s">An AI that feels like<br>a <em>member</em> of your server.</h1>
   <p class="sub reveal in" style="transition-delay:.12s">Olisar reads the channels you allow, remembers context, builds a sense of who people are, and chimes in with its own personality — all configured from a private console you run yourself.</p>
   <div class="cta reveal in" style="transition-delay:.18s">
     <a class="btn btn-primary" href="https://github.com/gcrft123/olisar/releases/latest">Download for macOS &amp; Windows</a>
     <a class="btn btn-ghost" href="https://github.com/gcrft123/olisar">★ Star on GitHub</a>
   </div>
-  <p class="meta-line reveal in" style="transition-delay:.24s">v0.2.1 · <b>macOS</b> + <b>Windows</b> · runs on the free Google&nbsp;Gemini tier</p>
+  <p class="meta-line reveal in" style="transition-delay:.24s"><b style="color:var(--violet-bright)">Free</b> &amp; <b style="color:var(--violet-bright)">open source</b> (MIT) · macOS + Windows · v0.2.1</p>
 </header>
 
 <!-- DASHBOARD MOCKUP -->
@@ -299,16 +307,16 @@
         <div class="ds-brand"><img src="logo.png" alt="" /><div><div class="n">Olisar</div><div class="s">Secure Console</div></div></div>
         <div class="ds-switch"><div class="ic"></div><div class="t">Red Nebula Industries</div><div class="cv">⌄</div></div>
         <div class="ds-label">Configure</div>
-        <div class="ds-item on"><span class="gl"></span> Persona</div>
-        <div class="ds-item"><span class="gl"></span> Behavior</div>
-        <div class="ds-item"><span class="gl"></span> Channels</div>
-        <div class="ds-item"><span class="gl"></span> Access</div>
-        <div class="ds-item"><span class="gl"></span> Knowledge</div>
-        <div class="ds-item"><span class="gl"></span> Extensions</div>
+        <div class="ds-item on"><svg class="ds-ic"><use href="#ic-persona"/></svg> Persona</div>
+        <div class="ds-item"><svg class="ds-ic"><use href="#ic-behavior"/></svg> Behavior</div>
+        <div class="ds-item"><svg class="ds-ic"><use href="#ic-channels"/></svg> Channels</div>
+        <div class="ds-item"><svg class="ds-ic"><use href="#ic-access"/></svg> Access</div>
+        <div class="ds-item"><svg class="ds-ic"><use href="#ic-knowledge"/></svg> Knowledge</div>
+        <div class="ds-item"><svg class="ds-ic"><use href="#ic-extensions"/></svg> Extensions</div>
         <div class="ds-foot">
           <div class="ds-power">
             <div class="pbtn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><path d="M12 4v8"/><path d="M7.5 7a7 7 0 1 0 9 0"/></svg>
+              <svg class="pwr-ic"><use href="#ic-power"/></svg>
             </div>
             <div><div class="ps"><span class="d"></span> Bot online</div><div class="ph">hold to power down</div></div>
           </div>
@@ -317,7 +325,7 @@
       </aside>
       <main class="dash-main">
         <div class="dm-head">
-          <div class="hi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg></div>
+          <div class="hi"><svg class="hi-ic"><use href="#ic-persona"/></svg></div>
           <h2>Persona</h2>
         </div>
         <p class="dm-sub">Olisar's character — the single biggest lever on how it feels.</p>
@@ -326,10 +334,7 @@
           <div class="hint">Its name and the system prompt that defines its voice, lore, and rules.</div>
           <div class="field"><label>Name</label><div class="inp">Olisar</div></div>
           <div class="field"><label>System prompt</label><div class="inp area">You are <b>Olisar</b>, the dry, unflappable AI that keeps the Red Nebula Industries comms running. You've seen every jump point and every bad trade. Keep replies short, a little wry, never break character — and never spoil the Friday raid plans.</div></div>
-        </div>
-        <div class="savedock">
-          <span class="m">Careful — you have unsaved changes.</span>
-          <span class="a"><span class="sd-btn sd-ghost">Reset</span><span class="sd-btn sd-save">Save changes</span></span>
+          <div class="field" style="margin-bottom:0"><label>Style notes</label><div class="inp">casual, lowercase-ish, no emoji — like a ship's AI that's seen it all</div></div>
         </div>
       </main>
     </div>
@@ -353,39 +358,28 @@
             <div class="av">DB</div>
             <div class="body">
               <div class="row"><span class="name">DadBodNerd</span><span class="time">Today at 9:14 PM</span></div>
-              <div class="text">olisar, where's the cheapest Avenger Titan in-game right now?</div>
+              <div class="text">olisar, what's our org's RSI handle again?</div>
             </div>
           </div>
           <div class="msg">
             <div class="av bot"><img src="logo.png" alt="" /></div>
             <div class="body">
               <div class="row"><span class="name bot">Olisar</span><span class="tag">APP</span><span class="time">Today at 9:14 PM</span></div>
-              <div class="text">Cheapest hull I can find is <b>New Deal, Lorville</b> at <b>1,069,200 aUEC</b> — about 4% under the going rate. Astro Armada at Area18 is a hair pricier but closer if you're Stanton-side. Want the route?</div>
+              <div class="text">It's <b>RNI-CORP</b> — quasar_x dropped it in <span class="jump">#welcome ↗</span> back when we founded the org in March. Want the join link too?</div>
             </div>
           </div>
           <div class="msg">
             <div class="av" style="background:#3ba55d">QX</div>
             <div class="body">
               <div class="row"><span class="name">quasar_x</span><span class="time">Today at 9:16 PM</span></div>
-              <div class="text">lol nice. olisar draw us a neon space whale over New Babbage</div>
+              <div class="text">ha, good memory. when's the next org meetup?</div>
             </div>
           </div>
           <div class="msg">
             <div class="av bot"><img src="logo.png" alt="" /></div>
             <div class="body">
               <div class="row"><span class="name bot">Olisar</span><span class="tag">APP</span><span class="time">Today at 9:16 PM</span></div>
-              <div class="text">Say no more.</div>
-              <div class="gen">
-                <svg viewBox="0 0 400 250" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-                  <g fill="#fff" opacity="0.85">
-                    <circle cx="60" cy="40" r="1.1"/><circle cx="140" cy="28" r="0.8"/><circle cx="250" cy="50" r="1.3"/><circle cx="330" cy="34" r="0.9"/><circle cx="300" cy="90" r="0.8"/><circle cx="90" cy="120" r="0.7"/><circle cx="370" cy="120" r="1"/><circle cx="30" cy="90" r="0.8"/>
-                  </g>
-                  <path d="M70 170 q40 -55 120 -52 q70 3 95 -30 q-8 40 -55 56 q40 6 70 -6 q-30 30 -82 28 q-75 -2 -120 38 q8 -34 2 -58 z" fill="rgba(10,8,26,0.45)" stroke="rgba(170,200,255,0.85)" stroke-width="1.4"/>
-                  <circle cx="115" cy="150" r="3.2" fill="#cfe6ff"/>
-                  <path d="M70 170 q-22 6 -34 26 q26 -8 36 -8" fill="rgba(10,8,26,0.4)" stroke="rgba(170,200,255,0.7)" stroke-width="1.2"/>
-                </svg>
-                <span class="cap">generated · FLUX.1</span>
-              </div>
+              <div class="text">Saturday the 21st, 20:00 UTC in <span class="jump">#events ↗</span>. You said you'd be back from your work trip by then — want a heads-up an hour before?</div>
             </div>
           </div>
         </div>
@@ -399,36 +393,12 @@
   <div class="sec-tag reveal">Everything, configurable</div>
   <h2 class="reveal" style="transition-delay:.05s">A whole personality, under your control.</h2>
   <div class="feat-grid">
-    <div class="fcard reveal">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 11.5a8.5 8.5 0 1 1-3.6-6.9L21 3"/><path d="M21 3v5h-5"/></svg></div>
-      <h3>Persistent memory</h3>
-      <p>Rolling summaries, semantic recall, durable facts, and a server-wide search index — ask "where was that posted?" and get a jump-link.</p>
-    </div>
-    <div class="fcard reveal" style="transition-delay:.05s">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2z"/><path d="M8 7h7M8 11h7"/></svg></div>
-      <h3>Teachable knowledge</h3>
-      <p>Feed it web pages, whole sites, or documents. It chunks, embeds, and answers from them in its own voice — plus a glossary for your dialect.</p>
-    </div>
-    <div class="fcard reveal" style="transition-delay:.1s">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
-      <h3>Role-based access</h3>
-      <p>Gate it by Discord role, with <em style="font-style:normal;color:var(--violet-bright)">live permission re-checks</em> — lose Manage Server and console access is revoked on the next request.</p>
-    </div>
-    <div class="fcard reveal">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M12 5v14"/><circle cx="12" cy="12" r="9"/></svg></div>
-      <h3>Extensions</h3>
-      <p>Toggle packaged features — dice, calculator, concise mode, and a full Star Citizen pack with live trade, ship and location tools.</p>
-    </div>
-    <div class="fcard reveal" style="transition-delay:.05s">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></div>
-      <h3>Remote access</h3>
-      <p>Let co-admins sign in from anywhere over Tailscale Funnel — a free, stable <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link with no domain and no port-forwarding.</p>
-    </div>
-    <div class="fcard reveal" style="transition-delay:.1s">
-      <div class="fic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg></div>
-      <h3>Updates itself</h3>
-      <p>The app checks GitHub Releases and installs new versions in place — one click, no reinstall, on both macOS and Windows.</p>
-    </div>
+    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-memory"/></svg></div><h3>Persistent memory</h3><p>Rolling summaries, semantic recall, durable facts, and a server-wide search index — ask &quot;where was that posted?&quot; and get a jump-link.</p></div>
+    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-knowledge"/></svg></div><h3>Teachable knowledge</h3><p>Feed it web pages, whole sites, or documents. It chunks, embeds, and answers from them in its own voice — plus a glossary for your dialect.</p></div>
+    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-access"/></svg></div><h3>Role-based access</h3><p>Gate it by Discord role, with <em style="font-style:normal;color:var(--violet-bright)">live permission re-checks</em> — lose Manage Server and console access is revoked on the next request.</p></div>
+    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-extensions"/></svg></div><h3>Extensions</h3><p>Toggle packaged features — dice, calculator, concise mode, and a full Star Citizen pack with live trade, ship and location tools.</p></div>
+    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-remote"/></svg></div><h3>Remote access</h3><p>Let co-admins sign in from anywhere over Tailscale Funnel — a free, stable <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link with no domain and no port-forwarding.</p></div>
+    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-updates"/></svg></div><h3>Updates itself</h3><p>The app checks GitHub Releases and installs new versions in place — one click, no reinstall, on both macOS and Windows.</p></div>
   </div>
 </section>
 
@@ -468,16 +438,18 @@
 </section>
 
 <footer class="wrap">
-  <div class="foot-in">
-    <a class="brand" href="#top" style="margin-right:0"><img src="logo.png" alt="" style="width:24px;height:24px" /><b style="font-size:15px">Olisar</b></a>
-    <span>Self-hosted AI for Discord.</span>
-    <div class="foot-links sep">
-      <a href="https://github.com/gcrft123/olisar">GitHub</a>
-      <a href="https://github.com/gcrft123/olisar/releases">Releases</a>
-      <a href="https://github.com/gcrft123/olisar/blob/main/SETUP.md">Setup</a>
-      <a href="https://github.com/gcrft123/olisar/blob/main/LICENSE">MIT</a>
+  <div class="foot">
+    <div class="foot-brand">
+      <a class="brand" href="#top"><img src="logo.png" alt="" /><b>Olisar</b></a>
+      <p>A self-hosted AI that feels like a member of your Discord — free, open source, and yours to run.</p>
+    </div>
+    <div class="foot-cols">
+      <div class="foot-col"><span class="ttl">Get it</span><a href="https://github.com/gcrft123/olisar/releases/latest">Download</a><a href="#features">Features</a><a href="#chat">In action</a></div>
+      <div class="foot-col"><span class="ttl">Source</span><a href="https://github.com/gcrft123/olisar">GitHub</a><a href="https://github.com/gcrft123/olisar/releases">Releases</a></div>
+      <div class="foot-col"><span class="ttl">Docs</span><a href="https://github.com/gcrft123/olisar/blob/main/SETUP.md">Setup</a><a href="https://github.com/gcrft123/olisar/blob/main/RELEASING.md">Releasing</a></div>
     </div>
   </div>
+  <div class="foot-bottom"><span>Free &amp; open source · MIT License</span><span>Built for Discord communities</span></div>
 </footer>
 
 <script>
