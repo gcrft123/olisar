@@ -16,4 +16,4 @@ Contents:
 - `funnel-sidecar/` — the Go Tailscale Funnel helper (`tsnet`); built into
   `resources/olisar-funnel[.exe]` — see `resources/README.md`.
 
-Build instructions: [`../SETUP.md`](../SETUP.md) and [`../RELEASING.md`](../RELEASING.md).
+Build instructions: [`../DOCUMENTATION.md`](../DOCUMENTATION.md#build--run-from-source) and [`../RELEASING.md`](../RELEASING.md).

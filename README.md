@@ -14,7 +14,7 @@
   &nbsp;·&nbsp;
   <a href="https://github.com/gcrft123/olisar/releases/latest">Download</a>
   &nbsp;·&nbsp;
-  <a href="SETUP.md">Setup</a>
+  <a href="DOCUMENTATION.md">Docs</a>
 </p>
 
 ---
@@ -55,9 +55,9 @@ local.
 
 ## Get started
 
-👉 **[SETUP.md](SETUP.md)** — the full setup guide: install the desktop app, create your
-Discord application, the first-run wizard, optional remote access, and building from
-source.
+👉 **[DOCUMENTATION.md](DOCUMENTATION.md)** — the complete documentation: install the desktop
+app, create your Discord application, the first-run wizard, optional remote access, every
+dashboard setting, knowledge & memory, extensions, privacy, and building from source.
 
 In short:
 
@@ -78,7 +78,7 @@ By default the console is local-only. To let other admins sign in from anywhere,
 can publish the dashboard over **Tailscale Funnel** — a free, stable `https://…ts.net`
 address with **no domain and no port-forwarding required**. The operator needs a free
 Tailscale account; the admins who sign in don't need Tailscale at all. See
-[SETUP.md](SETUP.md#4-remote-access-optional--tailscale-funnel).
+[the documentation](DOCUMENTATION.md#remote-access).
 
 ## Updates
 
