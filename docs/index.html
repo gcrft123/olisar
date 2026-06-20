@@ -93,6 +93,18 @@
   .btn-ghost:hover { border-color: #3a3a44; background: rgba(255,255,255,0.05); }
   @media (max-width: 720px) { .nav-links a:not(.btn) { display: none; } }
 
+  /* ── download split-button + dropdown ───────────────────────── */
+  .dl { position: relative; display: inline-flex; vertical-align: top; }
+  .dl .dl-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  .dl .dl-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 9px 13px; border-left: 1px solid rgba(255,255,255,0.22); font-size: 11px; cursor: pointer; font-family: inherit; }
+  .dl .btn-primary:hover { transform: none; background: #5a4ce6; }
+  .dl-menu { position: absolute; top: calc(100% + 9px); right: 0; min-width: 236px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 6px; box-shadow: 0 18px 44px -14px rgba(0,0,0,0.75); z-index: 60; text-align: left; }
+  .dl-menu[hidden] { display: none; }
+  .dl-menu a { display: block; font-size: 13.5px; font-weight: 500; color: var(--ink-2); padding: 9px 12px; border-radius: 8px; white-space: nowrap; transition: background .12s, color .12s; }
+  .dl-menu a:hover { background: var(--panel-2); color: var(--ink); }
+  .dl-menu a small { color: var(--ink-3); font-weight: 400; font-size: 11.5px; margin-left: 4px; }
+  .dl-sep { height: 1px; background: var(--line); margin: 5px 4px; }
+
   /* ── reveal ─────────────────────────────────────────────────── */
   .reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
   .reveal.in { opacity: 1; transform: none; }
@@ -284,7 +296,7 @@
     <a href="#features">Features</a>
     <a href="docs.html">Docs</a>
     <a href="https://github.com/gcrft123/olisar">GitHub</a>
-    <a class="btn btn-primary" href="https://github.com/gcrft123/olisar/releases/latest">Download</a>
+    <a class="btn btn-primary" href="#top">Download</a>
   </div>
 </nav>
 
@@ -293,7 +305,16 @@
   <h1 class="reveal in" style="transition-delay:.05s">An AI that feels like<br>a <em>member</em> of your server.</h1>
   <p class="sub reveal in" style="transition-delay:.12s">Olisar reads the channels you allow, remembers context, builds a sense of who people are, and chimes in with its own personality — all configured from a private console you run yourself.</p>
   <div class="cta reveal in" style="transition-delay:.18s">
-    <a class="btn btn-primary" href="https://github.com/gcrft123/olisar/releases/latest">Download for macOS &amp; Windows</a>
+    <div class="dl">
+      <a class="btn btn-primary dl-main" href="https://github.com/gcrft123/olisar/releases/latest">Download Olisar</a>
+      <button class="btn btn-primary dl-caret" aria-haspopup="true" aria-expanded="false" aria-label="More download options">▾</button>
+      <div class="dl-menu" hidden>
+        <a class="dl-mac" href="https://github.com/gcrft123/olisar/releases/latest">macOS <small>Apple Silicon</small></a>
+        <a class="dl-win" href="https://github.com/gcrft123/olisar/releases/latest">Windows <small>64-bit</small></a>
+        <div class="dl-sep"></div>
+        <a href="https://github.com/gcrft123/olisar/releases">All releases &rarr;</a>
+      </div>
+    </div>
     <a class="btn btn-ghost" href="https://github.com/gcrft123/olisar">★ Star on GitHub</a>
   </div>
   <p class="meta-line reveal in" style="transition-delay:.24s"><b style="color:var(--violet-bright)">Free</b> &amp; <b style="color:var(--violet-bright)">open source</b> (MIT) · macOS + Windows · v0.2.1</p>
@@ -433,7 +454,16 @@
 <section class="final wrap">
   <h2 class="reveal">Give your server<br>a member that <em style="font-style:italic;font-family:var(--serif);color:var(--violet-bright)">remembers</em>.</h2>
   <div class="cta reveal" style="transition-delay:.08s">
-    <a class="btn btn-primary" href="https://github.com/gcrft123/olisar/releases/latest">Download Olisar</a>
+    <div class="dl">
+      <a class="btn btn-primary dl-main" href="https://github.com/gcrft123/olisar/releases/latest">Download Olisar</a>
+      <button class="btn btn-primary dl-caret" aria-haspopup="true" aria-expanded="false" aria-label="More download options">▾</button>
+      <div class="dl-menu" hidden>
+        <a class="dl-mac" href="https://github.com/gcrft123/olisar/releases/latest">macOS <small>Apple Silicon</small></a>
+        <a class="dl-win" href="https://github.com/gcrft123/olisar/releases/latest">Windows <small>64-bit</small></a>
+        <div class="dl-sep"></div>
+        <a href="https://github.com/gcrft123/olisar/releases">All releases &rarr;</a>
+      </div>
+    </div>
     <a class="btn btn-ghost" href="docs.html">Read the docs</a>
   </div>
 </section>
@@ -458,6 +488,67 @@
     es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
   }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
   document.querySelectorAll('.reveal:not(.in)').forEach((el) => io.observe(el));
+</script>
+
+<script>
+  // OS-aware downloads: point each split-button at the latest release asset for
+  // the visitor's OS, with a dropdown for the other OS and the releases page.
+  (function () {
+    var REPO = 'gcrft123/olisar';
+    var LATEST = 'https://github.com/' + REPO + '/releases/latest';
+    var LABEL = { mac: 'Download for macOS', win: 'Download for Windows' };
+    function detectOS() {
+      var uad = navigator.userAgentData && navigator.userAgentData.platform;
+      var s = ((uad || navigator.platform || '') + ' ' + (navigator.userAgent || '')).toLowerCase();
+      if (s.indexOf('win') !== -1) return 'win';
+      if (s.indexOf('mac') !== -1 || s.indexOf('iphone') !== -1 || s.indexOf('ipad') !== -1) return 'mac';
+      return null;
+    }
+    var os = detectOS();
+    var groups = [].slice.call(document.querySelectorAll('.dl'));
+    if (!groups.length) return;
+
+    // Label the primary button for the detected OS right away.
+    if (os && LABEL[os]) groups.forEach(function (g) { g.querySelector('.dl-main').textContent = LABEL[os]; });
+
+    // Resolve the actual asset URLs from the latest release.
+    fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (rel) {
+        if (!rel || !rel.assets) return;
+        var pick = function (re) { var a = rel.assets.filter(function (x) { return re.test(x.name); })[0]; return a ? a.browser_download_url : null; };
+        var mac = pick(/\.dmg$/i), win = pick(/\.exe$/i);
+        groups.forEach(function (g) {
+          if (mac) g.querySelector('.dl-mac').href = mac;
+          if (win) g.querySelector('.dl-win').href = win;
+          var direct = os === 'win' ? win : os === 'mac' ? mac : null;
+          g.querySelector('.dl-main').href = direct || LATEST;
+        });
+      })
+      .catch(function () {});
+
+    // Dropdown open/close.
+    function closeAll(except) {
+      groups.forEach(function (g) {
+        if (g === except) return;
+        g.querySelector('.dl-menu').hidden = true;
+        g.querySelector('.dl-caret').setAttribute('aria-expanded', 'false');
+      });
+    }
+    groups.forEach(function (g) {
+      var caret = g.querySelector('.dl-caret'), menu = g.querySelector('.dl-menu');
+      caret.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var willOpen = menu.hidden;
+        closeAll(g);
+        menu.hidden = !willOpen;
+        caret.setAttribute('aria-expanded', String(willOpen));
+      });
+      menu.addEventListener('click', function (e) { e.stopPropagation(); });
+    });
+    document.addEventListener('click', function () { closeAll(null); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(null); });
+  })();
 </script>
 </body>
 </html>
