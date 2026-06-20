@@ -116,7 +116,8 @@ Members can reach Olisar a few ways:
 
 It can do a lot in conversation without any command: answer questions, search the server's history
 ("what's our X account?"), look things up on the web, recall what was said before, react to images you
-post, generate images, and more. Just talk to it naturally.
+post, generate images, set reminders ("remind me in 2 hours to …"), and catch you up on what you missed.
+Just talk to it naturally.
 `,
   },
   {
@@ -145,6 +146,10 @@ and every tool. Subject to the **Access** rules.
 \`/ask\` is the way to use Olisar in a channel whose mode is \`off\` or \`memory\` (where it won't reply
 to normal messages). The answer posts in the channel; denial and "not found" notices are private.
 :::
+
+### \`/catchup [hours]\`
+A quick digest of what you missed in this channel — by default since you last spoke, or the last
+\`hours\` you give it. The summary posts in the channel. You can also just ask in chat ("catch me up").
 
 ### \`/privacy\`
 Shows a plain-language summary of exactly what data Olisar keeps about you. Ephemeral, and always
@@ -288,13 +293,21 @@ The [Persona](tab:persona) tab is Olisar's character — the single biggest leve
 - **System prompt** — its core character, lore, and rules. The operating/safety rules are appended
   automatically, so you only write the personality.
 - **Style notes** — tone and formatting guidance.
-- **Profile bio** — Discord doesn't let bots set their own About Me at runtime, so paste this into the
-  [Discord Developer Portal](https://discord.com/developers/applications) yourself.
+- **Profile bio (About Me)** — the bot's public About Me. Saving applies it to Discord automatically (no
+  more pasting into the Developer Portal). It's a single **bot-wide** setting — not per-server — and is
+  capped at 400 characters.
 
 :::tip Write it like a person
 Describe Olisar as a character, not a function: "a dry, unflappable ship's AI who's seen it all and
 keeps replies short." Put hard rules ("never reveal spoilers for X") in the system prompt; put voice
 ("casual, lowercase, no emoji") in the style notes.
+:::
+
+:::tip Try changes live
+The **Test chat** panel beside Identity talks to Olisar in an enclosed sandbox — full persona, knowledge
+base, and tools, but **no memory**: nothing said there is saved, and it never touches the server's
+glossary or chat history. Save the persona first; the sandbox uses the saved version, not your unsaved
+draft.
 :::
 
 :::note
@@ -335,6 +348,8 @@ cooldowns, or limit which channels are talk-enabled.
 - **Summary token threshold** — once a channel accumulates this much unsummarized conversation, Olisar
   rolls it into a durable summary it can recall later. Lower = summarizes more often (more quota); higher
   = summarizes less.
+- **Glossary mining threshold** — how much fresh conversation a channel needs before Olisar mines new
+  glossary facts from it. Lower = a faster-growing glossary (more quota).
 - **Persona rebuild (msgs)** — after this many new messages from a person, Olisar refreshes the private
   profile it keeps of them.
 
@@ -359,6 +374,24 @@ so it doesn't spam or burn quota.
 :::note Example
 Eagerness \`low\`, confidence \`0.8\`, channel cooldown \`600\`s, quiet hours 23–7 → Olisar only jumps in
 on clearly relevant moments, at most once every 10 minutes per channel, and never overnight.
+:::
+
+## Passive reactions
+
+Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message **without replying**.
+It has its own, looser gate — no expensive classifier, just a light heuristic plus a **cooldown** and an
+**hourly cap** — so it stays sparse. Toggle it and tune the cooldown/cap on the [Behavior](tab:behavior) tab.
+
+## Situational awareness
+
+With **Status & voice awareness** on, Olisar can answer "what's X playing?" or "who's in voice right now?"
+by reading members' live Discord presence and voice state **only when asked** — it's never stored.
+
+:::warning Needs a privileged intent
+Reading presence requires the **Presence Intent** toggle in the [Discord Developer Portal](https://discord.com/developers/applications)
+(your app → Bot → Privileged Gateway Intents), and the operator must enable it on the host
+(\`OLISAR_ENABLE_PRESENCE_INTENT\`). Voice-channel awareness works without it. It's **off by default** and
+disclosed in \`/privacy\`.
 :::
 `,
   },
@@ -392,6 +425,13 @@ tab sets where the chain starts.
 | \`gemini-3.1-flash-lite\` | 15 | Light | \`gemini-2.5-flash-lite\` |
 | \`gemini-2.5-flash-lite\` | 15 | Light | \`gemini-2.0-flash-lite\` |
 | \`gemini-2.0-flash-lite\` | 30 | Last resort, highest limit | — |
+
+:::note Reasoning ("thinking")
+The newer Flash models can spend hidden **thinking** tokens before answering. Olisar caps that budget on
+the conversation path and reserves headroom for the actual reply, so it reasons on hard questions without
+the visible answer getting cut off — while one-line jobs (welcome messages, emoji reactions) skip thinking
+entirely to stay fast.
+:::
 
 ## Images & embeddings
 
@@ -592,8 +632,8 @@ abbreviations, org and person relationships, codenames, in-jokes. Unlike the kno
 glossary isn't searched on demand; it's always in context (it's small and high-value).
 
 - **Add your own** facts (a subject + a one-line statement).
-- Olisar also **mines them automatically** when it summarizes active channels, so the glossary grows on
-  its own.
+- Olisar also **mines them automatically** as channels stay active, and will **record a server fact
+  itself** when asked ("Olisar, remember the raid team meets Fridays") — so the glossary grows on its own.
 
 :::note Example
 "MN → Movie Night, our Friday watch-party in #cinema", "The Council → the server's moderator team". Now
@@ -716,6 +756,13 @@ conversation, tweak its behavior, add commands, and set things up when enabled.
 - **Calculator** — exact arithmetic instead of guessing at numbers.
 - **Concise mode** — keeps replies short and to the point.
 
+## Welcome messages
+The **Welcome** extension greets new members as they join. Pick a channel and write a prompt that layers
+**on top of** the persona — e.g. "give {user} a warm in-character welcome" or "roast {user} on their
+username". Olisar generates a fresh, in-character message for each join and posts it; \`{user}\` and
+\`{username}\` are filled in. Off by default — enable and configure it on the [Extensions](tab:extensions)
+tab (it has its own channel picker and prompt).
+
 ## Star Citizen
 A full example extension, for SC communities. Turning it on does several things at once:
 
@@ -798,11 +845,15 @@ and write that machine's data live.
 - **Summaries** of past conversation, a private **profile** of each member built from their messages, and
   **facts** it's chosen to remember.
 - Short **descriptions of posted images**, and **embed/file** text, so they're searchable.
+- **Reminders** you ask it to set — kept only until they're delivered, then marked done.
 
 ## What it doesn't do
 - It never shares DMs or private content publicly.
 - Opted-out members are **never** recorded or indexed.
 - It treats recalled memory as background **data**, not as instructions it must obey.
+- **Presence & voice** (what someone's playing, who's in voice) are read **live, only when a tool asks**
+  and only if an admin turned on Status & voice awareness — they're never stored.
+- The dashboard **Test chat** is memory-free: nothing said there is saved or mined.
 
 ## Member controls
 - \`/privacy\` — a plain-language summary of all of the above, available to anyone.
