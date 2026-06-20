@@ -37,6 +37,7 @@ from olisar.catchup import generate_catchup
 from olisar.knowledge.extract import SUPPORTED_SUFFIXES
 from olisar.memory.purge import forget_user
 from olisar.memory.vectors import delete_embedding
+from olisar.memory.writer import clear_search_index
 from olisar.messages import get_command_messages, render_message
 from olisar.pipeline import generate_reply
 from olisar.runtime.paths import kb_uploads_dir
@@ -407,6 +408,20 @@ class Slash(commands.Cog):
             f"queued **{channels or 0}** channels for history backfill — i'll crawl "
             f"them in the background (only channels i can read). currently indexing "
             f"**{indexed or 0}** messages; new posts are indexed live.",
+            ephemeral=True,
+        )
+
+    @olisar.command(
+        name="clear-index",
+        description="Wipe the server-wide message search index (new posts still index live).",
+    )
+    async def clear_index(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        async with session_scope() as session:
+            removed = await clear_search_index(session, interaction.guild_id)
+        await interaction.followup.send(
+            f"cleared the search index — removed **{removed}** indexed message(s). backfill "
+            f"is halted; new posts are still indexed live, and `/olisar reindex` rebuilds history.",
             ephemeral=True,
         )
 

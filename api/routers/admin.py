@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from api.auth.deps import GuildContext, require_admin, require_guild_admin
+from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
     ChannelModeIn,
@@ -199,15 +200,18 @@ _KEY_FIELDS = (
 
 
 @router.get("/keys")
-async def get_keys(admin: AdminUser = Depends(require_admin)):
-    """Per-key status only — never the secret values. ``dashboard`` = a value is
-    stored from the console; ``env`` = a .env fallback is present."""
+async def get_keys(request: Request, admin: AdminUser = Depends(require_admin)):
+    """Per-key status, plus a ``value`` that autofills the field from the operator's
+    environment — but ONLY on a local (loopback) request, the same gate the setup
+    wizard uses, so secrets are never sent to a remote (tunnel) browser."""
+    local = is_local_request(request)
     async with session_scope() as session:
         row = await session.get(AppSecret, 1)
         return {
             f: {
                 "dashboard": bool((getattr(row, f, "") or "") if row else ""),
                 "env": bool(getattr(settings, f, "") or ""),
+                "value": (getattr(settings, f, "") or "") if local else "",
             }
             for f in _KEY_FIELDS
         }

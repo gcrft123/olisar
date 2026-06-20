@@ -789,6 +789,7 @@ button.icon-btn { padding: 7px; justify-content: center; }
 
 /* ── Message search index (re-index + progress) ─────────────────────────── */
 .reindex-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.reindex-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .reindex-stat { font-size: 13px; color: var(--text-2); }
 .reindex-stat b { color: var(--text); font-size: 15px; font-weight: 650; }
 .rx-dim { color: var(--text-3); }
@@ -798,8 +799,12 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .progress.indeterminate { position: relative; }
 .progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: 999px; animation: rx-indef 1.2s ease-in-out infinite; }
 @keyframes rx-indef { 0% { left: -38%; } 100% { left: 100%; } }
-.reindex-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
-.reindex-row { display: grid; grid-template-columns: 150px 1fr 116px; align-items: center; gap: 12px; }
+.reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 320px; overflow-y: auto; }
+.reindex-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+.reindex-row:last-child { border-bottom: none; }
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rx-meta { font-size: 12px; color: var(--text-3); text-align: right; }
-.reindex-done { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 13px; margin-top: 14px; }
+.rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.rx-chip { font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: 20px; display: inline-flex; align-items: center; gap: 5px; min-width: 74px; justify-content: center; }
+.rx-chip.done { color: var(--ok); background: var(--ok-soft); }
+.rx-chip.indexing { color: var(--accent); background: var(--accent-soft); }
+.rx-chip.queued { color: var(--text-3); background: var(--bg-inset); }

@@ -144,7 +144,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           <>
             <Field
               label="Discord bot token"
-              desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Enable the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too.</>}
+              desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Enable the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too (and <strong>Presence Intent</strong> only if you want status/voice awareness).</>}
             >
               <Text value={token} onChange={(v) => { setToken(v); setBotName(null) }} placeholder="your bot token" mono />
             </Field>

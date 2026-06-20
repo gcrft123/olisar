@@ -69,6 +69,23 @@ async def delete_channel_index(session: AsyncSession, guild_id: int, channel_id:
     return removed
 
 
+async def clear_search_index(session: AsyncSession, guild_id: int) -> int:
+    """Wipe the entire server-wide search index for a guild and halt all backfill
+    (so it doesn't immediately re-crawl). Live indexing of new posts continues — use
+    the per-channel "not indexed" toggle to stop that. ``/olisar reindex`` rebuilds it.
+    Returns the number of indexed messages removed."""
+    removed = await session.scalar(
+        select(func.count()).select_from(SearchMessage).where(SearchMessage.guild_id == guild_id)
+    ) or 0
+    await session.execute(delete(SearchMessage).where(SearchMessage.guild_id == guild_id))
+    await session.execute(
+        update(GuildChannelInfo)
+        .where(GuildChannelInfo.guild_id == guild_id)
+        .values(backfill_done=True, last_indexed_message_id=None)
+    )
+    return removed
+
+
 async def reindex_channel(session: AsyncSession, guild_id: int, channel_id: int) -> None:
     """Re-arm the backfill for a channel (and its threads) so its history gets
     re-indexed — used when indexing is turned back on."""

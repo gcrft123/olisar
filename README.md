@@ -63,7 +63,8 @@ In short:
 
 1. Install the desktop app (or run it from source — see the setup guide).
 2. Create a Discord application, enable the **Message Content** + **Server Members**
-   intents, and invite the bot to your server.
+   intents (and the **Presence Intent** only if you want status/voice awareness), and
+   invite the bot to your server.
 3. Launch Olisar and complete the first-run wizard (bot token, OAuth client ID/secret,
    a free [Gemini key](https://aistudio.google.com/apikey)).
 4. Sign in to the console with the Discord account that has **Manage Server**.

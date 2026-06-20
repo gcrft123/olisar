@@ -79,6 +79,7 @@ export const api = {
 
   // Message search index (re)build + per-channel progress.
   reindex: () => req('/api/knowledge/reindex', { method: 'POST' }),
+  clearIndex: () => req('/api/knowledge/reindex/clear', { method: 'POST' }),
   reindexStatus: () => req('/api/knowledge/reindex/status'),
 
   getFacts: () => req('/api/facts'),

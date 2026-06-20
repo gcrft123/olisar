@@ -21,6 +21,7 @@ from olisar.db.models import (
     SearchMessage,
 )
 from olisar.memory.vectors import delete_embedding
+from olisar.memory.writer import clear_search_index
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -88,9 +89,14 @@ async def reindex(gctx: GuildContext = Depends(require_guild_admin)):
     the backfill cursor on every channel; the background worker re-walks them. The index
     rows update in place (keyed by message id), so this is safe to run anytime."""
     async with session_scope() as session:
+        # Only re-arm channels that are actually in the index. Channels set to
+        # "not indexed" stay halted (re-enabling one re-arms it via reindex_channel).
         await session.execute(
             update(GuildChannelInfo)
-            .where(GuildChannelInfo.guild_id == gctx.guild_id)
+            .where(
+                GuildChannelInfo.guild_id == gctx.guild_id,
+                GuildChannelInfo.index_enabled.is_(True),
+            )
             .values(backfill_done=False, last_indexed_message_id=None)
         )
         await record_audit(
@@ -100,14 +106,31 @@ async def reindex(gctx: GuildContext = Depends(require_guild_admin)):
     return {"ok": True}
 
 
+@router.post("/reindex/clear")
+async def clear_index(gctx: GuildContext = Depends(require_guild_admin)):
+    """Wipe the server-wide message search index and halt backfill. New posts are still
+    indexed live; ``/olisar reindex`` (or Re-index all) rebuilds history."""
+    async with session_scope() as session:
+        removed = await clear_search_index(session, gctx.guild_id)
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="clear_search_index",
+            target_type="guild", target_id=gctx.guild_id, after={"removed": removed},
+        )
+    return {"ok": True, "removed": removed}
+
+
 @router.get("/reindex/status")
 async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
     """Per-channel backfill progress for the message search index."""
     async with session_scope() as session:
+        # Only channels in the index — ones set to "not indexed" aren't part of it.
         chans = (
             await session.scalars(
                 select(GuildChannelInfo)
-                .where(GuildChannelInfo.guild_id == gctx.guild_id)
+                .where(
+                    GuildChannelInfo.guild_id == gctx.guild_id,
+                    GuildChannelInfo.index_enabled.is_(True),
+                )
                 .order_by(GuildChannelInfo.position)
             )
         ).all()
