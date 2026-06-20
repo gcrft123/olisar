@@ -26,17 +26,17 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" sub="Who Olisar is. This shapes its voice in every reply — edits go live on the next message. Try it in the test chat alongside." />
+      <PageHead icon="persona" title="Persona" sub="Olisar's Persona dictates who it is and how it will behave in your server. Try it out in the test chat panel alongside." />
       <div className="persona-grid">
         <Card title="Identity">
           <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
-          <Field label="System prompt" desc="Core character, lore, and rules. The operating/safety rules are appended automatically.">
+          <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
             <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
           </Field>
           <Field label="Style notes" desc="Tone and formatting guidance.">
             <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
           </Field>
-          <Field label="Profile bio (About Me)" desc="The bot's public About Me. Applied to Discord on save — bot-wide (not per-server), max 400 characters.">
+          <Field label="Profile bio (About Me)" desc="Olisar's Discord bio. This applies bot wide, not per-server.">
             <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} />
           </Field>
         </Card>
@@ -83,13 +83,13 @@ function SandboxPanel() {
   }
 
   return (
-    <Card title="Test chat" hint="An enclosed sandbox — full persona, knowledge base, and tools, but no memory. Nothing here is saved, and it never touches the server's glossary or chat history.">
+    <Card title="Test chat" hint="An enclosed sandbox with Olisar's full persona, knowledge base, and tools, but no memory. Nothing here is saved, and it never touches the server's glossary or chat history.">
       <div className="sandbox">
         <div className="sandbox-log" ref={logRef}>
           {messages.length === 0 && !busy && (
             <div className="sandbox-empty">
-              Say something to try Olisar's persona, knowledge-base lookups, and tools.
-              This conversation is wiped when you leave — nothing is saved.
+              Try out Olisar's persona without affecting server context. 
+              Nothing here is saved.
             </div>
           )}
           {messages.map((m, i) => (
@@ -113,7 +113,7 @@ function SandboxPanel() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-            placeholder="Message Olisar…  ·  Enter to send, Shift+Enter for a new line"
+            placeholder="Message Olisar…"
             rows={2}
             disabled={busy}
           />
@@ -156,13 +156,13 @@ export function Behavior() {
 
   return (
     <>
-      <PageHead icon="behavior" title="Behavior" sub="How and when Olisar engages — triggers, model, and unprompted chiming. Its fallback messages live under Command replies." />
+      <PageHead icon="behavior" title="Behavior" sub="Control how and when Olisar participates in your server. Fallback message customization lives in Command replies." />
       <Card title="Triggers">
-        <Field label="Name triggers" desc="Comma-separated. Saying one of these at the start of a message addresses Olisar.">
+        <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
           <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
-        <Field label="Loose messages" desc="Reply to ordinary messages in talk-enabled channels even without a trigger.">
+        <Field label="Loose messages" desc="Reply to all messages in talk-enabled channels without a trigger.">
           <Toggle value={data.loose_msg_enabled} onChange={(v) => set('loose_msg_enabled', v)} label="Join freely" />
         </Field>
       </Card>
@@ -171,7 +171,7 @@ export function Behavior() {
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
         <Field label="Web search (grounding)"><Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" /></Field>
-        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice, only when asked. Requires the Presence Intent in the Discord Developer Portal; disclosed in /privacy.">
+        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal; run /privacy to see how Olisar handles your data.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
         </Field>
         <div className="row">
@@ -181,7 +181,7 @@ export function Behavior() {
           <Field label="Persona rebuild (msgs)"><Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} /></Field>
         </div>
       </Card>
-      <Card title="Proactivity" hint="When Olisar chimes in unprompted. A cheap gate keeps it from spamming or burning the rate limit.">
+      <Card title="Proactivity" hint="Adjust when/if Olisar chimes in unprompted.">
         <Field label="Enabled"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} label="Let Olisar speak up on its own" /></Field>
         <Field label="Eagerness">
           <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
@@ -211,7 +211,7 @@ export function Behavior() {
           </div>
         )}
       </Card>
-      <Card title="Passive reactions" hint="A much looser path than chiming in: Olisar sometimes adds a single emoji reaction (no reply) when one fits. It picks the emoji itself and often declines; the cooldown and hourly cap keep it sparse.">
+      <Card title="Passive reactions" hint="Passive reactions let Olisar decide to react to a message rather than reply. Useful when a message is overkill but an emoji reaction is warranted.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
         <div className="row">
           <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} /></Field>
@@ -252,7 +252,7 @@ export function Messages() {
 
   return (
     <>
-      <PageHead icon="messages" title="Command replies" sub="Customize the text Olisar sends when each slash command runs. Leave blank to use the default. Use {placeholders} where shown." />
+      <PageHead icon="messages" title="Command replies" sub="Customize the text Olisar sends when slash commands are run or it can't respond. Leave blank to use the default. Use {placeholders} where shown." />
       {Object.keys(data).map((key) => (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
           <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={key === 'privacy' ? 6 : 2} placeholder={data[key].default} />
@@ -305,17 +305,17 @@ export function Channels() {
 
   return (
     <>
-      <PageHead icon="channels" title="Channels" sub="Give each channel a role. Conversation channels (memory / respond / both) are where Olisar reads and talks. Context channels feed it background only: resource channels (#rules, #roles-list) are durable reference it always carries; feed channels (#announcements, #game-news) keep just the last 3 messages, never summarized. Forums work too — their posts inherit the forum's mode (resource/feed apply to text channels only)." />
+      <PageHead icon="channels" title="Channels" sub="Customize how Olisar treats each of your channels." />
       <Card title="What the modes mean">
         <div className="mode-legend">
-          <div><span className="tag">memory</span> reads &amp; remembers, never speaks</div>
-          <div><span className="tag">respond</span> talks, doesn't store history</div>
-          <div><span className="tag">both</span> reads, remembers &amp; talks</div>
-          <div><span className="tag">resource</span> reference context, always in mind (e.g. #rules, #roles-list)</div>
-          <div><span className="tag">feed</span> ambient — last 3 messages only, no summary (e.g. #announcements)</div>
+          <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
+          <div><span className="tag">respond</span> speaks; doesn't read or remember</div>
+          <div><span className="tag">both</span> reads, remembers &amp; speaks</div>
+          <div><span className="tag">resource</span> durable reference content Olisar always carries (e.g. #rules, #roles-list)</div>
+          <div><span className="tag">feed</span> remembers just the last 3 messages without summaries; doesn't speak (e.g. #announcements, #game-news)</div>
           <div><span className="tag">off</span> ignored entirely</div>
         </div>
-        <div className="hint">Indexing is separate: it controls whether a channel's messages go into the server-wide <b>search index</b> (what <code>search_messages</code> looks through). Turn it off to exclude a channel — that also wipes its already-indexed messages.</div>
+        <div className="hint">Indexing is separate: it controls whether a channel's messages go into the server-wide <b>search index</b> (what <code>search_messages</code> looks through). Turn it off to exclude a channel and wipe its currently indexed messages. </div>
       </Card>
       <Card title={`Channels — ${configured} configured`}>
         {rows.length === 0 ? (
@@ -397,11 +397,11 @@ export function Access() {
 
   return (
     <>
-      <PageHead icon="access" title="Access" sub="Choose which roles can use Olisar — in chat and via slash commands like /ask. Server admins always have access, and /privacy and /forget-me stay open to everyone." />
+      <PageHead icon="access" title="Access" sub="Choose which roles have access to Olisar in chat and via slash commands like /ask. Server admins always have access and /privacy &amp; /forget-me stay open to everyone." />
       <Card title="How access works">
         <div className="mode-legend">
-          <div><span className="tag">Allowed</span> if any role is marked allowed, only those roles (and admins) may use Olisar</div>
-          <div><span className="tag">Blocked</span> these roles can never use Olisar, even if they also have an allowed role</div>
+          <div><span className="tag">Allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
+          <div><span className="tag">Blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
           <div><span className="tag">Open</span> unset — this role adds no restriction</div>
         </div>
         <div className="hint">{summary}</div>
@@ -458,10 +458,19 @@ function SearchIndexCard() {
     setBusy(true)
     try { await api.reindex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
   }
+  const clear = async () => {
+    if (!window.confirm('Clear the entire message search index? New posts keep indexing live, and "Re-index all" rebuilds history.')) return
+    setBusy(true)
+    try { await api.clearIndex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
+  }
   const pct = data && data.total ? Math.round((data.done / data.total) * 100) : 0
-  const active = (data?.channels || []).filter((c: any) => c.status !== 'done')
+  // Active (queued/indexing) first, then done — channels stay listed with their count.
+  const rank: Record<string, number> = { indexing: 0, queued: 1, done: 2 }
+  const channels = [...(data?.channels || [])].sort(
+    (a: any, b: any) => (rank[a.status] - rank[b.status]) || (b.indexed - a.indexed)
+  )
   return (
-    <Card title="Message search index" hint="A server-wide index of past messages so Olisar can search history (the all-channel index). Re-indexing rebuilds it from each channel's history in the background — safe to run anytime.">
+    <Card title="Message search index" hint="A server-wide index of past messages so Olisar can search history. Re-indexing rebuilds it from each channel's history in the background.">
       {!data ? <div className="empty">Loading…</div> : (
         <>
           <div className="reindex-top">
@@ -469,27 +478,31 @@ function SearchIndexCard() {
               <b>{data.done}</b> / {data.total} channels indexed
               <span className="rx-dim"> · {data.indexed_messages.toLocaleString()} messages</span>
             </div>
-            <button className="primary sm" onClick={start} disabled={busy}>
-              <Icon.refresh size={14} /> {busy ? 'Starting…' : 'Re-index all'}
-            </button>
+            <div className="reindex-actions">
+              <button className="primary sm" onClick={start} disabled={busy}>
+                <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
+              </button>
+              <button className="danger sm" onClick={clear} disabled={busy || data.indexed_messages === 0}>
+                <Icon.trash size={14} /> Clear index
+              </button>
+            </div>
           </div>
-          <div className="progress"><div className="progress-fill" style={{ width: pct + '%' }} /></div>
-          {active.length > 0 ? (
+          {/* The overall bar only while there's work in flight; hidden once complete. */}
+          {data.running && <div className="progress"><div className="progress-fill" style={{ width: pct + '%' }} /></div>}
+          {channels.length > 0 && (
             <div className="reindex-list">
-              {active.map((c: any) => (
+              {channels.map((c: any) => (
                 <div className="reindex-row" key={c.channel_id}>
                   <span className="rx-name">#{c.name}</span>
-                  <div className={'progress sm' + (c.status === 'indexing' ? ' indeterminate' : '')}>
-                    {c.status === 'indexing'
-                      ? <div className="progress-bar" />
-                      : <div className="progress-fill" style={{ width: '0%' }} />}
-                  </div>
-                  <span className="rx-meta">{c.status === 'indexing' ? `indexing… ${c.indexed.toLocaleString()}` : 'queued'}</span>
+                  <span className="rx-count">{c.indexed.toLocaleString()}<span className="rx-dim"> msgs</span></span>
+                  <span className={'rx-chip ' + c.status}>
+                    {c.status === 'done'
+                      ? <><Icon.check size={12} weight="Bold" /> indexed</>
+                      : c.status === 'indexing' ? 'indexing…' : 'queued'}
+                  </span>
                 </div>
               ))}
             </div>
-          ) : (
-            data.total > 0 && <div className="reindex-done"><Icon.check size={14} weight="Bold" /> All channels indexed.</div>
           )}
         </>
       )}
@@ -523,8 +536,8 @@ export function Knowledge() {
   const factRows = facts ?? []
   return (
     <>
-      <PageHead icon="knowledge" title="Knowledge" sub="What Olisar knows about your world. The knowledge base holds documents and sites it can cite; the glossary is the short, server-specific lore it carries into every reply." />
-      <Card title="Add a source" hint="A page or a crawled site Olisar can cite. Upload documents with /olisar learn-doc in Discord.">
+      <PageHead icon="knowledge" title="Knowledge" sub="What Olisar knows about your world. The knowledge base holds webpages and documents it can reference at any time and the glossary stores bits of server-specific info which is updated regularly by Olisar." />
+      <Card title="Add a source" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
         <div className="row">
           <Field label="Type"><Select value={type} onChange={setType} options={[{ value: 'url', label: 'single page' }, { value: 'website', label: 'crawl a website' }]} /></Field>
           <Field label="URL"><Text value={uri} onChange={setUri} placeholder="https://…" /></Field>
@@ -556,7 +569,7 @@ export function Knowledge() {
         ))}
       </Card>
       <SearchIndexCard />
-      <Card title="Add a glossary fact" hint="Durable server lore — abbreviations, org and person relationships, codenames. Olisar carries these into every reply, and also mines them automatically when it summarizes a channel. Subject is the term (optional); the fact is one short, standalone statement.">
+      <Card title="Add a glossary fact" hint="Durable server lore and bits of info. Olisar carries these into every reply and also mines them automatically when it summarizes a channel. Subject is the term (optional) and the fact is one short, standalone statement.">
         <div className="row">
           <Field label="Subject"><Text value={subject} onChange={setSubject} placeholder="MN" /></Field>
           <div style={{ flex: 3 }}>
@@ -608,7 +621,7 @@ function WelcomeConfig(props: { enabled: boolean }) {
   })
   const opts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
   return (
-    <Card title="Welcome message" hint="Greets new members in Olisar's voice plus your prompt. Use {user} for the new member. Enable it here — there's no separate toggle.">
+    <Card title="Welcome message" hint="Greets new members in Olisar's voice plus your prompt. Use {user} for the new member.">
       <Field label="Enabled"><Toggle value={enabled} onChange={setEnabled} label="Greet new members on join" /></Field>
       <Field label="Channel"><Select value={channelId} onChange={setChannelId} options={opts} /></Field>
       <Field label="Prompt" desc="Layered on top of the persona — e.g. 'warmly welcome {user} and ask what brought them here', or 'roast {user} on their username'.">
@@ -636,7 +649,7 @@ export function Extensions() {
   const cats = Array.from(new Set(rows.filter((e) => e.key !== 'welcome').map((e) => e.category)))
   return (
     <>
-      <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features. Flip one on and it's live on Olisar's next reply — no restart." />
+      <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
       {rows.length === 0 && (
         <Card title="Extensions"><div className="empty">No extensions registered.</div></Card>
       )}
@@ -790,7 +803,7 @@ export function Members() {
       <PageHead
         icon="members"
         title="Members"
-        sub="The private impression Olisar forms of each member from what they say — their roles, a synthesized summary, and facts it remembers. Server-specific; anyone can wipe their own with /forget-me."
+        sub="The private impression Olisar forms of each member from what they say, their roles, and facts it remembers. Anyone can wipe theirs with /forget-me."
       />
       <Card title={`${rows.length} known · ${learned} with an impression`}>
         <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" />
@@ -838,7 +851,9 @@ export function Members() {
 }
 
 // ── API keys ────────────────────────────────────────────────────────────────
-type KeyStatus = { dashboard: boolean; env: boolean }
+// `value` autofills the field from the operator's environment on a local request
+// (the backend only sends it over loopback) — same as the first-run wizard.
+type KeyStatus = { dashboard: boolean; env: boolean; value?: string }
 
 function KeyField(props: {
   fieldKey: string
@@ -899,7 +914,8 @@ export function ApiKeys() {
   })
   if (loading || !data) return <Spinner />
   const set = (k: string, v: string) => setEdits({ ...edits, [k]: v })
-  const val = (k: string) => edits[k] ?? ''
+  // Autofilled from the environment (local-only) unless the operator has edited the field.
+  const val = (k: string) => edits[k] ?? (data[k]?.value ?? '')
   const clear = async (k: string) => { await api.clearKey(k); reload() }
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
@@ -910,7 +926,7 @@ export function ApiKeys() {
       <PageHead
         icon="keys"
         title="API keys"
-        sub="Bring your own keys. A key entered here is stored for this server and overrides the matching .env value; leave it blank to fall back to .env. Values are write-only — they never come back to the browser. Changes take effect within a few seconds, no restart."
+        sub="Bring your own keys. A key entered here is stored for this server and values are write-only meaning they never come back to a remote browser."
       />
 
       <Card
@@ -920,7 +936,7 @@ export function ApiKeys() {
         <KeyField
           fieldKey="gemini_api_key"
           label="Gemini API key"
-          desc={<>Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio → Get API key')}. Paste the value that starts with <code>AIza…</code>.</>}
+          desc={<>Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio → Get API key')}.</>}
           status={st('gemini_api_key')}
           value={val('gemini_api_key')}
           example="AIza…"

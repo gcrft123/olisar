@@ -274,7 +274,9 @@ You run your own Discord application — that's what makes the bot *yours*. In t
 
 1. **New Application** → name it (e.g. "Olisar").
 2. **Bot** tab → **Reset Token** → copy it. Under *Privileged Gateway Intents*, enable **Message
-   Content Intent** and **Server Members Intent** (Olisar needs both).
+   Content Intent** and **Server Members Intent** (Olisar needs both). Enable **Presence Intent** too
+   only if you want the **Status & voice awareness** feature — it's optional, off by default, and also
+   needs `OLISAR_ENABLE_PRESENCE_INTENT` on the host (see [Behavior](#behavior--proactivity)).
 3. **OAuth2** tab → copy the **Client ID** and **Client Secret** (Reset to reveal).
 4. **OAuth2 → URL Generator** → scopes `bot` + `applications.commands`, grant permission to read and
    send messages, and use the generated URL to **invite the bot to your server**.
@@ -361,7 +363,7 @@ The first time you open Olisar it walks you through a short **setup wizard**: pa
 token**, the OAuth **client ID + secret**, your main server ID, and (optionally) your free **API keys**. It
 checks the token live and shows you the exact redirect URL to register in the
 [Discord Developer Portal](https://discord.com/developers/applications). Save, and the bot starts and hands
-off to the normal Discord login. You only do this once — there's no `.env` to edit.
+off to the normal Discord login. You only do this once — there are no config files to edit.
 
 #### The menu-bar app
 
@@ -670,8 +672,7 @@ so it's the same form you saw on first run.
 > [!TIP]
 > **Built for handing off**
 > This is how you give Olisar to someone else: they never touch a config file or the server — they open the
-> console and paste their own keys. Each field shows whether its key is **set in the dashboard**, coming from a
-> developer **env fallback**, or **not set**.
+> console and paste their own keys. Each field shows whether its key is **set** or **not set**.
 
 #### The three providers
 
@@ -687,14 +688,11 @@ limits. See [Models](#models) for the full breakdown of what each key powers.
 
 #### How it resolves
 
-For every call, Olisar uses the **dashboard** value if you've set one, otherwise a developer `.env` value:
-- **Set in dashboard** — that key is used (the normal case on the desktop app).
-- **Env fallback** — nothing saved here, so a value from `.env` is used. Only relevant in a developer
-  setup; an installed app has no `.env`.
-- **Not set** — no key anywhere, so that feature is off (and Gemini being absent means Olisar can't reply
-  until you add one).
+Each key is simply set or not — the value you enter (in the setup wizard or here) is what Olisar uses:
+- **Set** — that key is used. This is the normal case.
+- **Not set** — no key, so that feature is off. Without a Gemini key, Olisar can't reply until you add one.
 
-Press **Clear** on a saved key to drop it (falling back to `.env` if a developer setup provides one).
+Press **Clear** on a saved key to remove it.
 
 > [!NOTE]
 > **Changes are live**

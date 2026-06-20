@@ -19,21 +19,27 @@ import logging
 
 import discord
 from discord.ext import commands, tasks
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from bot.content import download_images, image_attachments, message_text
 from olisar.db.engine import session_scope
-from olisar.db.models import GuildChannelInfo
+from olisar.db.models import GuildChannelInfo, SearchMessage
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import description_marker
 from olisar.memory.writer import record_search_message
 
 log = logging.getLogger("olisar.search_index")
 
-PAGE = 100              # messages per history request
-PAGES_PER_TICK = 3      # history pages per channel per tick
+# Tuned so the per-channel indexed count on the dashboard updates often (every tick =
+# TICK_SECONDS) without the worker doing any more work per minute. The throughput, the
+# Discord history request rate, and the caption rate are all the SAME as the old
+# 3-pages-per-120s pacing — just spread into smaller, more frequent steps:
+#   pages/min  = PAGES_PER_TICK * CHANNELS_PER_TICK * (60 / TICK_SECONDS)  (unchanged)
+TICK_SECONDS = 40       # was 120 — a third, with a third of the work per tick
+PAGE = 100              # messages per history request (max Discord allows; keeps calls efficient)
+PAGES_PER_TICK = 1      # history pages per channel per tick (was 3)
 CHANNELS_PER_TICK = 4   # channels advanced per tick
-CAPTIONS_PER_TICK = 4   # historical images described per tick (free-tier budget)
+CAPTIONS_PER_TICK = 1   # historical images described per tick (was 4 — keeps captions/min ~constant)
 ARCHIVE_LIMIT = 100     # archived threads/posts discovered per parent channel
 
 
@@ -140,11 +146,13 @@ class SearchIndex(commands.Cog):
         before = discord.Object(id=last_id) if last_id else None
         oldest = last_id
         total = 0
+        added = 0  # exact number of messages indexed this pass (new rows written)
         try:
             for _ in range(PAGES_PER_TICK):
                 batch = [m async for m in channel.history(limit=PAGE, before=before)]
                 if not batch:
                     await self._set_progress(channel_id, oldest=oldest, done=True)
+                    await self._log_progress(channel_id, channel.name, added, done=True)
                     return total
                 # Advance the cursor over the whole page (incl. our own messages) so
                 # paging always progresses. Caption outside the DB transaction.
@@ -157,7 +165,7 @@ class SearchIndex(commands.Cog):
                     prepared.append((m, await self._prepare_content(m, budget)))
                 async with session_scope() as session:
                     for m, content in prepared:
-                        await record_search_message(
+                        if await record_search_message(
                             session,
                             guild_id=guild.id,
                             channel_id=channel.id,
@@ -166,23 +174,38 @@ class SearchIndex(commands.Cog):
                             author_id=m.author.id,
                             author_name=m.author.display_name,
                             content=content,
-                        )
+                        ):
+                            added += 1
                 total += len(batch)
                 before = discord.Object(id=oldest)
                 if len(batch) < PAGE:  # reached the start of the channel
                     await self._set_progress(channel_id, oldest=oldest, done=True)
+                    await self._log_progress(channel_id, channel.name, added, done=True)
                     return total
             # Page budget for this tick spent; persist progress, resume next tick.
             await self._set_progress(channel_id, oldest=oldest, done=False)
+            await self._log_progress(channel_id, channel.name, added, done=False)
         except discord.Forbidden:
             await self._set_progress(channel_id, oldest=None, done=True)  # unreadable
         except Exception:
             log.exception("search backfill failed for channel %s", channel_id)
-        if total:
-            log.info("search-indexed %d historical msgs from #%s", total, channel.name)
         return total
 
-    @tasks.loop(seconds=120)
+    async def _log_progress(self, channel_id: int, name: str, added: int, *, done: bool) -> None:
+        """Log the exact indexed count for a channel: how many were added this pass and
+        the running total now in the index (which the Knowledge page also shows)."""
+        async with session_scope() as session:
+            indexed = await session.scalar(
+                select(func.count()).select_from(SearchMessage).where(
+                    SearchMessage.channel_id == channel_id
+                )
+            ) or 0
+        if done:
+            log.info("search-index: #%s done — %d message(s) indexed", name, indexed)
+        elif added:
+            log.info("search-index: #%s +%d this pass — %d indexed so far", name, added, indexed)
+
+    @tasks.loop(seconds=TICK_SECONDS)
     async def tick(self) -> None:
         # Scan pending channels across every guild the bot is in (capped per tick).
         try:
@@ -190,7 +213,10 @@ class SearchIndex(commands.Cog):
                 pending = (
                     await session.scalars(
                         select(GuildChannelInfo)
-                        .where(GuildChannelInfo.backfill_done == False)  # noqa: E712
+                        .where(
+                            GuildChannelInfo.backfill_done.is_(False),
+                            GuildChannelInfo.index_enabled.is_(True),  # never walk "not indexed" channels
+                        )
                         .limit(CHANNELS_PER_TICK)
                     )
                 ).all()
