@@ -77,6 +77,10 @@ export const api = {
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
   deleteSource: (id: number) => req(`/api/knowledge/${id}`, { method: 'DELETE' }),
 
+  // Message search index (re)build + per-channel progress.
+  reindex: () => req('/api/knowledge/reindex', { method: 'POST' }),
+  reindexStatus: () => req('/api/knowledge/reindex/status'),
+
   getFacts: () => req('/api/facts'),
   addFact: (b: any) => req('/api/facts', { method: 'POST', body: JSON.stringify(b) }),
   deleteFact: (id: number) => req(`/api/facts/${id}`, { method: 'DELETE' }),
@@ -107,4 +111,12 @@ export const api = {
   // Bot power (operator only): { available, running, ready, can_power }.
   botStatus: () => req('/api/bot/status'),
   botPower: (on: boolean) => req('/api/bot/power', { method: 'POST', body: JSON.stringify({ on }) }),
+
+  // Settings popup.
+  getLogs: (lines = 500) => req(`/api/settings/logs?lines=${lines}`),
+  getUpdates: () => req('/api/settings/updates'),
+  getRemote: () => req('/api/settings/remote'),
+  getDesktop: () => req('/api/settings/desktop'),
+  putDesktop: (b: { show_in_menu_bar: boolean }) =>
+    req('/api/settings/desktop', { method: 'PUT', body: JSON.stringify(b) }),
 }

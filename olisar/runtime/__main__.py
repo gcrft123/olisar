@@ -13,13 +13,18 @@ import logging
 import os
 
 
+_LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+_LOG_DATEFMT = "%H:%M:%S"
+
+
 def _setup_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT, datefmt=_LOG_DATEFMT)
     logging.getLogger("discord").setLevel(logging.WARNING)  # quiet the gateway chatter
+    # Keep the last few thousand lines in memory so the dashboard's Settings → Logs
+    # can show them (the packaged app has no console to scroll).
+    from olisar import logbuffer
+
+    logbuffer.install(_LOG_FORMAT, _LOG_DATEFMT)
 
 
 def main() -> None:

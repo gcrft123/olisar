@@ -104,3 +104,7 @@ class SandboxChatIn(BaseModel):
     # Full transcript so far, ending with the admin's new message. The sandbox is
     # stateless server-side (memory-free), so the client carries the history.
     messages: list[SandboxMessage]
+
+
+class DesktopSettingsIn(BaseModel):
+    show_in_menu_bar: bool | None = None

@@ -16,6 +16,8 @@
   --text-3: #6a6a73;
   --accent: #8a8af2;
   --accent-soft: rgba(138, 138, 242, 0.16);
+  --glow-a: rgba(138, 138, 242, 0.18);  /* ambient background blobs — re-tinted from the accent at runtime */
+  --glow-b: rgba(138, 138, 242, 0.10);
   --primary-bg: #ededee;
   --primary-fg: #18181b;
   --primary-hover: #ffffff;
@@ -66,13 +68,13 @@ body::after {
 body::before {
   width: 54vw; height: 54vw;
   top: -16vw; left: 4vw;
-  background: radial-gradient(circle, rgba(138, 138, 242, 0.18), transparent 60%);
+  background: radial-gradient(circle, var(--glow-a), transparent 60%);
   animation: glow-a 28s ease-in-out infinite alternate;
 }
 body::after {
   width: 48vw; height: 48vw;
   bottom: -18vw; right: -6vw;
-  background: radial-gradient(circle, rgba(86, 140, 255, 0.12), transparent 60%);
+  background: radial-gradient(circle, var(--glow-b), transparent 60%);
   animation: glow-b 36s ease-in-out infinite alternate;
 }
 @keyframes glow-a {
@@ -683,3 +685,121 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .sandbox-input textarea:focus { outline: none; border-color: var(--accent); }
 .sandbox-input textarea:disabled { opacity: 0.6; }
 .sandbox-actions { display: flex; flex-direction: column; gap: 7px; }
+
+/* ── Settings popup (Notion-style modal) ────────────────────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: fade-in 0.12s ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.settings-modal {
+  width: min(900px, 94vw); height: min(640px, 90vh);
+  display: grid; grid-template-columns: 212px 1fr;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+.settings-nav {
+  background: var(--bg-sidebar); border-right: 1px solid var(--border);
+  padding: 16px 12px; display: flex; flex-direction: column; gap: 3px;
+}
+.settings-nav-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-3); padding: 4px 10px 10px;
+}
+.settings-nav-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  background: transparent; border: 1px solid transparent; color: var(--text-2);
+  font-size: 13.5px; font-weight: 500; text-align: left;
+  padding: 8px 10px; border-radius: var(--radius-sm); cursor: pointer;
+}
+.settings-nav-item:hover { background: var(--bg-inset); color: var(--text); }
+.settings-nav-item.active { background: var(--accent-soft); color: var(--text); }
+.settings-body { position: relative; padding: 30px 34px; overflow-y: auto; display: flex; flex-direction: column; }
+.settings-close {
+  position: absolute; top: 16px; right: 16px; padding: 6px;
+  background: transparent; border: none; color: var(--text-3);
+  display: inline-flex; border-radius: var(--radius-sm);
+}
+.settings-close:hover { background: var(--bg-inset); color: var(--text); }
+.settings-head { margin-bottom: 20px; }
+.settings-head h2 { font-size: 18px; letter-spacing: -0.01em; }
+.settings-head p { color: var(--text-2); font-size: 13px; margin-top: 5px; max-width: 56ch; }
+.settings-subhead {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-3); margin: 22px 0 9px;
+}
+.settings-foot { color: var(--text-3); font-size: 12px; margin-top: 16px; line-height: 1.5; }
+.settings-foot code { font-family: var(--mono); background: var(--bg-inset); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
+.settings-muted { color: var(--text-3); font-size: 13px; }
+.settings-err { color: var(--danger); background: var(--danger-soft); font-size: 12.5px; padding: 8px 11px; border-radius: var(--radius-sm); margin-bottom: 12px; }
+.settings-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.settings-row.end { justify-content: flex-end; }
+.settings-row.between { justify-content: space-between; align-items: flex-start; }
+
+/* Appearance */
+.swatches { display: flex; flex-wrap: wrap; gap: 11px; }
+.swatch {
+  width: 38px; height: 38px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 2px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center;
+  color: #fff;
+}
+.swatch.active { border-color: var(--text); box-shadow: 0 0 0 3px var(--bg-inset); }
+.custom-color { display: inline-flex; align-items: center; gap: 9px; color: var(--text-2); font-size: 13px; cursor: pointer; }
+.custom-color input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border-strong); border-radius: 8px; background: none; cursor: pointer; }
+
+/* Log views */
+.logview {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--text-2);
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; max-height: 46vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+}
+.logview.short { max-height: 180px; }
+/* In the Logs section the viewer fills the remaining modal height and scrolls
+   internally, so the modal itself never overflows. */
+.logview.fill { flex: 1 1 auto; min-height: 120px; max-height: none; }
+
+/* Remote access */
+.status-card { display: flex; align-items: center; gap: 12px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 15px; }
+.status-card .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.status-card .dot.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.status-card .dot.warn { background: var(--text-3); }
+.status-line { font-weight: 600; font-size: 13.5px; }
+.status-card a { color: var(--accent); font-size: 12.5px; }
+.userlist { display: flex; flex-direction: column; gap: 1px; }
+.userrow { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.userrow:last-child { border-bottom: none; }
+.uname { font-weight: 550; color: var(--text); min-width: 120px; }
+.ubadge { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 20px; }
+.umeta { color: var(--text-3); font-size: 12px; margin-left: auto; }
+.userrow .umeta + .umeta { margin-left: 16px; }
+
+/* Updates */
+.update-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 16px 18px; }
+.version-now { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; margin-top: 2px; }
+.update-state { font-size: 13.5px; }
+.ok-text { color: var(--ok); display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+.warn-text { color: var(--danger); }
+.btn-link { display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 550; text-decoration: none; border: 1px solid var(--border-strong); color: var(--text); }
+.btn-link.primary { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-bg); }
+.opt-label { font-weight: 550; font-size: 13.5px; margin-bottom: 3px; }
+.update-direct { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 10px 13px; font-size: 13px; color: var(--text); background: var(--accent-soft); border-radius: var(--radius-sm); }
+
+/* ── Message search index (re-index + progress) ─────────────────────────── */
+.reindex-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.reindex-stat { font-size: 13px; color: var(--text-2); }
+.reindex-stat b { color: var(--text); font-size: 15px; font-weight: 650; }
+.rx-dim { color: var(--text-3); }
+.progress { height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.progress.sm { height: 6px; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 999px; transition: width 0.5s ease; }
+.progress.indeterminate { position: relative; }
+.progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: 999px; animation: rx-indef 1.2s ease-in-out infinite; }
+@keyframes rx-indef { 0% { left: -38%; } 100% { left: 100%; } }
+.reindex-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.reindex-row { display: grid; grid-template-columns: 150px 1fr 116px; align-items: center; gap: 12px; }
+.rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rx-meta { font-size: 12px; color: var(--text-3); text-align: right; }
+.reindex-done { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); font-size: 13px; margin-top: 14px; }
