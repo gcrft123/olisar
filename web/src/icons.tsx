@@ -24,6 +24,7 @@ import {
   KeyMinimalistic,
   UsersGroupRounded,
   Power,
+  TestTube,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -48,6 +49,7 @@ export const Icon = {
   keys: KeyMinimalistic,
   members: UsersGroupRounded,
   power: Power,
+  sandbox: TestTube,
 } as const
 
 export type IconName = keyof typeof Icon

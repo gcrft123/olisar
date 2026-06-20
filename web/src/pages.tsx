@@ -44,6 +44,91 @@ export function Persona() {
   )
 }
 
+// ── Test chat (enclosed sandbox: persona + KB + tools, but no memory) ───────
+type ChatMsg = { role: 'user' | 'assistant'; content: string }
+
+export function TestChat() {
+  const [messages, setMessages] = useState<ChatMsg[]>([])
+  const [input, setInput] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const logRef = useRef<HTMLDivElement>(null)
+
+  // Keep the transcript pinned to the latest message as it grows / while thinking.
+  useEffect(() => {
+    logRef.current?.scrollTo({ top: logRef.current.scrollHeight, behavior: 'smooth' })
+  }, [messages, busy])
+
+  const send = async () => {
+    const text = input.trim()
+    if (!text || busy) return
+    const next: ChatMsg[] = [...messages, { role: 'user', content: text }]
+    setMessages(next)
+    setInput('')
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await api.sandboxChat(next.map((m) => ({ role: m.role, content: m.content })))
+      setMessages([...next, { role: 'assistant', content: res?.reply || '…' }])
+    } catch (e: any) {
+      setErr(e?.message || 'Something went wrong — try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <PageHead
+        icon="sandbox"
+        title="Test chat"
+        sub="Talk to Olisar in an enclosed sandbox — full persona, knowledge base, and tools, but no memory. Nothing here is remembered, and it never reads or writes the server's glossary or chat history."
+      />
+      <Card>
+        <div className="sandbox">
+          <div className="sandbox-log" ref={logRef}>
+            {messages.length === 0 && !busy && (
+              <div className="sandbox-empty">
+                Say something to try Olisar's persona, knowledge-base lookups, and tools.
+                This conversation is wiped when you leave — nothing is saved.
+              </div>
+            )}
+            {messages.map((m, i) => (
+              <div key={i} className={'sb-msg ' + m.role}>
+                <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
+                <div className="sb-bubble">
+                  {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
+                </div>
+              </div>
+            ))}
+            {busy && (
+              <div className="sb-msg assistant">
+                <div className="sb-who">Olisar</div>
+                <div className="sb-bubble sb-typing"><span /><span /><span /></div>
+              </div>
+            )}
+          </div>
+          {err && <div className="sandbox-err">{err}</div>}
+          <div className="sandbox-input">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+              placeholder="Message Olisar…  ·  Enter to send, Shift+Enter for a new line"
+              rows={2}
+              disabled={busy}
+            />
+            <div className="sandbox-actions">
+              <button className="ghost" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0}>Clear</button>
+              <button className="primary" onClick={() => void send()} disabled={busy || !input.trim()}>Send</button>
+            </div>
+          </div>
+        </div>
+      </Card>
+    </>
+  )
+}
+
 // ── Behavior (guild_config + proactivity) ──────────────────────────────────
 export function Behavior() {
   const configEd = useEditable<any>(api.getConfig)

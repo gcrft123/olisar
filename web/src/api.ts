@@ -81,6 +81,10 @@ export const api = {
   addFact: (b: any) => req('/api/facts', { method: 'POST', body: JSON.stringify(b) }),
   deleteFact: (id: number) => req(`/api/facts/${id}`, { method: 'DELETE' }),
 
+  // Enclosed test chat: persona + KB + tools, no memory. Send the full transcript.
+  sandboxChat: (messages: { role: string; content: string }[]) =>
+    req('/api/sandbox/chat', { method: 'POST', body: JSON.stringify({ messages }) }),
+
   getProfiles: () => req('/api/profiles'),
   buildImpression: (userId: string) => req(`/api/profiles/${userId}/impression`, { method: 'POST' }),
   getStats: () => req('/api/stats'),
