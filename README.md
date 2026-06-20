@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="web/public/logo.png" alt="Olisar" width="96" height="96" />
+  <img src="docs/logo.png" alt="Olisar" width="96" height="96" />
 </p>
 
 <h1 align="center">Olisar</h1>
