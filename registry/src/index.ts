@@ -17,10 +17,29 @@
 export interface Env {
   DB: D1Database;
   BUNDLES: R2Bucket;
-  DEV_SEED?: string;
+  DEV_SEED?: string;       // local seeding endpoint (set in .dev.vars only)
+  ADMIN_TOKEN?: string;    // bearer token gating /v1/admin/publish (a Worker secret)
+  R2_MAX_BYTES?: string;   // hard storage cap (default 9 GB, under the 10 GB free tier)
+  R2_MAX_BUNDLE_BYTES?: string; // per-bundle cap (default 1 MB)
+  R2_CLASS_A_MAX?: string; // monthly R2 write cap (default 900k, under 1M free)
 }
 
 const CORS = { "access-control-allow-origin": "*" };
+
+// Free-tier guardrails. R2 egress is free and reads (Class B, 10M/mo) stay under the
+// limit via the Workers free-plan request cap (~100k/day); the unbounded risks are
+// storage and writes (Class A), which we cap exactly below.
+function capInt(v: string | undefined, dflt: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+function limits(env: Env) {
+  return {
+    maxBytes: capInt(env.R2_MAX_BYTES, 9_000_000_000),
+    maxBundle: capInt(env.R2_MAX_BUNDLE_BYTES, 1_000_000),
+    maxClassA: capInt(env.R2_CLASS_A_MAX, 900_000),
+  };
+}
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -64,11 +83,14 @@ export default {
       }
       if (req.method === "GET" && parts[0] === "v1" && parts[1] === "ext") {
         if (parts.length === 4) return await detail(parts[2], parts[3], env);
-        if (parts.length === 5) return await getBundle(parts[2], parts[3], parts[4], env, ctx);
+        if (parts.length === 5) return await getBundle(parts[2], parts[3], parts[4], env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/admin/publish") {
+        return await adminPublish(req, env);
       }
       if (req.method === "POST" && url.pathname === "/v1/_dev/publish") {
         if (env.DEV_SEED !== "1") return json({ error: "not found" }, 404);
-        return await devPublish(req, env);
+        return await publishFromBody(req, env);
       }
       return json({ error: "not found" }, 404);
     } catch (err: any) {
@@ -139,7 +161,6 @@ async function getBundle(
   name: string,
   version: string,
   env: Env,
-  ctx: ExecutionContext,
 ): Promise<Response> {
   const row = await env.DB.prepare(
     `SELECT content_hash, yanked FROM versions WHERE namespace = ? AND name = ? AND version = ?`,
@@ -149,11 +170,9 @@ async function getBundle(
   const obj = await env.BUNDLES.get(bundleKey(row.content_hash));
   if (!obj) return json({ error: "bundle blob missing" }, 404);
 
-  ctx.waitUntil(
-    env.DB.prepare(
-      `UPDATE extensions SET downloads = downloads + 1 WHERE namespace = ? AND name = ?`,
-    ).bind(ns, name).run(),
-  );
+  // No per-read D1 write here: it would tie reads 1:1 to D1 writes and burn that
+  // budget at scale. R2 read ops (Class B) stay under the free tier via the Workers
+  // free-plan request cap. Download analytics can come later via Analytics Engine.
   return new Response(obj.body, {
     headers: {
       "content-type": "application/json",
@@ -163,11 +182,11 @@ async function getBundle(
   });
 }
 
-// ── dev-only seeding (local) ───────────────────────────────────────────────
-// Stand-in for the future authenticated publish pipeline. Gated by DEV_SEED so it
-// never exists in a deployed registry. Accepts a signed .olx + publisher metadata
-// (the seed generator computes the fingerprint), stores the blob in R2, and upserts
-// the catalog rows.
+// ── publishing ─────────────────────────────────────────────────────────────
+// /v1/admin/publish (bearer-token gated, to seed a deployed registry) and the
+// local-only /v1/_dev/publish both land in publishFromBody → storePublish, which
+// enforces the free-tier storage + write caps. This is a stand-in for the full
+// publish pipeline (Discord OAuth + signature/namespace verification), a later phase.
 let schemaReady = false;
 async function ensureSchema(env: Env): Promise<void> {
   if (schemaReady) return;
@@ -195,11 +214,25 @@ async function ensureSchema(env: Env): Promise<void> {
          yanked INTEGER NOT NULL DEFAULT 0, published_at TEXT NOT NULL DEFAULT (datetime('now')),
          UNIQUE (namespace, name, version))`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS usage (
+         id INTEGER PRIMARY KEY, stored_bytes INTEGER NOT NULL DEFAULT 0,
+         class_a INTEGER NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT '')`,
+    ),
   ]);
   schemaReady = true;
 }
 
-async function devPublish(req: Request, env: Env): Promise<Response> {
+async function adminPublish(req: Request, env: Env): Promise<Response> {
+  const auth = req.headers.get("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!env.ADMIN_TOKEN || token.length === 0 || token !== env.ADMIN_TOKEN) {
+    return json({ error: "unauthorized" }, 401);
+  }
+  return publishFromBody(req, env);
+}
+
+async function publishFromBody(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const body = await req.json<any>();
   const bundle = body?.bundle;
@@ -208,12 +241,44 @@ async function devPublish(req: Request, env: Env): Promise<Response> {
   }
   const pub = body.publisher || {};
   const namespace = String(body.namespace || pub.handle || "demo");
+  return storePublish(env, namespace, pub, bundle);
+}
+
+async function storePublish(env: Env, namespace: string, pub: any, bundle: any): Promise<Response> {
   const name = String(bundle.id);
   const version = String(bundle.version || "1.0.0");
+  const key = bundleKey(bundle.content_hash);
+  const blob = JSON.stringify(bundle);
+  const size = new TextEncoder().encode(blob).length;
+  const lim = limits(env);
+  if (size > lim.maxBundle) {
+    return json({ error: `bundle too large (${size} > ${lim.maxBundle} bytes)` }, 413);
+  }
 
-  await env.BUNDLES.put(bundleKey(bundle.content_hash), JSON.stringify(bundle), {
-    httpMetadata: { contentType: "application/json" },
-  });
+  // Free-tier guard — enforce the exact storage + monthly-write caps before any R2 write.
+  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const u = await env.DB.prepare(`SELECT stored_bytes, class_a, period FROM usage WHERE id = 1`)
+    .first<{ stored_bytes: number; class_a: number; period: string }>();
+  let stored = u?.stored_bytes ?? 0;
+  let classA = u && u.period === period ? (u.class_a ?? 0) : 0; // reset writes each month
+  // Bundles are content-addressed, so re-publishing identical bytes adds no storage.
+  const existing = await env.BUNDLES.head(key);
+  const delta = existing ? 0 : size;
+  if (stored + delta > lim.maxBytes) {
+    return json({ error: "registry storage cap reached" }, 507);
+  }
+  if (classA + 1 > lim.maxClassA) {
+    return json({ error: "registry monthly write cap reached" }, 429);
+  }
+
+  await env.BUNDLES.put(key, blob, { httpMetadata: { contentType: "application/json" } });
+  stored += delta;
+  classA += 1;
+  await env.DB.prepare(
+    `INSERT INTO usage (id, stored_bytes, class_a, period) VALUES (1, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET stored_bytes = excluded.stored_bytes,
+       class_a = excluded.class_a, period = excluded.period`,
+  ).bind(stored, classA, period).run();
 
   let publisherId: number | null = null;
   if (pub.fingerprint) {
@@ -243,10 +308,10 @@ async function devPublish(req: Request, env: Env): Promise<Response> {
        content_hash = excluded.content_hash, r2_key = excluded.r2_key, sdk_version = excluded.sdk_version,
        permissions = excluded.permissions, signature = excluded.signature, publisher_key = excluded.publisher_key`,
   ).bind(
-    namespace, name, version, bundle.content_hash, bundleKey(bundle.content_hash),
+    namespace, name, version, bundle.content_hash, key,
     bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
     bundle.signature ?? null, bundle.public_key ?? null,
   ).run();
 
-  return json({ ok: true, id: `${namespace}/${name}`, version });
+  return json({ ok: true, id: `${namespace}/${name}`, version, stored_bytes: stored });
 }
