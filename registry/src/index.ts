@@ -1,0 +1,252 @@
+/**
+ * Olisar extension marketplace registry.
+ *
+ * A Cloudflare Worker that hosts the catalog (D1) and the `.olx` bundle blobs (R2).
+ * This phase is the read-only **consume** API the bot's console browses + installs from;
+ * the bot always re-transpiles and verifies the bundle locally, so the registry is a
+ * discovery + distribution layer, never a trusted compiler.
+ *
+ * Routes:
+ *   GET  /v1/health
+ *   GET  /v1/search?q=&category=&limit=&offset=
+ *   GET  /v1/ext/:namespace/:name              → catalog detail + versions
+ *   GET  /v1/ext/:namespace/:name/:version     → the .olx bundle (JSON, from R2)
+ *   POST /v1/_dev/publish                       → seed (local only; gated by DEV_SEED)
+ */
+
+export interface Env {
+  DB: D1Database;
+  BUNDLES: R2Bucket;
+  DEV_SEED?: string;
+}
+
+const CORS = { "access-control-allow-origin": "*" };
+
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json", ...CORS },
+  });
+}
+
+// R2 object key for a bundle, derived from its content hash (immutable + dedup).
+function bundleKey(contentHash: string): string {
+  return "bundles/" + contentHash.replace(/^sha256:/, "") + ".olx";
+}
+
+function entryFromRow(r: any) {
+  return {
+    namespace: r.namespace,
+    name: r.name,
+    id: `${r.namespace}/${r.name}`,
+    category: r.category,
+    description: r.description,
+    version: r.latest_version,
+    downloads: r.downloads ?? 0,
+    permissions: r.permissions ? JSON.parse(r.permissions) : [],
+    sdk_version: r.sdk_version ?? null,
+    publisher: r.publisher ?? null,
+    publisher_fingerprint: r.publisher_fingerprint ?? null,
+    publisher_verified: !!r.publisher_verified,
+  };
+}
+
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(req.url);
+    const parts = url.pathname.split("/").filter(Boolean); // e.g. ["v1","ext","ns","name"]
+    try {
+      if (req.method === "GET" && url.pathname === "/v1/health") {
+        return json({ ok: true });
+      }
+      if (req.method === "GET" && url.pathname === "/v1/search") {
+        return await search(url, env);
+      }
+      if (req.method === "GET" && parts[0] === "v1" && parts[1] === "ext") {
+        if (parts.length === 4) return await detail(parts[2], parts[3], env);
+        if (parts.length === 5) return await getBundle(parts[2], parts[3], parts[4], env, ctx);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/_dev/publish") {
+        if (env.DEV_SEED !== "1") return json({ error: "not found" }, 404);
+        return await devPublish(req, env);
+      }
+      return json({ error: "not found" }, 404);
+    } catch (err: any) {
+      return json({ error: String(err?.message || err) }, 500);
+    }
+  },
+} satisfies ExportedHandler<Env>;
+
+async function search(url: URL, env: Env): Promise<Response> {
+  const q = (url.searchParams.get("q") || "").trim();
+  const cat = (url.searchParams.get("category") || "").trim();
+  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || 30)));
+  const offset = Math.max(0, Number(url.searchParams.get("offset") || 0));
+
+  let sql = `SELECT e.namespace, e.name, e.category, e.description, e.latest_version, e.downloads,
+      p.handle AS publisher, p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified,
+      v.permissions AS permissions, v.sdk_version AS sdk_version
+    FROM extensions e
+    LEFT JOIN publishers p ON p.id = e.publisher_id
+    LEFT JOIN versions v ON v.namespace = e.namespace AND v.name = e.name AND v.version = e.latest_version
+    WHERE e.status = 'published'`;
+  const binds: any[] = [];
+  if (q) {
+    sql += " AND (e.name LIKE ? OR e.description LIKE ?)";
+    binds.push(`%${q}%`, `%${q}%`);
+  }
+  if (cat) {
+    sql += " AND e.category = ?";
+    binds.push(cat);
+  }
+  sql += " ORDER BY e.downloads DESC, e.updated_at DESC LIMIT ? OFFSET ?";
+  binds.push(limit, offset);
+
+  const { results } = await env.DB.prepare(sql).bind(...binds).all();
+  return json({ results: (results || []).map(entryFromRow) });
+}
+
+async function detail(ns: string, name: string, env: Env): Promise<Response> {
+  const ext = await env.DB.prepare(
+    `SELECT e.*, p.handle AS publisher, p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified
+     FROM extensions e LEFT JOIN publishers p ON p.id = e.publisher_id
+     WHERE e.namespace = ? AND e.name = ?`,
+  ).bind(ns, name).first<any>();
+  if (!ext) return json({ error: "not found" }, 404);
+
+  const { results: versions } = await env.DB.prepare(
+    `SELECT version, content_hash, sdk_version, permissions, signature, publisher_key, yanked, published_at
+     FROM versions WHERE namespace = ? AND name = ? ORDER BY published_at DESC`,
+  ).bind(ns, name).all();
+
+  return json({
+    ...entryFromRow(ext),
+    status: ext.status,
+    versions: (versions || []).map((v: any) => ({
+      version: v.version,
+      content_hash: v.content_hash,
+      sdk_version: v.sdk_version,
+      permissions: v.permissions ? JSON.parse(v.permissions) : [],
+      signed: !!v.signature,
+      yanked: !!v.yanked,
+      published_at: v.published_at,
+    })),
+  });
+}
+
+async function getBundle(
+  ns: string,
+  name: string,
+  version: string,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
+  const row = await env.DB.prepare(
+    `SELECT content_hash, yanked FROM versions WHERE namespace = ? AND name = ? AND version = ?`,
+  ).bind(ns, name, version).first<{ content_hash: string; yanked: number }>();
+  if (!row) return json({ error: "not found" }, 404);
+
+  const obj = await env.BUNDLES.get(bundleKey(row.content_hash));
+  if (!obj) return json({ error: "bundle blob missing" }, 404);
+
+  ctx.waitUntil(
+    env.DB.prepare(
+      `UPDATE extensions SET downloads = downloads + 1 WHERE namespace = ? AND name = ?`,
+    ).bind(ns, name).run(),
+  );
+  return new Response(obj.body, {
+    headers: {
+      "content-type": "application/json",
+      "x-olx-yanked": row.yanked ? "1" : "0",
+      ...CORS,
+    },
+  });
+}
+
+// ── dev-only seeding (local) ───────────────────────────────────────────────
+// Stand-in for the future authenticated publish pipeline. Gated by DEV_SEED so it
+// never exists in a deployed registry. Accepts a signed .olx + publisher metadata
+// (the seed generator computes the fingerprint), stores the blob in R2, and upserts
+// the catalog rows.
+let schemaReady = false;
+async function ensureSchema(env: Env): Promise<void> {
+  if (schemaReady) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS publishers (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT, handle TEXT NOT NULL,
+         public_key TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE,
+         verified INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS extensions (
+         namespace TEXT NOT NULL, name TEXT NOT NULL, publisher_id INTEGER,
+         category TEXT, description TEXT, latest_version TEXT,
+         downloads INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'published',
+         created_at TEXT NOT NULL DEFAULT (datetime('now')),
+         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+         PRIMARY KEY (namespace, name))`,
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS versions (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, name TEXT NOT NULL,
+         version TEXT NOT NULL, content_hash TEXT NOT NULL, r2_key TEXT NOT NULL,
+         sdk_version TEXT, permissions TEXT, signature TEXT, publisher_key TEXT,
+         yanked INTEGER NOT NULL DEFAULT 0, published_at TEXT NOT NULL DEFAULT (datetime('now')),
+         UNIQUE (namespace, name, version))`,
+    ),
+  ]);
+  schemaReady = true;
+}
+
+async function devPublish(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const bundle = body?.bundle;
+  if (!bundle || !bundle.id || !bundle.content_hash) {
+    return json({ error: "bad bundle (need id + content_hash)" }, 400);
+  }
+  const pub = body.publisher || {};
+  const namespace = String(body.namespace || pub.handle || "demo");
+  const name = String(bundle.id);
+  const version = String(bundle.version || "1.0.0");
+
+  await env.BUNDLES.put(bundleKey(bundle.content_hash), JSON.stringify(bundle), {
+    httpMetadata: { contentType: "application/json" },
+  });
+
+  let publisherId: number | null = null;
+  if (pub.fingerprint) {
+    await env.DB.prepare(
+      `INSERT INTO publishers (discord_id, handle, public_key, fingerprint, verified)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(fingerprint) DO UPDATE SET handle = excluded.handle, verified = excluded.verified`,
+    ).bind(pub.discord_id ?? null, pub.handle ?? namespace, pub.public_key ?? "", pub.fingerprint, pub.verified ? 1 : 0).run();
+    const prow = await env.DB.prepare(`SELECT id FROM publishers WHERE fingerprint = ?`)
+      .bind(pub.fingerprint).first<{ id: number }>();
+    publisherId = prow ? prow.id : null;
+  }
+
+  await env.DB.prepare(
+    `INSERT INTO extensions (namespace, name, publisher_id, category, description, latest_version, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(namespace, name) DO UPDATE SET
+       publisher_id = excluded.publisher_id, category = excluded.category,
+       description = excluded.description, latest_version = excluded.latest_version,
+       updated_at = datetime('now')`,
+  ).bind(namespace, name, publisherId, bundle.category ?? "General", bundle.description ?? "", version).run();
+
+  await env.DB.prepare(
+    `INSERT INTO versions (namespace, name, version, content_hash, r2_key, sdk_version, permissions, signature, publisher_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(namespace, name, version) DO UPDATE SET
+       content_hash = excluded.content_hash, r2_key = excluded.r2_key, sdk_version = excluded.sdk_version,
+       permissions = excluded.permissions, signature = excluded.signature, publisher_key = excluded.publisher_key`,
+  ).bind(
+    namespace, name, version, bundle.content_hash, bundleKey(bundle.content_hash),
+    bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
+    bundle.signature ?? null, bundle.public_key ?? null,
+  ).run();
+
+  return json({ ok: true, id: `${namespace}/${name}`, version });
+}
