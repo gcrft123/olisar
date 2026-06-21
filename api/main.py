@@ -56,6 +56,7 @@ def create_app() -> FastAPI:
             "vec": getattr(request.app.state, "vec_ok", None),
             "sandbox": getattr(request.app.state, "sandbox_ok", None),
             "transpile": getattr(request.app.state, "transpile_ok", None),
+            "signing": getattr(request.app.state, "signing_ok", None),
         }
 
     # Serve the built dashboard at the same origin (desktop app + production).

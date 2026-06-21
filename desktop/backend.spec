@@ -27,6 +27,12 @@ datas += collect_data_files("sqlite_vec")
 binaries += collect_dynamic_libs("quickjs")
 hiddenimports += ["quickjs"]
 
+# cryptography: Ed25519 signing/verification of .olx bundles. It loads a Rust native
+# module dynamically; collect its submodules + libs so the frozen build can sign/verify.
+# A failed bundle is surfaced by the signing self-check on /api/health.
+binaries += collect_dynamic_libs("cryptography")
+hiddenimports += collect_submodules("cryptography")
+
 # The sandbox's JS bootstrap + the SDK type defs + the built-in extensions are data
 # files (collect_submodules only grabs .py), so ship them explicitly. The vendored
 # TypeScript compiler (vendor/typescript.js, ~9MB) is the server-side transpiler that

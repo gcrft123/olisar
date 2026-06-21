@@ -155,10 +155,17 @@ async def run(host: str, port: int) -> None:
     if not transpile_ok:
         log.error("transpile self-check FAILED — authoring/importing extensions won't work")
 
+    from olisar.extensions import signing
+
+    signing_ok = signing.self_check()  # Ed25519 — needed to sign exports / verify imports
+    if not signing_ok:
+        log.error("signing self-check FAILED — .olx bundles won't be signed/verified")
+
     app = create_app()
     app.state.vec_ok = vec_ok  # surfaced on /api/health for the tray
     app.state.sandbox_ok = sandbox_ok
     app.state.transpile_ok = transpile_ok
+    app.state.signing_ok = signing_ok
     supervisor = BotSupervisor()
     app.state.bot_supervisor = supervisor  # setup wizard (Phase 2) restarts via this
 

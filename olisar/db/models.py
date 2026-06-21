@@ -468,7 +468,11 @@ class ExtensionPackage(Base):
     publisher_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     publisher_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)  # "sha256:<hex>" of canonical source
-    signature: Mapped[str | None] = mapped_column(Text, nullable=True)  # reserved for signed bundles
+    # Signed-bundle provenance: the publisher's Ed25519 signature over content_hash, the
+    # public key that verifies it, and whether verification passed when it was imported.
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publisher_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # signer's public key (b64)
+    signature_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     sdk_version: Mapped[str] = mapped_column(String(16), default="1")  # SDK surface the code targets
     # True once an operator has edited a built-in in the console, so the seeder stops
     # overwriting it on boot (ships updates only to untouched built-ins).
@@ -526,6 +530,22 @@ class AppSecret(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SigningIdentity(Base):
+    """This bot's Ed25519 publisher identity, used to sign the ``.olx`` bundles it
+    exports. Single row (id=1), created lazily on first export. The private key never
+    leaves the server and is deliberately NOT surfaced by any read endpoint; only the
+    public key + fingerprint are shared (in exported bundles, so importers can verify)."""
+
+    __tablename__ = "signing_identity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    algo: Mapped[str] = mapped_column(String(16), default="ed25519")
+    private_key: Mapped[str] = mapped_column(Text, default="")  # raw private key, base64
+    public_key: Mapped[str] = mapped_column(Text, default="")  # raw public key, base64
+    fingerprint: Mapped[str] = mapped_column(String(80), default="")  # "sha256:<hex>" of public key
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AppConfig(Base):

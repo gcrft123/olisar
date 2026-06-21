@@ -576,6 +576,7 @@ version = "0.3.0"
 source = { virtual = "." }
 dependencies = [
     { name = "aiosqlite" },
+    { name = "cryptography" },
     { name = "discord-py" },
     { name = "fastapi" },
     { name = "google-genai" },
@@ -608,6 +609,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "alembic", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "beautifulsoup4", marker = "extra == 'knowledge'", specifier = ">=4.12" },
+    { name = "cryptography", specifier = ">=42" },
     { name = "discord-py", specifier = ">=2.4" },
     { name = "fastapi", specifier = ">=0.110" },
     { name = "google-genai", specifier = ">=1.0" },

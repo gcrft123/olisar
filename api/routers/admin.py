@@ -547,6 +547,12 @@ async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
         }
         pkgs = {p.key: p for p in (await session.scalars(select(ExtensionPackage))).all()}
 
+    def _signed_by(pkg):
+        if pkg is None or not pkg.publisher_key:
+            return None
+        from olisar.extensions import signing
+        return signing.fingerprint(pkg.publisher_key)
+
     def _entry(e):
         pkg = pkgs.get(e.key)
         manifest = (pkg.manifest if pkg else {}) or {}
@@ -565,6 +571,8 @@ async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
             # imported package, the capabilities its author asked for vs. what was granted.
             "origin": (pkg.origin if pkg else "builtin"),
             "publisher": (pkg.publisher_name if pkg else None),
+            "signed_by": _signed_by(pkg),
+            "signature_verified": (pkg.signature_verified if pkg else None),
             # What the extension contributes — surfaced in the catalog detail panel.
             "tools": [t.declaration.name for t in e.tools],
             "commands": [c.get("name") for c in manifest.get("commands", []) if c.get("name")],
