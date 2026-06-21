@@ -5,7 +5,6 @@
   "description": "Olisar — a self-hosted AI Discord bot you run on your own machine.",
   "main": "main.js",
   "author": "Olisar",
-  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",

@@ -121,4 +121,4 @@ disclosed by `/privacy`. See the in-dashboard **Privacy** doc for the full pictu
 
 ## License
 
-MIT.
+Free and open source.
