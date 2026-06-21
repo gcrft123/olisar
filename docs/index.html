@@ -258,7 +258,7 @@
   .final .cta { margin-top: 32px; }
 
   .site-foot { margin-top: clamp(80px,14vh,140px); }
-  .foot-inner { border-top: 1px solid var(--line); padding-top: 64px; }
+  .foot-inner { padding-top: 64px; }
   .foot { display: flex; gap: 40px; flex-wrap: wrap; justify-content: space-between; padding-bottom: 44px; }
   .foot-brand { max-width: 320px; }
   .foot-brand .brand { margin-bottom: 14px; }
@@ -276,13 +276,18 @@
   .site-foot { position: relative; }
   /* Keep the footer text in a left column so it sits well clear of the blob. */
   .site-foot .foot, .site-foot .foot-bottom { position: relative; z-index: 1; max-width: 62%; }
-  /* The stage is anchored to the screen's bottom-right corner and bleeds off it. */
-  .foot-stage { position: absolute; right: -100px; bottom: 0; width: min(54vw, 720px); height: min(54vw, 720px); pointer-events: none; z-index: 0; }
+  /* The stage is anchored to the screen's bottom-right corner and bleeds off it.
+     overflow:clip is safe here (the stage is its own clip box, so it won't slice the
+     blob's faded top the way clipping the footer would) and it hides the blob's extra
+     downward bleed below — without that bleed, a parallax lift would expose the bottom edge. */
+  .foot-stage { position: absolute; right: -100px; bottom: 0; width: min(54vw, 720px); height: min(54vw, 720px); overflow: clip; pointer-events: none; z-index: 0; }
   .foot-blob, .foot-orb { position: absolute; border: 0; pointer-events: none; }
   /* The blob fills the stage; an irregular union of soft off-center radial gradients
      masks its rectangle into an organic, soft-edged shape (no straight line / circle). */
   .foot-blob {
-    inset: 0; width: 100%; height: 100%; opacity: .62;
+    /* Extends ~56px past the stage's clipped bottom so the parallax lift (≤10px) only
+       ever reveals more solid blob — the hard bottom edge stays below the clip line. */
+    top: 0; left: 0; width: 100%; height: calc(100% + 56px); opacity: .62;
     /* Background parallax layer — drifts a little with the pointer (set in JS). */
     transform: translate3d(var(--blob-x, 0px), var(--blob-y, 0px), 0); will-change: transform;
     -webkit-mask-image:
@@ -307,7 +312,9 @@
   /* Foreground parallax layer — moves more than the gradient (the "3D" pop). The
      wrapper carries the pointer offset so the orb's own float animation is untouched. */
   .foot-orb-wrap { position: absolute; left: 16%; top: 36%; width: 55%; height: 55%; pointer-events: none; transform: translate3d(var(--orb-x, 0px), var(--orb-y, 0px), 0); will-change: transform; }
-  .foot-orb { inset: 0; width: 100%; height: 100%; filter: blur(2px) drop-shadow(0 6px 38px rgba(150, 140, 250, .42)); animation: footOrbFloat 9s ease-in-out infinite; }
+  /* Just a light blur — the orb SVG carries its own halo, so the old CSS drop-shadow
+     was a redundant per-frame filter pass (it re-ran every animation tick). Dropped. */
+  .foot-orb { inset: 0; width: 100%; height: 100%; filter: blur(2px); animation: footOrbFloat 9s ease-in-out infinite; }
   @keyframes footOrbFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
   @media (max-width: 1200px) {
     .site-foot .foot, .site-foot .foot-bottom { max-width: 100%; }
@@ -610,21 +617,38 @@
 </script>
 
 <script>
-  // Subtle 3D parallax on the footer centerpiece: both layers follow the pointer,
-  // the orb (foreground) more than the gradient (background) — the depth cue.
+  // Footer centerpiece behaviour: a subtle 3D parallax (the orb/foreground travels
+  // more than the gradient/background) plus a power saver — the heavy SVG animations
+  // (turbulence, displacement, stacked blurs) are paused whenever the footer is out
+  // of view, and the parallax only runs while it's visible.
   (function () {
-    var mm = window.matchMedia;
-    if (mm && mm('(prefers-reduced-motion: reduce)').matches) return;
-    if (mm && !mm('(pointer: fine)').matches) return; // skip touch / coarse pointers
+    var stage = document.querySelector('.foot-stage');
+    if (!stage) return;
     var blob = document.querySelector('.foot-blob');
     var orb = document.querySelector('.foot-orb-wrap');
-    if (!blob || !orb) return;
+    var objs = [].slice.call(stage.querySelectorAll('object'));
+    var inView = false;
+
+    // Pause/resume the embedded SVGs' SMIL clocks so they cost nothing off-screen.
+    function setPlay(play) {
+      objs.forEach(function (o) {
+        try {
+          var svg = o.contentDocument && o.contentDocument.documentElement;
+          if (svg && svg.pauseAnimations) { play ? svg.unpauseAnimations() : svg.pauseAnimations(); }
+        } catch (e) {}
+      });
+    }
+    objs.forEach(function (o) { o.addEventListener('load', function () { setPlay(inView); }); });
+
+    var mm = window.matchMedia;
+    var parallaxOn = blob && orb &&
+      !(mm && mm('(prefers-reduced-motion: reduce)').matches) &&
+      !(mm && !mm('(pointer: fine)').matches);   // skip reduced-motion + touch/coarse pointers
 
     var BLOB = 10, ORB = 26;            // max travel in px — orb moves more = the 3D part
-    var tx = 0, ty = 0, cx = 0, cy = 0; // pointer target vs. eased current (-1 … 1)
-    var raf = 0;
-
+    var tx = 0, ty = 0, cx = 0, cy = 0, raf = 0;
     function onMove(e) {
+      if (!inView) return;              // no work while the footer is off-screen
       tx = (e.clientX / (window.innerWidth || 1)) * 2 - 1;
       ty = (e.clientY / (window.innerHeight || 1)) * 2 - 1;
       if (!raf) raf = requestAnimationFrame(tick);
@@ -637,7 +661,13 @@
       orb.style.setProperty('--orb-y', (cy * ORB).toFixed(2) + 'px');
       raf = (Math.abs(tx - cx) > 0.001 || Math.abs(ty - cy) > 0.001) ? requestAnimationFrame(tick) : 0;
     }
-    window.addEventListener('mousemove', onMove, { passive: true });
+    if (parallaxOn) window.addEventListener('mousemove', onMove, { passive: true });
+
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (es) {
+        inView = es[0].isIntersecting; setPlay(inView);
+      }, { rootMargin: '200px' }).observe(stage);
+    } else { inView = true; setPlay(true); }
   })();
 </script>
 </body>
