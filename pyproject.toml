@@ -20,6 +20,7 @@ dependencies = [
     "httpx>=0.27",              # OAuth token exchange + URL fetch
     "itsdangerous>=2.2",        # signed session cookies
     "platformdirs>=4.0",        # per-user data dir for the packaged desktop app
+    "quickjs>=1.19.4",
 ]
 
 [project.optional-dependencies]
