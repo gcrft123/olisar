@@ -73,6 +73,26 @@ export const api = {
   putExtensionSettings: (key: string, b: any) =>
     req(`/api/extensions/${key}/settings`, { method: 'PUT', body: JSON.stringify(b) }),
 
+  // Extension authoring (operator-only). The SDK editor posts source + compiled JS.
+  listAuthoring: () => req('/api/extensions/authoring'),
+  getAuthoring: (key: string) => req(`/api/extensions/authoring/${encodeURIComponent(key)}`),
+  createAuthoring: (b: any) => req('/api/extensions/authoring', { method: 'POST', body: JSON.stringify(b) }),
+  updateAuthoring: (key: string, b: any) =>
+    req(`/api/extensions/authoring/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(b) }),
+  deleteAuthoring: (key: string) =>
+    req(`/api/extensions/authoring/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  validateAuthoring: (b: any) =>
+    req('/api/extensions/authoring/validate', { method: 'POST', body: JSON.stringify(b) }),
+  authoringTypes: () => req('/api/extensions/authoring/sdk-types'),
+
+  // .olx export/import. Export returns the bundle JSON (the UI saves it as a file);
+  // import is a two-step preview → confirm so the operator approves the capabilities.
+  exportAuthoring: (key: string) => req(`/api/extensions/authoring/${encodeURIComponent(key)}/export`),
+  importPreview: (bundle: any) =>
+    req('/api/extensions/authoring/import/preview', { method: 'POST', body: JSON.stringify({ bundle }) }),
+  importAuthoring: (bundle: any, granted: string[]) =>
+    req('/api/extensions/authoring/import', { method: 'POST', body: JSON.stringify({ bundle, granted_permissions: granted }) }),
+
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
   deleteSource: (id: number) => req(`/api/knowledge/${id}`, { method: 'DELETE' }),

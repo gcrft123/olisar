@@ -531,10 +531,12 @@ async def build_impression(user_id: int, gctx: GuildContext = Depends(require_gu
 
 @router.get("/extensions")
 async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
-    """The extension catalog (declared in code) with this server's enabled state."""
-    from olisar.extensions import all_extensions
+    """The extension catalog (built-in + SDK) with this server's enabled state."""
+    from olisar.db.models import ExtensionPackage
+    from olisar.extensions import all_extensions, user_registry
 
     async with session_scope() as session:
+        await user_registry.load(session)  # warm the SDK-extension cache
         states = {
             r.key: r.enabled
             for r in (
@@ -543,29 +545,49 @@ async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
                 )
             ).all()
         }
-    return [
-        {
+        pkgs = {p.key: p for p in (await session.scalars(select(ExtensionPackage))).all()}
+
+    def _entry(e):
+        pkg = pkgs.get(e.key)
+        manifest = (pkg.manifest if pkg else {}) or {}
+        return {
             "key": e.key,
             "name": e.name,
             "description": e.description,
             "category": e.category,
             "enabled": states.get(e.key, e.default_enabled),
             "default_enabled": e.default_enabled,
+            "kind": pkg.kind if pkg else "builtin",  # SDK kind ("user"/"builtin"); Python = builtin
+            "editable": bool(pkg and pkg.kind == "user"),  # "Custom" — deletable, gets the badge
+            "user_modified": bool(pkg and pkg.user_modified),
+            "has_code": pkg is not None,  # any SDK extension (built-in or user) is editable in-place
+            # Provenance: where it came from (local | imported | marketplace) and, for an
+            # imported package, the capabilities its author asked for vs. what was granted.
+            "origin": (pkg.origin if pkg else "builtin"),
+            "publisher": (pkg.publisher_name if pkg else None),
+            # What the extension contributes — surfaced in the catalog detail panel.
+            "tools": [t.declaration.name for t in e.tools],
+            "commands": [c.get("name") for c in manifest.get("commands", []) if c.get("name")],
+            "permissions": list(pkg.permissions) if pkg else [],
+            "requested_permissions": list(pkg.requested_permissions) if pkg else [],
+            "behavior": bool(e.system_note),
+            "settings_schema": manifest.get("settings_schema") or None,
         }
-        for e in all_extensions()
-    ]
+
+    return [_entry(e) for e in all_extensions()]
 
 
 @router.put("/extensions")
 async def put_extension(body: ExtensionToggleIn, gctx: GuildContext = Depends(require_guild_admin)):
     """Toggle one extension on/off for this server. Takes effect on the next reply.
     On an off→on transition, fires the extension's on_enable hook for this guild."""
-    from olisar.extensions import get_extension
+    from olisar.extensions import get_extension, user_registry
 
-    ext = get_extension(body.key)
-    if ext is None:
-        raise HTTPException(status_code=404, detail="unknown extension")
     async with session_scope() as session:
+        await user_registry.load(session)  # so SDK extensions resolve too
+        ext = get_extension(body.key)
+        if ext is None:
+            raise HTTPException(status_code=404, detail="unknown extension")
         row = await session.get(ExtensionState, (gctx.guild_id, body.key))
         was_enabled = row.enabled if row is not None else ext.default_enabled
         if row is None:
@@ -587,11 +609,12 @@ async def put_extension(body: ExtensionToggleIn, gctx: GuildContext = Depends(re
 @router.get("/extensions/{key}/settings")
 async def get_extension_settings(key: str, gctx: GuildContext = Depends(require_guild_admin)):
     """Per-extension config (e.g. the welcome message's channel + prompt)."""
-    from olisar.extensions import get_extension
+    from olisar.extensions import get_extension, user_registry
 
-    if get_extension(key) is None:
-        raise HTTPException(status_code=404, detail="unknown extension")
     async with session_scope() as session:
+        await user_registry.load(session)
+        if get_extension(key) is None:
+            raise HTTPException(status_code=404, detail="unknown extension")
         row = await session.get(ExtensionState, (gctx.guild_id, key))
         return {"settings": (row.settings if row and row.settings else {})}
 
@@ -601,11 +624,12 @@ async def put_extension_settings(
     key: str, body: dict, gctx: GuildContext = Depends(require_guild_admin)
 ):
     """Merge new values into an extension's per-guild settings JSON."""
-    from olisar.extensions import get_extension
+    from olisar.extensions import get_extension, user_registry
 
-    if get_extension(key) is None:
-        raise HTTPException(status_code=404, detail="unknown extension")
     async with session_scope() as session:
+        await user_registry.load(session)
+        if get_extension(key) is None:
+            raise HTTPException(status_code=404, detail="unknown extension")
         row = await session.get(ExtensionState, (gctx.guild_id, key))
         if row is None:
             row = ExtensionState(guild_id=gctx.guild_id, key=key)

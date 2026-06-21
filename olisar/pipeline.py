@@ -139,7 +139,7 @@ def _response_text(resp) -> str:
         return ""
 
 
-PARTIAL_PREFIX = "couldn't pull a clean summary together just now, but here's what i found:\n\n"
+PARTIAL_PREFIX = "I couldn't pull together a clean summary just now, but here's what I found:\n\n"
 
 
 def _strip_internal_header(body: str) -> str:
@@ -239,18 +239,23 @@ async def _force_final_answer(
     except Exception:
         log.exception("forced final answer (tools barred) failed")
     # The model kept trying to call tools — remove tools entirely so it can't, and
-    # let it write the summary from the gathered results already in `contents`.
-    try:
-        result = await client.generate(
-            contents=contents,
-            system_instruction=nudged,
-            model=model,
-            max_output_tokens=1024,  # match the other chat paths so this fallback isn't the one that cuts off
-        )
-        if result.text:
-            return result.text
-    except Exception:
-        log.exception("forced final answer (no tools) failed")
+    # let it write the summary from the gathered results already in `contents`. Retry
+    # once on an empty candidate (a transient empty response here is what otherwise
+    # drops us to the out-of-character raw-results fallback).
+    for attempt in range(2):
+        try:
+            result = await client.generate(
+                contents=contents,
+                system_instruction=nudged,
+                model=model,
+                max_output_tokens=1024,  # match the other chat paths so this fallback isn't the one that cuts off
+            )
+            if result.text:
+                return result.text
+            log.warning("forced final answer (no tools) returned empty (attempt %d/2)", attempt + 1)
+        except Exception:
+            log.exception("forced final answer (no tools) failed")
+            break
     return ""
 
 

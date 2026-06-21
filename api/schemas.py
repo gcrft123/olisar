@@ -22,6 +22,35 @@ class ApiKeysIn(BaseModel):
     uex_api_key: str | None = None
 
 
+class ExtensionAuthoringIn(BaseModel):
+    # Operator-authored SDK extension. ``source_ts`` is the source of truth: the server
+    # transpiles it (never trusts client-supplied JS) and derives the manifest — and thus
+    # the key/tools/permissions — from the JS it produced. ``compiled_js`` is accepted but
+    # ignored (kept for older clients); ``source`` is an alias for source_ts.
+    source_ts: str = ""
+    source: str | None = None
+    compiled_js: str | None = None
+    name: str | None = None
+
+
+class ExtensionValidateIn(BaseModel):
+    source_ts: str = ""
+    source: str | None = None
+    compiled_js: str | None = None
+
+
+class ExtensionImportIn(BaseModel):
+    # A parsed .olx document (the client reads the file and posts its JSON).
+    bundle: dict
+
+
+class ExtensionImportConfirmIn(BaseModel):
+    bundle: dict
+    # The capabilities the installing operator approved; the server enforces
+    # granted ⊆ requested. Empty means "install with no capabilities granted".
+    granted_permissions: list[str] = []
+
+
 class SetupTokenIn(BaseModel):
     token: str
 

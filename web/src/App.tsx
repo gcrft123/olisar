@@ -99,6 +99,10 @@ export default function App() {
   }
   const current = guilds.find((g) => g.id === guild) ?? guilds[0]
 
+  // Authoring extension code is operator-only; the merged Extensions tab shows the
+  // editor drill-in only to operators (everyone else just sees the toggles).
+  const isOperator = me?.granted_via === 'allowlist'
+
   const pages: Record<string, JSX.Element> = {
     persona: <Persona />,
     behavior: <Behavior />,
@@ -107,7 +111,7 @@ export default function App() {
     access: <Access />,
     knowledge: <Knowledge />,
     members: <Members />,
-    extensions: <Extensions />,
+    extensions: <Extensions isOperator={isOperator} />,
     keys: <ApiKeys />,
     usage: <Usage />,
     docs: <Docs onNavigate={setTab} />,
@@ -176,7 +180,7 @@ export default function App() {
       </aside>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' ? ' wide' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' || tab === 'extensions' ? ' wide' : '')}>{pages[tab]}</main>
     </div>
   )
 }

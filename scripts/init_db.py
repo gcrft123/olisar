@@ -108,11 +108,21 @@ async def seed_defaults() -> None:
     print(f"✓ seeded defaults for guild {guild_id}")
 
 
+async def seed_builtins() -> None:
+    """Seed/refresh the built-in SDK extensions (dice/calculator/concise/welcome)."""
+    from olisar.extensions.sdk_builtins import seed
+
+    async with session_scope() as session:
+        await seed(session)
+    print("✓ seeded built-in extensions")
+
+
 async def main() -> None:
     os.makedirs(os.path.dirname(settings.database_path) or ".", exist_ok=True)
     await create_schema()
     print(f"✓ schema ready at {settings.database_path}")
     await seed_defaults()
+    await seed_builtins()
     await get_engine().dispose()
     print("✓ done")
 
