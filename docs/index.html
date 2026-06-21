@@ -228,6 +228,10 @@
   .fic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--violet); background: rgba(138,138,242,0.1); border: 1px solid rgba(138,138,242,0.18); margin-bottom: 16px; }
   .fcard h3 { font-size: 17px; font-weight: 600; margin-bottom: 7px; letter-spacing: -0.01em; }
   .fcard p { color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+  .flink { display: inline-flex; align-items: center; gap: 5px; margin-top: 13px; color: var(--violet-bright); font-weight: 600; font-size: 13.5px; text-decoration: none; transition: color .18s; }
+  .flink:hover { color: #fff; }
+  .flink .arr { transition: transform .2s ease; }
+  .flink:hover .arr { transform: translateX(3px); }
 
   /* ── security band ──────────────────────────────────────────── */
   .band { margin-top: clamp(70px,12vh,130px); border: 1px solid var(--line); border-radius: 20px; padding: clamp(34px,6vw,60px); position: relative; overflow: hidden;
@@ -320,7 +324,7 @@
     </div>
     <a class="btn btn-ghost" href="https://github.com/gcrft123/olisar">★ Star on GitHub</a>
   </div>
-  <p class="meta-line reveal in" style="transition-delay:.24s"><b style="color:var(--violet-bright)">Free</b> &amp; <b style="color:var(--violet-bright)">open source</b> (MIT) · macOS + Windows · v0.2.1</p>
+  <p class="meta-line reveal in" style="transition-delay:.24s"><b style="color:var(--violet-bright)">Free</b> &amp; <b style="color:var(--violet-bright)">open source</b> (MIT) · macOS + Windows · v0.3.0</p>
 </header>
 
 <!-- DASHBOARD MOCKUP -->
@@ -389,7 +393,7 @@
             <div class="av bot"><img src="avatar.png" alt="" /></div>
             <div class="body">
               <div class="row"><span class="name bot">Olisar</span><span class="tag">APP</span><span class="time">Today at 9:14 PM</span></div>
-              <div class="text">That'd be <b>Lantern Coffee</b> — maple mentioned it in <span class="jump">#off-topic ↗</span> a couple weeks back. Want the map link?</div>
+              <div class="text">that'd be <b>Lantern Coffee</b>. maple mentioned it in <span class="jump">#off-topic ↗</span> a couple weeks back. want the map link?</div>
             </div>
           </div>
           <div class="msg">
@@ -403,7 +407,7 @@
             <div class="av bot"><img src="avatar.png" alt="" /></div>
             <div class="body">
               <div class="row"><span class="name bot">Olisar</span><span class="tag">APP</span><span class="time">Today at 9:16 PM</span></div>
-              <div class="text">Saturday the 21st, 11 AM at Lantern, per <span class="jump">#events ↗</span>. You said you'd be back from your trip by then — want a heads-up an hour before?</div>
+              <div class="text">saturday the 21st @ 11 am at Lantern, per <span class="jump">#events ↗</span>. you said you'd be back from your trip by then — want a heads-up an hour before?</div>
             </div>
           </div>
         </div>
@@ -419,9 +423,9 @@
     <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-memory"/></svg></div><h3>Persistent memory</h3><p>Rolling summaries, semantic recall, durable facts, and a server-wide search index — ask &quot;where was that posted?&quot; and get a jump-link.</p></div>
     <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-knowledge"/></svg></div><h3>Teachable knowledge</h3><p>Feed it web pages, whole sites, or documents. It chunks, embeds, and answers from them in its own voice — plus a glossary for your dialect.</p></div>
     <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-persona"/></svg></div><h3>Persona &amp; impressions</h3><p>Shape exactly who Olisar is — name, voice, and rules — then it builds a private impression of each member from how they talk and tailors how it replies to them.</p></div>
-    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-access"/></svg></div><h3>Access &amp; remote control</h3><p>Gate it by Discord role with <em style="font-style:normal;color:var(--violet-bright)">live permission re-checks</em>, and let co-admins sign in from anywhere over Tailscale Funnel — a free <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link, no domain or port-forwarding.</p></div>
+    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-access"/></svg></div><h3>Access &amp; remote control</h3><p>Gate it by Discord role and let co-admins sign in from anywhere over Tailscale Funnel — a free <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link, no domain or port-forwarding.</p></div>
     <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-extensions"/></svg></div><h3>Extensions</h3><p>Toggle packaged features — dice, calculator, concise mode, and a full Star Citizen pack with live trade, ship and location tools.</p></div>
-    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-more"/></svg></div><h3>And a lot more</h3><p>Proactive chiming &amp; emoji reactions, reminders &amp; catch-ups, on-join welcomes, image generation, and status &amp; voice awareness. <a href="docs.html">See all features →</a></p></div>
+    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-more"/></svg></div><h3>And a lot more</h3><p>Proactive chiming &amp; emoji reactions, reminders &amp; catch-ups, on-join welcomes, image generation, and status &amp; voice awareness.</p><a class="flink" href="docs.html">See all features <span class="arr" aria-hidden="true">→</span></a></div>
   </div>
 </section>
 
