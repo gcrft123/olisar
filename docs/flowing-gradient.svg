@@ -45,10 +45,13 @@
 <radialGradient id="blobSteel" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#3146a0" stop-opacity="0.84"/><stop offset="54%" stop-color="#34337e" stop-opacity="0.44"/><stop offset="100%" stop-color="#34337e" stop-opacity="0"/></radialGradient>
 <radialGradient id="edgeMagenta" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#c45cc0" stop-opacity="0.82"><animate attributeName="stop-color" values="#c45cc0;#d069c8;#b84ea6;#c45cc0" dur="15s" repeatCount="indefinite"/></stop><stop offset="48%" stop-color="#b84ea6" stop-opacity="0.4"/><stop offset="100%" stop-color="#8a4fa8" stop-opacity="0"/></radialGradient>
 <radialGradient id="edgeBlue" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#3146a0" stop-opacity="0.8"><animate attributeName="stop-color" values="#3146a0;#3a4fb0;#34337e;#3146a0" dur="18s" repeatCount="indefinite"/></stop><stop offset="50%" stop-color="#34337e" stop-opacity="0.38"/><stop offset="100%" stop-color="#34337e" stop-opacity="0"/></radialGradient>
-<filter id="liquid" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
-<feTurbulence type="fractalNoise" baseFrequency="0.009 0.013" numOctaves="2" seed="7" stitchTiles="stitch" result="noise"><animate attributeName="baseFrequency" values="0.009 0.013;0.012 0.017;0.009 0.013" dur="24s" repeatCount="indefinite"/></feTurbulence>
-<feDisplacementMap in="SourceGraphic" in2="noise" scale="42" xChannelSelector="R" yChannelSelector="G" result="disp"/>
-<feGaussianBlur in="disp" stdDeviation="24"/>
+<!-- Static turbulence (no animated baseFrequency) so the noise is generated once and
+     cached — the "flow" still comes from the moving ellipses + rotating gradients below.
+     Single octave + a tighter region + lighter blur keep the per-frame cost low. -->
+<filter id="liquid" x="-15%" y="-15%" width="130%" height="130%" color-interpolation-filters="sRGB">
+<feTurbulence type="fractalNoise" baseFrequency="0.011 0.015" numOctaves="1" seed="7" stitchTiles="stitch" result="noise"/>
+<feDisplacementMap in="SourceGraphic" in2="noise" scale="38" xChannelSelector="R" yChannelSelector="G" result="disp"/>
+<feGaussianBlur in="disp" stdDeviation="16"/>
 </filter>
 </defs>
 <rect x="0" y="0" width="1200" height="675" fill="url(#baseField)"/>
