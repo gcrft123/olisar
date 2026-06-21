@@ -701,7 +701,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         </div>
 
         <div className="ext-desc">{e.description || 'No description provided.'}</div>
-        {imported && e.publisher && <div className="ext-prov">Imported · published by {e.publisher}</div>}
+        {imported && (
+          <div className="ext-prov">
+            Imported{e.publisher ? ` · published by ${e.publisher}` : ''}
+            {e.signature_verified && e.signed_by
+              ? ` · signed & verified (${e.signed_by})`
+              : ' · unsigned'}
+          </div>
+        )}
 
         {(tools.length > 0 || commands.length > 0 || e.behavior) && (
           <div className="ext-block">
@@ -770,7 +777,8 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   const togglePerm = (p: string) =>
     setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
   const reqPerms: string[] = preview?.requested_permissions ?? []
-  const blocked = !!preview && (preview.exists || preview.is_builtin_key)
+  const sig = preview?.signature
+  const blocked = !!preview && (preview.exists || preview.is_builtin_key || sig?.status === 'invalid')
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
@@ -796,6 +804,17 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
               <code>{preview.id}</code>
               {preview.author?.name && <span className="settings-muted">by {preview.author.name}</span>}
             </div>
+
+            {sig && (
+              <div className={'import-sig ' + sig.status}>
+                {sig.status === 'valid'
+                  ? <>Signed &amp; verified · <code>{sig.fingerprint}</code></>
+                  : sig.status === 'invalid'
+                    ? <>Signature invalid — this bundle may have been tampered with.</>
+                    : <>Unsigned — its author and integrity can’t be verified.</>}
+              </div>
+            )}
+
             {preview.description && <div className="ext-desc" style={{ marginTop: 10 }}>{preview.description}</div>}
 
             {(preview.tools?.length > 0 || preview.commands?.length > 0 || preview.behavior) && (
