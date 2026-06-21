@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="100%" viewBox="0 0 1200 675" preserveAspectRatio="xMidYMid slice" role="img" xmlns="http://www.w3.org/2000/svg">
+<title>Rotating violet field</title>
+<desc>seamless looping flowing gradient with distinct blue-indigo, royal violet and magenta-pink zones</desc>
+<defs>
+<radialGradient id="baseField" cx="50%" cy="50%" r="90%" gradientUnits="userSpaceOnUse" fx="40%" fy="36%">
+<stop offset="0%" stop-color="#8a4fa8">
+<animate attributeName="stop-color" values="#8a4fa8;#9d5cc0;#6a48ab;#8a4fa8" dur="20s" repeatCount="indefinite"/>
+</stop>
+<stop offset="34%" stop-color="#5b3fa0">
+<animate attributeName="stop-color" values="#5b3fa0;#6a48ab;#3146a0;#5b3fa0" dur="20s" repeatCount="indefinite"/>
+</stop>
+<stop offset="66%" stop-color="#2c2870">
+<animate attributeName="stop-color" values="#2c2870;#34337e;#2c2870;#2c2870" dur="20s" repeatCount="indefinite"/>
+</stop>
+<stop offset="100%" stop-color="#221f5e">
+<animate attributeName="stop-color" values="#221f5e;#2c2870;#221f5e;#221f5e" dur="20s" repeatCount="indefinite"/>
+</stop>
+<animateTransform attributeName="gradientTransform" type="rotate" from="0 600 337.5" to="360 600 337.5" dur="23s" repeatCount="indefinite"/>
+</radialGradient>
+<linearGradient id="spinLayer" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="userSpaceOnUse">
+<stop offset="0%" stop-color="#3146a0">
+<animate attributeName="stop-color" values="#3146a0;#34337e;#3146a0;#3146a0" dur="18s" repeatCount="indefinite"/>
+</stop>
+<stop offset="26%" stop-color="#5b3fa0"/>
+<stop offset="50%" stop-color="#c45cc0">
+<animate attributeName="stop-color" values="#c45cc0;#9d5cc0;#c45cc0;#c45cc0" dur="18s" repeatCount="indefinite"/>
+</stop>
+<stop offset="72%" stop-color="#8a4fa8"/>
+<stop offset="100%" stop-color="#221f5e"/>
+<animateTransform attributeName="gradientTransform" type="rotate" from="360 600 337.5" to="0 600 337.5" dur="17s" repeatCount="indefinite"/>
+</linearGradient>
+<linearGradient id="zoneLayer" x1="0%" y1="0%" x2="100%" y2="78%" gradientUnits="userSpaceOnUse">
+<stop offset="0%" stop-color="#3146a0" stop-opacity="0.78"/>
+<stop offset="38%" stop-color="#5b3fa0" stop-opacity="0.1"/>
+<stop offset="68%" stop-color="#b84ea6" stop-opacity="0.55"/>
+<stop offset="100%" stop-color="#b84ea6" stop-opacity="0.72"/>
+<animateTransform attributeName="gradientTransform" type="rotate" from="0 600 337.5" to="360 600 337.5" dur="30s" repeatCount="indefinite"/>
+</linearGradient>
+<radialGradient id="blobA" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#3146a0" stop-opacity="0.92"/><stop offset="50%" stop-color="#34337e" stop-opacity="0.5"/><stop offset="100%" stop-color="#34337e" stop-opacity="0"/></radialGradient>
+<radialGradient id="blobB" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#b08fe0" stop-opacity="0.46"/><stop offset="48%" stop-color="#6a48ab" stop-opacity="0.22"/><stop offset="100%" stop-color="#6a48ab" stop-opacity="0"/></radialGradient>
+<radialGradient id="blobC" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#221f5e" stop-opacity="0.92"/><stop offset="55%" stop-color="#2c2870" stop-opacity="0.46"/><stop offset="100%" stop-color="#2c2870" stop-opacity="0"/></radialGradient>
+<radialGradient id="blobD" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#c45cc0" stop-opacity="0.9"><animate attributeName="stop-color" values="#c45cc0;#b84ea6;#9d5cc0;#c45cc0" dur="16.5s" repeatCount="indefinite"/></stop><stop offset="55%" stop-color="#b84ea6" stop-opacity="0.46"/><stop offset="100%" stop-color="#b84ea6" stop-opacity="0"/></radialGradient>
+<radialGradient id="blobE" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#c45cc0" stop-opacity="0.86"/><stop offset="50%" stop-color="#9d5cc0" stop-opacity="0.42"/><stop offset="100%" stop-color="#9d5cc0" stop-opacity="0"/></radialGradient>
+<radialGradient id="blobSteel" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#3146a0" stop-opacity="0.84"/><stop offset="54%" stop-color="#34337e" stop-opacity="0.44"/><stop offset="100%" stop-color="#34337e" stop-opacity="0"/></radialGradient>
+<radialGradient id="edgeMagenta" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#c45cc0" stop-opacity="0.82"><animate attributeName="stop-color" values="#c45cc0;#d069c8;#b84ea6;#c45cc0" dur="15s" repeatCount="indefinite"/></stop><stop offset="48%" stop-color="#b84ea6" stop-opacity="0.4"/><stop offset="100%" stop-color="#8a4fa8" stop-opacity="0"/></radialGradient>
+<radialGradient id="edgeBlue" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#3146a0" stop-opacity="0.8"><animate attributeName="stop-color" values="#3146a0;#3a4fb0;#34337e;#3146a0" dur="18s" repeatCount="indefinite"/></stop><stop offset="50%" stop-color="#34337e" stop-opacity="0.38"/><stop offset="100%" stop-color="#34337e" stop-opacity="0"/></radialGradient>
+<filter id="liquid" x="-25%" y="-25%" width="150%" height="150%" color-interpolation-filters="sRGB">
+<feTurbulence type="fractalNoise" baseFrequency="0.009 0.013" numOctaves="2" seed="7" stitchTiles="stitch" result="noise"><animate attributeName="baseFrequency" values="0.009 0.013;0.012 0.017;0.009 0.013" dur="24s" repeatCount="indefinite"/></feTurbulence>
+<feDisplacementMap in="SourceGraphic" in2="noise" scale="42" xChannelSelector="R" yChannelSelector="G" result="disp"/>
+<feGaussianBlur in="disp" stdDeviation="24"/>
+</filter>
+</defs>
+<rect x="0" y="0" width="1200" height="675" fill="url(#baseField)"/>
+<g filter="url(#liquid)">
+<g>
+<ellipse cx="320" cy="200" rx="360" ry="300" fill="url(#blobA)">
+<animateTransform attributeName="transform" type="translate" values="0 0;90 60;-40 30;0 0" dur="18.5s" keyTimes="0;0.34;0.7;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+</g>
+<g>
+<ellipse cx="980" cy="250" rx="430" ry="360" fill="url(#blobE)">
+<animateTransform attributeName="transform" type="translate" values="0 0;-70 50;50 -40;0 0" dur="21.5s" keyTimes="0;0.32;0.66;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+</g>
+<g>
+<ellipse cx="560" cy="380" rx="340" ry="300" fill="url(#blobB)">
+<animateTransform attributeName="transform" type="scale" values="1;1.16;0.9;1" keyTimes="0;0.35;0.7;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" dur="25.5s" repeatCount="indefinite" additive="sum"/>
+<animateTransform attributeName="transform" type="translate" values="0 0;40 -50;-60 40;0 0" dur="24.5s" keyTimes="0;0.33;0.68;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite" additive="sum"/>
+</ellipse>
+</g>
+<g>
+<ellipse cx="240" cy="560" rx="380" ry="320" fill="url(#blobC)">
+<animateTransform attributeName="transform" type="translate" values="0 0;80 -40;-30 -60;0 0" dur="20.5s" keyTimes="0;0.3;0.64;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+</g>
+<g>
+<ellipse cx="1050" cy="640" rx="400" ry="350" fill="url(#blobD)">
+<animateTransform attributeName="transform" type="translate" values="0 0;-50 -60;40 40;0 0" dur="22.5s" keyTimes="0;0.36;0.72;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+</g>
+</g>
+<rect x="0" y="0" width="1200" height="675" fill="url(#zoneLayer)" opacity="0.42">
+<animate attributeName="opacity" values="0.42;0.56;0.3;0.42" dur="13s" repeatCount="indefinite"/>
+</rect>
+<rect x="0" y="0" width="1200" height="675" fill="url(#spinLayer)" opacity="0.24">
+<animate attributeName="opacity" values="0.24;0.34;0.14;0.24" dur="11s" repeatCount="indefinite"/>
+</rect>
+<ellipse cx="300" cy="190" rx="330" ry="300" fill="url(#blobSteel)" opacity="0.7">
+<animate attributeName="opacity" values="0.7;0.86;0.54;0.7" dur="15.5s" repeatCount="indefinite"/>
+<animateTransform attributeName="transform" type="translate" values="0 0;-60 70;40 -20;0 0" dur="19s" keyTimes="0;0.4;0.72;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+<ellipse cx="1090" cy="440" rx="380" ry="450" fill="url(#edgeMagenta)" opacity="0.8">
+<animate attributeName="opacity" values="0.8;0.94;0.66;0.8" dur="12s" repeatCount="indefinite"/>
+<animateTransform attributeName="transform" type="translate" values="0 0;30 -50;-20 40;0 0" dur="19.5s" keyTimes="0;0.34;0.7;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+<ellipse cx="160" cy="150" rx="340" ry="360" fill="url(#edgeBlue)" opacity="0.74">
+<animate attributeName="opacity" values="0.74;0.88;0.58;0.74" dur="14s" repeatCount="indefinite"/>
+<animateTransform attributeName="transform" type="translate" values="0 0;-30 40;25 -30;0 0" dur="21.5s" keyTimes="0;0.32;0.68;1" calcMode="spline" keySplines="0.4 0 0.6 1;0.4 0 0.6 1;0.4 0 0.6 1" repeatCount="indefinite"/>
+</ellipse>
+</svg>

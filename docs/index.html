@@ -257,7 +257,8 @@
   .final h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(36px,6vw,64px); line-height: 1.05; }
   .final .cta { margin-top: 32px; }
 
-  footer.wrap { margin-top: clamp(80px,14vh,140px); border-top: 1px solid var(--line); padding-top: 64px; }
+  .site-foot { margin-top: clamp(80px,14vh,140px); }
+  .foot-inner { border-top: 1px solid var(--line); padding-top: 64px; }
   .foot { display: flex; gap: 40px; flex-wrap: wrap; justify-content: space-between; padding-bottom: 44px; }
   .foot-brand { max-width: 320px; }
   .foot-brand .brand { margin-bottom: 14px; }
@@ -267,6 +268,53 @@
   .foot-col .ttl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 3px; }
   .foot-col a { font-size: 14px; color: var(--ink-2); } .foot-col a:hover { color: var(--violet-bright); }
   .foot-bottom { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 22px 0 50px; border-top: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+
+  /* ── Footer corner centerpiece: a faded purple blob with the living orb atop ── */
+  /* Clip the blob's off-screen right bleed at the viewport (not at the footer box,
+     which would slice its top at the divider and its left edge). */
+  html, body { overflow-x: clip; }
+  .site-foot { position: relative; }
+  /* Keep the footer text in a left column so it sits well clear of the blob. */
+  .site-foot .foot, .site-foot .foot-bottom { position: relative; z-index: 1; max-width: 62%; }
+  /* The stage is anchored to the screen's bottom-right corner and bleeds off it. */
+  .foot-stage { position: absolute; right: -100px; bottom: 0; width: min(54vw, 720px); height: min(54vw, 720px); pointer-events: none; z-index: 0; }
+  .foot-blob, .foot-orb { position: absolute; border: 0; pointer-events: none; }
+  /* The blob fills the stage; an irregular union of soft off-center radial gradients
+     masks its rectangle into an organic, soft-edged shape (no straight line / circle). */
+  .foot-blob {
+    inset: 0; width: 100%; height: 100%; opacity: .62;
+    /* Background parallax layer — drifts a little with the pointer (set in JS). */
+    transform: translate3d(var(--blob-x, 0px), var(--blob-y, 0px), 0); will-change: transform;
+    -webkit-mask-image:
+      radial-gradient(46% 46% at 46% 64%, #000 22%, transparent 94%),
+      radial-gradient(50% 56% at 63% 73%, #000 20%, transparent 94%),
+      radial-gradient(54% 44% at 56% 92%, #000 20%, transparent 96%),
+      radial-gradient(32% 50% at 36% 74%, #000 16%, transparent 94%),
+      radial-gradient(48% 44% at 74% 88%, #000 16%, transparent 96%),
+      radial-gradient(36% 40% at 54% 50%, #000 12%, transparent 94%);
+    mask-image:
+      radial-gradient(46% 46% at 46% 64%, #000 22%, transparent 94%),
+      radial-gradient(50% 56% at 63% 73%, #000 20%, transparent 94%),
+      radial-gradient(54% 44% at 56% 92%, #000 20%, transparent 96%),
+      radial-gradient(32% 50% at 36% 74%, #000 16%, transparent 94%),
+      radial-gradient(48% 44% at 74% 88%, #000 16%, transparent 96%),
+      radial-gradient(36% 40% at 54% 50%, #000 12%, transparent 94%);
+    -webkit-mask-composite: source-over; mask-composite: add;
+  }
+  /* The orb sits on the exposed upper-left face of the blob, with a soft seat-glow. */
+  /* Box enlarged to match the orb SVG's padded viewBox (so its glow/pulse isn't clipped),
+     keeping the orb's visual size and centre. Slight blur softens it. */
+  /* Foreground parallax layer — moves more than the gradient (the "3D" pop). The
+     wrapper carries the pointer offset so the orb's own float animation is untouched. */
+  .foot-orb-wrap { position: absolute; left: 16%; top: 36%; width: 55%; height: 55%; pointer-events: none; transform: translate3d(var(--orb-x, 0px), var(--orb-y, 0px), 0); will-change: transform; }
+  .foot-orb { inset: 0; width: 100%; height: 100%; filter: blur(2px) drop-shadow(0 6px 38px rgba(150, 140, 250, .42)); animation: footOrbFloat 9s ease-in-out infinite; }
+  @keyframes footOrbFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  @media (max-width: 1200px) {
+    .site-foot .foot, .site-foot .foot-bottom { max-width: 100%; }
+    .foot-stage { width: 430px; height: 430px; right: -80px; bottom: 0; opacity: .82; }
+  }
+  @media (max-width: 620px) { .foot-stage { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .foot-orb { animation: none; } }
 
   @media (prefers-reduced-motion: reduce) {
     .glow::before, .glow::after, .stage .window { animation: none; }
@@ -471,19 +519,26 @@
   </div>
 </section>
 
-<footer class="wrap">
-  <div class="foot">
-    <div class="foot-brand">
-      <a class="brand" href="#top"><img src="logo.png" alt="" /><b>Olisar</b></a>
-      <p>A self-hosted AI that feels like a member of your Discord — free, open source, and yours to run.</p>
+<footer class="site-foot">
+  <div class="wrap foot-inner">
+    <div class="foot">
+      <div class="foot-brand">
+        <a class="brand" href="#top"><img src="logo.png" alt="" /><b>Olisar</b></a>
+        <p>A self-hosted AI that feels like a member of your Discord — free, open source, and yours to run.</p>
+      </div>
+      <div class="foot-cols">
+        <div class="foot-col"><span class="ttl">Get it</span><a href="https://github.com/gcrft123/olisar/releases/latest">Download</a><a href="#features">Features</a><a href="#chat">In action</a></div>
+        <div class="foot-col"><span class="ttl">Source</span><a href="https://github.com/gcrft123/olisar">GitHub</a><a href="https://github.com/gcrft123/olisar/releases">Releases</a></div>
+        <div class="foot-col"><span class="ttl">Docs</span><a href="docs.html">Documentation</a><a href="docs.html#install">Setup</a><a href="https://github.com/gcrft123/olisar/blob/main/RELEASING.md">Releasing</a></div>
+      </div>
     </div>
-    <div class="foot-cols">
-      <div class="foot-col"><span class="ttl">Get it</span><a href="https://github.com/gcrft123/olisar/releases/latest">Download</a><a href="#features">Features</a><a href="#chat">In action</a></div>
-      <div class="foot-col"><span class="ttl">Source</span><a href="https://github.com/gcrft123/olisar">GitHub</a><a href="https://github.com/gcrft123/olisar/releases">Releases</a></div>
-      <div class="foot-col"><span class="ttl">Docs</span><a href="docs.html">Documentation</a><a href="docs.html#install">Setup</a><a href="https://github.com/gcrft123/olisar/blob/main/RELEASING.md">Releasing</a></div>
-    </div>
+    <div class="foot-bottom"><span>Free &amp; open source</span><span>Built for Discord communities</span></div>
   </div>
-  <div class="foot-bottom"><span>Free &amp; open source</span><span>Built for Discord communities</span></div>
+  <!-- Full-bleed centerpiece: anchored to the screen's bottom-right corner, clipped by the screen edges. -->
+  <div class="foot-stage" aria-hidden="true">
+    <object class="foot-blob" type="image/svg+xml" data="flowing-gradient.svg" tabindex="-1"></object>
+    <div class="foot-orb-wrap"><object class="foot-orb" type="image/svg+xml" data="living-orb.svg" tabindex="-1"></object></div>
+  </div>
 </footer>
 
 <script>
@@ -551,6 +606,38 @@
     });
     document.addEventListener('click', function () { closeAll(null); });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(null); });
+  })();
+</script>
+
+<script>
+  // Subtle 3D parallax on the footer centerpiece: both layers follow the pointer,
+  // the orb (foreground) more than the gradient (background) — the depth cue.
+  (function () {
+    var mm = window.matchMedia;
+    if (mm && mm('(prefers-reduced-motion: reduce)').matches) return;
+    if (mm && !mm('(pointer: fine)').matches) return; // skip touch / coarse pointers
+    var blob = document.querySelector('.foot-blob');
+    var orb = document.querySelector('.foot-orb-wrap');
+    if (!blob || !orb) return;
+
+    var BLOB = 10, ORB = 26;            // max travel in px — orb moves more = the 3D part
+    var tx = 0, ty = 0, cx = 0, cy = 0; // pointer target vs. eased current (-1 … 1)
+    var raf = 0;
+
+    function onMove(e) {
+      tx = (e.clientX / (window.innerWidth || 1)) * 2 - 1;
+      ty = (e.clientY / (window.innerHeight || 1)) * 2 - 1;
+      if (!raf) raf = requestAnimationFrame(tick);
+    }
+    function tick() {
+      cx += (tx - cx) * 0.08; cy += (ty - cy) * 0.08; // ease toward the pointer
+      blob.style.setProperty('--blob-x', (cx * BLOB).toFixed(2) + 'px');
+      blob.style.setProperty('--blob-y', (cy * BLOB).toFixed(2) + 'px');
+      orb.style.setProperty('--orb-x', (cx * ORB).toFixed(2) + 'px');
+      orb.style.setProperty('--orb-y', (cy * ORB).toFixed(2) + 'px');
+      raf = (Math.abs(tx - cx) > 0.001 || Math.abs(ty - cy) > 0.001) ? requestAnimationFrame(tick) : 0;
+    }
+    window.addEventListener('mousemove', onMove, { passive: true });
   })();
 </script>
 </body>
