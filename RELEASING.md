@@ -13,13 +13,23 @@ people are running, with the installers attached as assets.
 
 ## 1. Bump the version
 
-The version the app reports comes from [`desktop/package.json`](desktop/package.json).
-Bump it (and the root [`pyproject.toml`](pyproject.toml) to match, optional):
+The release version lives in **three** files, and they must all match the tag — or the
+release misfires (electron-builder builds/publishes under the wrong version and the tagged
+GitHub release ends up empty; this bit v0.4.0). Bump all three:
 
-```jsonc
-// desktop/package.json
-"version": "0.2.0"
+- [`desktop/package.json`](desktop/package.json) — what electron-builder builds & publishes
+- [`pyproject.toml`](pyproject.toml) — the Python project version
+- [`web/package.json`](web/package.json) — the dashboard
+
+Then confirm they agree before tagging:
+
+```sh
+python3 scripts/check_release_version.py          # do the files agree with each other?
+python3 scripts/check_release_version.py v0.4.0   # …and with the tag you're about to push?
 ```
+
+CI runs this same check first (the `version-check` job) and **fails the release fast** if
+anything is out of sync, so a mismatch can't silently ship.
 
 Tag names should be `v<version>` (e.g. `v0.2.0`). The updater strips the leading `v` and
 compares numerically, so `v0.2.0` > `0.1.0`.
