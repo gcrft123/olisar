@@ -235,12 +235,13 @@ async def preview_bundle(bundle_doc: dict) -> dict:
 
 async def install_bundle(
     bundle_doc: dict, granted_permissions: list[str], *,
-    actor: int | None, origin: str, marketplace_ref: dict | None = None,
+    actor: int | None, origin: str, marketplace_ref: dict | None = None, replace: bool = False,
 ) -> dict:
     """Shared install for file-import (origin='imported') and the marketplace
     (origin='marketplace'). Re-transpiles + re-verifies, enforces granted ⊆ requested,
-    refuses invalid signatures and key collisions, then persists. The caller triggers the
-    slash-command resync (it owns the request/bot handle)."""
+    refuses invalid signatures, then persists. With ``replace`` it updates an existing
+    installed extension in place (snapshotting the prior version); otherwise a key
+    collision is refused. The caller triggers the slash-command resync."""
     parsed, compiled_js, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     if key in _REGISTRY:
@@ -254,35 +255,64 @@ async def install_bundle(
     requested = manifest.get("permissions", [])
     granted = [p for p in (granted_permissions or []) if p in requested]  # granted ⊆ requested
     version = manifest.get("version", "1.0.0")
+    ref_json = json.dumps(marketplace_ref) if marketplace_ref else None
     async with session_scope() as session:
-        if await session.get(ExtensionPackage, key) is not None:
+        existing = await session.get(ExtensionPackage, key)
+        if existing is not None and not replace:
             raise HTTPException(
                 status_code=409,
                 detail=f"an extension named '{key}' already exists — delete it first to reinstall",
             )
-        pkg = ExtensionPackage(
-            key=key, name=manifest.get("name", key), version=version, kind="user",
-            category=manifest.get("category", "General"),
-            description=manifest.get("description", ""), manifest=manifest,
-            source_ts=parsed.source, compiled_js=compiled_js,
-            permissions=granted, requested_permissions=requested,
-            author_id=parsed.author_id, publisher_id=parsed.author_id,
-            publisher_name=parsed.author_name, origin=origin,
-            sdk_version=parsed.sdk_version or SDK_VERSION, content_hash=parsed.content_hash,
-            signature=bundle_doc.get("signature"), publisher_key=sig_pub,
-            signature_verified=(sig_status == "valid"),
-            marketplace_ref=json.dumps(marketplace_ref) if marketplace_ref else None,
-        )
-        session.add(pkg)
+        if existing is not None:  # replace: update in place
+            if existing.origin not in ("marketplace", "imported"):
+                raise HTTPException(status_code=409, detail="can't overwrite a built-in or locally-authored extension")
+            session.add(ExtensionVersion(
+                key=key, version=existing.version, source_ts=existing.source_ts,
+                compiled_js=existing.compiled_js, manifest=existing.manifest, saved_by=actor,
+            ))
+            existing.name = manifest.get("name", key)
+            existing.version = version
+            existing.category = manifest.get("category", "General")
+            existing.description = manifest.get("description", "")
+            existing.manifest = manifest
+            existing.source_ts = parsed.source
+            existing.compiled_js = compiled_js
+            existing.permissions = granted
+            existing.requested_permissions = requested
+            existing.author_id = parsed.author_id
+            existing.publisher_id = parsed.author_id
+            existing.publisher_name = parsed.author_name
+            existing.origin = origin
+            existing.sdk_version = parsed.sdk_version or SDK_VERSION
+            existing.content_hash = parsed.content_hash
+            existing.signature = bundle_doc.get("signature")
+            existing.publisher_key = sig_pub
+            existing.signature_verified = (sig_status == "valid")
+            existing.marketplace_ref = ref_json
+            existing.updated_at = utcnow()
+            action = "update_extension"
+        else:
+            session.add(ExtensionPackage(
+                key=key, name=manifest.get("name", key), version=version, kind="user",
+                category=manifest.get("category", "General"),
+                description=manifest.get("description", ""), manifest=manifest,
+                source_ts=parsed.source, compiled_js=compiled_js,
+                permissions=granted, requested_permissions=requested,
+                author_id=parsed.author_id, publisher_id=parsed.author_id,
+                publisher_name=parsed.author_name, origin=origin,
+                sdk_version=parsed.sdk_version or SDK_VERSION, content_hash=parsed.content_hash,
+                signature=bundle_doc.get("signature"), publisher_key=sig_pub,
+                signature_verified=(sig_status == "valid"), marketplace_ref=ref_json,
+            ))
+            action = "install_extension" if origin == "marketplace" else "import_extension"
         await record_audit(
-            session, actor=actor,
-            action="install_extension" if origin == "marketplace" else "import_extension",
+            session, actor=actor, action=action,
             target_type="extension_package", target_id=key,
             after={"version": version, "granted": granted, "requested": requested,
                    "origin": origin, "signature": sig_status},
         )
     user_registry.invalidate()
-    return {"ok": True, "key": key, "granted": granted}
+    return {"ok": True, "key": key, "granted": granted, "version": version}
 
 
 @router.post("/import/preview")

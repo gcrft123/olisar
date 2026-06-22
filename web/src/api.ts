@@ -111,6 +111,11 @@ export const api = {
   marketplaceYank: (name: string, version?: string) =>
     req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
   marketplaceVerifyStartUrl: () => BASE + '/api/marketplace/verify/start',
+  marketplaceInstalled: () => req('/api/marketplace/installed'),
+  marketplaceUpdatePreview: (key: string) =>
+    req('/api/marketplace/update/preview', { method: 'POST', body: JSON.stringify({ key }) }),
+  marketplaceUpdate: (key: string, granted: string[]) =>
+    req('/api/marketplace/update', { method: 'POST', body: JSON.stringify({ key, granted_permissions: granted }) }),
 
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),

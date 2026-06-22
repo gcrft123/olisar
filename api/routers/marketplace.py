@@ -9,6 +9,7 @@ re-verify the signature, consent (granted ⊆ requested) — recorded with origi
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import secrets
@@ -17,6 +18,7 @@ import urllib.parse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import select
 
 from api.auth.deps import require_admin
 from api.auth.oauth import AUTHORIZE_URL, TOKEN_URL, _get_state_serializer, _is_secure, _origin
@@ -33,6 +35,8 @@ from api.schemas import (
     MarketplacePublishIn,
     MarketplaceRefIn,
     MarketplaceRegisterIn,
+    MarketplaceUpdateApplyIn,
+    MarketplaceUpdateIn,
     MarketplaceYankIn,
 )
 from olisar.config import settings
@@ -153,6 +157,92 @@ async def install(
     result = await install_bundle(
         doc, body.granted_permissions, actor=admin.discord_user_id,
         origin="marketplace", marketplace_ref=ref,
+    )
+    _resync_commands(request)
+    return result
+
+
+# ── updates & revocation ────────────────────────────────────────────────────
+@router.get("/installed")
+async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
+    """For every marketplace-installed extension, report whether a newer version is
+    available or it's been yanked — so the catalog can surface Update / Removed."""
+    _operator(admin)
+    async with session_scope() as session:
+        rows = [
+            (p.key, p.version, p.marketplace_ref)
+            for p in (await session.scalars(
+                select(ExtensionPackage).where(ExtensionPackage.origin == "marketplace")
+            )).all()
+        ]
+    out: dict = {}
+    for key, ver, refj in rows:
+        if not refj:
+            continue
+        ref = json.loads(refj)
+        try:
+            r = await _registry_get(f"/v1/ext/{ref['namespace']}/{ref['name']}")
+        except HTTPException:
+            continue
+        if r.status_code == 404:
+            out[key] = {"installed_version": ver, "yanked": True, "gone": True}
+            continue
+        if r.status_code != 200:
+            continue
+        d = r.json()
+        latest = d.get("version")
+        versions = d.get("versions") or []
+        latest_yanked = any(v.get("version") == latest and v.get("yanked") for v in versions)
+        yanked = d.get("status") == "yanked" or latest_yanked
+        out[key] = {
+            "installed_version": ver,
+            "latest_version": latest,
+            "update_available": bool(latest and latest != ver and not yanked),
+            "yanked": yanked,
+        }
+    return out
+
+
+async def _latest_for_installed(key: str) -> tuple:
+    async with session_scope() as session:
+        pkg = await session.get(ExtensionPackage, key)
+    if pkg is None or pkg.origin != "marketplace" or not pkg.marketplace_ref:
+        raise HTTPException(status_code=400, detail="not a marketplace-installed extension")
+    ref = json.loads(pkg.marketplace_ref)
+    r = await _registry_get(f"/v1/ext/{ref['namespace']}/{ref['name']}")
+    if r.status_code == 404:
+        raise HTTPException(status_code=410, detail="this extension is no longer in the marketplace")
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail="marketplace lookup failed")
+    latest = r.json().get("version")
+    doc = await _fetch_olx(ref["namespace"], ref["name"], latest)
+    return pkg, ref, latest, doc
+
+
+@router.post("/update/preview")
+async def update_preview(body: MarketplaceUpdateIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Fetch the latest version of an installed marketplace extension and preview it, so the
+    operator can re-consent (especially if the requested permissions changed)."""
+    _operator(admin)
+    pkg, _ref, latest, doc = await _latest_for_installed(body.key)
+    preview = await preview_bundle(doc)
+    preview["exists"] = False  # it's an update of this very extension, not a collision
+    preview["source"] = "marketplace"
+    preview["from_version"] = pkg.version
+    preview["to_version"] = latest
+    return preview
+
+
+@router.post("/update")
+async def update(
+    body: MarketplaceUpdateApplyIn, request: Request, admin: AdminUser = Depends(require_admin)
+) -> dict:
+    """Apply the latest version of an installed marketplace extension (replace in place)."""
+    _operator(admin)
+    _pkg, ref, latest, doc = await _latest_for_installed(body.key)
+    result = await install_bundle(
+        doc, body.granted_permissions, actor=admin.discord_user_id, origin="marketplace",
+        marketplace_ref={**ref, "version": latest}, replace=True,
     )
     _resync_commands(request)
     return result
