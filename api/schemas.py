@@ -51,6 +51,17 @@ class ExtensionImportConfirmIn(BaseModel):
     granted_permissions: list[str] = []
 
 
+class MarketplaceRefIn(BaseModel):
+    # Coordinates of a marketplace extension version (the bot fetches the .olx itself).
+    namespace: str
+    name: str
+    version: str
+
+
+class MarketplaceInstallIn(MarketplaceRefIn):
+    granted_permissions: list[str] = []
+
+
 class SetupTokenIn(BaseModel):
     token: str
 

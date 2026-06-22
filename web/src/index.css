@@ -847,6 +847,26 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .import-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .ext-prov { color: var(--text-3); font-size: 12px; margin-top: 6px; }
 
+/* ── Marketplace browse ───────────────────────────────────────────────────── */
+.mkt-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.mkt-search { display: flex; align-items: center; gap: 8px; flex: 1; }
+.mkt-search > :first-child { flex: 1; }
+.mkt-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+}
+.mkt-card {
+  display: flex; flex-direction: column; gap: 9px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px;
+}
+.mkt-card:hover { border-color: var(--border-strong); }
+.mkt-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mkt-name { font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em; }
+.mkt-pub { display: flex; gap: 6px; }
+.mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; flex: 1; }
+.mkt-perms { display: flex; flex-wrap: wrap; gap: 5px; }
+.mkt-card-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+
 /* Signature status banner on the import-consent screen. */
 .import-sig {
   margin-top: 12px; padding: 9px 12px; border-radius: var(--radius-sm);
