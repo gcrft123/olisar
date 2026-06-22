@@ -552,6 +552,7 @@ class SigningIdentity(Base):
     # bearer token the registry issued for publishing under it. None until registered.
     registry_handle: Mapped[str | None] = mapped_column(String(64), nullable=True)
     registry_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registry_verified: Mapped[bool] = mapped_column(Boolean, default=False)  # Discord-verified on the registry
     registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
