@@ -16,7 +16,17 @@ permissions:
   contents: write # create the release and upload assets
 
 jobs:
+  # Fail fast if the tag and the version files disagree — otherwise electron-builder
+  # builds/publishes under the wrong version and the tagged release ends up empty (v0.4.0).
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert version files match the tag
+        run: python3 scripts/check_release_version.py "${{ github.ref_name }}"
+
   macos:
+    needs: version-check
     runs-on: macos-14 # Apple Silicon → arm64 .dmg
     steps:
       - uses: actions/checkout@v4
@@ -63,6 +73,7 @@ jobs:
           npm run release
 
   windows:
+    needs: version-check
     runs-on: windows-latest # x64 NSIS .exe
     defaults:
       run:
