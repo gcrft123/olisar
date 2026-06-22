@@ -663,15 +663,18 @@ async function downloadOlx(key: string) {
   URL.revokeObjectURL(url)
 }
 
-function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onEdit: (k: string) => void }) {
-  const { e } = props
+function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onEdit: (k: string) => void; onUpdate?: (k: string) => void; mkt?: any }) {
+  const { e, mkt } = props
   const tools: string[] = e.tools ?? []
   const commands: string[] = e.commands ?? []
   const perms: string[] = e.permissions ?? []
   const requested: string[] = e.requested_permissions ?? []
   const ungranted = requested.filter((p) => !perms.includes(p))
+  const marketplace = e.origin === 'marketplace'
   const imported = e.origin === 'imported'
+  const fromElsewhere = marketplace || imported
   const accentBadge = { color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }
+  const warnBadge = { color: 'var(--warn)', background: 'var(--warn-soft)', borderColor: 'transparent' }
   // Publishable = locally-authored (not a built-in, not something installed from elsewhere).
   const publishable = e.editable && (!e.origin || e.origin === 'local')
 
@@ -695,16 +698,23 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             <div className="ext-dtitle">{e.name}</div>
             <div className="ext-chips">
               <span className="badge">{e.category}</span>
-              {imported
-                ? <span className="badge" style={accentBadge}>Imported</span>
-                : e.editable
-                  ? <span className="badge" style={accentBadge}>Custom</span>
-                  : <span className="badge">Built-in</span>}
+              {marketplace
+                ? <span className="badge" style={accentBadge}>Marketplace</span>
+                : imported
+                  ? <span className="badge" style={accentBadge}>Imported</span>
+                  : e.editable
+                    ? <span className="badge" style={accentBadge}>Custom</span>
+                    : <span className="badge">Built-in</span>}
               {e.user_modified && <span className="badge">edited</span>}
+              {mkt?.update_available && <span className="badge" style={accentBadge}>Update available</span>}
+              {mkt?.yanked && <span className="badge" style={warnBadge}>Removed from marketplace</span>}
               <span className={'badge' + (e.enabled ? ' ready' : '')}>{e.enabled ? 'Enabled' : 'Disabled'}</span>
             </div>
           </div>
           <div className="ext-dactions">
+            {props.isOperator && marketplace && mkt?.update_available && (
+              <button className="primary sm" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
+            )}
             {props.isOperator && publishable && (
               <button className="ghost sm" onClick={publishToMarketplace}>Publish</button>
             )}
@@ -719,12 +729,17 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         </div>
 
         <div className="ext-desc">{e.description || 'No description provided.'}</div>
-        {imported && (
+        {fromElsewhere && (
           <div className="ext-prov">
-            Imported{e.publisher ? ` · published by ${e.publisher}` : ''}
+            {marketplace ? 'From the marketplace' : 'Imported'}{e.publisher ? ` · published by ${e.publisher}` : ''}
             {e.signature_verified && e.signed_by
               ? ` · signed & verified (${e.signed_by})`
               : ' · unsigned'}
+          </div>
+        )}
+        {mkt?.yanked && (
+          <div className="ext-prov" style={{ color: 'var(--warn)' }}>
+            ⚠ Removed from the marketplace{mkt.gone ? '' : ' by the publisher'} — it keeps working but won't get updates.
           </div>
         )}
 
@@ -746,7 +761,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
           </div>
         )}
 
-        {imported && ungranted.length > 0 && (
+        {fromElsewhere && ungranted.length > 0 && (
           <div className="ext-block">
             <div className="ext-block-l">Requested but not granted</div>
             <div className="ext-caps">{ungranted.map((p) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none', opacity: 0.55 }}>{p}</span>)}</div>
@@ -956,6 +971,12 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
     try { await api.marketplaceYank(item.name); await runSearch() }  // whole extension, all versions
     catch (e: any) { alert('Yank failed: ' + e.message) }
   }
+  const changeHandle = async () => {
+    const h = window.prompt('New publisher handle (a-z 0-9 _ -). Re-registering rotates your token; verification carries over.', pubInfo?.handle || '')?.trim()
+    if (!h || h === pubInfo?.handle) return
+    try { await api.marketplaceRegister(h); setPubInfo(await api.marketplacePublisher()); await runSearch() }
+    catch (e: any) { alert('Couldn’t change handle: ' + e.message) }
+  }
 
   return (
     <>
@@ -973,6 +994,8 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
           {pubInfo.verified
             ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ Discord-verified</span>
             : <button className="ghost sm" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
+          <span className="grow" />
+          <button className="ghost sm" onClick={changeHandle}>Change handle</button>
         </div>
       )}
 
@@ -1031,6 +1054,13 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<'all' | 'on' | 'custom'>('all')
   const [importing, setImporting] = useState(false)
+  const [mktStatus, setMktStatus] = useState<Record<string, any>>({})
+  const [updKey, setUpdKey] = useState<string | null>(null)
+  const [updPreview, setUpdPreview] = useState<any>(null)
+  const [updBusy, setUpdBusy] = useState(false)
+  const [updErr, setUpdErr] = useState<string | null>(null)
+  // Per-marketplace-extension update/yank status, fetched once (cheap; few extensions).
+  useEffect(() => { api.marketplaceInstalled().then(setMktStatus).catch(() => {}) }, [])
   const saver = useSaver(async () => {
     const orig = new Map((ed.baseline() ?? []).map((e: any) => [e.key, e.enabled]))
     for (const e of ed.data ?? []) {
@@ -1041,6 +1071,20 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   const toggle = (key: string, v: boolean) =>
     ed.setData((prev: any[] | null) => (prev ?? []).map((e) => (e.key === key ? { ...e, enabled: v } : e)))
   const openEditor = (key: string | null) => { setEditKey(key); setView('editor') }
+  const startUpdate = async (key: string) => {
+    setUpdErr(null); setUpdPreview(null); setUpdKey(key)
+    try { setUpdPreview(await api.marketplaceUpdatePreview(key)) }
+    catch (e: any) { setUpdKey(null); alert('Update check failed: ' + e.message) }
+  }
+  const applyUpdate = async (granted: string[]) => {
+    if (!updKey) return
+    setUpdBusy(true); setUpdErr(null)
+    try {
+      await api.marketplaceUpdate(updKey, granted)
+      setUpdKey(null); setUpdPreview(null); setUpdBusy(false)
+      ed.reload(); api.marketplaceInstalled().then(setMktStatus).catch(() => {})
+    } catch (e: any) { setUpdErr(e.message); setUpdBusy(false) }
+  }
 
   // ── Build mode: the focused code editor (drill-in) ──
   if (view === 'editor') {
@@ -1083,7 +1127,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     >
       <span className="dot" />
       <span className="nm">{e.name}</span>
-      {e.editable && <span className="cust">Custom</span>}
+      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available">↑</span>}
+      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace">!</span>}
+      {e.editable && <span className="cust">{e.origin === 'marketplace' ? 'Market' : 'Custom'}</span>}
     </button>
   )
 
@@ -1104,6 +1150,16 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         <ImportDialog
           onClose={() => setImporting(false)}
           onImported={(key) => { setImporting(false); setSelKey(key); ed.reload() }}
+        />
+      )}
+
+      {updKey && updPreview && (
+        <ConsentModal
+          preview={updPreview} busy={updBusy} err={updErr}
+          title={`Update ${updPreview.name}`}
+          subtitle={`Updating ${updPreview.from_version ?? ''} → ${updPreview.to_version ?? ''}. Re-check what it can access before granting.`}
+          onClose={() => { setUpdKey(null); setUpdPreview(null); setUpdErr(null) }}
+          onInstall={applyUpdate}
         />
       )}
 
@@ -1132,7 +1188,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
         <section>
           {effective ? (
-            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} />
+            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} />
           ) : (
             <Card>
               <div className="ext-overview">

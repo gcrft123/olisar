@@ -75,6 +75,15 @@ class MarketplaceYankIn(BaseModel):
     version: str | None = None  # omit to yank all versions
 
 
+class MarketplaceUpdateIn(BaseModel):
+    key: str  # an installed marketplace extension to check/preview an update for
+
+
+class MarketplaceUpdateApplyIn(BaseModel):
+    key: str
+    granted_permissions: list[str] = []
+
+
 class SetupTokenIn(BaseModel):
     token: str
 
