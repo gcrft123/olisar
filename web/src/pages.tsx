@@ -672,6 +672,21 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   const ungranted = requested.filter((p) => !perms.includes(p))
   const imported = e.origin === 'imported'
   const accentBadge = { color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }
+  // Publishable = locally-authored (not a built-in, not something installed from elsewhere).
+  const publishable = e.editable && (!e.origin || e.origin === 'local')
+
+  const publishToMarketplace = async () => {
+    try {
+      let pub = await api.marketplacePublisher()
+      if (!pub.registered) {
+        const handle = window.prompt('Choose a publisher handle (your marketplace namespace, a-z 0-9 _ -):', '')?.trim()
+        if (!handle) return
+        pub = await api.marketplaceRegister(handle)
+      }
+      const r = await api.marketplacePublish(e.key)
+      alert(`Published ${r.id} v${r.version} to the marketplace.`)
+    } catch (err: any) { alert('Publish failed: ' + err.message) }
+  }
   return (
     <>
       <Card>
@@ -690,6 +705,9 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             </div>
           </div>
           <div className="ext-dactions">
+            {props.isOperator && publishable && (
+              <button className="ghost sm" onClick={publishToMarketplace}>Publish</button>
+            )}
             {props.isOperator && e.has_code && (
               <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => alert('Export failed: ' + err.message))}>Export</button>
             )}
