@@ -741,127 +741,145 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   )
 }
 
-// Import an .olx bundle: pick a file → preview what it adds and asks for → grant a
-// (possibly narrower) set of capabilities → install. The server re-transpiles the
-// source and enforces granted ⊆ requested, so this screen is the consent gate.
+// The consent gate shared by file-import and marketplace-install: shows what the
+// extension adds, its signature status, and the capabilities it requests; the operator
+// grants a (possibly narrower) set. The server re-verifies and enforces granted ⊆ requested.
+function ConsentModal(props: {
+  preview: any
+  busy: boolean
+  err: string | null
+  title: string
+  subtitle: string
+  onClose: () => void
+  onInstall: (granted: string[]) => void
+}) {
+  const { preview } = props
+  const reqPerms: string[] = preview?.requested_permissions ?? []
+  const [granted, setGranted] = useState<Set<string>>(() => new Set(reqPerms)) // default: grant all
+  const sig = preview?.signature
+  const blocked = preview.exists || preview.is_builtin_key || sig?.status === 'invalid'
+  const togglePerm = (p: string) =>
+    setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
+
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <div className="settings-head"><h2>{props.title}</h2><p>{props.subtitle}</p></div>
+
+        <div className="import-review">
+          <div className="import-title">{preview.name} <span className="import-ver">v{preview.version}</span></div>
+          <div className="import-sub">
+            <span className="badge">{preview.category}</span>
+            <code>{preview.id}</code>
+            {preview.author?.name && <span className="settings-muted">by {preview.author.name}</span>}
+          </div>
+
+          {sig && (
+            <div className={'import-sig ' + sig.status}>
+              {sig.status === 'valid'
+                ? <>Signed &amp; verified · <code>{sig.fingerprint}</code></>
+                : sig.status === 'invalid'
+                  ? <>Signature invalid — this bundle may have been tampered with.</>
+                  : <>Unsigned — its author and integrity can’t be verified.</>}
+            </div>
+          )}
+
+          {preview.description && <div className="ext-desc" style={{ marginTop: 10 }}>{preview.description}</div>}
+
+          {(preview.tools?.length > 0 || preview.commands?.length > 0 || preview.behavior) && (
+            <>
+              <div className="settings-subhead">What it adds</div>
+              <div className="ext-caps">
+                {(preview.tools || []).map((t: string) => <span key={'t' + t} className="tag">{t}()</span>)}
+                {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
+                {preview.behavior && <span className="badge">Shapes replies</span>}
+              </div>
+            </>
+          )}
+
+          <div className="settings-subhead">Capabilities to grant</div>
+          {reqPerms.length === 0 ? (
+            <div className="settings-muted">This extension requests no special capabilities.</div>
+          ) : (
+            <>
+              <div className="import-perms">
+                {reqPerms.map((p) => (
+                  <label key={p} className="import-perm">
+                    <input type="checkbox" checked={granted.has(p)} onChange={() => togglePerm(p)} />
+                    <span className="pl">{permLabel(p)}</span>
+                    <span className="pk">{p}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="import-warn">This runs third-party code in your bot. Grant only what you trust; ungranted capabilities will simply be unavailable to it.</div>
+            </>
+          )}
+
+          {preview.exists && <div className="settings-err" style={{ marginTop: 14 }}>An extension named “{preview.id}” is already installed — delete it first to reinstall.</div>}
+          {preview.is_builtin_key && <div className="settings-err" style={{ marginTop: 14 }}>“{preview.id}” is a reserved built-in name and can’t be installed.</div>}
+        </div>
+
+        {props.err && <div className="settings-err" style={{ marginTop: 14 }}>{props.err}</div>}
+
+        <div className="import-foot">
+          <button className="ghost" onClick={props.onClose} disabled={props.busy}>Cancel</button>
+          <button className="primary" onClick={() => props.onInstall(Array.from(granted))} disabled={props.busy || blocked}>
+            {props.busy ? 'Installing…' : granted.size ? `Install · grant ${granted.size}` : 'Install'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Import an .olx file: pick → preview → the shared consent gate → install.
 function ImportDialog(props: { onClose: () => void; onImported: (key: string) => void }) {
   const [bundle, setBundle] = useState<any>(null)
   const [preview, setPreview] = useState<any>(null)
-  const [granted, setGranted] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const onFile = async (file: File) => {
-    setErr(null)
-    setBusy(true)
+    setErr(null); setBusy(true)
     try {
       let data: any
       try { data = JSON.parse(await file.text()) } catch { throw new Error('That file isn’t a valid .olx (not JSON).') }
       const p = await api.importPreview(data)
-      setBundle(data)
-      setPreview(p)
-      setGranted(new Set<string>(p.requested_permissions || [])) // default: grant everything it asks for
+      setBundle(data); setPreview(p)
     } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
   }
-
-  const install = async () => {
-    setBusy(true)
-    setErr(null)
-    try {
-      const r = await api.importAuthoring(bundle, Array.from(granted))
-      props.onImported(r.key)
-    } catch (e: any) { setErr(e.message); setBusy(false) }
+  const install = async (granted: string[]) => {
+    setBusy(true); setErr(null)
+    try { const r = await api.importAuthoring(bundle, granted); props.onImported(r.key) }
+    catch (e: any) { setErr(e.message); setBusy(false) }
   }
 
-  const togglePerm = (p: string) =>
-    setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
-  const reqPerms: string[] = preview?.requested_permissions ?? []
-  const sig = preview?.signature
-  const blocked = !!preview && (preview.exists || preview.is_builtin_key || sig?.status === 'invalid')
-
+  if (preview) {
+    return (
+      <ConsentModal
+        preview={preview} busy={busy} err={err}
+        title="Import extension" subtitle="Review what it adds and what it can access before granting."
+        onClose={props.onClose} onInstall={install}
+      />
+    )
+  }
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
         <div className="settings-head">
           <h2>Import extension</h2>
-          <p>Install an <code>.olx</code> bundle. Review what it adds and what it can access before you grant it.</p>
+          <p>Install an <code>.olx</code> bundle exported from Olisar.</p>
         </div>
-
-        {!preview ? (
-          <div className="import-drop">
-            <div className="settings-muted">Choose a <code>.olx</code> file exported from Olisar.</div>
-            <button className="primary" style={{ marginTop: 14 }} onClick={() => fileRef.current?.click()} disabled={busy}>
-              {busy ? 'Reading…' : 'Choose .olx file…'}
-            </button>
-          </div>
-        ) : (
-          <div className="import-review">
-            <div className="import-title">{preview.name} <span className="import-ver">v{preview.version}</span></div>
-            <div className="import-sub">
-              <span className="badge">{preview.category}</span>
-              <code>{preview.id}</code>
-              {preview.author?.name && <span className="settings-muted">by {preview.author.name}</span>}
-            </div>
-
-            {sig && (
-              <div className={'import-sig ' + sig.status}>
-                {sig.status === 'valid'
-                  ? <>Signed &amp; verified · <code>{sig.fingerprint}</code></>
-                  : sig.status === 'invalid'
-                    ? <>Signature invalid — this bundle may have been tampered with.</>
-                    : <>Unsigned — its author and integrity can’t be verified.</>}
-              </div>
-            )}
-
-            {preview.description && <div className="ext-desc" style={{ marginTop: 10 }}>{preview.description}</div>}
-
-            {(preview.tools?.length > 0 || preview.commands?.length > 0 || preview.behavior) && (
-              <>
-                <div className="settings-subhead">What it adds</div>
-                <div className="ext-caps">
-                  {(preview.tools || []).map((t: string) => <span key={'t' + t} className="tag">{t}()</span>)}
-                  {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
-                  {preview.behavior && <span className="badge">Shapes replies</span>}
-                </div>
-              </>
-            )}
-
-            <div className="settings-subhead">Capabilities to grant</div>
-            {reqPerms.length === 0 ? (
-              <div className="settings-muted">This extension requests no special capabilities.</div>
-            ) : (
-              <>
-                <div className="import-perms">
-                  {reqPerms.map((p) => (
-                    <label key={p} className="import-perm">
-                      <input type="checkbox" checked={granted.has(p)} onChange={() => togglePerm(p)} />
-                      <span className="pl">{permLabel(p)}</span>
-                      <span className="pk">{p}</span>
-                    </label>
-                  ))}
-                </div>
-                <div className="import-warn">Imported extensions run third-party code in your bot. Grant only what you trust; ungranted capabilities will simply be unavailable to it.</div>
-              </>
-            )}
-
-            {preview.exists && <div className="settings-err" style={{ marginTop: 14 }}>An extension named “{preview.id}” is already installed — delete it first to import this one.</div>}
-            {preview.is_builtin_key && <div className="settings-err" style={{ marginTop: 14 }}>“{preview.id}” is a reserved built-in name and can’t be imported.</div>}
-          </div>
-        )}
-
+        <div className="import-drop">
+          <div className="settings-muted">Choose a <code>.olx</code> file.</div>
+          <button className="primary" style={{ marginTop: 14 }} onClick={() => fileRef.current?.click()} disabled={busy}>
+            {busy ? 'Reading…' : 'Choose .olx file…'}
+          </button>
+        </div>
         {err && <div className="settings-err" style={{ marginTop: 14 }}>{err}</div>}
-
-        <div className="import-foot">
-          <button className="ghost" onClick={props.onClose} disabled={busy}>Cancel</button>
-          {preview && (
-            <button className="primary" onClick={install} disabled={busy || blocked}>
-              {busy ? 'Installing…' : granted.size ? `Install · grant ${granted.size}` : 'Install'}
-            </button>
-          )}
-        </div>
-
         <input
           ref={fileRef} type="file" accept=".olx,application/json" style={{ display: 'none' }}
           onChange={(ev) => { const f = ev.target.files?.[0]; if (f) onFile(f); ev.target.value = '' }}
@@ -871,13 +889,98 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   )
 }
 
+// Browse the marketplace registry and install via the shared consent flow. The bot
+// proxies to the registry and re-verifies every bundle locally before installing.
+function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [sel, setSel] = useState<any>(null)
+  const [preview, setPreview] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  const [perr, setPerr] = useState<string | null>(null)
+
+  const runSearch = async () => {
+    setLoading(true); setErr(null)
+    try { const d = await api.marketplaceSearch(q); setResults(d.results || []) }
+    catch (e: any) { setErr(e.message) } finally { setLoading(false) }
+  }
+  useEffect(() => { runSearch() }, []) // initial load
+
+  const openInstall = async (item: any) => {
+    setSel(item); setPreview(null); setPerr(null); setBusy(true)
+    try {
+      const p = await api.marketplaceInstallPreview({ namespace: item.namespace, name: item.name, version: item.version })
+      setPreview(p)
+    } catch (e: any) { setPerr(e.message); setSel(null); alert('Couldn’t load: ' + e.message) } finally { setBusy(false) }
+  }
+  const doInstall = async (granted: string[]) => {
+    if (!sel) return
+    setBusy(true); setPerr(null)
+    try {
+      const r = await api.marketplaceInstall({ namespace: sel.namespace, name: sel.name, version: sel.version, granted_permissions: granted })
+      props.onInstalled(r.key)
+    } catch (e: any) { setPerr(e.message); setBusy(false) }
+  }
+
+  return (
+    <>
+      <div className="mkt-head">
+        <button className="ghost sm" onClick={props.onBack}>← Back</button>
+        <form className="mkt-search" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
+          <Text value={q} onChange={setQ} placeholder="Search the marketplace…" />
+          <button className="primary sm" type="submit">Search</button>
+        </form>
+      </div>
+
+      {loading ? <Spinner /> : err ? (
+        <Card><div className="settings-err">{err}</div></Card>
+      ) : results.length === 0 ? (
+        <Card><div className="ext-overview"><div>No extensions found.</div></div></Card>
+      ) : (
+        <div className="mkt-grid">
+          {results.map((r) => (
+            <div key={r.id} className="mkt-card">
+              <div className="mkt-card-top">
+                <div className="mkt-name">{r.name} <span className="import-ver">v{r.version}</span></div>
+                <span className="badge">{r.category}</span>
+              </div>
+              <div className="mkt-pub">
+                {r.publisher_verified
+                  ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ {r.publisher}</span>
+                  : <span className="badge">{r.publisher || 'unknown publisher'}</span>}
+              </div>
+              {r.description && <div className="mkt-desc">{r.description}</div>}
+              {r.permissions?.length > 0 && (
+                <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
+              )}
+              <div className="mkt-card-foot">
+                <button className="primary sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sel && preview && (
+        <ConsentModal
+          preview={preview} busy={busy} err={perr}
+          title="Install from marketplace" subtitle="Review what it adds and what it can access before granting."
+          onClose={() => { setSel(null); setPreview(null); setPerr(null) }} onInstall={doInstall}
+        />
+      )}
+    </>
+  )
+}
+
 // The code editor ("Build" mode) is heavy (Monaco + esbuild-wasm) and operator-only,
 // so it loads only when an operator drills in to create or edit an extension.
 const ExtensionEditor = lazy(() => import('./authoring'))
 
 export function Extensions(props: { isOperator?: boolean } = {}) {
   const ed = useEditable<any[]>(api.getExtensions)
-  const [view, setView] = useState<'catalog' | 'editor'>('catalog')
+  const [view, setView] = useState<'catalog' | 'editor' | 'marketplace'>('catalog')
   const [editKey, setEditKey] = useState<string | null>(null)
   const [selKey, setSelKey] = useState<string | null>(null)
   const [q, setQ] = useState('')
@@ -900,6 +1003,15 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
       <Suspense fallback={<Spinner />}>
         <ExtensionEditor editKey={editKey} onBack={() => { setView('catalog'); ed.reload() }} onChanged={ed.reload} />
       </Suspense>
+    )
+  }
+  // ── Marketplace mode: browse the registry and install ──
+  if (view === 'marketplace') {
+    return (
+      <Marketplace
+        onBack={() => { setView('catalog'); ed.reload() }}
+        onInstalled={(key) => { setView('catalog'); setSelKey(key); ed.reload() }}
+      />
     )
   }
   if (ed.loading) return <Spinner />
@@ -936,6 +1048,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
         {props.isOperator && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
+            <button className="ghost sm" onClick={() => setView('marketplace')}>Marketplace</button>
             <button className="ghost sm" onClick={() => setImporting(true)}>Import .olx</button>
             <button className="primary sm" onClick={() => openEditor(null)}>+ New extension</button>
           </div>
