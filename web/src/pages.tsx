@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, type IconName } from './icons'
@@ -600,40 +600,467 @@ export function Knowledge() {
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
-function WelcomeConfig(props: { enabled: boolean }) {
-  const { data: chans } = useAsync<any[]>(api.getChannels)
-  const { data: loaded } = useAsync<any>(() => api.getExtensionSettings('welcome'))
-  const [enabled, setEnabled] = useState(false)
-  const [channelId, setChannelId] = useState('')
-  const [prompt, setPrompt] = useState('')
+// A schema-driven settings form: renders whatever fields an extension declares in
+// its manifest's settingsSchema and saves them. (Replaces the bespoke welcome panel;
+// enable/disable now lives on the extension's toggle, settings save on their own.)
+function SettingsForm(props: { extKey: string; schema: any }) {
+  const fields: any[] = props.schema?.fields ?? []
+  const needsChannels = fields.some((f) => f.type === 'channel')
+  const { data: chans } = useAsync<any[]>(needsChannels ? api.getChannels : (() => Promise.resolve([])), [props.extKey])
+  const { data: loaded } = useAsync<any>(() => api.getExtensionSettings(props.extKey), [props.extKey])
+  const [vals, setVals] = useState<Record<string, any>>({})
   const [init, setInit] = useState(false)
-  useEffect(() => {
-    if (loaded && !init) {
-      setEnabled(props.enabled)
-      setChannelId(String(loaded.settings?.channel_id || ''))
-      setPrompt(loaded.settings?.prompt || '')
-      setInit(true)
-    }
-  }, [loaded, init, props.enabled])
-  const saver = useSaver(async () => {
-    await api.putExtensionSettings('welcome', { channel_id: channelId, prompt })
-    await api.putExtension({ key: 'welcome', enabled })
-  })
-  const opts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
+  useEffect(() => { if (loaded && !init) { setVals({ ...(loaded.settings || {}) }); setInit(true) } }, [loaded, init])
+  const saver = useSaver(async () => { await api.putExtensionSettings(props.extKey, vals) })
+  const set = (k: string, v: any) => setVals((p) => ({ ...p, [k]: v }))
+  const chanOpts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
+  if (!fields.length) return null
   return (
-    <Card title="Welcome message" hint="Greets new members in Olisar's voice plus your prompt. Use {user} for the new member.">
-      <Field label="Enabled"><Toggle value={enabled} onChange={setEnabled} label="Greet new members on join" /></Field>
-      <Field label="Channel"><Select value={channelId} onChange={setChannelId} options={opts} /></Field>
-      <Field label="Prompt" desc="Layered on top of the persona — e.g. 'warmly welcome {user} and ask what brought them here', or 'roast {user} on their username'.">
-        <Area value={prompt} onChange={setPrompt} rows={3} />
-      </Field>
-      <SaveBar saver={saver} label="Save welcome" />
+    <Card title="Settings">
+      {fields.map((f) => (
+        <Field key={f.key} label={f.label || f.key} desc={f.desc}>
+          {f.type === 'channel' ? <Select value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} options={chanOpts} />
+            : f.type === 'textarea' ? <Area value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} rows={3} />
+            : f.type === 'number' ? <Num value={Number(vals[f.key] ?? 0)} onChange={(v) => set(f.key, v)} />
+            : f.type === 'toggle' ? <Toggle value={!!vals[f.key]} onChange={(v) => set(f.key, v)} />
+            : <Text value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} />}
+        </Field>
+      ))}
+      <SaveBar saver={saver} label="Save settings" />
     </Card>
   )
 }
 
-export function Extensions() {
+// The detail panel for one selected extension: what it is, what it adds, its
+// capabilities, its enable toggle, and (for operators) a way into the code.
+// Plain-English labels for the capability strings, shown on the import-consent screen
+// and the detail panel so an operator knows what they're granting.
+const PERM_LABELS: Record<string, string> = {
+  fetch: 'Make web requests to any public URL',
+  'kb.write': 'Add sources to the knowledge base',
+  'glossary.write': 'Add glossary / memory facts',
+  kv: 'Use its own private key-value storage',
+  settings: 'Read its own settings',
+  'discord.reply': 'Reply in Discord',
+  'discord.modal': 'Show pop-up forms (modals)',
+  'discord.components': 'Use buttons and select menus',
+}
+export function permLabel(p: string): string {
+  if (p.startsWith('secret:')) return `Use the “${p.slice(7)}” secret key`
+  return PERM_LABELS[p] || p
+}
+
+async function downloadOlx(key: string) {
+  const doc = await api.exportAuthoring(key)
+  const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${doc.id}-${doc.version}.olx`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onEdit: (k: string) => void; onUpdate?: (k: string) => void; mkt?: any }) {
+  const { e, mkt } = props
+  const tools: string[] = e.tools ?? []
+  const commands: string[] = e.commands ?? []
+  const perms: string[] = e.permissions ?? []
+  const requested: string[] = e.requested_permissions ?? []
+  const ungranted = requested.filter((p) => !perms.includes(p))
+  const marketplace = e.origin === 'marketplace'
+  const imported = e.origin === 'imported'
+  const fromElsewhere = marketplace || imported
+  const accentBadge = { color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }
+  const warnBadge = { color: 'var(--warn)', background: 'var(--warn-soft)', borderColor: 'transparent' }
+  // Publishable = locally-authored (not a built-in, not something installed from elsewhere).
+  const publishable = e.editable && (!e.origin || e.origin === 'local')
+
+  const publishToMarketplace = async () => {
+    try {
+      let pub = await api.marketplacePublisher()
+      if (!pub.registered) {
+        const handle = window.prompt('Choose a publisher handle (your marketplace namespace, a-z 0-9 _ -):', '')?.trim()
+        if (!handle) return
+        pub = await api.marketplaceRegister(handle)
+      }
+      const r = await api.marketplacePublish(e.key)
+      alert(`Published ${r.id} v${r.version} to the marketplace.`)
+    } catch (err: any) { alert('Publish failed: ' + err.message) }
+  }
+  return (
+    <>
+      <Card>
+        <div className="ext-dhead">
+          <div className="grow">
+            <div className="ext-dtitle">{e.name}</div>
+            <div className="ext-chips">
+              <span className="badge">{e.category}</span>
+              {marketplace
+                ? <span className="badge" style={accentBadge}>Marketplace</span>
+                : imported
+                  ? <span className="badge" style={accentBadge}>Imported</span>
+                  : e.editable
+                    ? <span className="badge" style={accentBadge}>Custom</span>
+                    : <span className="badge">Built-in</span>}
+              {e.user_modified && <span className="badge">edited</span>}
+              {mkt?.update_available && <span className="badge" style={accentBadge}>Update available</span>}
+              {mkt?.yanked && <span className="badge" style={warnBadge}>Removed from marketplace</span>}
+              <span className={'badge' + (e.enabled ? ' ready' : '')}>{e.enabled ? 'Enabled' : 'Disabled'}</span>
+            </div>
+          </div>
+          <div className="ext-dactions">
+            {props.isOperator && marketplace && mkt?.update_available && (
+              <button className="primary sm" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
+            )}
+            {props.isOperator && publishable && (
+              <button className="ghost sm" onClick={publishToMarketplace}>Publish</button>
+            )}
+            {props.isOperator && e.has_code && (
+              <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => alert('Export failed: ' + err.message))}>Export</button>
+            )}
+            {props.isOperator && e.has_code && (
+              <button className="ghost sm" onClick={() => props.onEdit(e.key)}>Edit code</button>
+            )}
+            <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} />
+          </div>
+        </div>
+
+        <div className="ext-desc">{e.description || 'No description provided.'}</div>
+        {fromElsewhere && (
+          <div className="ext-prov">
+            {marketplace ? 'From the marketplace' : 'Imported'}{e.publisher ? ` · published by ${e.publisher}` : ''}
+            {e.signature_verified && e.signed_by
+              ? ` · signed & verified (${e.signed_by})`
+              : ' · unsigned'}
+          </div>
+        )}
+        {mkt?.yanked && (
+          <div className="ext-prov" style={{ color: 'var(--warn)' }}>
+            ⚠ Removed from the marketplace{mkt.gone ? '' : ' by the publisher'} — it keeps working but won't get updates.
+          </div>
+        )}
+
+        {(tools.length > 0 || commands.length > 0 || e.behavior) && (
+          <div className="ext-block">
+            <div className="ext-block-l">What it adds</div>
+            <div className="ext-caps">
+              {tools.map((t) => <span key={'t' + t} className="tag">{t}()</span>)}
+              {commands.map((c) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
+              {e.behavior && <span className="badge">Shapes replies</span>}
+            </div>
+          </div>
+        )}
+
+        {perms.length > 0 && (
+          <div className="ext-block">
+            <div className="ext-block-l">Capabilities it uses</div>
+            <div className="ext-caps">{perms.map((p) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
+          </div>
+        )}
+
+        {fromElsewhere && ungranted.length > 0 && (
+          <div className="ext-block">
+            <div className="ext-block-l">Requested but not granted</div>
+            <div className="ext-caps">{ungranted.map((p) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none', opacity: 0.55 }}>{p}</span>)}</div>
+          </div>
+        )}
+      </Card>
+
+      {e.settings_schema?.fields?.length > 0 && <SettingsForm key={e.key} extKey={e.key} schema={e.settings_schema} />}
+    </>
+  )
+}
+
+// The consent gate shared by file-import and marketplace-install: shows what the
+// extension adds, its signature status, and the capabilities it requests; the operator
+// grants a (possibly narrower) set. The server re-verifies and enforces granted ⊆ requested.
+function ConsentModal(props: {
+  preview: any
+  busy: boolean
+  err: string | null
+  title: string
+  subtitle: string
+  onClose: () => void
+  onInstall: (granted: string[]) => void
+}) {
+  const { preview } = props
+  const reqPerms: string[] = preview?.requested_permissions ?? []
+  // Host secrets (gemini/cloudflare/uex) are barred from installed (third-party) extensions
+  // server-side — show them as unavailable and never grant them.
+  const isHostSecret = (p: string) => p.startsWith('secret:')
+  const [granted, setGranted] = useState<Set<string>>(() => new Set(reqPerms.filter((p) => !isHostSecret(p))))
+  const sig = preview?.signature
+  const blocked = preview.exists || preview.is_builtin_key || sig?.status === 'invalid'
+  const togglePerm = (p: string) =>
+    setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
+
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <div className="settings-head"><h2>{props.title}</h2><p>{props.subtitle}</p></div>
+
+        <div className="import-review">
+          <div className="import-title">{preview.name} <span className="import-ver">v{preview.version}</span></div>
+          <div className="import-sub">
+            <span className="badge">{preview.category}</span>
+            <code>{preview.id}</code>
+            {preview.author?.name && <span className="settings-muted">by {preview.author.name}</span>}
+          </div>
+
+          {sig && (
+            <div className={'import-sig ' + sig.status}>
+              {sig.status === 'valid'
+                ? <>Signed &amp; verified · <code>{sig.fingerprint}</code></>
+                : sig.status === 'invalid'
+                  ? <>Signature invalid — this bundle may have been tampered with.</>
+                  : <>Unsigned — its author and integrity can’t be verified.</>}
+            </div>
+          )}
+
+          {preview.description && <div className="ext-desc" style={{ marginTop: 10 }}>{preview.description}</div>}
+
+          {(preview.tools?.length > 0 || preview.commands?.length > 0 || preview.behavior) && (
+            <>
+              <div className="settings-subhead">What it adds</div>
+              <div className="ext-caps">
+                {(preview.tools || []).map((t: string) => <span key={'t' + t} className="tag">{t}()</span>)}
+                {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
+                {preview.behavior && <span className="badge">Shapes replies</span>}
+              </div>
+            </>
+          )}
+
+          <div className="settings-subhead">Capabilities to grant</div>
+          {reqPerms.length === 0 ? (
+            <div className="settings-muted">This extension requests no special capabilities.</div>
+          ) : (
+            <>
+              <div className="import-perms">
+                {reqPerms.map((p) => isHostSecret(p) ? (
+                  <label key={p} className="import-perm" style={{ opacity: 0.55, cursor: 'default' }}>
+                    <input type="checkbox" checked={false} disabled />
+                    <span className="pl">{permLabel(p)} <span className="settings-muted">— host secret, not available to installed extensions</span></span>
+                    <span className="pk">{p}</span>
+                  </label>
+                ) : (
+                  <label key={p} className="import-perm">
+                    <input type="checkbox" checked={granted.has(p)} onChange={() => togglePerm(p)} />
+                    <span className="pl">{permLabel(p)}</span>
+                    <span className="pk">{p}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="import-warn">This runs third-party code in your bot. Grant only what you trust; ungranted capabilities will simply be unavailable to it.</div>
+            </>
+          )}
+
+          {preview.exists && <div className="settings-err" style={{ marginTop: 14 }}>An extension named “{preview.id}” is already installed — delete it first to reinstall.</div>}
+          {preview.is_builtin_key && <div className="settings-err" style={{ marginTop: 14 }}>“{preview.id}” is a reserved built-in name and can’t be installed.</div>}
+        </div>
+
+        {props.err && <div className="settings-err" style={{ marginTop: 14 }}>{props.err}</div>}
+
+        <div className="import-foot">
+          <button className="ghost" onClick={props.onClose} disabled={props.busy}>Cancel</button>
+          <button className="primary" onClick={() => props.onInstall(Array.from(granted))} disabled={props.busy || blocked}>
+            {props.busy ? 'Installing…' : granted.size ? `Install · grant ${granted.size}` : 'Install'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Import an .olx file: pick → preview → the shared consent gate → install.
+function ImportDialog(props: { onClose: () => void; onImported: (key: string) => void }) {
+  const [bundle, setBundle] = useState<any>(null)
+  const [preview, setPreview] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const onFile = async (file: File) => {
+    setErr(null); setBusy(true)
+    try {
+      let data: any
+      try { data = JSON.parse(await file.text()) } catch { throw new Error('That file isn’t a valid .olx (not JSON).') }
+      const p = await api.importPreview(data)
+      setBundle(data); setPreview(p)
+    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+  }
+  const install = async (granted: string[]) => {
+    setBusy(true); setErr(null)
+    try { const r = await api.importAuthoring(bundle, granted); props.onImported(r.key) }
+    catch (e: any) { setErr(e.message); setBusy(false) }
+  }
+
+  if (preview) {
+    return (
+      <ConsentModal
+        preview={preview} busy={busy} err={err}
+        title="Import extension" subtitle="Review what it adds and what it can access before granting."
+        onClose={props.onClose} onInstall={install}
+      />
+    )
+  }
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <div className="settings-head">
+          <h2>Import extension</h2>
+          <p>Install an <code>.olx</code> bundle exported from Olisar.</p>
+        </div>
+        <div className="import-drop">
+          <div className="settings-muted">Choose a <code>.olx</code> file.</div>
+          <button className="primary" style={{ marginTop: 14 }} onClick={() => fileRef.current?.click()} disabled={busy}>
+            {busy ? 'Reading…' : 'Choose .olx file…'}
+          </button>
+        </div>
+        {err && <div className="settings-err" style={{ marginTop: 14 }}>{err}</div>}
+        <input
+          ref={fileRef} type="file" accept=".olx,application/json" style={{ display: 'none' }}
+          onChange={(ev) => { const f = ev.target.files?.[0]; if (f) onFile(f); ev.target.value = '' }}
+        />
+      </div>
+    </div>
+  )
+}
+
+// Browse the marketplace registry and install via the shared consent flow. The bot
+// proxies to the registry and re-verifies every bundle locally before installing.
+function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState<string | null>(null)
+  const [sel, setSel] = useState<any>(null)
+  const [preview, setPreview] = useState<any>(null)
+  const [busy, setBusy] = useState(false)
+  const [perr, setPerr] = useState<string | null>(null)
+  const [pubInfo, setPubInfo] = useState<any>(null)
+
+  const runSearch = async () => {
+    setLoading(true); setErr(null)
+    try { const d = await api.marketplaceSearch(q); setResults(d.results || []) }
+    catch (e: any) { setErr(e.message) } finally { setLoading(false) }
+  }
+  useEffect(() => { runSearch(); api.marketplacePublisher().then(setPubInfo).catch(() => {}) }, []) // initial load
+
+  const openInstall = async (item: any) => {
+    setSel(item); setPreview(null); setPerr(null); setBusy(true)
+    try {
+      const p = await api.marketplaceInstallPreview({ namespace: item.namespace, name: item.name, version: item.version })
+      setPreview(p)
+    } catch (e: any) { setPerr(e.message); setSel(null); alert('Couldn’t load: ' + e.message) } finally { setBusy(false) }
+  }
+  const doInstall = async (granted: string[]) => {
+    if (!sel) return
+    setBusy(true); setPerr(null)
+    try {
+      const r = await api.marketplaceInstall({ namespace: sel.namespace, name: sel.name, version: sel.version, granted_permissions: granted })
+      props.onInstalled(r.key)
+    } catch (e: any) { setPerr(e.message); setBusy(false) }
+  }
+  const doYank = async (item: any) => {
+    if (!confirm(`Yank ${item.id} from the marketplace? It'll stop appearing for everyone.`)) return
+    try { await api.marketplaceYank(item.name); await runSearch() }  // whole extension, all versions
+    catch (e: any) { alert('Yank failed: ' + e.message) }
+  }
+  const changeHandle = async () => {
+    const h = window.prompt('New publisher handle (a-z 0-9 _ -). Re-registering rotates your token; verification carries over.', pubInfo?.handle || '')?.trim()
+    if (!h || h === pubInfo?.handle) return
+    try { await api.marketplaceRegister(h); setPubInfo(await api.marketplacePublisher()); await runSearch() }
+    catch (e: any) { alert('Couldn’t change handle: ' + e.message) }
+  }
+
+  return (
+    <>
+      <div className="mkt-head">
+        <button className="ghost sm" onClick={props.onBack}>← Back</button>
+        <form className="mkt-search" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
+          <Text value={q} onChange={setQ} placeholder="Search the marketplace…" />
+          <button className="primary sm" type="submit">Search</button>
+        </form>
+      </div>
+
+      {pubInfo?.registered && (
+        <div className="mkt-pubbar">
+          <span>Publishing as <code>{pubInfo.handle}</code></span>
+          {pubInfo.verified
+            ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ Discord-verified</span>
+            : <button className="ghost sm" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
+          <span className="grow" />
+          <button className="ghost sm" onClick={changeHandle}>Change handle</button>
+        </div>
+      )}
+
+      {loading ? <Spinner /> : err ? (
+        <Card><div className="settings-err">{err}</div></Card>
+      ) : results.length === 0 ? (
+        <Card><div className="ext-overview"><div>No extensions found.</div></div></Card>
+      ) : (
+        <div className="mkt-grid">
+          {results.map((r) => (
+            <div key={r.id} className="mkt-card">
+              <div className="mkt-card-top">
+                <div className="mkt-name">{r.name} <span className="import-ver">v{r.version}</span></div>
+                <span className="badge">{r.category}</span>
+              </div>
+              <div className="mkt-pub">
+                {r.publisher_verified
+                  ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ {r.publisher}</span>
+                  : <span className="badge">{r.publisher || 'unknown publisher'}</span>}
+              </div>
+              {r.description && <div className="mkt-desc">{r.description}</div>}
+              {r.permissions?.length > 0 && (
+                <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
+              )}
+              <div className="mkt-card-foot">
+                {pubInfo?.handle && r.publisher === pubInfo.handle && (
+                  <button className="ghost sm" onClick={() => doYank(r)}>Yank</button>
+                )}
+                <button className="primary sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {sel && preview && (
+        <ConsentModal
+          preview={preview} busy={busy} err={perr}
+          title="Install from marketplace" subtitle="Review what it adds and what it can access before granting."
+          onClose={() => { setSel(null); setPreview(null); setPerr(null) }} onInstall={doInstall}
+        />
+      )}
+    </>
+  )
+}
+
+// The code editor ("Build" mode) is heavy (Monaco + esbuild-wasm) and operator-only,
+// so it loads only when an operator drills in to create or edit an extension.
+const ExtensionEditor = lazy(() => import('./authoring'))
+
+export function Extensions(props: { isOperator?: boolean } = {}) {
   const ed = useEditable<any[]>(api.getExtensions)
+  const [view, setView] = useState<'catalog' | 'editor' | 'marketplace'>('catalog')
+  const [editKey, setEditKey] = useState<string | null>(null)
+  const [selKey, setSelKey] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<'all' | 'on' | 'custom'>('all')
+  const [importing, setImporting] = useState(false)
+  const [mktStatus, setMktStatus] = useState<Record<string, any>>({})
+  const [updKey, setUpdKey] = useState<string | null>(null)
+  const [updPreview, setUpdPreview] = useState<any>(null)
+  const [updBusy, setUpdBusy] = useState(false)
+  const [updErr, setUpdErr] = useState<string | null>(null)
+  // Per-marketplace-extension update/yank status, fetched once (cheap; few extensions).
+  useEffect(() => { api.marketplaceInstalled().then(setMktStatus).catch(() => {}) }, [])
   const saver = useSaver(async () => {
     const orig = new Map((ed.baseline() ?? []).map((e: any) => [e.key, e.enabled]))
     for (const e of ed.data ?? []) {
@@ -643,30 +1070,140 @@ export function Extensions() {
   })
   const toggle = (key: string, v: boolean) =>
     ed.setData((prev: any[] | null) => (prev ?? []).map((e) => (e.key === key ? { ...e, enabled: v } : e)))
+  const openEditor = (key: string | null) => { setEditKey(key); setView('editor') }
+  const startUpdate = async (key: string) => {
+    setUpdErr(null); setUpdPreview(null); setUpdKey(key)
+    try { setUpdPreview(await api.marketplaceUpdatePreview(key)) }
+    catch (e: any) { setUpdKey(null); alert('Update check failed: ' + e.message) }
+  }
+  const applyUpdate = async (granted: string[]) => {
+    if (!updKey) return
+    setUpdBusy(true); setUpdErr(null)
+    try {
+      await api.marketplaceUpdate(updKey, granted)
+      setUpdKey(null); setUpdPreview(null); setUpdBusy(false)
+      ed.reload(); api.marketplaceInstalled().then(setMktStatus).catch(() => {})
+    } catch (e: any) { setUpdErr(e.message); setUpdBusy(false) }
+  }
+
+  // ── Build mode: the focused code editor (drill-in) ──
+  if (view === 'editor') {
+    return (
+      <Suspense fallback={<Spinner />}>
+        <ExtensionEditor editKey={editKey} onBack={() => { setView('catalog'); ed.reload() }} onChanged={ed.reload} />
+      </Suspense>
+    )
+  }
+  // ── Marketplace mode: browse the registry and install ──
+  if (view === 'marketplace') {
+    return (
+      <Marketplace
+        onBack={() => { setView('catalog'); ed.reload() }}
+        onInstalled={(key) => { setView('catalog'); setSelKey(key); ed.reload() }}
+      />
+    )
+  }
   if (ed.loading) return <Spinner />
+
+  // ── Catalog mode: a searchable rail + a rich detail panel ──
   const rows = ed.data ?? []
-  // 'welcome' has its own panel (with its own enable toggle), so keep it out of the list.
-  const cats = Array.from(new Set(rows.filter((e) => e.key !== 'welcome').map((e) => e.category)))
+  const ql = q.trim().toLowerCase()
+  const match = (e: any) =>
+    (filter === 'all' || (filter === 'on' && e.enabled) || (filter === 'custom' && e.editable)) &&
+    (!ql || e.name.toLowerCase().includes(ql) || (e.description || '').toLowerCase().includes(ql))
+  const shown = rows.filter(match)
+  const custom = shown.filter((e) => e.editable)
+  const builtins = shown.filter((e) => !e.editable)
+  const cats = Array.from(new Set(builtins.map((e) => e.category)))
+  const effective = shown.find((e) => e.key === selKey) ?? shown[0] ?? null
+  const enabledCount = rows.filter((e) => e.enabled).length
+  const customCount = rows.filter((e) => e.editable).length
+
+  const railItem = (e: any) => (
+    <button
+      key={e.key}
+      className={'ext-item' + (e.enabled ? ' on' : '') + (effective?.key === e.key ? ' active' : '')}
+      onClick={() => setSelKey(e.key)}
+    >
+      <span className="dot" />
+      <span className="nm">{e.name}</span>
+      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available">↑</span>}
+      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace">!</span>}
+      {e.editable && <span className="cust">{e.origin === 'marketplace' ? 'Market' : 'Custom'}</span>}
+    </button>
+  )
+
   return (
     <>
-      <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
-      {rows.length === 0 && (
-        <Card title="Extensions"><div className="empty">No extensions registered.</div></Card>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
+        {props.isOperator && (
+          <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
+            <button className="ghost sm" onClick={() => setView('marketplace')}>Marketplace</button>
+            <button className="ghost sm" onClick={() => setImporting(true)}>Import .olx</button>
+            <button className="primary sm" onClick={() => openEditor(null)}>+ New extension</button>
+          </div>
+        )}
+      </div>
+
+      {importing && (
+        <ImportDialog
+          onClose={() => setImporting(false)}
+          onImported={(key) => { setImporting(false); setSelKey(key); ed.reload() }}
+        />
       )}
-      {cats.map((cat) => (
-        <Card key={cat} title={cat}>
-          {rows.filter((e) => e.category === cat && e.key !== 'welcome').map((e) => (
-            <div className="list-row" key={e.key}>
-              <div className="grow">
-                <div className="title">{e.name}</div>
-                <div className="meta">{e.description}</div>
+
+      {updKey && updPreview && (
+        <ConsentModal
+          preview={updPreview} busy={updBusy} err={updErr}
+          title={`Update ${updPreview.name}`}
+          subtitle={`Updating ${updPreview.from_version ?? ''} → ${updPreview.to_version ?? ''}. Re-check what it can access before granting.`}
+          onClose={() => { setUpdKey(null); setUpdPreview(null); setUpdErr(null) }}
+          onInstall={applyUpdate}
+        />
+      )}
+
+      <div className="ext-wrap">
+        <aside className="ext-rail">
+          <div className="ext-rail-head"><Text value={q} onChange={setQ} placeholder="Search extensions…" /></div>
+          <div className="ext-seg">
+            {(['all', 'on', 'custom'] as const).map((f) => (
+              <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
+                {f === 'all' ? 'All' : f === 'on' ? 'Enabled' : 'Custom'}
+              </button>
+            ))}
+          </div>
+          <div className="ext-list">
+            {shown.length === 0 && <div className="ext-empty-rail">No extensions match.</div>}
+            {custom.length > 0 && <div className="ext-glabel">Custom</div>}
+            {custom.map(railItem)}
+            {cats.map((cat) => (
+              <div key={cat}>
+                <div className="ext-glabel">{cat}</div>
+                {builtins.filter((e) => e.category === cat).map(railItem)}
               </div>
-              <Toggle value={e.enabled} onChange={(v) => toggle(e.key, v)} />
-            </div>
-          ))}
-        </Card>
-      ))}
-      {rows.some((e) => e.key === 'welcome') && <WelcomeConfig enabled={!!rows.find((e) => e.key === 'welcome')?.enabled} />}
+            ))}
+          </div>
+        </aside>
+
+        <section>
+          {effective ? (
+            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} />
+          ) : (
+            <Card>
+              <div className="ext-overview">
+                <div className="ext-stats">
+                  <div className="ext-stat"><div className="n">{rows.length}</div><div className="l">Available</div></div>
+                  <div className="ext-stat"><div className="n">{enabledCount}</div><div className="l">Enabled</div></div>
+                  <div className="ext-stat"><div className="n">{customCount}</div><div className="l">Custom</div></div>
+                </div>
+                <div>Select an extension to see what it does{props.isOperator ? ', or create your own.' : '.'}</div>
+              </div>
+            </Card>
+          )}
+        </section>
+      </div>
+
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
     </>
   )

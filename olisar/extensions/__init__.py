@@ -1,8 +1,10 @@
 """Bot extensions — togglable packages of extra features.
 
-Importing this package populates the registry with the built-in extensions, so
-anything that needs the catalog (the pipeline, the admin API) just imports from
-here. See ``base.py`` for the framework and ``builtin.py`` for the examples.
+All extensions are now **SDK extensions** — operator-authored TypeScript plus the
+migrated built-ins (dice, calculator, concise_mode, welcome, star_citizen) — stored in
+the DB as ``ExtensionPackage`` rows, loaded live by ``user_registry``, and executed in
+the sandbox (see ``olisar/sandbox``). The Python ``star_citizen.py`` is kept on disk as
+the reference implementation but is no longer registered.
 """
 
 from __future__ import annotations
@@ -18,13 +20,6 @@ from olisar.extensions.base import (
     is_enabled,
     register,
 )
-from olisar.extensions.builtin import register_builtins
-from olisar.extensions.star_citizen import register_star_citizen
-from olisar.extensions.welcome import register_welcome
-
-register_builtins()
-register_star_citizen()
-register_welcome()
 
 __all__ = [
     "Extension",

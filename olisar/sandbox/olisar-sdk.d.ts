@@ -1,0 +1,171 @@
+/**
+ * Olisar Extension SDK — author-facing surface.
+ *
+ * Write your extension by calling `defineExtension({...})` exactly once. You never
+ * import anything: `defineExtension` and `host` are provided by the runtime. Your
+ * code runs in a secure sandbox with no access to the network, filesystem, or the
+ * bot's internals except through the `host` capabilities you request in `permissions`.
+ */
+
+/** Capabilities an extension may request. The operator approves these on save. */
+type Permission =
+  | "fetch"            // host.fetch — call external HTTP(S) APIs
+  | "kb.write"         // host.kb.addSource — add knowledge-base sources
+  | "glossary.write"   // host.glossary.add — add glossary facts
+  | "kv"               // host.kv — per-guild key/value storage
+  | "discord.reply"    // reply / follow up to a slash command
+  | "discord.modal"    // pop a modal form during a command
+  | "discord.components" // buttons / select menus during a command
+  | `secret:${string}`; // host.secret("uex_api_key") — read an approved secret by name
+
+type JSONSchema = {
+  type: "object" | "string" | "number" | "integer" | "boolean" | "array";
+  description?: string;
+  properties?: Record<string, JSONSchema>;
+  required?: string[];
+  items?: JSONSchema;
+  enum?: string[];
+};
+
+/** Context passed to an LLM tool handler. */
+interface ToolCtx {
+  guildId: string;
+  channelId: string;
+  userId: string;
+  displayName: string;
+}
+
+/** An LLM function-calling tool the model can invoke while your extension is on. */
+interface ToolDef {
+  name: string;
+  description: string;
+  parameters: JSONSchema;
+  /** Return a short string for the model. May be async. */
+  handler(args: Record<string, any>, ctx: ToolCtx): Promise<string> | string;
+}
+
+/** A slash-command option (maps to a Discord application-command option). */
+interface OptionDef {
+  name: string;
+  description: string;
+  type?: "string" | "integer" | "number" | "boolean" | "user" | "channel";
+  required?: boolean;
+}
+
+/** Fields for a modal form popped with `interaction.modal(...)`. */
+interface ModalSpec {
+  title: string;
+  fields: { id: string; label: string; style?: "short" | "paragraph"; required?: boolean }[];
+}
+
+interface EmbedSpec {
+  title?: string;
+  description?: string;
+  url?: string;
+  color?: number;
+  fields?: { name: string; value: string; inline?: boolean }[];
+  footer?: string;
+  thumbnail?: string;
+  image?: string;
+}
+
+type Component =
+  | { kind: "button"; customId: string; label: string; style?: "primary" | "secondary" | "danger" }
+  | { kind: "select"; customId: string; placeholder?: string; options: { value: string; label: string }[] };
+
+type ReplyPayload =
+  | string
+  | { content?: string; embed?: any; ephemeral?: boolean; components?: Component[] };
+
+/** The live interaction handed to a slash-command handler. */
+interface Interaction {
+  options: Record<string, any>;
+  guildId: string;
+  channelId: string;
+  userId: string;
+  displayName: string;
+  reply(payload: ReplyPayload): Promise<void>;
+  followUp(payload: ReplyPayload): Promise<void>;
+  /** Pop a modal and resolve with the submitted field values (keyed by field id). */
+  modal(spec: ModalSpec): Promise<Record<string, string>>;
+  /** Resolve when the user clicks a button / picks an option. */
+  awaitComponent(opts?: { timeoutMs?: number }): Promise<{ customId: string; values?: string[] }>;
+}
+
+interface CommandDef {
+  name: string;
+  description: string;
+  options?: OptionDef[];
+  /** "manage_guild" to gate to server managers, or null for everyone. */
+  defaultMemberPermissions?: "manage_guild" | null;
+  guildOnly?: boolean;
+  handler(interaction: Interaction): Promise<void> | void;
+}
+
+interface KbSeed { type?: "url" | "website"; uri: string; title?: string }
+interface GlossarySeed { subject: string; fact: string }
+
+interface SettingsField {
+  key: string;
+  type: "text" | "textarea" | "channel" | "number" | "toggle";
+  label: string;
+  desc?: string;
+}
+interface SettingsSchema { fields: SettingsField[] }
+
+/** Context passed to onEnable (runs once when an admin turns the extension on). */
+interface EnableCtx { guildId: string }
+
+interface ExtensionSpec {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  category?: string;
+  /** A line folded into the system prompt while the extension is enabled. */
+  systemNote?: string;
+  defaultEnabled?: boolean;
+  permissions: Permission[];
+  tools?: ToolDef[];
+  commands?: CommandDef[];
+  seeds?: { kbSources?: KbSeed[]; glossary?: GlossarySeed[] };
+  settingsSchema?: SettingsSchema;
+  /** Runs once on the OFF -> ON transition; use it to seed durable state. */
+  onEnable?(ctx: EnableCtx): Promise<void> | void;
+}
+
+/** Register your extension. Call exactly once at the top level. */
+declare function defineExtension(spec: ExtensionSpec): void;
+
+interface FetchResponse {
+  status: number;
+  ok: boolean;
+  headers: Record<string, string>;
+  text(): Promise<string>;
+  json(): Promise<any>;
+}
+
+/** Host capabilities. A method only works if you requested its permission. */
+declare const host: {
+  /** Call an external HTTP(S) API. Private/loopback hosts are blocked. */
+  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<FetchResponse>;
+  kb: { addSource(seed: KbSeed): Promise<boolean> };
+  glossary: { add(fact: GlossarySeed): Promise<number> };
+  kv: {
+    get(key: string): Promise<any>;
+    set(key: string, value: any): Promise<void>;
+    delete(key: string): Promise<void>;
+  };
+  /**
+   * Read this extension's per-guild settings — whatever an admin entered in the
+   * settings pane you declared with `settingsSchema`. Read-only; no permission needed.
+   * `get()` returns the whole object, `get(key)` a single value.
+   */
+  settings: { get(key?: string): Promise<any> };
+  /** Read an operator-approved secret by reference (never the literal value at author time). */
+  secret(ref: string): Promise<string | null>;
+  /** Build a Discord embed to pass to interaction.reply({ embed }). */
+  embed(spec: EmbedSpec): any;
+  /** Write a line to the bot's log (always available). */
+  log(message: string): Promise<void>;
+};

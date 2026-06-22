@@ -23,10 +23,10 @@ INITIAL_COGS = [
     "bot.cogs.search_index",
     "bot.cogs.events",
     "bot.cogs.self_destruct",
-    "bot.cogs.star_citizen",
     "bot.cogs.proactive",
     "bot.cogs.reminders",
     "bot.cogs.welcome",
+    "bot.cogs.sdk_commands",
 ]
 
 

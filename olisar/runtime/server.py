@@ -102,10 +102,11 @@ async def _apply_runtime_config() -> None:
 async def _init_database() -> None:
     """Create/upgrade the schema and seed guild defaults — idempotent, replaces the
     old manual ``python -m scripts.init_db`` step so a fresh install just works."""
-    from scripts.init_db import create_schema, seed_defaults
+    from scripts.init_db import create_schema, seed_builtins, seed_defaults
 
     await create_schema()
     await seed_defaults()
+    await seed_builtins()
 
 
 async def _self_check() -> bool:
@@ -142,8 +143,29 @@ async def run(host: str, port: int) -> None:
     await _apply_runtime_config()
     vec_ok = await _self_check()
 
+    from olisar import sandbox
+
+    sandbox_ok = sandbox.self_check()  # the #2 packaging risk: the QuickJS extension VM
+    if not sandbox_ok:
+        log.error("extension sandbox self-check FAILED — SDK extensions (incl. built-ins) won't run")
+
+    from olisar.sandbox import transpile
+
+    transpile_ok = transpile.self_check()  # vendored TS compiler — needed to author/import
+    if not transpile_ok:
+        log.error("transpile self-check FAILED — authoring/importing extensions won't work")
+
+    from olisar.extensions import signing
+
+    signing_ok = signing.self_check()  # Ed25519 — needed to sign exports / verify imports
+    if not signing_ok:
+        log.error("signing self-check FAILED — .olx bundles won't be signed/verified")
+
     app = create_app()
     app.state.vec_ok = vec_ok  # surfaced on /api/health for the tray
+    app.state.sandbox_ok = sandbox_ok
+    app.state.transpile_ok = transpile_ok
+    app.state.signing_ok = signing_ok
     supervisor = BotSupervisor()
     app.state.bot_supervisor = supervisor  # setup wizard (Phase 2) restarts via this
 

@@ -22,12 +22,30 @@ hiddenimports = []
 binaries += collect_dynamic_libs("sqlite_vec")
 datas += collect_data_files("sqlite_vec")
 
+# quickjs (#2 packaging risk): the C-extension that runs sandboxed SDK extensions.
+# A failed bundle is surfaced by the sandbox self-check on /api/health.
+binaries += collect_dynamic_libs("quickjs")
+hiddenimports += ["quickjs"]
+
+# cryptography: Ed25519 signing/verification of .olx bundles. It loads a Rust native
+# module dynamically; collect its submodules + libs so the frozen build can sign/verify.
+# A failed bundle is surfaced by the signing self-check on /api/health.
+binaries += collect_dynamic_libs("cryptography")
+hiddenimports += collect_submodules("cryptography")
+
+# The sandbox's JS bootstrap + the SDK type defs + the built-in extensions are data
+# files (collect_submodules only grabs .py), so ship them explicitly. The vendored
+# TypeScript compiler (vendor/typescript.js, ~9MB) is the server-side transpiler that
+# turns extension source into the JS we run — ship it too (it lives in a subdir).
+datas += collect_data_files("olisar.sandbox", includes=["*.js", "*.d.ts", "vendor/*.js"])
+datas += collect_data_files("olisar.extensions.sdk_builtins", includes=["*.js"])
+
 # discord.py loads cogs through importlib (bot.load_extension), invisible to analysis.
 hiddenimports += [
     "bot.cogs.guilds", "bot.cogs.conversation", "bot.cogs.members", "bot.cogs.slash",
     "bot.cogs.presence", "bot.cogs.memory_worker", "bot.cogs.context_channels",
     "bot.cogs.search_index", "bot.cogs.events", "bot.cogs.self_destruct",
-    "bot.cogs.star_citizen", "bot.cogs.proactive",
+    "bot.cogs.proactive", "bot.cogs.sdk_commands",
 ]
 # Whole-package collects keep dynamically-referenced submodules (extensions, the
 # SQLite dialect, uvicorn's loop/protocol impls) in the bundle.
