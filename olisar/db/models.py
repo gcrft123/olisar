@@ -548,6 +548,11 @@ class SigningIdentity(Base):
     private_key: Mapped[str] = mapped_column(Text, default="")  # raw private key, base64
     public_key: Mapped[str] = mapped_column(Text, default="")  # raw public key, base64
     fingerprint: Mapped[str] = mapped_column(String(80), default="")  # "sha256:<hex>" of public key
+    # Marketplace publisher registration: the namespace (handle) this bot owns and the
+    # bearer token the registry issued for publishing under it. None until registered.
+    registry_handle: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    registry_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

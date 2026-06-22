@@ -162,6 +162,23 @@ async def get_package(key: str, admin: AdminUser = Depends(require_admin)):
     }
 
 
+async def build_signed_bundle(session, pkg: ExtensionPackage) -> dict:
+    """Build a package's ``.olx`` document and sign it with this bot's publisher identity
+    (created on first use) so importers/the registry can verify authorship + integrity.
+    Shared by export and marketplace publish."""
+    doc = bundle.build_bundle(
+        ext_id=pkg.key, name=pkg.name, version=pkg.version,
+        category=pkg.category, description=pkg.description,
+        source=pkg.source_ts or "",
+        permissions=pkg.requested_permissions or pkg.permissions or [],
+        sdk_version=pkg.sdk_version, author_id=pkg.author_id, author_name=pkg.publisher_name,
+    )
+    if signing.available():
+        ident = await signing.ensure_identity(session)
+        signing.sign_bundle(doc, ident.private_key, ident.public_key)
+    return doc
+
+
 @router.get("/{key}/export")
 async def export_package(key: str, admin: AdminUser = Depends(require_admin)) -> dict:
     """Export a package as an ``.olx`` bundle (source-only; the importer re-transpiles).
@@ -173,19 +190,7 @@ async def export_package(key: str, admin: AdminUser = Depends(require_admin)) ->
             raise HTTPException(status_code=404, detail="unknown extension")
         if not (pkg.source_ts or "").strip():
             raise HTTPException(status_code=400, detail="this extension has no exportable source")
-        doc = bundle.build_bundle(
-            ext_id=pkg.key, name=pkg.name, version=pkg.version,
-            category=pkg.category, description=pkg.description,
-            source=pkg.source_ts or "",
-            permissions=pkg.requested_permissions or pkg.permissions or [],
-            sdk_version=pkg.sdk_version, author_id=pkg.author_id, author_name=pkg.publisher_name,
-        )
-        # Sign with this bot's publisher identity (created on first export) so importers
-        # can verify authorship + integrity.
-        if signing.available():
-            ident = await signing.ensure_identity(session)
-            signing.sign_bundle(doc, ident.private_key, ident.public_key)
-        return doc
+        return await build_signed_bundle(session, pkg)
 
 
 async def _prepare_import(bundle_data: dict) -> tuple[object, str, dict]:
