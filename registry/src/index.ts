@@ -126,6 +126,9 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/publishers/register") {
         return await publishersRegister(req, env);
       }
+      if (req.method === "POST" && url.pathname === "/v1/publishers/verify") {
+        return await publisherVerify(req, env);
+      }
       if (req.method === "POST" && url.pathname === "/v1/publish") {
         return await publisherPublish(req, env);
       }
@@ -416,6 +419,33 @@ async function publisherPublish(req: Request, env: Env): Promise<Response> {
     verified: publisher.verified, discord_id: null,
   };
   return storePublish(env, publisher.handle, pub, bundle);
+}
+
+// Bind a verified Discord identity to the authenticated publisher. The bot forwards the
+// operator's short-lived `identify` token; the registry confirms it with Discord itself
+// (so it never just trusts the bot's word) and sets the verified badge.
+async function publisherVerify(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const publisher = await publisherForToken(env, req);
+  if (!publisher) return json({ error: "unauthorized" }, 401);
+  const body = await req.json<any>();
+  const discordToken = String(body?.discord_token || "");
+  if (!discordToken) return json({ error: "discord_token required" }, 400);
+  let me: any;
+  try {
+    const r = await fetch("https://discord.com/api/users/@me", {
+      headers: { authorization: "Bearer " + discordToken },
+    });
+    if (r.status !== 200) return json({ error: "Discord verification failed" }, 401);
+    me = await r.json();
+  } catch (e: any) {
+    return json({ error: "couldn't reach Discord" }, 502);
+  }
+  const discordId = String(me?.id || "");
+  if (!discordId) return json({ error: "Discord returned no user id" }, 401);
+  await env.DB.prepare("UPDATE publishers SET discord_id = ?, verified = 1 WHERE id = ?")
+    .bind(discordId, publisher.id).run();
+  return json({ ok: true, discord_id: discordId, username: me?.username || me?.global_name || null, verified: true });
 }
 
 async function publisherYank(req: Request, env: Env): Promise<Response> {
