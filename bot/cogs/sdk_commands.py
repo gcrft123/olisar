@@ -196,6 +196,8 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
                 await interaction.response.send_message("that extension is no longer installed.", ephemeral=True)
                 return
             compiled, perms = pkg.compiled_js, list(pkg.permissions or [])
+            # First-party extensions may use host secrets; imported/marketplace can't.
+            trusted = (pkg.origin or "local") == "local"
         data = {
             "options": {k: _ser(v) for k, v in opts.items()},
             "guildId": str(gid), "channelId": str(interaction.channel_id),
@@ -207,7 +209,7 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
                 await run_command(
                     ext_key=ext_key, compiled_js=compiled, permissions=perms,
                     command_name=name, interaction_data=data, guild_id=gid,
-                    session=session, discord=bridge,
+                    session=session, discord=bridge, trusted=trusted,
                 )
         except (SandboxError, asyncio.TimeoutError, Exception) as exc:  # noqa: BLE001
             log.exception("sdk command %s/%s failed", ext_key, name)
