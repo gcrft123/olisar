@@ -161,7 +161,7 @@ async function search(url: URL, env: Env): Promise<Response> {
     FROM extensions e
     LEFT JOIN publishers p ON p.id = e.publisher_id
     LEFT JOIN versions v ON v.namespace = e.namespace AND v.name = e.name AND v.version = e.latest_version
-    WHERE e.status = 'published'`;
+    WHERE e.status = 'published' AND COALESCE(v.yanked, 0) = 0`;
   const binds: any[] = [];
   if (q) {
     sql += " AND (e.name LIKE ? OR e.description LIKE ?)";
@@ -349,7 +349,7 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
      ON CONFLICT(namespace, name) DO UPDATE SET
        publisher_id = excluded.publisher_id, category = excluded.category,
        description = excluded.description, latest_version = excluded.latest_version,
-       updated_at = datetime('now')`,
+       status = 'published', updated_at = datetime('now')`,
   ).bind(namespace, name, publisherId, bundle.category ?? "General", bundle.description ?? "", version).run();
 
   await env.DB.prepare(
@@ -357,7 +357,8 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(namespace, name, version) DO UPDATE SET
        content_hash = excluded.content_hash, r2_key = excluded.r2_key, sdk_version = excluded.sdk_version,
-       permissions = excluded.permissions, signature = excluded.signature, publisher_key = excluded.publisher_key`,
+       permissions = excluded.permissions, signature = excluded.signature,
+       publisher_key = excluded.publisher_key, yanked = 0`,
   ).bind(
     namespace, name, version, bundle.content_hash, key,
     bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
