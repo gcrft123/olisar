@@ -10,6 +10,7 @@ operators can create/edit the code itself.
 
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -199,14 +200,12 @@ async def _prepare_import(bundle_data: dict) -> tuple[object, str, dict]:
     return parsed, compiled_js, manifest
 
 
-@router.post("/import/preview")
-async def import_preview(body: ExtensionImportIn, admin: AdminUser = Depends(require_admin)) -> dict:
-    """Inspect an uploaded bundle without installing it: what it adds and, crucially, the
-    capabilities it asks for — so the operator can review before granting."""
-    _operator(admin)
-    parsed, _, manifest = await _prepare_import(body.bundle)
+async def preview_bundle(bundle_doc: dict) -> dict:
+    """Shared preview for file-import and marketplace-install: re-derives the manifest and
+    checks the signature, returning what the extension adds + the capabilities it requests."""
+    parsed, _, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
-    sig_status, sig_fingerprint, _ = signing.verify_bundle(body.bundle, parsed.content_hash)
+    sig_status, sig_fingerprint, _ = signing.verify_bundle(bundle_doc, parsed.content_hash)
     async with session_scope() as session:
         exists = await session.get(ExtensionPackage, key) is not None
     return {
@@ -229,30 +228,32 @@ async def import_preview(body: ExtensionImportIn, admin: AdminUser = Depends(req
     }
 
 
-@router.post("/import")
-async def import_package(
-    body: ExtensionImportConfirmIn, request: Request, admin: AdminUser = Depends(require_admin)
+async def install_bundle(
+    bundle_doc: dict, granted_permissions: list[str], *,
+    actor: int | None, origin: str, marketplace_ref: dict | None = None,
 ) -> dict:
-    """Install an uploaded bundle, granting only the capabilities the operator approved."""
-    _operator(admin)
-    parsed, compiled_js, manifest = await _prepare_import(body.bundle)
+    """Shared install for file-import (origin='imported') and the marketplace
+    (origin='marketplace'). Re-transpiles + re-verifies, enforces granted ⊆ requested,
+    refuses invalid signatures and key collisions, then persists. The caller triggers the
+    slash-command resync (it owns the request/bot handle)."""
+    parsed, compiled_js, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     if key in _REGISTRY:
         raise HTTPException(status_code=409, detail=f"'{key}' is a built-in extension name")
-    sig_status, _, sig_pub = signing.verify_bundle(body.bundle, parsed.content_hash)
+    sig_status, _, sig_pub = signing.verify_bundle(bundle_doc, parsed.content_hash)
     if sig_status == "invalid":
         raise HTTPException(
             status_code=400,
-            detail="this bundle's signature is invalid — it may have been tampered with; not importing",
+            detail="this bundle's signature is invalid — it may have been tampered with; not installing",
         )
     requested = manifest.get("permissions", [])
-    granted = [p for p in (body.granted_permissions or []) if p in requested]  # granted ⊆ requested
+    granted = [p for p in (granted_permissions or []) if p in requested]  # granted ⊆ requested
     version = manifest.get("version", "1.0.0")
     async with session_scope() as session:
         if await session.get(ExtensionPackage, key) is not None:
             raise HTTPException(
                 status_code=409,
-                detail=f"an extension named '{key}' already exists — delete it first to re-import",
+                detail=f"an extension named '{key}' already exists — delete it first to reinstall",
             )
         pkg = ExtensionPackage(
             key=key, name=manifest.get("name", key), version=version, kind="user",
@@ -261,23 +262,42 @@ async def import_package(
             source_ts=parsed.source, compiled_js=compiled_js,
             permissions=granted, requested_permissions=requested,
             author_id=parsed.author_id, publisher_id=parsed.author_id,
-            publisher_name=parsed.author_name, origin="imported",
+            publisher_name=parsed.author_name, origin=origin,
             sdk_version=parsed.sdk_version or SDK_VERSION, content_hash=parsed.content_hash,
-            signature=body.bundle.get("signature"), publisher_key=sig_pub,
+            signature=bundle_doc.get("signature"), publisher_key=sig_pub,
             signature_verified=(sig_status == "valid"),
+            marketplace_ref=json.dumps(marketplace_ref) if marketplace_ref else None,
         )
         session.add(pkg)
         await record_audit(
-            session, actor=admin.discord_user_id, action="import_extension",
+            session, actor=actor,
+            action="install_extension" if origin == "marketplace" else "import_extension",
             target_type="extension_package", target_id=key,
-            after={
-                "version": version, "granted": granted, "requested": requested,
-                "origin": "imported", "signature": sig_status,
-            },
+            after={"version": version, "granted": granted, "requested": requested,
+                   "origin": origin, "signature": sig_status},
         )
     user_registry.invalidate()
-    _resync_commands(request)
     return {"ok": True, "key": key, "granted": granted}
+
+
+@router.post("/import/preview")
+async def import_preview(body: ExtensionImportIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Inspect an uploaded bundle without installing it."""
+    _operator(admin)
+    return await preview_bundle(body.bundle)
+
+
+@router.post("/import")
+async def import_package(
+    body: ExtensionImportConfirmIn, request: Request, admin: AdminUser = Depends(require_admin)
+) -> dict:
+    """Install an uploaded .olx, granting only the capabilities the operator approved."""
+    _operator(admin)
+    result = await install_bundle(
+        body.bundle, body.granted_permissions, actor=admin.discord_user_id, origin="imported",
+    )
+    _resync_commands(request)
+    return result
 
 
 @router.post("/validate")

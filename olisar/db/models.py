@@ -473,6 +473,9 @@ class ExtensionPackage(Base):
     signature: Mapped[str | None] = mapped_column(Text, nullable=True)
     publisher_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # signer's public key (b64)
     signature_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Where a marketplace install came from (JSON: registry/namespace/name/version), so a
+    # future update check can compare against the registry's latest. None for local/file.
+    marketplace_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
     sdk_version: Mapped[str] = mapped_column(String(16), default="1")  # SDK surface the code targets
     # True once an operator has edited a built-in in the console, so the seeder stops
     # overwriting it on boot (ships updates only to untouched built-ins).

@@ -93,6 +93,17 @@ export const api = {
   importAuthoring: (bundle: any, granted: string[]) =>
     req('/api/extensions/authoring/import', { method: 'POST', body: JSON.stringify({ bundle, granted_permissions: granted }) }),
 
+  // Marketplace (operator-only) — the bot proxies these to the registry. Install reuses
+  // the import consent flow; the bot fetches the .olx and re-verifies it locally.
+  marketplaceSearch: (q = '', category = '') =>
+    req(`/api/marketplace/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}`),
+  marketplaceDetail: (ns: string, name: string) =>
+    req(`/api/marketplace/ext/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`),
+  marketplaceInstallPreview: (ref: { namespace: string; name: string; version: string }) =>
+    req('/api/marketplace/install/preview', { method: 'POST', body: JSON.stringify(ref) }),
+  marketplaceInstall: (b: { namespace: string; name: string; version: string; granted_permissions: string[] }) =>
+    req('/api/marketplace/install', { method: 'POST', body: JSON.stringify(b) }),
+
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
   deleteSource: (id: number) => req(`/api/knowledge/${id}`, { method: 'DELETE' }),
