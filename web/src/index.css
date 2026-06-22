@@ -637,6 +637,16 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .doc { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
 .doc h3, .doc h4 { scroll-margin-top: 20px; }
 
+/* Fenced code blocks */
+.doc-pre {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin: 0 0 14px; overflow-x: auto;
+}
+.doc-pre code {
+  font-family: var(--mono); font-size: 12px; line-height: 1.55; color: var(--text);
+  background: none; padding: 0; white-space: pre; display: block;
+}
+
 /* Callouts (tip / note / warning / info) */
 .callout {
   border: 1px solid var(--border); border-left: 3px solid var(--accent);
