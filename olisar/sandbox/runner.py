@@ -55,12 +55,12 @@ async def extract_manifest(compiled_js: str) -> dict:
 
 async def run_tool(
     *, ext_key: str, compiled_js: str, permissions: list[str],
-    tool_name: str, args: dict, ctx: "ToolContext",
+    tool_name: str, args: dict, ctx: "ToolContext", trusted: bool = False,
 ) -> str:
     """Run a sandboxed LLM tool; always returns a string for the model."""
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
-        guild_id=ctx.cfg_guild, session=ctx.session,
+        guild_id=ctx.cfg_guild, session=ctx.session, trusted=trusted,
     )
     payload = {
         "args": args or {},
@@ -81,12 +81,12 @@ async def run_tool(
 async def run_command(
     *, ext_key: str, compiled_js: str, permissions: list[str],
     command_name: str, interaction_data: dict, guild_id: int,
-    session: "AsyncSession", discord: DiscordBridge,
+    session: "AsyncSession", discord: DiscordBridge, trusted: bool = False,
 ) -> None:
     """Run a sandboxed slash command (its flow round-trips through ``discord``)."""
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
-        guild_id=guild_id, session=session, discord=discord,
+        guild_id=guild_id, session=session, discord=discord, trusted=trusted,
     )
     await _invoke(
         inv, compiled_js, "command", command_name, {"interaction": interaction_data},
@@ -96,12 +96,12 @@ async def run_command(
 
 async def run_on_enable(
     *, ext_key: str, compiled_js: str, permissions: list[str],
-    session: "AsyncSession", guild_id: int,
+    session: "AsyncSession", guild_id: int, trusted: bool = False,
 ) -> None:
     """Run an extension's onEnable hook (idempotent seeding) on OFF->ON."""
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
-        guild_id=guild_id, session=session,
+        guild_id=guild_id, session=session, trusted=trusted,
     )
     await _invoke(
         inv, compiled_js, "onEnable", "onEnable", {"ctx": {"guildId": str(guild_id)}},

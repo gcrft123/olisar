@@ -66,6 +66,9 @@ class Invocation:
     session: AsyncSession | None = None
     discord: DiscordBridge | None = None
     fetch_calls: int = field(default=0)
+    # First-party (built-in or locally-authored) vs. third-party (imported/marketplace).
+    # Third-party code is barred from the host's configured secrets regardless of grants.
+    trusted: bool = False
 
 
 class PermissionError_(Exception):
@@ -147,6 +150,15 @@ async def _secret(inv: Invocation, ref: str) -> str | None:
     getter = _SECRET_GETTERS.get(ref)
     if getter is None:
         raise ValueError(f"unknown secret reference: {ref}")
+    # Host-configured keys (Gemini/Cloudflare/UEX) are infrastructure the operator pays
+    # for. First-party extensions (built-in or locally-authored) may use them once granted;
+    # imported/marketplace code must NOT — even if the operator clicked "grant" at install —
+    # so a third-party extension can never exfiltrate the host's keys. (A per-extension
+    # secret vault for third-party code can come later; for now they get none.)
+    if not inv.trusted:
+        raise PermissionError_(
+            f"'{ref}' is a host secret — imported or marketplace extensions can't use it"
+        )
     return (await getter()) or None
 
 
