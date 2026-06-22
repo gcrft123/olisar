@@ -110,6 +110,7 @@ export const api = {
     req('/api/marketplace/publish', { method: 'POST', body: JSON.stringify({ key }) }),
   marketplaceYank: (name: string, version?: string) =>
     req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
+  marketplaceVerifyStartUrl: () => BASE + '/api/marketplace/verify/start',
 
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
