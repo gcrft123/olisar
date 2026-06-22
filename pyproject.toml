@@ -1,6 +1,6 @@
 [project]
 name = "discord-olisar"
-version = "0.3.0"
+version = "0.4.0"
 description = "Olisar — an AI Discord bot that feels like a living member of the server, plus an admin dashboard."
 requires-python = ">=3.11"
 
@@ -20,6 +20,8 @@ dependencies = [
     "httpx>=0.27",              # OAuth token exchange + URL fetch
     "itsdangerous>=2.2",        # signed session cookies
     "platformdirs>=4.0",        # per-user data dir for the packaged desktop app
+    "quickjs>=1.19.4",          # sandboxed JS engine for SDK extensions + TS transpile
+    "cryptography>=42",         # Ed25519 signing/verification of .olx extension bundles
 ]
 
 [project.optional-dependencies]

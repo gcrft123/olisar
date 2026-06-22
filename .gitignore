@@ -11,6 +11,7 @@ __pycache__/
 
 # Data (database, uploaded knowledge files, backups)
 data/
+logs/
 *.db
 *.db-wal
 *.db-shm

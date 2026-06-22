@@ -1,0 +1,3 @@
+# Local-only vars loaded by `wrangler dev` (never deployed). Copy to .dev.vars.
+# Enables the unauthenticated /v1/_dev/publish seeding endpoint for local testing.
+DEV_SEED=1

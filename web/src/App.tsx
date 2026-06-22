@@ -40,6 +40,18 @@ export default function App() {
   // drops straight back to the login screen, so a now-powerless page can't linger.
   useEffect(() => { setOnUnauthorized(() => setAuth('out')) }, [])
 
+  // Landing back from the marketplace Discord-verification round-trip.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search)
+    if (p.has('verified') || p.has('verify')) {
+      const ok = p.get('verified') === '1'
+      window.history.replaceState({}, '', window.location.pathname)
+      setTimeout(() => alert(ok
+        ? 'Publisher verified with Discord — your published extensions now show a verified badge.'
+        : 'Discord verification didn’t complete.'), 0)
+    }
+  }, [])
+
   // First-run gate: if the backend reports no config yet, show the setup wizard
   // before the normal Discord login. If the status call fails (e.g. an older
   // backend), assume configured and proceed.
@@ -99,6 +111,10 @@ export default function App() {
   }
   const current = guilds.find((g) => g.id === guild) ?? guilds[0]
 
+  // Authoring extension code is operator-only; the merged Extensions tab shows the
+  // editor drill-in only to operators (everyone else just sees the toggles).
+  const isOperator = me?.granted_via === 'allowlist'
+
   const pages: Record<string, JSX.Element> = {
     persona: <Persona />,
     behavior: <Behavior />,
@@ -107,7 +123,7 @@ export default function App() {
     access: <Access />,
     knowledge: <Knowledge />,
     members: <Members />,
-    extensions: <Extensions />,
+    extensions: <Extensions isOperator={isOperator} />,
     keys: <ApiKeys />,
     usage: <Usage />,
     docs: <Docs onNavigate={setTab} />,
@@ -176,7 +192,7 @@ export default function App() {
       </aside>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' ? ' wide' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' || tab === 'extensions' ? ' wide' : '')}>{pages[tab]}</main>
     </div>
   )
 }

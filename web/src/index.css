@@ -423,6 +423,63 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .mode-legend > div { display: flex; align-items: center; gap: 9px; }
 .mode-legend .tag { color: var(--text); min-width: 72px; text-align: center; }
 
+/* ── Extensions workspace (master-detail) ───────────────────────────────── */
+.ext-wrap { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 980px) { .ext-wrap { grid-template-columns: 1fr; } }
+
+/* Rail */
+.ext-rail { display: flex; flex-direction: column; gap: 11px; position: sticky; top: 6px; }
+.ext-rail-head { display: flex; gap: 8px; }
+.ext-rail-head input[type=text] { flex: 1; }
+.ext-seg {
+  display: flex; gap: 3px; background: var(--bg-inset);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px;
+}
+.ext-seg button {
+  flex: 1; justify-content: center; padding: 5px 6px; font-size: 12px; font-weight: 550;
+  border: 1px solid transparent; background: transparent; color: var(--text-2); border-radius: 6px;
+}
+.ext-seg button:hover { background: transparent; color: var(--text); }
+.ext-seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+.ext-list {
+  display: flex; flex-direction: column; gap: 1px;
+  max-height: calc(100vh - 232px); overflow-y: auto; margin: 0 -4px; padding: 0 4px;
+}
+.ext-glabel {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-3); padding: 13px 8px 5px;
+}
+.ext-glabel:first-child { padding-top: 2px; }
+.ext-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid transparent;
+  background: transparent; color: var(--text); animation: extIn 0.24s ease both;
+}
+.ext-item:hover { background: var(--bg-inset); }
+.ext-item.active { background: var(--bg-inset); border-color: var(--border); }
+.ext-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: none; transition: background 0.16s; }
+.ext-item.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ext-item .nm { flex: 1; min-width: 0; font-weight: 550; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ext-item .cust { font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); flex: none; }
+.ext-empty-rail { color: var(--text-3); font-size: 12px; padding: 16px 10px; text-align: center; }
+@keyframes extIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .ext-item { animation: none; } }
+
+/* Detail */
+.ext-dhead { display: flex; align-items: flex-start; gap: 16px; }
+.ext-dhead .grow { flex: 1; min-width: 0; }
+.ext-dtitle { font-size: 18px; font-weight: 600; letter-spacing: -0.015em; }
+.ext-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; }
+.ext-dactions { display: flex; align-items: center; gap: 9px; flex: none; }
+.ext-desc { color: var(--text-2); font-size: 13px; line-height: 1.55; margin-top: 14px; }
+.ext-block { margin-top: 18px; }
+.ext-block-l { font-weight: 550; font-size: 12px; color: var(--text); margin-bottom: 9px; }
+.ext-caps { display: flex; flex-wrap: wrap; gap: 6px; }
+.ext-overview { text-align: center; color: var(--text-2); padding: 30px 16px; }
+.ext-stats { display: flex; justify-content: center; gap: 30px; margin-bottom: 20px; }
+.ext-stat .n { font-size: 24px; font-weight: 600; color: var(--text); line-height: 1; }
+.ext-stat .l { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 10px; padding: 15px 16px; }
 .stat .n { font-size: 25px; font-weight: 650; letter-spacing: -0.02em; }
@@ -579,6 +636,16 @@ button.icon-btn { padding: 7px; justify-content: center; }
 
 .doc { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
 .doc h3, .doc h4 { scroll-margin-top: 20px; }
+
+/* Fenced code blocks */
+.doc-pre {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 14px; margin: 0 0 14px; overflow-x: auto;
+}
+.doc-pre code {
+  font-family: var(--mono); font-size: 12px; line-height: 1.55; color: var(--text);
+  background: none; padding: 0; white-space: pre; display: block;
+}
 
 /* Callouts (tip / note / warning / info) */
 .callout {
@@ -760,6 +827,71 @@ button.icon-btn { padding: 7px; justify-content: center; }
 /* In the Logs section the viewer fills the remaining modal height and scrolls
    internally, so the modal itself never overflows. */
 .logview.fill { flex: 1 1 auto; min-height: 120px; max-height: none; }
+
+/* ── Import .olx (consent dialog) ─────────────────────────────────────────── */
+.import-modal {
+  position: relative; width: min(560px, 94vw); max-height: 88vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); padding: 28px 30px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+.import-drop {
+  border: 1px dashed var(--border-strong); border-radius: var(--radius);
+  padding: 30px; text-align: center; background: var(--bg-inset);
+}
+.import-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.import-ver { color: var(--text-3); font-weight: 500; font-size: 13px; font-family: var(--mono); }
+.import-sub { display: flex; align-items: center; gap: 9px; margin-top: 7px; flex-wrap: wrap; }
+.import-sub code { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); background: var(--bg-inset); padding: 1px 6px; border-radius: 5px; }
+.import-perms { display: flex; flex-direction: column; gap: 6px; }
+.import-perm {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-inset);
+}
+.import-perm:hover { border-color: var(--border-strong); }
+.import-perm input { accent-color: var(--accent); width: 15px; height: 15px; flex-shrink: 0; }
+.import-perm .pl { color: var(--text); font-size: 13px; flex: 1; }
+.import-perm .pk { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+.import-warn { color: var(--text-3); font-size: 12px; line-height: 1.5; margin-top: 10px; }
+.import-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.ext-prov { color: var(--text-3); font-size: 12px; margin-top: 6px; }
+
+/* ── Marketplace browse ───────────────────────────────────────────────────── */
+.mkt-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.mkt-search { display: flex; align-items: center; gap: 8px; flex: 1; }
+.mkt-search > :first-child { flex: 1; }
+.mkt-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+}
+.mkt-card {
+  display: flex; flex-direction: column; gap: 9px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px;
+}
+.mkt-card:hover { border-color: var(--border-strong); }
+.mkt-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mkt-name { font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em; }
+.mkt-pub { display: flex; gap: 6px; }
+.mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; flex: 1; }
+.mkt-perms { display: flex; flex-wrap: wrap; gap: 5px; }
+.mkt-card-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+.mkt-pubbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+  padding: 9px 13px; background: var(--bg-inset); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 13px; color: var(--text-2);
+}
+.mkt-pubbar code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+
+/* Signature status banner on the import-consent screen. */
+.import-sig {
+  margin-top: 12px; padding: 9px 12px; border-radius: var(--radius-sm);
+  font-size: 12.5px; border: 1px solid var(--border);
+}
+.import-sig code { font-family: var(--mono); font-size: 11px; }
+.import-sig.valid { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.import-sig.invalid { color: var(--danger); background: var(--danger-soft); border-color: transparent; }
+.import-sig.unsigned { color: var(--text-3); background: var(--bg-inset); }
 
 /* Remote access */
 .status-card { display: flex; align-items: center; gap: 12px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 15px; }

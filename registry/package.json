@@ -1,0 +1,18 @@
+{
+  "name": "olisar-registry",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "schema:local": "wrangler d1 execute olisar-registry --local --file=./schema.sql",
+    "schema:remote": "wrangler d1 execute olisar-registry --remote --file=./schema.sql"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4",
+    "typescript": "^5",
+    "wrangler": "^4.103.0"
+  }
+}

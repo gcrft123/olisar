@@ -67,28 +67,47 @@ def register(ext: Extension) -> Extension:
     return ext
 
 
+def _user_cache() -> dict[str, Extension]:
+    """Last-loaded SDK extensions (lazy import avoids an import cycle)."""
+    from olisar.extensions import user_registry
+
+    return user_registry.cached()
+
+
+async def _catalog(session: AsyncSession) -> dict[str, Extension]:
+    """Built-in (Python) extensions merged with the live SDK extensions. A user key
+    that matches a built-in is rejected at create time, so built-ins always win."""
+    from olisar.extensions import user_registry
+
+    user = await user_registry.load(session)
+    return {**user, **_REGISTRY}
+
+
 def all_extensions() -> list[Extension]:
-    return sorted(_REGISTRY.values(), key=lambda e: (e.category, e.name))
+    merged = {**_user_cache(), **_REGISTRY}
+    return sorted(merged.values(), key=lambda e: (e.category, e.name))
 
 
 def get_extension(key: str) -> Extension | None:
-    return _REGISTRY.get(key)
+    return _REGISTRY.get(key) or _user_cache().get(key)
 
 
 async def enabled_keys(session: AsyncSession, guild_id: int) -> set[str]:
     """The keys of extensions enabled for this guild (DB overrides each default)."""
+    catalog = await _catalog(session)
     rows = {
         r.key: r.enabled
         for r in (
             await session.scalars(select(ExtensionState).where(ExtensionState.guild_id == guild_id))
         ).all()
     }
-    return {e.key for e in _REGISTRY.values() if rows.get(e.key, e.default_enabled)}
+    return {e.key for e in catalog.values() if rows.get(e.key, e.default_enabled)}
 
 
 async def is_enabled(session: AsyncSession, guild_id: int, key: str) -> bool:
     """Whether one extension is on for this guild (DB flag overrides its default)."""
-    ext = _REGISTRY.get(key)
+    catalog = await _catalog(session)
+    ext = catalog.get(key)
     if ext is None:
         return False
     row = await session.get(ExtensionState, (guild_id, key))
@@ -104,9 +123,10 @@ class GatheredExtensions:
 
 async def gather_enabled(session: AsyncSession, guild_id: int) -> GatheredExtensions:
     """Collect the tools + system notes from this guild's enabled extensions."""
+    catalog = await _catalog(session)
     keys = await enabled_keys(session, guild_id)
     out = GatheredExtensions()
-    for ext in _REGISTRY.values():
+    for ext in catalog.values():
         if ext.key not in keys:
             continue
         for tool in ext.tools:

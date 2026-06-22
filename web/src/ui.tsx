@@ -249,6 +249,17 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
     const k = kb + i
     const line = lines[i].trim()
 
+    // Fenced code block: ``` … ``` rendered verbatim (indentation preserved).
+    if (line.startsWith('```')) {
+      flushList(k); flushPara(k)
+      const code: string[] = []
+      i++
+      while (i < lines.length && lines[i].trim() !== '```') { code.push(lines[i]); i++ }
+      i++ // skip closing ```
+      out.push(<pre key={'pre' + k} className="doc-pre"><code>{code.join('\n')}</code></pre>)
+      continue
+    }
+
     const cm = line.match(/^:::(tip|note|warning|info)\s*(.*)$/)
     if (cm) {
       flushList(k); flushPara(k)
