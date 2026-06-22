@@ -1,0 +1,61 @@
+"""Built-in SDK extensions, shipped as precompiled JS and seeded into the catalog.
+
+These replace the former Python built-ins (dice/calculator/concise_mode/welcome):
+each is authored against the Olisar SDK, runs in the sandbox like any user extension,
+and is recorded as an ``ExtensionPackage`` with ``kind="builtin"`` (read-only in the
+editor, no "Custom" badge). ``seed`` is idempotent and refreshes a row when the
+bundled source changes, so updates ship with the app.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from olisar import sandbox
+from olisar.db.models import ExtensionPackage, utcnow
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+log = logging.getLogger("olisar.extensions.sdk_builtins")
+
+_DIR = Path(__file__).parent
+# Order: behaviour/no-tool ones first is irrelevant; listed for readability.
+_FILES = ("concise_mode.js", "dice.js", "calculator.js", "welcome.js", "star_citizen.js")
+
+
+async def seed(session: "AsyncSession") -> None:
+    """Insert/refresh the built-in extension packages. Idempotent."""
+    for fname in _FILES:
+        src = (_DIR / fname).read_text(encoding="utf-8")
+        try:
+            manifest = await sandbox.extract_manifest(src)
+        except Exception:
+            log.exception("could not load built-in extension %s", fname)
+            continue
+        key = manifest.get("id")
+        if not key:
+            log.error("built-in %s has no id; skipping", fname)
+            continue
+        row = await session.get(ExtensionPackage, key)
+        if row is not None:
+            # Preserve operator edits: once a built-in is changed in the console we never
+            # overwrite it. Untouched built-ins still receive shipped updates.
+            if row.user_modified or row.compiled_js == src:
+                continue
+        if row is None:
+            row = ExtensionPackage(key=key)
+            session.add(row)
+        row.name = manifest.get("name", key)
+        row.version = manifest.get("version", "1.0.0")
+        row.kind = "builtin"
+        row.category = manifest.get("category", "General")
+        row.description = manifest.get("description", "")
+        row.manifest = manifest
+        row.source_ts = src
+        row.compiled_js = src
+        row.permissions = manifest.get("permissions", [])
+        row.updated_at = utcnow()
+        log.info("seeded built-in extension %s v%s", key, row.version)

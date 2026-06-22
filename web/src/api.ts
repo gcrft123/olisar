@@ -73,6 +73,50 @@ export const api = {
   putExtensionSettings: (key: string, b: any) =>
     req(`/api/extensions/${key}/settings`, { method: 'PUT', body: JSON.stringify(b) }),
 
+  // Extension authoring (operator-only). The SDK editor posts source + compiled JS.
+  listAuthoring: () => req('/api/extensions/authoring'),
+  getAuthoring: (key: string) => req(`/api/extensions/authoring/${encodeURIComponent(key)}`),
+  createAuthoring: (b: any) => req('/api/extensions/authoring', { method: 'POST', body: JSON.stringify(b) }),
+  updateAuthoring: (key: string, b: any) =>
+    req(`/api/extensions/authoring/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(b) }),
+  deleteAuthoring: (key: string) =>
+    req(`/api/extensions/authoring/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  validateAuthoring: (b: any) =>
+    req('/api/extensions/authoring/validate', { method: 'POST', body: JSON.stringify(b) }),
+  authoringTypes: () => req('/api/extensions/authoring/sdk-types'),
+
+  // .olx export/import. Export returns the bundle JSON (the UI saves it as a file);
+  // import is a two-step preview → confirm so the operator approves the capabilities.
+  exportAuthoring: (key: string) => req(`/api/extensions/authoring/${encodeURIComponent(key)}/export`),
+  importPreview: (bundle: any) =>
+    req('/api/extensions/authoring/import/preview', { method: 'POST', body: JSON.stringify({ bundle }) }),
+  importAuthoring: (bundle: any, granted: string[]) =>
+    req('/api/extensions/authoring/import', { method: 'POST', body: JSON.stringify({ bundle, granted_permissions: granted }) }),
+
+  // Marketplace (operator-only) — the bot proxies these to the registry. Install reuses
+  // the import consent flow; the bot fetches the .olx and re-verifies it locally.
+  marketplaceSearch: (q = '', category = '') =>
+    req(`/api/marketplace/search?q=${encodeURIComponent(q)}&category=${encodeURIComponent(category)}`),
+  marketplaceDetail: (ns: string, name: string) =>
+    req(`/api/marketplace/ext/${encodeURIComponent(ns)}/${encodeURIComponent(name)}`),
+  marketplaceInstallPreview: (ref: { namespace: string; name: string; version: string }) =>
+    req('/api/marketplace/install/preview', { method: 'POST', body: JSON.stringify(ref) }),
+  marketplaceInstall: (b: { namespace: string; name: string; version: string; granted_permissions: string[] }) =>
+    req('/api/marketplace/install', { method: 'POST', body: JSON.stringify(b) }),
+  marketplacePublisher: () => req('/api/marketplace/publisher'),
+  marketplaceRegister: (handle: string) =>
+    req('/api/marketplace/register', { method: 'POST', body: JSON.stringify({ handle }) }),
+  marketplacePublish: (key: string) =>
+    req('/api/marketplace/publish', { method: 'POST', body: JSON.stringify({ key }) }),
+  marketplaceYank: (name: string, version?: string) =>
+    req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
+  marketplaceVerifyStartUrl: () => BASE + '/api/marketplace/verify/start',
+  marketplaceInstalled: () => req('/api/marketplace/installed'),
+  marketplaceUpdatePreview: (key: string) =>
+    req('/api/marketplace/update/preview', { method: 'POST', body: JSON.stringify({ key }) }),
+  marketplaceUpdate: (key: string, granted: string[]) =>
+    req('/api/marketplace/update', { method: 'POST', body: JSON.stringify({ key, granted_permissions: granted }) }),
+
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
   deleteSource: (id: number) => req(`/api/knowledge/${id}`, { method: 'DELETE' }),

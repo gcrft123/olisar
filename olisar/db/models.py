@@ -438,6 +438,85 @@ class ExtensionState(Base):
     )
 
 
+class ExtensionPackage(Base):
+    """An SDK extension: an operator-authored (or seeded built-in) package of
+    TypeScript that runs in the sandbox. ``ExtensionState`` still records per-guild
+    enable/settings; this table holds the catalog entry, code, manifest, and the
+    operator-approved capability allowlist. The manifest doubles as the future
+    marketplace bundle. Loaded live by olisar/extensions/user_registry (cached)."""
+
+    __tablename__ = "extension_package"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)  # == manifest.id
+    name: Mapped[str] = mapped_column(String(128), default="")
+    version: Mapped[str] = mapped_column(String(32), default="1.0.0")
+    kind: Mapped[str] = mapped_column(String(16), default="user")  # "user" | "builtin"
+    category: Mapped[str] = mapped_column(String(64), default="General")
+    description: Mapped[str] = mapped_column(Text, default="")
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)  # declarative spec (schema v1)
+    source_ts: Mapped[str] = mapped_column(Text, default="")  # editor content (the source of truth)
+    compiled_js: Mapped[str] = mapped_column(Text, default="")  # server-transpiled JS (what runs)
+    # Permission split: ``requested_permissions`` is what the manifest declares (author's
+    # ask); ``permissions`` is what's actually granted and enforced at runtime. For a
+    # locally-authored extension the operator trusts themselves, so granted == requested;
+    # for an imported/marketplace bundle the installer grants a (possibly narrower) subset.
+    permissions: Mapped[list] = mapped_column(JSON, default=list)  # GRANTED (effective) capabilities
+    requested_permissions: Mapped[list] = mapped_column(JSON, default=list)  # manifest-declared
+    author_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Provenance — where this package came from and how to verify it (marketplace/.olx).
+    origin: Mapped[str] = mapped_column(String(16), default="local")  # local | imported | marketplace
+    publisher_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    publisher_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(80), nullable=True)  # "sha256:<hex>" of canonical source
+    # Signed-bundle provenance: the publisher's Ed25519 signature over content_hash, the
+    # public key that verifies it, and whether verification passed when it was imported.
+    signature: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publisher_key: Mapped[str | None] = mapped_column(Text, nullable=True)  # signer's public key (b64)
+    signature_verified: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Where a marketplace install came from (JSON: registry/namespace/name/version), so a
+    # future update check can compare against the registry's latest. None for local/file.
+    marketplace_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sdk_version: Mapped[str] = mapped_column(String(16), default="1")  # SDK surface the code targets
+    # True once an operator has edited a built-in in the console, so the seeder stops
+    # overwriting it on boot (ships updates only to untouched built-ins).
+    user_modified: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ExtensionVersion(Base):
+    """A snapshot of an extension package, written before each save so the editor
+    can show history and roll back."""
+
+    __tablename__ = "extension_version"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(64), index=True)
+    version: Mapped[str] = mapped_column(String(32), default="")
+    source_ts: Mapped[str] = mapped_column(Text, default="")
+    compiled_js: Mapped[str] = mapped_column(Text, default="")
+    manifest: Mapped[dict] = mapped_column(JSON, default=dict)
+    saved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ExtensionKV(Base):
+    """A small per-extension, per-guild key/value store exposed to sandboxed code as
+    ``host.kv``. JSON values; the extension owns its namespace."""
+
+    __tablename__ = "extension_kv"
+
+    ext_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    k: Mapped[str] = mapped_column(String(128), primary_key=True)
+    v: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON, default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class AppSecret(Base):
     """App-global API keys entered from the dashboard, which override the matching
     .env value when set (blank = fall back to .env). Single row (id=1); these aren't
@@ -454,6 +533,28 @@ class AppSecret(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SigningIdentity(Base):
+    """This bot's Ed25519 publisher identity, used to sign the ``.olx`` bundles it
+    exports. Single row (id=1), created lazily on first export. The private key never
+    leaves the server and is deliberately NOT surfaced by any read endpoint; only the
+    public key + fingerprint are shared (in exported bundles, so importers can verify)."""
+
+    __tablename__ = "signing_identity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    algo: Mapped[str] = mapped_column(String(16), default="ed25519")
+    private_key: Mapped[str] = mapped_column(Text, default="")  # raw private key, base64
+    public_key: Mapped[str] = mapped_column(Text, default="")  # raw public key, base64
+    fingerprint: Mapped[str] = mapped_column(String(80), default="")  # "sha256:<hex>" of public key
+    # Marketplace publisher registration: the namespace (handle) this bot owns and the
+    # bearer token the registry issued for publishing under it. None until registered.
+    registry_handle: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    registry_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registry_verified: Mapped[bool] = mapped_column(Boolean, default=False)  # Discord-verified on the registry
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AppConfig(Base):

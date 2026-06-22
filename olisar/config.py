@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     # most UEX read endpoints are public; a token raises limits / unlocks some.
     uex_api_key: str = Field(default="", alias="UEX_API_KEY")
 
+    # Extension marketplace registry the console browses/installs from. Defaults to the
+    # hosted Cloudflare Worker; self-hosters can point at their own registry.
+    registry_url: str = Field(
+        default="https://olisar-registry.gabrielyp.workers.dev",
+        alias="OLISAR_REGISTRY_URL",
+    )
+
     # ── Remote access ────────────────────────────────────────────────────
     # Tailscale auth key for Funnel-based remote access. ``.env`` fallback for the
     # ``app_config.tunnel_token`` field, so a dev can put a key in .env and skip the

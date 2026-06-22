@@ -1,0 +1,30 @@
+{
+  // Olisar extension marketplace registry — Cloudflare Worker (catalog + bundle store).
+  // Read-only consume API now; the publish pipeline (Discord OAuth + signature verify)
+  // lands in a later phase. Run locally with `npm run dev` (no Cloudflare account needed);
+  // deploy is a separate, explicit step once a real D1/R2 are provisioned.
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "olisar-registry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-06-21",
+  "observability": { "enabled": true },
+  // DEV_SEED (the unauthenticated /v1/_dev/publish seeding endpoint) lives in .dev.vars,
+  // which `wrangler dev` loads locally and `wrangler deploy` ignores — so a deployed
+  // registry never exposes it. Copy .dev.vars.example -> .dev.vars for local dev.
+  //
+  // Free-tier guardrails (R2): hard storage cap + per-bundle cap + monthly write cap,
+  // all safely under the 10 GB / 1M-Class-A free tier. R2 reads (Class B, 10M/mo) and
+  // egress (free) stay within limits via the Workers free-plan request cap — keep this
+  // Worker on the Workers Free plan and R2 can never bill.
+  "vars": {
+    "R2_MAX_BYTES": "9000000000",
+    "R2_MAX_BUNDLE_BYTES": "1000000",
+    "R2_CLASS_A_MAX": "900000"
+  },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "olisar-registry", "database_id": "0852b2be-5742-4c83-ae65-f83a2d7c933f" }
+  ],
+  "r2_buckets": [
+    { "binding": "BUNDLES", "bucket_name": "olisar-registry-bundles" }
+  ]
+}

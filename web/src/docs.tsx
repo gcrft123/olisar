@@ -13,6 +13,7 @@ export const DOC_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'replies', 'keys'] },
   { label: 'Knowledge & memory', ids: ['knowledge', 'memory', 'members', 'images'] },
   { label: 'Extend', ids: ['extensions'] },
+  { label: 'Build extensions', ids: ['ext-build', 'ext-sdk', 'ext-flows', 'ext-share', 'ext-marketplace', 'ext-security'] },
   { label: 'Reference', ids: ['privacy', 'troubleshooting'] },
 ]
 
@@ -747,6 +748,13 @@ The [Extensions](tab:extensions) tab is where you switch on optional, packaged f
 **Save**, and it's live on Olisar's next reply — no restart. An extension can add tools Olisar uses in
 conversation, tweak its behavior, add commands, and set things up when enabled.
 
+:::tip Build and share your own
+Beyond the built-ins, operators can **write their own extensions** in the console and **install** others
+from a file or the marketplace. Start at [Create your own](#ext-build), then the [SDK reference](#ext-sdk),
+[slash commands & flows](#ext-flows), [sharing](#ext-share), [the marketplace](#ext-marketplace), and the
+[security model](#ext-security).
+:::
+
 ## Built-ins
 - **Dice roller** — Olisar can roll dice on request ("roll 2d6+3").
 - **Calculator** — exact arithmetic instead of guessing at numbers.
@@ -821,6 +829,476 @@ not required.
 Lookups are best-effort against live third-party sites; if one is temporarily unreachable, Olisar says so
 and carries on. Names are matched forgivingly, so small typos ("Quantanium" → "Quantainium") still work.
 :::
+`,
+  },
+  {
+    id: 'ext-build',
+    title: 'Create your own',
+    body: `
+Beyond the toggles, you can **build your own extensions** right in the console — the same system the
+built-ins are made of. An extension is a small piece of TypeScript that can teach Olisar new tricks:
+tools it calls in conversation, slash commands (with forms and buttons), knowledge and glossary it seeds,
+a settings pane, and a line folded into its system prompt.
+
+:::note Operators only
+Authoring is limited to the **operator** (the allowlisted account that runs the bot). Per-server admins
+can enable and configure extensions, but not write or edit their code. This is the same boundary as the
+[API keys](tab:keys) — code that runs inside Olisar is the operator's call.
+:::
+
+## Opening the editor
+
+On the [Extensions](tab:extensions) tab:
+- **+ New extension** — start from a blank editor.
+- **Edit code** (on any extension's detail panel) — open an existing one, including the built-ins, to read or fork it.
+
+The editor is a full code editor with the **Olisar SDK types loaded**, so you get autocomplete and inline
+hints for everything below. Press **Validate** to compile-check and see what your extension declares, then
+**Save** — it's live on Olisar's next reply (tools) and re-syncs slash commands within seconds. No restart.
+
+## The shape of an extension
+
+You write one call to \`defineExtension({ ... })\`. You never import anything — \`defineExtension\` and \`host\`
+are provided by the runtime. The smallest useful extension is a single tool:
+
+\`\`\`
+defineExtension({
+  id: "hello",
+  name: "Hello",
+  description: "A tiny demo.",
+  permissions: [],
+  tools: [{
+    name: "greet",
+    description: "Greet someone by name.",
+    parameters: { type: "object", properties: { who: { type: "string" } }, required: ["who"] },
+    handler: (args) => "Hello, " + args.who + "!",
+  }],
+})
+\`\`\`
+
+Save that, enable it, and Olisar will call \`greet\` when a conversation calls for it — "olisar, say hi to
+Sam" → "Hello, Sam!". See the [SDK reference](#ext-sdk) for the full \`defineExtension\` surface.
+
+## What happens when you save
+
+Your **source is the source of truth.** On save, the bot transpiles your TypeScript itself, runs it once in
+the [sandbox](#ext-security) to read what it declares (its tools, commands, permissions), and stores it.
+From then on it behaves exactly like a built-in: tools merge into Olisar's toolset on the next reply,
+commands register on the next sync, and any [seeds](#ext-sdk) apply the first time an admin enables it.
+
+## Editing the built-ins
+
+Every built-in — dice, calculator, concise mode, welcome, Star Citizen — **is itself an SDK extension.**
+Open **Edit code** on any of them to see exactly how it's written; the Star Citizen pack is a complete,
+real-world example (live HTTP tools, a slash command, knowledge seeding).
+
+:::tip Forking a built-in
+Editing a built-in keeps your changes **and stops it auto-updating** with future app releases (so your
+edits are never overwritten). To experiment without that, copy its code into a **+ New extension** under a
+new \`id\` instead.
+:::
+
+## Permissions, in one line
+
+Anything your code reaches through \`host.*\` (the network, secrets, the knowledge base…) must be listed in
+\`permissions\`, and you approve that list when you save. A capability you didn't request simply isn't there.
+The full model — and why imported code is held to a stricter standard — is in [Security & trust](#ext-security).
+
+## Where to go next
+- [SDK reference](#ext-sdk) — every field of \`defineExtension\` and every \`host\` capability.
+- [Slash commands & flows](#ext-flows) — commands, modal forms, and button/menu interactions.
+- [Sharing extensions](#ext-share) — export and import \`.olx\` files.
+- [The marketplace](#ext-marketplace) — browse, install, and publish extensions.
+`,
+  },
+  {
+    id: 'ext-sdk',
+    title: 'SDK reference',
+    body: `
+This is the complete author-facing surface. You always start with one call to \`defineExtension(spec)\`; the
+fields of \`spec\` are below, followed by the \`host\` capabilities your handlers can use. For slash commands
+specifically, see [Slash commands & flows](#ext-flows).
+
+## defineExtension(spec)
+
+| Field | Type | What it does |
+| --- | --- | --- |
+| \`id\` | string | Unique key (lowercase letters, digits, \`_\`). Identifies the extension everywhere. |
+| \`name\` | string | Display name in the console. |
+| \`version\` | string | Semantic version, e.g. \`"1.2.0"\`. |
+| \`description\` | string | One-line summary shown in the catalog. |
+| \`category\` | string | Grouping label, e.g. \`"Games"\`, \`"Utilities"\`. |
+| \`systemNote\` | string | A line folded into Olisar's system prompt **while the extension is on**. |
+| \`defaultEnabled\` | boolean | Whether new servers get it on by default (usually \`false\`). |
+| \`permissions\` | string[] | The capabilities you request — see the table below. |
+| \`tools\` | ToolDef[] | LLM tools the model calls in conversation. |
+| \`commands\` | CommandDef[] | Slash commands. See [flows](#ext-flows). |
+| \`seeds\` | object | Knowledge / glossary to add when enabled. |
+| \`settingsSchema\` | object | Declares a per-server settings pane. |
+| \`onEnable\` | function | Runs once on the OFF → ON transition (durable setup). |
+
+## Tools
+
+A **tool** is a function the language model can call on its own while your extension is enabled — this is
+how Olisar "looks things up" mid-conversation. Each tool declares a name, a description (the model reads
+this to decide when to use it), a JSON-schema for its arguments, and a handler that **returns a short
+string** for the model to weave into its reply.
+
+\`\`\`
+{
+  name: "weather",
+  description: "Current weather for a city.",
+  parameters: {
+    type: "object",
+    properties: { city: { type: "string", description: "city name" } },
+    required: ["city"],
+  },
+  handler: async (args, ctx) => {
+    const r = await host.fetch("https://wttr.in/" + encodeURIComponent(args.city) + "?format=3")
+    return await r.text()
+  },
+}
+\`\`\`
+
+The handler's second argument, \`ctx\`, carries \`guildId\`, \`channelId\`, \`userId\`, and \`displayName\` for the
+current conversation. Keep the returned string short and factual — Olisar rephrases it in its own voice.
+
+:::tip Degrade politely
+Return a friendly string on failure ("couldn't reach the weather service") rather than throwing — Olisar
+will pass it along in character. Uncaught errors become a generic tool-failed message.
+:::
+
+## host capabilities
+
+Each \`host\` method works **only if you listed its permission**. Calling one you didn't request throws.
+
+| Capability | Permission | What it does |
+| --- | --- | --- |
+| \`host.fetch(url, init?)\` | \`fetch\` | Call any public HTTP(S) API. Private/loopback hosts are blocked; size, timeout, and per-run call count are capped. Returns \`{ status, ok, headers, text(), json() }\`. |
+| \`host.secret(ref)\` | \`secret:<ref>\` | Read an operator-approved key by reference (e.g. \`host.secret("uex_api_key")\`). You never see the literal value while authoring. |
+| \`host.kb.addSource(seed)\` | \`kb.write\` | Add a URL/website to the server's knowledge base. Idempotent. |
+| \`host.glossary.add(fact)\` | \`glossary.write\` | Add a \`{ subject, fact }\` to the glossary. |
+| \`host.kv.get/set/delete\` | \`kv\` | A small per-server key/value store your extension owns. |
+| \`host.settings.get(key?)\` | — | Read what an admin typed in your settings pane. No permission needed. |
+| \`host.embed(spec)\` | — | Build a Discord embed to pass to \`reply({ embed })\`. |
+| \`host.log(msg)\` | — | Write a line to the bot log. Always available. |
+| \`host.discord.*\` (via the interaction) | \`discord.reply\`, \`discord.modal\`, \`discord.components\` | Reply, pop forms, and use buttons in slash commands — see [flows](#ext-flows). |
+
+:::warning Host secrets and shared code
+\`host.secret\` reads the **operator's** keys (Gemini, Cloudflare, UEX). That's fine for extensions you
+wrote yourself, but extensions **installed from a file or the marketplace are blocked from host secrets
+entirely** — see [Security & trust](#ext-security). If you're publishing, don't rely on \`host.secret\`.
+:::
+
+## Seeds and onEnable
+
+\`seeds\` lets a code-free (or any) extension contribute knowledge and glossary the moment it's switched on,
+applied idempotently:
+
+\`\`\`
+seeds: {
+  kbSources: [{ type: "url", uri: "https://example.com/faq", title: "Project FAQ" }],
+  glossary: [{ subject: "HQ", fact: "Coordination happens in #command." }],
+}
+\`\`\`
+
+For anything more involved, \`onEnable(ctx)\` runs once on the OFF → ON transition (\`ctx.guildId\` tells you
+which server) — use it to seed durable state with \`host.kv\` or \`host.kb\`.
+
+## A settings pane
+
+Declare \`settingsSchema\` and Olisar renders a config form on the extension's detail panel; read what the
+admin entered with \`host.settings.get()\`:
+
+\`\`\`
+settingsSchema: { fields: [
+  { key: "channel", type: "channel", label: "Announcement channel" },
+  { key: "intro",   type: "textarea", label: "Intro message" },
+] }
+// later, in a handler:
+const cfg = await host.settings.get()   // { channel, intro }
+\`\`\`
+
+Field types: \`text\`, \`textarea\`, \`channel\`, \`number\`, \`toggle\`. Settings are **per server**, so each server
+configures the extension its own way.
+
+## systemNote
+
+A short instruction folded into Olisar's system prompt while the extension is enabled — use it to tell
+Olisar when to reach for your tools, or how to behave. Keep it brief; it's always in context.
+`,
+  },
+  {
+    id: 'ext-flows',
+    title: 'Slash commands & flows',
+    body: `
+Extensions can add **slash commands** — including multi-step flows with pop-up forms and buttons. Commands
+re-register with Discord automatically when you save (and when an admin toggles the extension).
+
+## Defining a command
+
+\`\`\`
+defineExtension({
+  id: "poll",
+  name: "Poll",
+  permissions: ["discord.reply"],
+  commands: [{
+    name: "ping",
+    description: "Check that Olisar is alive.",
+    handler: async (i) => { await i.reply("pong") },
+  }],
+})
+\`\`\`
+
+| Command field | Type | Notes |
+| --- | --- | --- |
+| \`name\` / \`description\` | string | As they appear in Discord's slash-command list. |
+| \`options\` | OptionDef[] | Inputs: \`{ name, description, type, required }\`. Types: \`string\`, \`integer\`, \`number\`, \`boolean\`, \`user\`, \`channel\`. |
+| \`defaultMemberPermissions\` | string or null | \`"manage_guild"\` to limit it to server managers, or \`null\` for everyone. |
+| \`guildOnly\` | boolean | Disallow the command in DMs. |
+| \`handler(i)\` | function | Runs the command; \`i\` is the live interaction. |
+
+Read option values from \`i.options\`:
+
+\`\`\`
+commands: [{
+  name: "echo",
+  description: "Repeat a message.",
+  options: [{ name: "text", description: "what to say", type: "string", required: true }],
+  handler: async (i) => { await i.reply(i.options.text) },
+}]
+\`\`\`
+
+## The interaction object
+
+The handler's \`i\` exposes the conversation context (\`guildId\`, \`channelId\`, \`userId\`, \`displayName\`) and:
+
+- \`i.reply(payload)\` — the first response. A string, or \`{ content, embed, ephemeral, components }\`.
+- \`i.followUp(payload)\` — additional messages after the first.
+- \`i.modal(spec)\` — pop a form and **await** the submitted values (permission \`discord.modal\`).
+- \`i.awaitComponent({ timeoutMs })\` — wait for a button click / menu choice (permission \`discord.components\`).
+
+\`reply\`/\`followUp\` need \`discord.reply\`. Use \`ephemeral: true\` to make a reply visible only to the caller.
+
+## A form (modal)
+
+\`i.modal\` opens a Discord form and resolves with the submitted fields, keyed by \`id\`:
+
+\`\`\`
+permissions: ["discord.reply", "discord.modal"],
+commands: [{
+  name: "suggest",
+  description: "Submit a suggestion.",
+  handler: async (i) => {
+    const f = await i.modal({
+      title: "New suggestion",
+      fields: [
+        { id: "title", label: "Title", style: "short", required: true },
+        { id: "body",  label: "Details", style: "paragraph" },
+      ],
+    })
+    await i.reply({ content: "Thanks! Logged: " + f.title, ephemeral: true })
+  },
+}]
+\`\`\`
+
+## Buttons and menus
+
+Send components with \`reply\`, then wait for the interaction:
+
+\`\`\`
+permissions: ["discord.reply", "discord.components"],
+handler: async (i) => {
+  await i.reply({
+    content: "Ready to launch?",
+    components: [
+      { kind: "button", customId: "go", label: "Launch", style: "primary" },
+      { kind: "button", customId: "cancel", label: "Cancel", style: "secondary" },
+    ],
+  })
+  const c = await i.awaitComponent({ timeoutMs: 30000 })
+  await i.followUp(c.customId === "go" ? "Launching!" : "Cancelled.")
+}
+\`\`\`
+
+A \`select\` component returns the chosen values in \`c.values\`. If nobody responds within \`timeoutMs\`, the
+await rejects — catch it and tidy up.
+
+## Embeds
+
+Build rich cards with \`host.embed\` and pass them to \`reply\`:
+
+\`\`\`
+const card = host.embed({
+  title: "Status", description: "All systems nominal.", color: 0x2e9fff,
+  fields: [{ name: "Uptime", value: "5d 2h", inline: true }],
+  footer: "live",
+})
+await i.reply({ embed: card })
+\`\`\`
+`,
+  },
+  {
+    id: 'ext-share',
+    title: 'Sharing extensions',
+    body: `
+Extensions move between bots as **\`.olx\` files** — a small, signed bundle. You can hand one to a friend
+directly, or use [the marketplace](#ext-marketplace) (which is built on the same format).
+
+## Exporting
+
+On any extension you can edit, the detail panel has an **Export** button. It downloads
+\`<id>-<version>.olx\` — a JSON document containing your extension's **source** (not compiled code), its
+metadata and declared permissions, an integrity hash, and a **signature** from your bot's publisher key.
+
+## Importing
+
+The **Import .olx** button on the [Extensions](tab:extensions) tab opens a file picker, then shows a
+**review screen** before anything is installed:
+
+- **What it adds** — its tools and commands.
+- **Signature** — *Signed & verified* (with the publisher's fingerprint), *Unsigned*, or *Signature invalid*.
+- **Capabilities to grant** — every permission it requests, as checkboxes. You grant a subset; anything you
+  leave unchecked simply won't work for the extension.
+
+Press **Install** and it's added as a custom extension you can then enable per server.
+
+:::note The bot re-derives everything
+On import, Olisar **re-transpiles the source itself** and re-checks the signature — it never trusts
+pre-built code from a file. A bundle whose signature doesn't match its contents is refused outright.
+:::
+
+:::warning Imported code is third-party
+An imported extension runs real code in your bot. Grant only the capabilities you're comfortable with, and
+note that **host secrets are off-limits to imported extensions** regardless of what you grant (see
+[Security & trust](#ext-security)). Prefer extensions from a **verified publisher**.
+:::
+
+## Signing, briefly
+
+Your bot has its own Ed25519 **publisher key**, created automatically the first time you export or publish.
+The private key never leaves your machine; the public key (and a short *fingerprint*) travel with your
+bundles so others can confirm a bundle is really from you and hasn't been altered. More in
+[Security & trust](#ext-security).
+`,
+  },
+  {
+    id: 'ext-marketplace',
+    title: 'The marketplace',
+    body: `
+The marketplace is a shared catalog of extensions, hosted on Cloudflare. Browsing, installing, and
+publishing all happen from your console — the bot talks to the registry for you.
+
+## Browsing and installing
+
+On the [Extensions](tab:extensions) tab, **Marketplace** opens a searchable catalog. Each result shows the
+publisher (with a **✓ verified** badge if they're Discord-verified), the version, and the capabilities it
+requests. **Install** runs the exact same [consent screen](#ext-share) as a file import — review what it
+adds and what it can access, grant a subset of permissions, and confirm. The bot downloads the bundle,
+re-verifies its signature, and installs it as a custom extension.
+
+:::note Installed = third-party
+Marketplace extensions are held to the same rules as file imports: re-verified on install, granted only the
+capabilities you approve, and **blocked from host secrets** (see [Security & trust](#ext-security)).
+:::
+
+## Publishing your own
+
+On an extension you authored, the detail panel has a **Publish** button. The first time, you'll be asked to
+**claim a publisher handle** — your namespace in the catalog (e.g. \`m-studio\`). It's bound to your bot's
+[publisher key](#ext-security): once you own a handle, only your key can publish under it, and every bundle
+you publish is signed by it. Publish again to push a new version; **Yank** pulls a version from the catalog.
+
+## The verified badge
+
+Claiming a handle proves you hold the key; the **verified** badge additionally proves the handle belongs to
+a real Discord account. In the Marketplace view, a registered publisher sees **Verify with Discord** —
+click it, approve on Discord, and your published extensions show a **✓ Discord-verified** badge to everyone.
+
+:::warning One-time setup for verification
+Verification uses a Discord OAuth redirect, so you must register its callback URL in your bot's Discord
+app (Developer Portal → your app → **OAuth2 → Redirects**), next to your existing login redirect:
+\`<your console URL>/api/marketplace/verify/callback\` (e.g. \`http://localhost:8000/api/marketplace/verify/callback\`).
+Without it, Discord rejects the flow with \`invalid redirect_uri\`. See [Hosting & access](#hosting) for your URL.
+:::
+
+## Self-hosting / pointing elsewhere
+
+The registry the console uses is configurable via the \`OLISAR_REGISTRY_URL\` environment variable (it
+defaults to the official hosted one). Point it at your own Cloudflare Worker to run a private marketplace —
+the bundle format and signing are the same, so trust still travels with each signed \`.olx\`.
+
+:::note Cost
+The hosted registry runs within Cloudflare's free tier, with hard caps on storage and writes so it can
+never bill. Bundles are tiny (source only), so a catalog is effectively free to run.
+:::
+`,
+  },
+  {
+    id: 'ext-security',
+    title: 'Security & trust',
+    body: `
+Extensions run real code, so Olisar runs them under a strict, layered security model. This page explains
+what protects you — useful whether you're authoring, installing, or just deciding whether to trust an
+extension.
+
+## The sandbox
+
+Every extension runs in a **hermetic JavaScript sandbox** with **no ambient authority**. It cannot touch
+the filesystem, open arbitrary network connections, read environment variables, or reach the bot's
+internals. The only way out is the \`host.*\` capabilities — and each of those works only if the operator
+granted its permission. Each run is bounded by **CPU, memory, and wall-clock limits**, so a slow or
+runaway extension can't hang the bot.
+
+\`host.fetch\` is the one network door, and it's guarded: only public HTTP(S) hosts (loopback and private
+addresses are blocked, preventing access to internal services), with caps on response size, timeout, and
+the number of calls per run.
+
+## Permissions: requested vs granted
+
+Two separate things:
+- **Requested** — the capabilities an extension declares in \`permissions\`.
+- **Granted** — what the operator actually approves.
+
+When you author an extension you grant what you declare. When you **install** one from a file or the
+marketplace, the [consent screen](#ext-share) lets you grant a **subset** — uncheck anything you don't want,
+and that capability is simply unavailable to the extension at runtime.
+
+## Host secrets are off-limits to third parties
+
+\`host.secret\` exposes the operator's own keys (Gemini, Cloudflare, UEX). **First-party** extensions
+(built-ins and ones you authored locally) may use them once granted. **Imported and marketplace**
+extensions are **blocked from host secrets entirely** — even if you tick the box — so installed third-party
+code can never read or exfiltrate your keys. The consent screen marks those requests as unavailable.
+
+## Signing and integrity
+
+Every bundle carries a **content hash** and an **Ed25519 signature**:
+- The hash detects accidental corruption.
+- The signature ties the bundle to a publisher's key, so it can't be tampered with or impersonated. Your
+  bot's private key never leaves your machine; only the public key + a short **fingerprint** travel with
+  bundles.
+
+On install, Olisar re-derives the hash from the source and verifies the signature. **Valid** shows the
+publisher fingerprint; **Unsigned** means authorship can't be confirmed; **Invalid** blocks the install
+outright (the file was altered after signing).
+
+On the marketplace, a **handle is owned by the key that first claimed it**, so only that key can publish
+under it. A **✓ verified** publisher has additionally proven the handle maps to a real Discord account.
+
+## What's withheld
+
+Even with every permission granted, extensions never get: the raw database or bot internals, the
+filesystem, arbitrary environment/secret values, the ability to DM arbitrary users, or \`eval\`/dynamic code
+loading. New capabilities are added deliberately, behind named permissions.
+
+## Trusting an installed extension
+
+A quick checklist before installing third-party code:
+- Prefer a **✓ verified** publisher, or a bundle whose signature shows **Signed & verified**.
+- Read the **capabilities** it asks for — does a dice roller really need \`fetch\`?
+- Grant the **minimum** that makes it work; you can leave capabilities unchecked.
+- Remember it can't reach your **host secrets** or anything outside the sandbox no matter what.
 `,
   },
   {
