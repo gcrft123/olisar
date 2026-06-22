@@ -755,7 +755,10 @@ function ConsentModal(props: {
 }) {
   const { preview } = props
   const reqPerms: string[] = preview?.requested_permissions ?? []
-  const [granted, setGranted] = useState<Set<string>>(() => new Set(reqPerms)) // default: grant all
+  // Host secrets (gemini/cloudflare/uex) are barred from installed (third-party) extensions
+  // server-side — show them as unavailable and never grant them.
+  const isHostSecret = (p: string) => p.startsWith('secret:')
+  const [granted, setGranted] = useState<Set<string>>(() => new Set(reqPerms.filter((p) => !isHostSecret(p))))
   const sig = preview?.signature
   const blocked = preview.exists || preview.is_builtin_key || sig?.status === 'invalid'
   const togglePerm = (p: string) =>
@@ -804,7 +807,13 @@ function ConsentModal(props: {
           ) : (
             <>
               <div className="import-perms">
-                {reqPerms.map((p) => (
+                {reqPerms.map((p) => isHostSecret(p) ? (
+                  <label key={p} className="import-perm" style={{ opacity: 0.55, cursor: 'default' }}>
+                    <input type="checkbox" checked={false} disabled />
+                    <span className="pl">{permLabel(p)} <span className="settings-muted">— host secret, not available to installed extensions</span></span>
+                    <span className="pk">{p}</span>
+                  </label>
+                ) : (
                   <label key={p} className="import-perm">
                     <input type="checkbox" checked={granted.has(p)} onChange={() => togglePerm(p)} />
                     <span className="pl">{permLabel(p)}</span>

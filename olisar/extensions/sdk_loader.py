@@ -52,11 +52,11 @@ def schema_from_jsonschema(js: dict | None) -> types.Schema:
     return types.Schema(**kwargs)
 
 
-def _make_tool_handler(key: str, compiled_js: str, perms: list[str], tool_name: str):
+def _make_tool_handler(key: str, compiled_js: str, perms: list[str], tool_name: str, trusted: bool):
     async def handler(args: dict, ctx) -> str:
         return await sandbox.run_tool(
             ext_key=key, compiled_js=compiled_js, permissions=perms,
-            tool_name=tool_name, args=args, ctx=ctx,
+            tool_name=tool_name, args=args, ctx=ctx, trusted=trusted,
         )
     return handler
 
@@ -87,13 +87,13 @@ async def _apply_seeds(session: "AsyncSession", guild_id: int, seeds: dict) -> N
         )
 
 
-def _make_on_enable(key: str, compiled_js: str, perms: list[str], seeds: dict, has_js: bool):
+def _make_on_enable(key: str, compiled_js: str, perms: list[str], seeds: dict, has_js: bool, trusted: bool):
     async def on_enable(session: "AsyncSession", guild_id: int) -> None:
         await _apply_seeds(session, guild_id, seeds)
         if has_js:
             await sandbox.run_on_enable(
                 ext_key=key, compiled_js=compiled_js, permissions=perms,
-                session=session, guild_id=guild_id,
+                session=session, guild_id=guild_id, trusted=trusted,
             )
     return on_enable
 
@@ -103,13 +103,16 @@ def build_extension(pkg: "ExtensionPackage") -> Extension:
     closures + schema conversion)."""
     manifest = pkg.manifest or {}
     perms = list(pkg.permissions or [])
+    # First-party (built-in / locally-authored) extensions are trusted with host secrets;
+    # imported/marketplace ones are not (see capabilities._secret).
+    trusted = (getattr(pkg, "origin", None) or "local") == "local"
     tools = tuple(
         ExtensionTool(
             declaration=types.FunctionDeclaration(
                 name=t["name"], description=t.get("description", ""),
                 parameters=schema_from_jsonschema(t.get("parameters")),
             ),
-            handler=_make_tool_handler(pkg.key, pkg.compiled_js, perms, t["name"]),
+            handler=_make_tool_handler(pkg.key, pkg.compiled_js, perms, t["name"], trusted),
         )
         for t in manifest.get("tools", [])
         if t.get("name")
@@ -125,5 +128,5 @@ def build_extension(pkg: "ExtensionPackage") -> Extension:
         default_enabled=bool(manifest.get("default_enabled")),
         tools=tools,
         system_note=manifest.get("system_note", ""),
-        on_enable=_make_on_enable(pkg.key, pkg.compiled_js, perms, seeds, has_js) if needs_enable else None,
+        on_enable=_make_on_enable(pkg.key, pkg.compiled_js, perms, seeds, has_js, trusted) if needs_enable else None,
     )
