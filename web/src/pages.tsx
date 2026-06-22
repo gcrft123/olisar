@@ -951,6 +951,11 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
       props.onInstalled(r.key)
     } catch (e: any) { setPerr(e.message); setBusy(false) }
   }
+  const doYank = async (item: any) => {
+    if (!confirm(`Yank ${item.id} from the marketplace? It'll stop appearing for everyone.`)) return
+    try { await api.marketplaceYank(item.name); await runSearch() }  // whole extension, all versions
+    catch (e: any) { alert('Yank failed: ' + e.message) }
+  }
 
   return (
     <>
@@ -993,6 +998,9 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
+                {pubInfo?.handle && r.publisher === pubInfo.handle && (
+                  <button className="ghost sm" onClick={() => doYank(r)}>Yank</button>
+                )}
                 <button className="primary sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
               </div>
             </div>
