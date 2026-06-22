@@ -927,13 +927,14 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   const [preview, setPreview] = useState<any>(null)
   const [busy, setBusy] = useState(false)
   const [perr, setPerr] = useState<string | null>(null)
+  const [pubInfo, setPubInfo] = useState<any>(null)
 
   const runSearch = async () => {
     setLoading(true); setErr(null)
     try { const d = await api.marketplaceSearch(q); setResults(d.results || []) }
     catch (e: any) { setErr(e.message) } finally { setLoading(false) }
   }
-  useEffect(() => { runSearch() }, []) // initial load
+  useEffect(() => { runSearch(); api.marketplacePublisher().then(setPubInfo).catch(() => {}) }, []) // initial load
 
   const openInstall = async (item: any) => {
     setSel(item); setPreview(null); setPerr(null); setBusy(true)
@@ -960,6 +961,15 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
           <button className="primary sm" type="submit">Search</button>
         </form>
       </div>
+
+      {pubInfo?.registered && (
+        <div className="mkt-pubbar">
+          <span>Publishing as <code>{pubInfo.handle}</code></span>
+          {pubInfo.verified
+            ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ Discord-verified</span>
+            : <button className="ghost sm" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
+        </div>
+      )}
 
       {loading ? <Spinner /> : err ? (
         <Card><div className="settings-err">{err}</div></Card>

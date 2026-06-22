@@ -866,6 +866,12 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; flex: 1; }
 .mkt-perms { display: flex; flex-wrap: wrap; gap: 5px; }
 .mkt-card-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+.mkt-pubbar {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+  padding: 9px 13px; background: var(--bg-inset); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-size: 13px; color: var(--text-2);
+}
+.mkt-pubbar code { font-family: var(--mono); font-size: 12px; color: var(--text); }
 
 /* Signature status banner on the import-consent screen. */
 .import-sig {
