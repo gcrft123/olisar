@@ -53,6 +53,44 @@ function bundleKey(contentHash: string): string {
   return "bundles/" + contentHash.replace(/^sha256:/, "") + ".olx";
 }
 
+const HANDLE_RE = /^[a-z0-9_-]{2,64}$/;
+
+function b64bytes(s: string): Uint8Array {
+  return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+}
+function hex(buf: ArrayBuffer): string {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function sha256hex(input: string | Uint8Array): Promise<string> {
+  const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  return hex(await crypto.subtle.digest("SHA-256", data));
+}
+// Matches olisar.extensions.signing.fingerprint: "sha256:" + sha256(pubkey)[:32].
+async function fingerprintOf(pubB64: string): Promise<string> {
+  return "sha256:" + (await sha256hex(b64bytes(pubB64))).slice(0, 32);
+}
+async function verifyEd25519(pubB64: string, message: string, sigB64: string): Promise<boolean> {
+  try {
+    const key = await crypto.subtle.importKey("raw", b64bytes(pubB64), { name: "Ed25519" }, false, ["verify"]);
+    return await crypto.subtle.verify({ name: "Ed25519" }, key, b64bytes(sigB64), new TextEncoder().encode(message));
+  } catch {
+    return false;
+  }
+}
+function randomToken(): string {
+  const a = new Uint8Array(32);
+  crypto.getRandomValues(a);
+  return [...a].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function publisherForToken(env: Env, req: Request): Promise<any | null> {
+  const auth = req.headers.get("authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+  if (!token) return null;
+  return env.DB.prepare(
+    "SELECT id, handle, public_key, verified FROM publishers WHERE token_hash = ?",
+  ).bind(await sha256hex(token)).first();
+}
+
 function entryFromRow(r: any) {
   return {
     namespace: r.namespace,
@@ -84,6 +122,15 @@ export default {
       if (req.method === "GET" && parts[0] === "v1" && parts[1] === "ext") {
         if (parts.length === 4) return await detail(parts[2], parts[3], env);
         if (parts.length === 5) return await getBundle(parts[2], parts[3], parts[4], env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/publishers/register") {
+        return await publishersRegister(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/publish") {
+        return await publisherPublish(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/yank") {
+        return await publisherYank(req, env);
       }
       if (req.method === "POST" && url.pathname === "/v1/admin/publish") {
         return await adminPublish(req, env);
@@ -195,7 +242,8 @@ async function ensureSchema(env: Env): Promise<void> {
       `CREATE TABLE IF NOT EXISTS publishers (
          id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT, handle TEXT NOT NULL,
          public_key TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE,
-         verified INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+         verified INTEGER NOT NULL DEFAULT 0, token_hash TEXT,
+         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     ),
     env.DB.prepare(
       `CREATE TABLE IF NOT EXISTS extensions (
@@ -314,4 +362,78 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
   ).run();
 
   return json({ ok: true, id: `${namespace}/${name}`, version, stored_bytes: stored });
+}
+
+// ── self-serve publishing ──────────────────────────────────────────────────
+// Register a publisher: a handle (namespace) bound to an Ed25519 public key, on a
+// first-come basis (trust-on-first-use). Re-registering with the same key rotates the
+// token. Discord-verified identity (the "verified" badge) is a later layer.
+async function publishersRegister(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const pub = String(body.public_key || "");
+  const handle = String(body.handle || "").toLowerCase();
+  if (!pub || !HANDLE_RE.test(handle)) {
+    return json({ error: "a public_key and a handle (2-64 chars, [a-z0-9_-]) are required" }, 400);
+  }
+  const fp = await fingerprintOf(pub);
+  const owner = await env.DB.prepare("SELECT fingerprint FROM publishers WHERE handle = ?")
+    .bind(handle).first<{ fingerprint: string }>();
+  if (owner && owner.fingerprint !== fp) {
+    return json({ error: `the handle '${handle}' is already taken` }, 409);
+  }
+  const token = randomToken();
+  await env.DB.prepare(
+    `INSERT INTO publishers (discord_id, handle, public_key, fingerprint, verified, token_hash)
+     VALUES (?, ?, ?, ?, 0, ?)
+     ON CONFLICT(fingerprint) DO UPDATE SET handle = excluded.handle,
+       token_hash = excluded.token_hash, discord_id = excluded.discord_id`,
+  ).bind(body.discord_id ?? null, handle, pub, fp, await sha256hex(token)).run();
+  return json({ ok: true, handle, fingerprint: fp, token });
+}
+
+// Publish a signed bundle under the authenticated publisher's namespace. The signature
+// must be by the publisher's registered key — so a handle can only ship code its key
+// owner signed (the installing bot independently re-verifies on download).
+async function publisherPublish(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const publisher = await publisherForToken(env, req);
+  if (!publisher) return json({ error: "unauthorized" }, 401);
+  const body = await req.json<any>();
+  const bundle = body?.bundle;
+  if (!bundle || !bundle.id || !bundle.content_hash) {
+    return json({ error: "bad bundle (need id + content_hash)" }, 400);
+  }
+  if (!bundle.public_key || bundle.public_key !== publisher.public_key) {
+    return json({ error: "bundle is not signed by your publisher key" }, 403);
+  }
+  if (!bundle.signature || !(await verifyEd25519(publisher.public_key, bundle.content_hash, bundle.signature))) {
+    return json({ error: "invalid bundle signature" }, 403);
+  }
+  const pub = {
+    handle: publisher.handle, public_key: publisher.public_key,
+    fingerprint: await fingerprintOf(publisher.public_key),
+    verified: publisher.verified, discord_id: null,
+  };
+  return storePublish(env, publisher.handle, pub, bundle);
+}
+
+async function publisherYank(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const publisher = await publisherForToken(env, req);
+  if (!publisher) return json({ error: "unauthorized" }, 401);
+  const body = await req.json<any>();
+  const name = String(body?.name || "");
+  const version = body?.version ? String(body.version) : null;
+  if (!name) return json({ error: "name required" }, 400);
+  if (version) {
+    await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ? AND version = ?")
+      .bind(publisher.handle, name, version).run();
+  } else {
+    await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ?")
+      .bind(publisher.handle, name).run();
+    await env.DB.prepare("UPDATE extensions SET status = 'yanked' WHERE namespace = ? AND name = ?")
+      .bind(publisher.handle, name).run();
+  }
+  return json({ ok: true });
 }

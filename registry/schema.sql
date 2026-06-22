@@ -7,7 +7,8 @@ CREATE TABLE IF NOT EXISTS publishers (
   handle       TEXT NOT NULL,
   public_key   TEXT NOT NULL,            -- Ed25519 public key (base64)
   fingerprint  TEXT NOT NULL UNIQUE,     -- "sha256:<hex>" of the public key
-  verified     INTEGER NOT NULL DEFAULT 0,  -- Discord-verified publisher
+  verified     INTEGER NOT NULL DEFAULT 0,  -- Discord-verified publisher (later)
+  token_hash   TEXT,                     -- sha256 of the publisher's bearer token
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
