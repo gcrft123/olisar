@@ -62,6 +62,19 @@ class MarketplaceInstallIn(MarketplaceRefIn):
     granted_permissions: list[str] = []
 
 
+class MarketplaceRegisterIn(BaseModel):
+    handle: str  # the namespace to claim (publisher identity)
+
+
+class MarketplacePublishIn(BaseModel):
+    key: str  # the local extension to publish
+
+
+class MarketplaceYankIn(BaseModel):
+    name: str
+    version: str | None = None  # omit to yank all versions
+
+
 class SetupTokenIn(BaseModel):
     token: str
 

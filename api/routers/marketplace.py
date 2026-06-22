@@ -16,10 +16,24 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.auth.deps import require_admin
-from api.routers.extensions import _operator, _resync_commands, install_bundle, preview_bundle
-from api.schemas import MarketplaceInstallIn, MarketplaceRefIn
+from api.routers.extensions import (
+    _operator,
+    _resync_commands,
+    build_signed_bundle,
+    install_bundle,
+    preview_bundle,
+)
+from api.schemas import (
+    MarketplaceInstallIn,
+    MarketplacePublishIn,
+    MarketplaceRefIn,
+    MarketplaceRegisterIn,
+    MarketplaceYankIn,
+)
 from olisar.config import settings
-from olisar.db.models import AdminUser
+from olisar.db.engine import session_scope
+from olisar.db.models import AdminUser, ExtensionPackage, utcnow
+from olisar.extensions import signing
 
 log = logging.getLogger("olisar.api.marketplace")
 router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
@@ -42,6 +56,30 @@ async def _registry_get(path: str, params: dict | None = None) -> httpx.Response
             return await client.get(base + path, params=params)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"couldn't reach the marketplace: {exc}") from exc
+
+
+async def _registry_post(path: str, body: dict, token: str | None = None) -> httpx.Response:
+    base = _registry_base()
+    if not base:
+        raise HTTPException(status_code=503, detail="no marketplace registry is configured")
+    headers = {"content-type": "application/json"}
+    if token:
+        headers["authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
+            return await client.post(base + path, json=body, headers=headers)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"couldn't reach the marketplace: {exc}") from exc
+
+
+def _registry_error(r: httpx.Response, fallback: str) -> HTTPException:
+    """Surface a registry error, passing through meaningful client-error statuses."""
+    try:
+        detail = r.json().get("error") or fallback
+    except Exception:  # noqa: BLE001
+        detail = fallback
+    status = r.status_code if r.status_code in (400, 401, 403, 409, 413, 429, 507) else 502
+    return HTTPException(status_code=status, detail=detail)
 
 
 def _check_ref(namespace: str, name: str, version: str) -> None:
@@ -112,3 +150,76 @@ async def install(
     )
     _resync_commands(request)
     return result
+
+
+# ── publishing (this bot as a publisher) ────────────────────────────────────
+@router.get("/publisher")
+async def publisher(admin: AdminUser = Depends(require_admin)) -> dict:
+    """This bot's publisher identity + registration status."""
+    _operator(admin)
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        return {
+            "fingerprint": ident.fingerprint,
+            "handle": ident.registry_handle,
+            "registered": bool(ident.registry_token and ident.registry_handle),
+        }
+
+
+@router.post("/register")
+async def register(body: MarketplaceRegisterIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Claim a publisher handle (namespace) on the registry, bound to this bot's signing
+    key. The private key never leaves the bot; only the public key + handle are sent."""
+    _operator(admin)
+    handle = (body.handle or "").strip().lower()
+    if not _NS_RE.match(handle):
+        raise HTTPException(status_code=400, detail="handle must be 2-64 chars: a-z, 0-9, _ or -")
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        r = await _registry_post("/v1/publishers/register", {
+            "public_key": ident.public_key, "handle": handle,
+            "discord_id": str(admin.discord_user_id),
+        })
+        if r.status_code != 200:
+            raise _registry_error(r, "registration failed")
+        data = r.json()
+        ident.registry_handle = data["handle"]
+        ident.registry_token = data["token"]
+        ident.registered_at = utcnow()
+    return {"ok": True, "handle": data["handle"], "fingerprint": data.get("fingerprint")}
+
+
+@router.post("/publish")
+async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Publish a local extension to the registry under this bot's handle (signed)."""
+    _operator(admin)
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        if not (ident.registry_token and ident.registry_handle):
+            raise HTTPException(status_code=400, detail="claim a publisher handle first")
+        pkg = await session.get(ExtensionPackage, body.key)
+        if pkg is None:
+            raise HTTPException(status_code=404, detail="unknown extension")
+        if not (pkg.source_ts or "").strip():
+            raise HTTPException(status_code=400, detail="this extension has no source to publish")
+        doc = await build_signed_bundle(session, pkg)
+        token = ident.registry_token
+    r = await _registry_post("/v1/publish", {"bundle": doc}, token=token)
+    if r.status_code != 200:
+        raise _registry_error(r, "publish failed")
+    return r.json()
+
+
+@router.post("/yank")
+async def yank(body: MarketplaceYankIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Pull a published extension (or one version) from the registry."""
+    _operator(admin)
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        if not ident.registry_token:
+            raise HTTPException(status_code=400, detail="this bot isn't a registered publisher")
+        token = ident.registry_token
+    r = await _registry_post("/v1/yank", {"name": body.name, "version": body.version}, token=token)
+    if r.status_code != 200:
+        raise _registry_error(r, "yank failed")
+    return r.json()

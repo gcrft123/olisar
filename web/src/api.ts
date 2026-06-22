@@ -103,6 +103,13 @@ export const api = {
     req('/api/marketplace/install/preview', { method: 'POST', body: JSON.stringify(ref) }),
   marketplaceInstall: (b: { namespace: string; name: string; version: string; granted_permissions: string[] }) =>
     req('/api/marketplace/install', { method: 'POST', body: JSON.stringify(b) }),
+  marketplacePublisher: () => req('/api/marketplace/publisher'),
+  marketplaceRegister: (handle: string) =>
+    req('/api/marketplace/register', { method: 'POST', body: JSON.stringify({ handle }) }),
+  marketplacePublish: (key: string) =>
+    req('/api/marketplace/publish', { method: 'POST', body: JSON.stringify({ key }) }),
+  marketplaceYank: (name: string, version?: string) =>
+    req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
 
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
