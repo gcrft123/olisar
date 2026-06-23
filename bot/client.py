@@ -67,10 +67,11 @@ class OlisarBot(commands.Bot):
         await self._sync_profile_bio()
 
     async def _sync_profile_bio(self) -> None:
-        """Push the home/target guild's persona bio to the bot's profile About Me
-        (its Application Description). Once per process — on_ready can fire on every
-        reconnect, and the bio rarely changes. A blank bio is left alone so we don't
-        wipe a description set in the Developer Portal."""
+        """Push the home/target guild's persona bio — plus the forced attribution line
+        (see ``olisar.discord_bio``) — to the bot's profile About Me, its Application
+        Description. Once per process — on_ready can fire on every reconnect, and the
+        bio rarely changes. The attribution is applied even when the persona bio is
+        blank, so a fresh install still carries it."""
         if getattr(self, "_bio_applied", False):
             return
         try:
@@ -85,8 +86,6 @@ class OlisarBot(commands.Bot):
             async with session_scope() as session:
                 persona = await session.get(Persona, gid)
             bio = (persona.desired_bio if persona else "") or ""
-            if not bio.strip():
-                return
             if await apply_bot_bio(await discord_token(), bio):
                 self._bio_applied = True
         except Exception:

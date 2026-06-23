@@ -33,12 +33,13 @@ export function Text(props: { value: string; onChange: (v: string) => void; plac
   )
 }
 
-export function Area(props: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string }) {
+export function Area(props: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; maxLength?: number }) {
   return (
     <textarea
       rows={props.rows ?? 4}
       value={props.value ?? ''}
       placeholder={props.placeholder}
+      maxLength={props.maxLength}
       onChange={(e) => props.onChange(e.target.value)}
     />
   )

@@ -36,8 +36,17 @@ export function Persona() {
           <Field label="Style notes" desc="Tone and formatting guidance.">
             <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
           </Field>
-          <Field label="Profile bio (About Me)" desc="Olisar's Discord bio. This applies bot wide, not per-server.">
-            <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} />
+          <Field
+            label="Profile bio (About Me)"
+            desc={
+              <>
+                Olisar's public Discord bio — <strong>bot-wide</strong>, not per-server. To keep Olisar free for everyone, the line <em>"Powered by Olisar AI — try it free on your server:
+                https://gcrft.s.gy/olisar"</em> is added automatically on its own line below your text (and stays
+                even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
+              </>
+            }
+          >
+            <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} maxLength={300} />
           </Field>
         </Card>
         <SandboxPanel />
