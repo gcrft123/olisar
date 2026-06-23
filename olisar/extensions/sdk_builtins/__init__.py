@@ -27,13 +27,18 @@ _FILES = ("concise_mode.js", "dice.js", "calculator.js", "welcome.js", "star_cit
 
 
 async def seed(session: "AsyncSession") -> None:
-    """Insert/refresh the built-in extension packages. Idempotent."""
+    """Insert/refresh the built-in extension packages. Idempotent.
+
+    A built-in whose source can't be read or parsed — e.g. a packaging gap where the
+    bundled ``.js`` is missing — is logged and skipped rather than aborting startup. A
+    missing built-in must never take the bot, API, and dashboard down with it.
+    """
     for fname in _FILES:
-        src = (_DIR / fname).read_text(encoding="utf-8")
         try:
+            src = (_DIR / fname).read_text(encoding="utf-8")
             manifest = await sandbox.extract_manifest(src)
         except Exception:
-            log.exception("could not load built-in extension %s", fname)
+            log.exception("could not load built-in extension %s; skipping", fname)
             continue
         key = manifest.get("id")
         if not key:
