@@ -64,6 +64,21 @@
     };
   }
 
+  // The interaction handed to a persistent component (button/select) handler. Like a
+  // command interaction, but it edits the source message (update) and replies only
+  // ephemerally to the one user who clicked.
+  function makeComponentInteraction(data) {
+    data = data || {};
+    return {
+      customId: data.customId, arg: data.arg, values: data.values,
+      guildId: data.guildId, channelId: data.channelId, messageId: data.messageId,
+      userId: data.userId, displayName: data.displayName,
+      reply: function (p) { return request("discord", "reply", [p]); },
+      update: function (p) { return request("discord", "update", [p || {}]); },
+      deferUpdate: function () { return request("discord", "deferUpdate", []); },
+    };
+  }
+
   // ── Author entry point ──
   g.__SPEC = null;
   g.defineExtension = function (spec) { g.__SPEC = spec; };
@@ -101,6 +116,7 @@
       permissions: s.permissions || [], tools: tools, commands: commands,
       seeds: s.seeds || {}, settings_schema: s.settingsSchema || { fields: [] },
       ui: s.ui || null, has_on_enable: typeof s.onEnable === "function",
+      component_handlers: s.components ? Object.keys(s.components) : [],
     });
   };
 
@@ -124,6 +140,11 @@
       if (kind === "onEnable") {
         if (typeof s.onEnable !== "function") return null;
         return s.onEnable(a.ctx || {});
+      }
+      if (kind === "component") {
+        var ch = (s.components || {})[name];
+        if (typeof ch !== "function") throw new Error("no component handler: " + name);
+        return ch(makeComponentInteraction(a.ctx || {}));
       }
       throw new Error("unknown invocation kind: " + kind);
     }).then(function (r) {

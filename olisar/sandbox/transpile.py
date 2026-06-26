@@ -31,7 +31,8 @@ log = logging.getLogger("olisar.sandbox.transpile")
 
 # The SDK surface version the transpiler/runtime targets. Stamped onto packages so an
 # imported bundle built against a newer SDK can be flagged for compatibility.
-SDK_VERSION = "1"
+# v2 adds persistent component handlers (spec.components + ComponentInteraction).
+SDK_VERSION = "2"
 
 _VENDOR = Path(__file__).with_name("vendor")
 _TS_PATH = _VENDOR / "typescript.js"
@@ -59,6 +60,9 @@ def _context() -> quickjs.Context:
             raise TranspileError(f"vendored typescript.js is missing at {_TS_PATH}")
         ctx = quickjs.Context()
         ctx.set_memory_limit(_TS_COMPILER_MEMORY)
+        # The TS emitter recurses deeply; QuickJS's default 256 KB stack overflows on
+        # some ordinary extensions. Give it generous headroom (well under the mem cap).
+        ctx.set_max_stack_size(16 * 1024 * 1024)
         try:
             ctx.eval(_TS_PATH.read_text(encoding="utf-8"))
         except Exception as exc:  # pragma: no cover - only on a corrupt vendor file

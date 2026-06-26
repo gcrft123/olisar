@@ -31,15 +31,17 @@ _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ext-sandbox")
 
 
 async def _invoke(
-    inv: Invocation, compiled_js: str, kind: str, name: str, payload: dict, **limits
+    inv: Invocation, compiled_js: str, kind: str, name: str, payload: dict,
+    *, perform_timeout: float | None = None, **limits,
 ) -> Any:
     loop = asyncio.get_running_loop()
+    pt = engine.COMMAND_WALL_SECONDS if perform_timeout is None else perform_timeout
 
     def perform(cap: str, method: str, args: list) -> Any:
         fut = asyncio.run_coroutine_threadsafe(
             capabilities.dispatch(inv, cap, method, args), loop
         )
-        return fut.result(timeout=engine.COMMAND_WALL_SECONDS)
+        return fut.result(timeout=pt)
 
     job = functools.partial(
         engine.invoke, compiled_js, kind, name, payload, perform, **limits
@@ -94,6 +96,25 @@ async def run_command(
     )
 
 
+async def run_component(
+    *, ext_key: str, compiled_js: str, permissions: list[str],
+    handler_name: str, component_ctx: dict, guild_id: int,
+    session: "AsyncSession", discord: DiscordBridge, trusted: bool = False,
+) -> None:
+    """Run a persistent component (button/select click) handler. Quick: it updates
+    state (host.kv) and edits the source message via ``discord``; bounded by the short
+    component wall limit (it never waits on the user)."""
+    inv = Invocation(
+        ext_key=ext_key, permissions=set(permissions or []),
+        guild_id=guild_id, session=session, discord=discord, trusted=trusted,
+    )
+    await _invoke(
+        inv, compiled_js, "component", handler_name, {"ctx": component_ctx},
+        perform_timeout=engine.COMPONENT_WALL_SECONDS,
+        cpu_seconds=engine.COMMAND_CPU_SECONDS, wall_seconds=engine.COMPONENT_WALL_SECONDS,
+    )
+
+
 async def run_on_enable(
     *, ext_key: str, compiled_js: str, permissions: list[str],
     session: "AsyncSession", guild_id: int, trusted: bool = False,
@@ -110,6 +131,6 @@ async def run_on_enable(
 
 
 __all__ = [
-    "extract_manifest", "run_tool", "run_command", "run_on_enable",
+    "extract_manifest", "run_tool", "run_command", "run_component", "run_on_enable",
     "SandboxError", "DiscordBridge",
 ]
