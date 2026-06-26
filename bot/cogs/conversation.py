@@ -16,7 +16,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot.access import member_allowed, resolve_member
+from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import MessageActions
 from bot.content import download_images, image_attachments, message_text
 from bot.replies import record_bot_messages, send_reply
@@ -86,8 +86,9 @@ class Conversation(commands.Cog):
         if message.author.bot:
             return  # conversational memory + replies ignore other bots
 
-        # Load this server's behaviour config (DMs borrow the home guild's) + channel mode.
-        cfg_guild = settings.target_guild_id if is_dm else guild_id
+        # Load this server's behaviour config (DMs borrow the home guild's — a real guild
+        # the bot is in, even if target_guild_id is stale) + channel mode.
+        cfg_guild = dm_home_guild_id(self.bot) if is_dm else guild_id
         async with session_scope() as session:
             config = await session.get(GuildConfig, cfg_guild)
             name_triggers = config.name_triggers if config else ["olisar"]
@@ -152,6 +153,7 @@ class Conversation(commands.Cog):
                 text = await generate_reply(
                     session,
                     guild_id=guild_id,
+                    home_guild_id=cfg_guild,  # DMs (guild_id 0) draw features from this real guild
                     channel_id=message.channel.id,
                     current_message_id=message.id,
                     bot_user_id=bot_user.id,
