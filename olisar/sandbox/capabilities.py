@@ -58,6 +58,8 @@ class DiscordBridge(Protocol):
     # Persistent-component handlers (button/select clicks) only:
     async def update(self, payload: Any) -> None: ...
     async def defer_update(self) -> None: ...
+    # Event handlers only (no interaction to reply to) — post to a channel by id:
+    async def send(self, channel_id: str, payload: Any) -> None: ...
 
 
 @dataclass
@@ -85,6 +87,16 @@ def _require(inv: Invocation, perm: str) -> None:
         )
 
 
+def _require_trusted(inv: Invocation, what: str) -> None:
+    """Gate the powerful capabilities (host-paid model generation, unprompted channel
+    posts) to first-party code. Like host.secret, these stay barred for imported/marketplace
+    extensions even if the operator granted the permission."""
+    if not inv.trusted:
+        raise PermissionError_(
+            f"'{what}' is restricted to built-in and locally-authored extensions"
+        )
+
+
 async def dispatch(inv: Invocation, cap: str, method: str, args: list) -> Any:
     args = args or []
     if cap == "log":
@@ -104,6 +116,8 @@ async def dispatch(inv: Invocation, cap: str, method: str, args: list) -> Any:
         return await _glossary_add(inv, args[0] if args else {})
     if cap == "discord":
         return await _discord(inv, method, args)
+    if cap == "generate":
+        return await _generate(inv, args[0] if args else {})
     raise ValueError(f"unknown capability: {cap}")
 
 
@@ -268,4 +282,69 @@ async def _discord(inv: Invocation, method: str, args: list) -> Any:
     if method == "deferUpdate":  # ack a component click with no visible change
         _require(inv, "discord.components")
         return await inv.discord.defer_update()
+    if method == "send":  # post to a channel from an event handler (no interaction)
+        _require(inv, "discord.send")
+        _require_trusted(inv, "discord.send")
+        channel_id = str(args[0]) if args else ""
+        body = args[1] if len(args) > 1 else {}
+        return await inv.discord.send(channel_id, body)
+    raise ValueError(f"unknown discord method: {method}")
+
+
+# ── model generation (host-paid; first-party only) ───────────────────────────
+_GENERATE_MAX_TOKENS = 1200  # hard ceiling regardless of what the extension asks for
+
+
+async def _persona_system(inv: Invocation) -> str:
+    """The guild's persona as a system instruction, so generated text stays in character.
+    Falls back to the default persona when the guild hasn't customised it."""
+    from olisar.db.models import Persona
+    from olisar.persona import (
+        DEFAULT_PERSONA_NAME,
+        DEFAULT_SYSTEM_PROMPT,
+        DEFAULT_TONE_NOTES,
+        build_system_prompt,
+    )
+
+    persona = await inv.session.get(Persona, inv.guild_id) if inv.session is not None else None
+    if persona is None:
+        return build_system_prompt(
+            persona_name=DEFAULT_PERSONA_NAME, system_prompt=DEFAULT_SYSTEM_PROMPT,
+            tone_notes=DEFAULT_TONE_NOTES,
+        )
+    return build_system_prompt(
+        persona_name=persona.name, system_prompt=persona.system_prompt,
+        tone_notes=persona.tone_notes,
+    )
+
+
+async def _generate(inv: Invocation, opts: dict) -> str:
+    """Generate text in the server's persona voice. Host-paid (spends model tokens) and
+    can post-process nothing, so it's permissioned AND first-party-only — like host.secret,
+    imported/marketplace extensions can't use it even if granted."""
+    _require(inv, "model.generate")
+    _require_trusted(inv, "model.generate")
+    opts = opts or {}
+    task = str(opts.get("task") or "").strip()
+    if not task:
+        raise ValueError("host.generate needs a task")
+    try:
+        max_tokens = int(opts.get("maxTokens") or 600)
+    except (TypeError, ValueError):
+        max_tokens = 600
+    max_tokens = max(1, min(max_tokens, _GENERATE_MAX_TOKENS))
+    system = await _persona_system(inv)
+    note = str(opts.get("systemNote") or "").strip()
+    if note:
+        system = system + "\n\n── For this generation ──\n" + note
+
+    from google.genai import types
+
+    from olisar.gemini.client import get_gemini
+
+    result = await get_gemini().generate(
+        contents=[types.Content(role="user", parts=[types.Part(text=task)])],
+        system_instruction=system, max_output_tokens=max_tokens,
+    )
+    return (result.text or "").strip()
     raise ValueError(f"unknown discord method: {method}")

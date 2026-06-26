@@ -47,6 +47,16 @@
     secret: cap("secret", "get"),
     embed: function (spec) { return { __embed: true, spec: spec || {} }; },
     log: cap("log", "write"),
+    // Generate text in the server's persona voice (trusted extensions only). Resolves to
+    // the generated string. opts: { task, maxTokens?, systemNote? }.
+    generate: function (opts) { return request("generate", "run", [opts || {}]); },
+    // Post a message to a channel outside any interaction — for event handlers, which have
+    // no reply target (trusted extensions only). payload: string or { content, embed }.
+    discord: {
+      send: function (channelId, payload) {
+        return request("discord", "send", [String(channelId), payload]);
+      },
+    },
   };
 
   // The interaction object handed to a slash-command handler. Data fields come from
@@ -77,6 +87,13 @@
       update: function (p) { return request("discord", "update", [p || {}]); },
       deferUpdate: function () { return request("discord", "deferUpdate", []); },
     };
+  }
+
+  // The context handed to an event handler (e.g. a member-join hook). Data only — events
+  // have no interaction; to post a message the handler uses host.discord.send(channelId, …).
+  function makeEventContext(data) {
+    data = data || {};
+    return { event: data.event, guildId: data.guildId, member: data.member || null };
   }
 
   // ── Author entry point ──
@@ -117,6 +134,7 @@
       seeds: s.seeds || {}, settings_schema: s.settingsSchema || { fields: [] },
       ui: s.ui || null, has_on_enable: typeof s.onEnable === "function",
       component_handlers: s.components ? Object.keys(s.components) : [],
+      event_handlers: s.events ? Object.keys(s.events) : [],
     });
   };
 
@@ -145,6 +163,11 @@
         var ch = (s.components || {})[name];
         if (typeof ch !== "function") throw new Error("no component handler: " + name);
         return ch(makeComponentInteraction(a.ctx || {}));
+      }
+      if (kind === "event") {
+        var eh = (s.events || {})[name];
+        if (typeof eh !== "function") throw new Error("no event handler: " + name);
+        return eh(makeEventContext(a.ctx || {}));
       }
       throw new Error("unknown invocation kind: " + kind);
     }).then(function (r) {
