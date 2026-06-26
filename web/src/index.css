@@ -244,6 +244,13 @@ body::after {
 
 .main { padding: 40px 44px 96px; max-width: 880px; }
 .main.wide { max-width: 1180px; }
+/* Monaco names some of its own internal nodes with generic classes that collide with our
+   layout classes above — notably `.main`, which Monaco gives each autocomplete row's
+   content box. Our page `.main` padding/width then leaked into the editor and pushed every
+   suggestion's label out of its 20px row, leaving the autocomplete popup blank. Keep app
+   layout styles out of the editor (scoped to .monaco-editor; the suggest widget renders
+   inside it even with fixedOverflowWidgets). */
+.monaco-editor .main { padding: 0; max-width: none; }
 /* Persona: Identity on the left, the test-chat panel to its right. */
 .persona-grid {
   display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

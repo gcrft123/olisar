@@ -134,7 +134,9 @@ export default function ExtensionEditor(props: {
               theme="vs-dark"
               value={source}
               onChange={(v: string | undefined) => setSource(v ?? '')}
-              options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false, tabSize: 2, padding: { top: 12 } }}
+              // fixedOverflowWidgets keeps the autocomplete/hover popups from being clipped
+              // by this card's `overflow: hidden` + rounded corners when they open near an edge.
+              options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false, tabSize: 2, padding: { top: 12 }, fixedOverflowWidgets: true }}
             />
           ) : (
             <div className="empty" style={{ padding: 56 }}>Loading editor…</div>
