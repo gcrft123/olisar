@@ -19,7 +19,7 @@ import discord
 from discord.ext import commands
 from sqlalchemy import select
 
-from bot.cogs.sdk_commands import _to_embed
+from bot.cogs.sdk_commands import _build_view, _to_embed
 from bot.replies import chunk_text
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
@@ -57,8 +57,10 @@ class _EventBridge:
             return
         p = self._unpack(payload)
         embed = _to_embed(p.get("embed"))
+        view = _build_view(list(p.get("components") or []), ext_key=self.ext_key) if p.get("components") else None
         content = p.get("content")
-        # Chunk defensively under Discord's 2000-char limit; the embed rides the first chunk.
+        # Chunk defensively under Discord's 2000-char limit; the embed + components ride the
+        # first chunk so persistent buttons keep working across restarts.
         chunks = chunk_text(str(content)) if content else [None]
         first = True
         for chunk in chunks:
@@ -67,6 +69,8 @@ class _EventBridge:
                 kwargs["content"] = chunk
             if first and embed is not None:
                 kwargs["embed"] = embed
+            if first and view is not None:
+                kwargs["view"] = view
             if kwargs:
                 await channel.send(**kwargs)
             first = False

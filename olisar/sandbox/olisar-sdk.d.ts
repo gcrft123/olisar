@@ -246,9 +246,14 @@ declare const host: {
   generate(opts: { task: string; maxTokens?: number; systemNote?: string }): Promise<string>;
   discord: {
     /**
-     * Post a message to a channel by id — for event handlers, which have no interaction to
-     * reply to. First-party only (needs `discord.send`).
+     * Post a message to a channel — for event handlers and tools, which have no interaction
+     * to reply to. `channel` is a channel id, `<#id>` mention, or name (resolved in the
+     * server). The payload may carry interactive `components` (persistent buttons/selects
+     * keep working). First-party only (needs `discord.send`). Resolves to a status string.
      */
-    send(channelId: string, payload: string | { content?: string; embed?: any }): Promise<void>;
+    send(
+      channel: string,
+      payload: string | { content?: string; embed?: any; components?: Component[] },
+    ): Promise<string>;
   };
 };

@@ -55,14 +55,56 @@ async def extract_manifest(compiled_js: str) -> dict:
     return await loop.run_in_executor(_pool, engine.extract_manifest, compiled_js)
 
 
+class _ToolBridge:
+    """Adapts a ToolContext's DiscordActions to the sandbox DiscordBridge so a *trusted*
+    tool can post to a channel (with components) via host.discord.send. Only ``send`` is
+    available from a tool — the interaction-bound methods raise."""
+
+    def __init__(self, ctx: "ToolContext", ext_key: str) -> None:
+        self._ctx = ctx
+        self._ext_key = ext_key
+
+    async def send(self, channel_id: str, payload: Any) -> Any:
+        p = {"content": payload} if isinstance(payload, str) else (payload or {})
+        ch = channel_id
+        if not ch or str(ch) == str(self._ctx.channel_id):
+            ch = None  # the current channel — post_components uses its live channel object
+        return await self._ctx.actions.post_components(
+            channel=ch, content=p.get("content"), embed=p.get("embed"),
+            components=p.get("components"), ext_key=self._ext_key,
+            home_guild_id=self._ctx.cfg_guild,
+        )
+
+    async def reply(self, payload: Any) -> None:
+        raise RuntimeError("a tool posts with host.discord.send(channelId, …), not reply()")
+
+    async def follow_up(self, payload: Any) -> None:
+        raise RuntimeError("followUp() isn't available from a tool")
+
+    async def modal(self, spec: Any) -> dict:
+        raise RuntimeError("a modal can't open from a tool")
+
+    async def await_component(self, opts: Any) -> dict:
+        raise RuntimeError("awaitComponent isn't available from a tool")
+
+    async def update(self, payload: Any) -> None:
+        raise RuntimeError("update() isn't available from a tool")
+
+    async def defer_update(self) -> None:
+        raise RuntimeError("deferUpdate() isn't available from a tool")
+
+
 async def run_tool(
     *, ext_key: str, compiled_js: str, permissions: list[str],
     tool_name: str, args: dict, ctx: "ToolContext", trusted: bool = False,
 ) -> str:
     """Run a sandboxed LLM tool; always returns a string for the model."""
+    # A trusted tool can post to a channel via host.discord.send when Discord actions are
+    # available (the live reply path; not the dashboard sandbox, where actions is None).
+    bridge = _ToolBridge(ctx, ext_key) if getattr(ctx, "actions", None) is not None else None
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
-        guild_id=ctx.cfg_guild, session=ctx.session, trusted=trusted,
+        guild_id=ctx.cfg_guild, session=ctx.session, discord=bridge, trusted=trusted,
     )
     payload = {
         "args": args or {},
