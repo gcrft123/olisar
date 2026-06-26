@@ -4,6 +4,7 @@ import { Icon, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
+import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { SettingsModal } from './settings'
 
@@ -35,6 +36,9 @@ export default function App() {
   const [guild, setGuildState] = useState<string | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [isDev, setIsDev] = useState(false)
+  const [standing, setStanding] = useState<{ status: string; message?: string; acknowledged?: boolean } | null>(null)
+  const [warnDismissed, setWarnDismissed] = useState(false)
 
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
@@ -74,6 +78,23 @@ export default function App() {
     if (auth !== 'in') return
     let alive = true
     const pull = () => api.tunnelStatus().then((t: TunnelInfo) => { if (alive) setTunnel(t) }).catch(() => {})
+    pull()
+    const id = setInterval(pull, 20000)
+    return () => { alive = false; clearInterval(id) }
+  }, [auth])
+
+  // Is this operator a whitelisted platform developer? Gates the Developer tab.
+  useEffect(() => {
+    if (auth !== 'in') { setIsDev(false); return }
+    api.devStatus().then((d) => setIsDev(!!d?.is_developer)).catch(() => setIsDev(false))
+  }, [auth])
+
+  // Poll the operator's own moderation standing — a ban locks the console, a warning shows
+  // once. Checked continuously (not just at login), so it takes effect within ~a poll.
+  useEffect(() => {
+    if (auth !== 'in') return
+    let alive = true
+    const pull = () => api.devStanding().then((s) => { if (alive) setStanding(s) }).catch(() => {})
     pull()
     const id = setInterval(pull, 20000)
     return () => { alive = false; clearInterval(id) }
@@ -127,6 +148,14 @@ export default function App() {
     keys: <ApiKeys />,
     usage: <Usage />,
     docs: <Docs onNavigate={setTab} />,
+    developer: <Developer />,
+  }
+  // The Developer tab only appears for whitelisted platform developers.
+  const nav = isDev ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName }] : NAV
+
+  // A banned account is locked out of the console entirely (re-checked every poll).
+  if (standing?.status === 'banned') {
+    return <Banned message={standing.message} onLogout={async () => { await api.logout(); setAuth('out') }} />
   }
 
   return (
@@ -155,7 +184,7 @@ export default function App() {
         </div>
 
         <div className="nav-label">Configure</div>
-        {NAV.map((n) => {
+        {nav.map((n) => {
           const Glyph = Icon[n.ic]
           const active = tab === n.id
           return (
@@ -191,8 +220,14 @@ export default function App() {
         </div>
       </aside>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {standing?.status === 'warned' && !standing.acknowledged && !warnDismissed && (
+        <WarnModal
+          message={standing.message}
+          onClose={async () => { setWarnDismissed(true); try { await api.devStandingAck() } catch { /* will reshow next poll */ } }}
+        />
+      )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' || tab === 'extensions' ? ' wide' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' || tab === 'extensions' || tab === 'developer' ? ' wide' : '')}>{pages[tab]}</main>
     </div>
   )
 }
@@ -253,6 +288,40 @@ function AccessDenied() {
         <a className="btn-discord" href={api.loginUrl()}>
           <Icon.login size={18} weight="Bold" /> Sign in again
         </a>
+      </div>
+    </div>
+  )
+}
+
+// Shown in place of the whole console when this account is banned from Olisar (a global
+// moderation ban set by a platform developer; re-checked on every standing poll).
+function Banned(props: { message?: string; onLogout: () => void }) {
+  return (
+    <div className="login">
+      <div className="box wide">
+        <div className="mark warn"><Icon.ban size={26} weight="Bold" /></div>
+        <h1>Account suspended</h1>
+        <p>{props.message || 'This account has been banned from Olisar. If you believe this is a mistake, contact the Olisar team.'}</p>
+        <div className="login-actions">
+          <button className="ghost" onClick={props.onLogout}><Icon.logout size={16} /> Log out</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// A one-time warning notice (acknowledged on close, so it doesn't reappear).
+function WarnModal(props: { message?: string; onClose: () => void }) {
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="import-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-head"><h2>A note from the Olisar team</h2></div>
+        <div className="import-review">
+          <div style={{ padding: '12px 14px', borderRadius: 9, background: 'var(--warn-soft)', color: 'var(--warn)', fontSize: 13, lineHeight: 1.55 }}>
+            {props.message || 'Your account has received a warning. Please review the marketplace guidelines.'}
+          </div>
+        </div>
+        <div className="import-foot"><button className="primary" onClick={props.onClose}>I understand</button></div>
       </div>
     </div>
   )

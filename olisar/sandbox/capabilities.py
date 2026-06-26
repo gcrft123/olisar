@@ -18,6 +18,8 @@ from __future__ import annotations
 import ipaddress
 import logging
 import socket
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -47,6 +49,25 @@ _SECRET_GETTERS = {
     "cloudflare_account_id": runtime_keys.cloudflare_account_id,
     "cloudflare_api_token": runtime_keys.cloudflare_api_token,
 }
+
+# host.discord.send rate limit (per extension, per guild). A sliding window so a
+# third-party extension can't blast a channel; generous enough that built-ins (which
+# post rarely) never hit it. Runtime guardrail that bounds an opened-up capability.
+_SEND_WINDOW_SECONDS = 60.0
+_SEND_MAX_PER_WINDOW = 5
+_send_history: dict[tuple[str, int], deque[float]] = {}
+
+
+def _send_rate_ok(ext_key: str, guild_id: int) -> bool:
+    """True if this (extension, guild) is under the post limit; records the post if so."""
+    now = time.monotonic()
+    dq = _send_history.setdefault((ext_key, guild_id), deque())
+    while dq and now - dq[0] > _SEND_WINDOW_SECONDS:
+        dq.popleft()
+    if len(dq) >= _SEND_MAX_PER_WINDOW:
+        return False
+    dq.append(now)
+    return True
 
 
 class DiscordBridge(Protocol):
@@ -84,16 +105,6 @@ def _require(inv: Invocation, perm: str) -> None:
     if perm not in inv.permissions:
         raise PermissionError_(
             f"this extension isn't allowed to use '{perm}' — add it to the permissions list."
-        )
-
-
-def _require_trusted(inv: Invocation, what: str) -> None:
-    """Gate the powerful capabilities (host-paid model generation, unprompted channel
-    posts) to first-party code. Like host.secret, these stay barred for imported/marketplace
-    extensions even if the operator granted the permission."""
-    if not inv.trusted:
-        raise PermissionError_(
-            f"'{what}' is restricted to built-in and locally-authored extensions"
         )
 
 
@@ -282,16 +293,20 @@ async def _discord(inv: Invocation, method: str, args: list) -> Any:
     if method == "deferUpdate":  # ack a component click with no visible change
         _require(inv, "discord.components")
         return await inv.discord.defer_update()
-    if method == "send":  # post to a channel from an event handler (no interaction)
+    if method == "send":  # post to a channel from a tool/event handler (no interaction)
+        # Operator-grantable for any extension (third-party included); risk is bounded by
+        # install-time consent + the no-@mentions guard on the post + this rate limit.
         _require(inv, "discord.send")
-        _require_trusted(inv, "discord.send")
+        if not _send_rate_ok(inv.ext_key, inv.guild_id):
+            return ("I'm posting too frequently right now — that channel post was rate-limited. "
+                    "Try again in a moment.")
         channel_id = str(args[0]) if args else ""
         body = args[1] if len(args) > 1 else {}
         return await inv.discord.send(channel_id, body)
     raise ValueError(f"unknown discord method: {method}")
 
 
-# ── model generation (host-paid; first-party only) ───────────────────────────
+# ── model generation (spends the installing operator's own model quota) ──────
 _GENERATE_MAX_TOKENS = 1200  # hard ceiling regardless of what the extension asks for
 
 
@@ -319,11 +334,11 @@ async def _persona_system(inv: Invocation) -> str:
 
 
 async def _generate(inv: Invocation, opts: dict) -> str:
-    """Generate text in the server's persona voice. Host-paid (spends model tokens) and
-    can post-process nothing, so it's permissioned AND first-party-only — like host.secret,
-    imported/marketplace extensions can't use it even if granted."""
+    """Generate text in the server's persona voice. Spends the *installing operator's* own
+    model quota (their Gemini key), so it's operator-grantable for any extension — they
+    consent to the cost at install. Bounded by _GENERATE_MAX_TOKENS and the model rate
+    limiter. (Unlike host.secret, which stays first-party — it would leak the host's keys.)"""
     _require(inv, "model.generate")
-    _require_trusted(inv, "model.generate")
     opts = opts or {}
     task = str(opts.get("task") or "").strip()
     if not task:
@@ -347,4 +362,3 @@ async def _generate(inv: Invocation, opts: dict) -> str:
         system_instruction=system, max_output_tokens=max_tokens,
     )
     return (result.text or "").strip()
-    raise ValueError(f"unknown discord method: {method}")

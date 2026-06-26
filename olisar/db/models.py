@@ -586,6 +586,9 @@ class AppConfig(Base):
     # Desktop app: whether Olisar shows its system tray / menu-bar item. Read by the
     # Electron shell; ignored when running from source. Default on.
     show_in_menu_bar: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Marketplace policy: block publishing an extension whose AI risk score (0-100) is at
+    # or above this. Operator-tunable; 70 is a balanced default.
+    extension_risk_threshold: Mapped[int] = mapped_column(Integer, default=70)
     configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

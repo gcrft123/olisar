@@ -17,6 +17,7 @@ from api.routers.admin import router as admin_router
 from api.routers.bot import router as bot_router
 from api.routers.extensions import router as extensions_router
 from api.routers.knowledge import router as knowledge_router
+from api.routers.dev import router as dev_router
 from api.routers.marketplace import router as marketplace_router
 from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(bot_router)
     app.include_router(extensions_router)
     app.include_router(marketplace_router)
+    app.include_router(dev_router)
     app.include_router(knowledge_router)
     app.include_router(setup_router)
     app.include_router(tunnel_router)

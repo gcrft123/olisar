@@ -656,6 +656,15 @@ const PERM_LABELS: Record<string, string> = {
   'discord.reply': 'Reply in Discord',
   'discord.modal': 'Show pop-up forms (modals)',
   'discord.components': 'Use buttons and select menus',
+  'discord.send': 'Post messages to your channels (no @mentions)',
+  'model.generate': 'Generate text with your AI model (uses your quota)',
+}
+
+// Risk-score band → CSS class, matching the consent screen's colour cues.
+function riskClass(score: number): string {
+  if (score >= 70) return 'danger'
+  if (score >= 31) return 'warn'
+  return 'ok'
 }
 export function permLabel(p: string): string {
   if (p.startsWith('secret:')) return `Use the “${p.slice(7)}” secret key`
@@ -691,6 +700,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   const publishable = e.editable && (!e.origin || e.origin === 'local')
   // Already live on the marketplace under this bot's handle (from /marketplace/published).
   const isPublished = publishable && !!pub
+  const [reporting, setReporting] = useState(false)
+  const ref = e.marketplace_ref
 
   const publishToMarketplace = async () => {
     try {
@@ -766,9 +777,15 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             {props.isOperator && e.has_code && (
               <button className="ghost sm" onClick={() => props.onEdit(e.key)}>Edit code</button>
             )}
+            {marketplace && ref && (
+              <button className="icon-flag" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
+            )}
             <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} />
           </div>
         </div>
+        {reporting && ref && (
+          <ReportModal target={{ namespace: ref.namespace, name: ref.name, version: ref.version, id: e.key }} onClose={() => setReporting(false)} />
+        )}
 
         <div className="ext-desc">{e.description || 'No description provided.'}</div>
         {fromElsewhere && (
@@ -847,8 +864,10 @@ function ConsentModal(props: {
   // server-side — show them as unavailable and never grant them.
   const isHostSecret = (p: string) => p.startsWith('secret:')
   const [granted, setGranted] = useState<Set<string>>(() => new Set(reqPerms.filter((p) => !isHostSecret(p))))
+  const [accepted, setAccepted] = useState(false)
   const sig = preview?.signature
   const blocked = preview.exists || preview.is_builtin_key || sig?.status === 'invalid'
+  const risk = preview?.risk
   const togglePerm = (p: string) =>
     setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
 
@@ -889,6 +908,27 @@ function ConsentModal(props: {
             </>
           )}
 
+          {risk && (
+            <>
+              <div className="settings-subhead">Risk assessment</div>
+              {risk.ok ? (
+                <div className="risk-box">
+                  <div className="risk-head">
+                    <span className={'risk-score ' + riskClass(risk.score)}>{risk.score}<span className="risk-max">/100</span></span>
+                    {risk.summary && <span className="risk-summary">{risk.summary}</span>}
+                  </div>
+                  {risk.bullets?.length > 0 && (
+                    <ul className="risk-bullets">
+                      {risk.bullets.map((b: string, i: number) => <li key={i}>{b}</li>)}
+                    </ul>
+                  )}
+                </div>
+              ) : (
+                <div className="settings-muted">Automated risk review unavailable — read the capabilities below carefully before installing.</div>
+              )}
+            </>
+          )}
+
           <div className="settings-subhead">Capabilities to grant</div>
           {reqPerms.length === 0 ? (
             <div className="settings-muted">This extension requests no special capabilities.</div>
@@ -919,12 +959,129 @@ function ConsentModal(props: {
 
         {props.err && <div className="settings-err" style={{ marginTop: 14 }}>{props.err}</div>}
 
+        {!blocked && (
+          <label className="import-accept">
+            <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+            <span>I understand this is third-party code and accept the risks of installing it.</span>
+          </label>
+        )}
+
         <div className="import-foot">
           <button className="ghost" onClick={props.onClose} disabled={props.busy}>Cancel</button>
-          <button className="primary" onClick={() => props.onInstall(Array.from(granted))} disabled={props.busy || blocked}>
+          <button className="primary" onClick={() => props.onInstall(Array.from(granted))} disabled={props.busy || blocked || !accepted}>
             {props.busy ? 'Installing…' : granted.size ? `Install · grant ${granted.size}` : 'Install'}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function fileToB64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] || '')
+    r.onerror = () => reject(new Error('read failed'))
+    r.readAsDataURL(f)
+  })
+}
+
+// Report a marketplace extension: describe the problem, optionally attach files + bot logs.
+// The report is emailed to the platform owner and shows up in the developer console.
+function ReportModal(props: {
+  target: { namespace: string; name: string; version?: string; id?: string }
+  onClose: () => void
+}) {
+  const [desc, setDesc] = useState('')
+  const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
+  const [logsAttached, setLogsAttached] = useState(false)
+  const [logs, setLogs] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const addFiles = async (list: FileList) => {
+    setErr(null)
+    const out = [...files]
+    for (const f of Array.from(list)) {
+      if (out.length >= 8) break
+      if (f.size > 3_000_000) { setErr(`${f.name} is too large (max 3 MB each).`); continue }
+      out.push({ name: f.name, type: f.type || 'application/octet-stream', content_b64: await fileToB64(f) })
+    }
+    setFiles(out)
+  }
+  const attachLogs = async () => {
+    try { const d = await api.getLogs(800); setLogs((d.lines || []).join('\n')); setLogsAttached(true) }
+    catch { setErr('Couldn’t read the bot logs.') }
+  }
+  const submit = async () => {
+    if (!desc.trim()) { setErr('Please describe what happened.'); return }
+    setBusy(true); setErr(null)
+    try {
+      await api.marketplaceReport({
+        namespace: props.target.namespace, name: props.target.name, version: props.target.version,
+        description: desc, logs: logsAttached ? logs : '', attachments: files,
+      })
+      setDone(true)
+    } catch (e: any) { setErr(e.message); setBusy(false) }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <div className="settings-head">
+          <h2>Report extension</h2>
+          <p>{props.target.id || `${props.target.namespace}/${props.target.name}`}</p>
+        </div>
+        {done ? (
+          <>
+            <div className="import-review"><div className="settings-muted">Thanks — your report was sent to the Olisar team. They’ll review it.</div></div>
+            <div className="import-foot"><button className="primary" onClick={props.onClose}>Done</button></div>
+          </>
+        ) : (
+          <>
+            <div className="import-review">
+              <div className="settings-subhead">What went wrong?</div>
+              <textarea
+                value={desc} onChange={(e) => setDesc(e.target.value)} rows={5}
+                placeholder="Describe the behaviour you saw — what the extension did, when, and why it concerned you."
+                style={{ width: '100%' }}
+              />
+              <div className="settings-subhead">Evidence (optional)</div>
+              <div className="report-attach">
+                <button className="ghost sm" onClick={() => fileRef.current?.click()}>
+                  <Icon.add size={14} /> Add attachments
+                </button>
+                <button className={'ghost sm' + (logsAttached ? ' on' : '')} onClick={attachLogs}>
+                  <Icon.docs size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}
+                </button>
+              </div>
+              {files.length > 0 && (
+                <div className="report-files">
+                  {files.map((f, i) => (
+                    <span key={i} className="tag">
+                      {f.name}
+                      <button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove">✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <input
+                ref={fileRef} type="file" multiple style={{ display: 'none' }}
+                onChange={(ev) => { if (ev.target.files) addFiles(ev.target.files); ev.target.value = '' }}
+              />
+            </div>
+            {err && <div className="settings-err" style={{ marginTop: 14 }}>{err}</div>}
+            <div className="import-foot">
+              <button className="ghost" onClick={props.onClose} disabled={busy}>Cancel</button>
+              <button className="primary" onClick={submit} disabled={busy || !desc.trim()}>
+                {busy ? 'Sending…' : 'Send report'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
@@ -998,6 +1155,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   const [busy, setBusy] = useState(false)
   const [perr, setPerr] = useState<string | null>(null)
   const [pubInfo, setPubInfo] = useState<any>(null)
+  const [report, setReport] = useState<any>(null)
 
   const runSearch = async () => {
     setLoading(true); setErr(null)
@@ -1076,6 +1234,8 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
+                <button className="icon-flag" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
+                <span className="grow" />
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
                   <button className="ghost sm" onClick={() => doYank(r)}>Yank</button>
                 )}
@@ -1093,6 +1253,8 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
           onClose={() => { setSel(null); setPreview(null); setPerr(null) }} onInstall={doInstall}
         />
       )}
+
+      {report && <ReportModal target={report} onClose={() => setReport(null)} />}
     </>
   )
 }

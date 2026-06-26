@@ -30,6 +30,10 @@ import {
   Refresh,
   Download,
   Routing,
+  Flag2,
+  ShieldWarning,
+  ForbiddenCircle,
+  CodeSquare,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -60,6 +64,10 @@ export const Icon = {
   refresh: Refresh,
   update: Download,
   remote: Routing,
+  flag: Flag2,
+  developer: ShieldWarning,
+  ban: ForbiddenCircle,
+  code: CodeSquare,
 } as const
 
 export type IconName = keyof typeof Icon
