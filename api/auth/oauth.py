@@ -24,7 +24,7 @@ from api.auth.sessions import (
     delete_session,
     sign_sid,
 )
-from olisar import runtime_config
+from olisar import discord_app, runtime_config
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminGrant, AdminUser, Guild, utcnow
@@ -149,7 +149,10 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
     user_id = int(me["id"])
     managed = _managed_guild_ids(guilds)
-    allowlisted = user_id in settings.admin_allowlist
+    # The operator is whoever is in ADMIN_ALLOWLIST *or* owns the bot's Discord
+    # application — the latter is how a packaged (no-.env) install identifies its
+    # operator with zero config. See olisar.discord_app.
+    allowlisted = user_id in settings.admin_allowlist or user_id in await discord_app.owner_ids()
 
     async with session_scope() as session:
         # Admit if allowlisted (the operator) or you have Manage Server on at least
