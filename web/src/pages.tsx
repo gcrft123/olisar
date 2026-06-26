@@ -222,6 +222,13 @@ export function Behavior() {
       </Card>
       <Card title="Passive reactions" hint="Passive reactions let Olisar decide to react to a message rather than reply. Useful when a message is overkill but an emoji reaction is warranted.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
+        <Field label="Liberalness" desc="How freely Olisar reacts. 'Liberal' lets it weigh every message (it still only reacts when an emoji genuinely fits); tighter settings pre-filter to more notable messages. The cooldown and hourly cap below still apply.">
+          <Select value={String(pro.reaction_threshold ?? 0)} onChange={(v) => setP('reaction_threshold', Number(v))} options={[
+            { value: '0', label: 'liberal — may react to anything' },
+            { value: '0.25', label: 'balanced — skip trivial chatter' },
+            { value: '0.5', label: 'selective — mostly questions & prompts' },
+          ]} />
+        </Field>
         <div className="row">
           <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} /></Field>
           <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} /></Field>
