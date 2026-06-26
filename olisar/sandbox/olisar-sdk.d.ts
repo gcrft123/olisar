@@ -69,9 +69,15 @@ interface EmbedSpec {
   image?: string;
 }
 
+/**
+ * A button or select menu. Use `handlerId` (a key of your `components` map) for a
+ * PERSISTENT component — it keeps working for everyone, even across bot restarts.
+ * `arg` packs a small payload back to the handler (e.g. an item id). Use the legacy
+ * `customId` only for a transient one-shot flow read by `interaction.awaitComponent()`.
+ */
 type Component =
-  | { kind: "button"; customId: string; label: string; style?: "primary" | "secondary" | "danger" }
-  | { kind: "select"; customId: string; placeholder?: string; options: { value: string; label: string }[] };
+  | { kind: "button"; handlerId?: string; customId?: string; arg?: string; label: string; style?: "primary" | "secondary" | "success" | "danger" }
+  | { kind: "select"; handlerId?: string; customId?: string; arg?: string; placeholder?: string; options: { value: string; label: string }[] };
 
 type ReplyPayload =
   | string
@@ -91,6 +97,31 @@ interface Interaction {
   /** Resolve when the user clicks a button / picks an option. */
   awaitComponent(opts?: { timeoutMs?: number }): Promise<{ customId: string; values?: string[] }>;
 }
+
+/** The interaction handed to a persistent component handler when a button/select is clicked. */
+interface ComponentInteraction {
+  /** The `components` key that was clicked. */
+  customId: string;
+  /** The small payload packed into the component's `arg`. */
+  arg?: string;
+  /** Selected values, for a select menu. */
+  values?: string[];
+  guildId: string;
+  channelId: string;
+  /** The message the component lives on. */
+  messageId: string;
+  /** The user who clicked. */
+  userId: string;
+  displayName: string;
+  /** Reply privately to the clicker only. */
+  reply(payload: ReplyPayload): Promise<void>;
+  /** Edit the source message in place (live tally / attendee list). Pass only what
+   *  changes; omit `components` to keep the existing buttons. */
+  update(payload: { content?: string; embed?: any; components?: Component[] }): Promise<void>;
+  /** Acknowledge the click with no visible change. */
+  deferUpdate(): Promise<void>;
+}
+type ComponentHandler = (i: ComponentInteraction) => Promise<void> | void;
 
 interface CommandDef {
   name: string;
@@ -130,6 +161,13 @@ interface ExtensionSpec {
   commands?: CommandDef[];
   seeds?: { kbSources?: KbSeed[]; glossary?: GlossarySeed[] };
   settingsSchema?: SettingsSchema;
+  /**
+   * Persistent button/select handlers, keyed by a short name (a-z 0-9 _). A component
+   * whose `handlerId` is one of these keys keeps working for every user and survives
+   * restarts; each click runs the handler with a ComponentInteraction. Pair with `arg`
+   * to carry a small payload (store anything bigger in host.kv and pass its key).
+   */
+  components?: Record<string, ComponentHandler>;
   /** Runs once on the OFF -> ON transition; use it to seed durable state. */
   onEnable?(ctx: EnableCtx): Promise<void> | void;
 }

@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
+import time
 from typing import Any, Optional
 
 import discord
@@ -27,7 +29,7 @@ from sqlalchemy import select
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import is_enabled
-from olisar.sandbox import SandboxError, run_command
+from olisar.sandbox import SandboxError, run_command, run_component
 
 log = logging.getLogger("olisar.cogs.sdk_commands")
 
@@ -37,6 +39,14 @@ _OPT_PY: dict[str, Any] = {
 }
 _COMPONENT_TIMEOUT = 300.0
 _MODAL_TIMEOUT = 600.0
+_COMPONENT_COOLDOWN = 1.5  # seconds between one user's clicks on the same message
+
+# Persistent-component custom_id wire format: "<oleb|oles>|<ext_key>|<handlerId>|<arg>".
+# The host always mints this (authors only choose handlerId + arg), so the ext_key is
+# trustworthy: a click can only ever route to the extension that owns it. Distinct
+# prefixes give buttons vs selects their own DynamicItem template (no ambiguity).
+_CID_BTN = r"oleb\|(?P<ext>[a-z0-9_]{1,64})\|(?P<h>[a-z0-9_]{1,32})\|(?P<arg>.{0,40})"
+_CID_SEL = r"oles\|(?P<ext>[a-z0-9_]{1,64})\|(?P<h>[a-z0-9_]{1,32})\|(?P<arg>.{0,40})"
 
 
 def _ser(value: Any) -> Any:
@@ -65,27 +75,51 @@ def _to_embed(spec: dict | None) -> discord.Embed | None:
     return e
 
 
-def _build_view(components: list, bridge: "_DiscordBridge") -> discord.ui.View | None:
+def _style(name: str | None) -> discord.ButtonStyle:
+    return getattr(discord.ButtonStyle, name or "secondary", discord.ButtonStyle.secondary)
+
+
+def _build_view(components: list, *, ext_key: str,
+                bridge: "_DiscordBridge | None" = None) -> discord.ui.View | None:
+    """Build a View from SDK component specs.
+
+    A component with ``handlerId`` is PERSISTENT — rendered with a `_SdkButton`/`_SdkSelect`
+    whose custom_id is routed by a global DynamicItem template, so it keeps working for
+    everyone and across restarts. A legacy ``customId`` component is a one-shot bound to
+    ``bridge``'s ``awaitComponent`` (300s)."""
     if not components:
         return None
-    view = discord.ui.View(timeout=_COMPONENT_TIMEOUT)
+    persistent = any(c.get("handlerId") for c in components)
+    view = discord.ui.View(timeout=None if persistent else _COMPONENT_TIMEOUT)
     for comp in components:
         kind = comp.get("kind")
-        if kind == "button":
-            btn = discord.ui.Button(
-                label=comp.get("label", "OK"), custom_id=comp.get("customId", "btn"),
-                style=getattr(discord.ButtonStyle, comp.get("style", "secondary"), discord.ButtonStyle.secondary),
-            )
-            btn.callback = bridge._component_cb(comp.get("customId", "btn"))
-            view.add_item(btn)
-        elif kind == "select":
-            sel = discord.ui.Select(
-                custom_id=comp.get("customId", "sel"), placeholder=comp.get("placeholder"),
-                options=[discord.SelectOption(label=o.get("label", o["value"]), value=o["value"])
-                         for o in comp.get("options", [])],
-            )
-            sel.callback = bridge._component_cb(comp.get("customId", "sel"))
-            view.add_item(sel)
+        hid = comp.get("handlerId")
+        if hid:  # persistent (routed by ext_key + handler)
+            arg = str(comp.get("arg") or "")
+            prefix = "oles" if kind == "select" else "oleb"
+            if len(f"{prefix}|{ext_key}|{hid}|{arg}") > 100:
+                raise ValueError(
+                    "component custom_id is too long (>100 chars) — shorten handlerId/arg, "
+                    "or store the payload in host.kv and pass a short key as arg"
+                )
+            if kind == "select":
+                view.add_item(_SdkSelect(ext_key, hid, arg, comp.get("placeholder"), comp.get("options") or []))
+            else:
+                view.add_item(_SdkButton(ext_key, hid, arg, str(comp.get("label", "OK")), _style(comp.get("style"))))
+        elif bridge is not None:  # legacy one-shot (awaitComponent)
+            cid = str(comp.get("customId", "btn"))
+            if kind == "select":
+                sel = discord.ui.Select(
+                    custom_id=cid, placeholder=comp.get("placeholder"),
+                    options=[discord.SelectOption(label=o.get("label", o["value"]), value=o["value"])
+                             for o in comp.get("options", [])],
+                )
+                sel.callback = bridge._component_cb(cid)
+                view.add_item(sel)
+            else:
+                btn = discord.ui.Button(label=comp.get("label", "OK"), custom_id=cid, style=_style(comp.get("style")))
+                btn.callback = bridge._component_cb(cid)
+                view.add_item(btn)
     return view
 
 
@@ -119,8 +153,9 @@ class _DiscordBridge:
     make their first reply/modal within ~3s and do slow work afterwards.
     """
 
-    def __init__(self, interaction: discord.Interaction):
+    def __init__(self, interaction: discord.Interaction, ext_key: str):
         self.it = interaction
+        self.ext_key = ext_key
         self._responded = False
         self._component_future: asyncio.Future | None = None
 
@@ -139,7 +174,7 @@ class _DiscordBridge:
 
     async def reply(self, payload: Any) -> None:
         p = self._unpack(payload)
-        view = _build_view(p.get("components") or [], self)
+        view = _build_view(p.get("components") or [], ext_key=self.ext_key, bridge=self)
         kwargs = dict(
             content=p.get("content"), embed=_to_embed(p.get("embed")),
             ephemeral=bool(p.get("ephemeral")),
@@ -157,7 +192,7 @@ class _DiscordBridge:
         if not self._responded:
             return await self.reply(payload)
         p = self._unpack(payload)
-        view = _build_view(p.get("components") or [], self)
+        view = _build_view(p.get("components") or [], ext_key=self.ext_key, bridge=self)
         kwargs = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
         if view is not None:
             kwargs["view"] = view
@@ -177,6 +212,168 @@ class _DiscordBridge:
         self._component_future = loop.create_future()
         timeout = float((opts or {}).get("timeoutMs", _COMPONENT_TIMEOUT * 1000)) / 1000.0
         return await asyncio.wait_for(self._component_future, timeout=timeout)
+
+    # update()/deferUpdate() are component-only; raise politely if a command tries them.
+    async def update(self, payload: Any) -> None:
+        raise RuntimeError("update() is only available from a persistent button/select handler")
+
+    async def defer_update(self) -> None:
+        raise RuntimeError("deferUpdate() is only available from a persistent button/select handler")
+
+
+# ── Persistent components (buttons/selects that survive restarts) ─────────────
+# A click routes via a global DynamicItem template to the owning extension; no
+# per-message view is rebuilt on restart. State + lifecycle live in the extension's
+# host.kv. Edits to one message are serialized so concurrent clicks don't race the KV.
+
+_locks: dict[tuple[int, int], asyncio.Lock] = {}
+_clicks: dict[tuple[int, int], float] = {}
+
+
+def _message_lock(gid: int, mid: int) -> asyncio.Lock:
+    return _locks.setdefault((gid, mid), asyncio.Lock())
+
+
+async def _safe_ephemeral(it: discord.Interaction, msg: str) -> None:
+    try:
+        if it.response.is_done():
+            await it.followup.send(msg, ephemeral=True)
+        else:
+            await it.response.send_message(msg, ephemeral=True)
+    except discord.HTTPException:
+        pass
+
+
+class _ComponentBridge:
+    """DiscordBridge for one persistent-component click: reply ephemerally to the
+    clicker, or edit the source message in place (live tally / attendee list)."""
+
+    def __init__(self, interaction: discord.Interaction, ext_key: str):
+        self.it = interaction
+        self.ext_key = ext_key
+        self._responded = False
+
+    def _unpack(self, payload: Any) -> dict:
+        return {"content": payload} if isinstance(payload, str) else (payload or {})
+
+    async def reply(self, payload: Any) -> None:
+        p = self._unpack(payload)
+        view = _build_view(p.get("components") or [], ext_key=self.ext_key)
+        kwargs = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
+        if view is not None:
+            kwargs["view"] = view
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        if not self._responded:
+            self._responded = True
+            await self.it.response.send_message(ephemeral=True, **kwargs)
+        else:
+            await self.it.followup.send(ephemeral=True, **kwargs)
+
+    async def update(self, payload: Any) -> None:
+        p = self._unpack(payload)
+        kwargs: dict = {}
+        if p.get("content") is not None:
+            kwargs["content"] = p["content"]
+        if p.get("embed") is not None:
+            kwargs["embed"] = _to_embed(p["embed"])
+        if "components" in p:  # explicit (even []) replaces the view; [] clears the buttons
+            kwargs["view"] = _build_view(p["components"], ext_key=self.ext_key) or discord.ui.View()
+        # omitting `components` leaves the existing buttons untouched (live tally edits)
+        if not self._responded:
+            self._responded = True
+            await self.it.response.edit_message(**kwargs)
+        else:
+            await self.it.message.edit(**kwargs)
+
+    async def defer_update(self) -> None:
+        self._responded = True
+        await self.it.response.defer()
+
+    async def follow_up(self, payload: Any) -> None:
+        await self.reply(payload)
+
+    async def modal(self, spec: Any) -> dict:
+        raise RuntimeError("a modal can't open from a button click")
+
+    async def await_component(self, opts: Any) -> dict:
+        raise RuntimeError("awaitComponent isn't available in a button handler")
+
+
+async def _dispatch_component(it: discord.Interaction, ext_key: str, handler_id: str, arg: str) -> None:
+    gid = it.guild_id
+    mid = it.message.id if it.message else 0
+    if gid is None:
+        return await _safe_ephemeral(it, "buttons only work inside a server.")
+    ck = (it.user.id, mid)
+    now = time.monotonic()
+    if now - _clicks.get(ck, 0.0) < _COMPONENT_COOLDOWN:
+        return await _safe_ephemeral(it, "one sec — you're clicking too fast.")
+    _clicks[ck] = now
+    async with session_scope() as session:
+        if not await is_enabled(session, gid, ext_key):
+            return await _safe_ephemeral(it, "that extension is turned off here.")
+        pkg = await session.get(ExtensionPackage, ext_key)
+        if pkg is None:
+            return await _safe_ephemeral(it, "that extension is no longer installed.")
+        compiled, perms = pkg.compiled_js, list(pkg.permissions or [])
+        trusted = (pkg.origin or "local") == "local"
+    ctx = {
+        "customId": handler_id, "arg": arg,
+        "values": (it.data or {}).get("values"),
+        "guildId": str(gid), "channelId": str(it.channel_id), "messageId": str(mid),
+        "userId": str(it.user.id), "displayName": it.user.display_name,
+    }
+    bridge = _ComponentBridge(it, ext_key)
+    async with _message_lock(gid, mid):  # serialize edits + KV read-modify-write
+        try:
+            async with session_scope() as session:
+                await run_component(
+                    ext_key=ext_key, compiled_js=compiled, permissions=perms,
+                    handler_name=handler_id, component_ctx=ctx, guild_id=gid,
+                    session=session, discord=bridge, trusted=trusted,
+                )
+        except Exception:  # noqa: BLE001
+            log.exception("sdk component %s/%s failed", ext_key, handler_id)
+            await _safe_ephemeral(it, "that action hit an error.")
+        finally:
+            if not it.response.is_done():  # never leave the click hanging
+                try:
+                    await it.response.defer()
+                except discord.HTTPException:
+                    pass
+
+
+class _SdkButton(discord.ui.DynamicItem[discord.ui.Button], template=_CID_BTN):
+    def __init__(self, ext_key: str, handler_id: str, arg: str,
+                 label: str = "", style: discord.ButtonStyle = discord.ButtonStyle.secondary):
+        self.ext_key, self.handler_id, self.arg = ext_key, handler_id, arg
+        super().__init__(discord.ui.Button(
+            label=(label or "OK")[:80], style=style,
+            custom_id=f"oleb|{ext_key}|{handler_id}|{arg}"))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["ext"], match["h"], match["arg"], label=item.label or "", style=item.style)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await _dispatch_component(interaction, self.ext_key, self.handler_id, self.arg)
+
+
+class _SdkSelect(discord.ui.DynamicItem[discord.ui.Select], template=_CID_SEL):
+    def __init__(self, ext_key: str, handler_id: str, arg: str,
+                 placeholder: str | None = None, options: list | None = None):
+        self.ext_key, self.handler_id, self.arg = ext_key, handler_id, arg
+        opts = [discord.SelectOption(label=o.get("label", o["value"]), value=o["value"])
+                for o in (options or [])] or [discord.SelectOption(label="—", value="—")]
+        super().__init__(discord.ui.Select(
+            custom_id=f"oles|{ext_key}|{handler_id}|{arg}", placeholder=placeholder, options=opts))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["ext"], match["h"], match["arg"])
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await _dispatch_component(interaction, self.ext_key, self.handler_id, self.arg)
 
 
 def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
@@ -203,7 +400,7 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
             "guildId": str(gid), "channelId": str(interaction.channel_id),
             "userId": str(interaction.user.id), "displayName": interaction.user.display_name,
         }
-        bridge = _DiscordBridge(interaction)
+        bridge = _DiscordBridge(interaction, ext_key)
         try:
             async with session_scope() as session:
                 await run_command(
@@ -264,6 +461,7 @@ class SdkCommands(commands.Cog):
         self.bot = bot
         self._registered: set[str] = set()
         self._resync_task: asyncio.Task | None = None
+        self._dynamic_registered = False
 
     async def _load_command_specs(self) -> list[tuple[str, dict]]:
         out: list[tuple[str, dict]] = []
@@ -316,6 +514,12 @@ class SdkCommands(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
+        if not self._dynamic_registered:  # route persistent button/select clicks
+            try:
+                self.bot.add_dynamic_items(_SdkButton, _SdkSelect)
+                self._dynamic_registered = True
+            except Exception:
+                log.exception("registering SDK persistent-component templates failed")
         await self.rebuild()
 
 

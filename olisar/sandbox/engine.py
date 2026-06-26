@@ -33,6 +33,7 @@ COMMAND_CPU_SECONDS = 10.0
 # Wall-clock ceiling for the whole pump (CPU + host I/O between turns).
 TOOL_WALL_SECONDS = 20.0
 COMMAND_WALL_SECONDS = 900.0  # an interactive flow may wait on the user (modal/buttons)
+COMPONENT_WALL_SECONDS = 30.0  # one button/select click — quick state update + edit, never waits
 
 # A capability performer: (cap, method, args) -> JSON-serialisable value. May raise.
 Perform = Callable[[str, str, list], Any]

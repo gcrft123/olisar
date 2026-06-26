@@ -55,6 +55,9 @@ class DiscordBridge(Protocol):
     async def follow_up(self, payload: Any) -> None: ...
     async def modal(self, spec: Any) -> dict: ...
     async def await_component(self, opts: Any) -> dict: ...
+    # Persistent-component handlers (button/select clicks) only:
+    async def update(self, payload: Any) -> None: ...
+    async def defer_update(self) -> None: ...
 
 
 @dataclass
@@ -259,4 +262,10 @@ async def _discord(inv: Invocation, method: str, args: list) -> Any:
     if method == "awaitComponent":
         _require(inv, "discord.components")
         return await inv.discord.await_component(payload)
+    if method == "update":  # edit the source message of a persistent component
+        _require(inv, "discord.components")
+        return await inv.discord.update(payload)
+    if method == "deferUpdate":  # ack a component click with no visible change
+        _require(inv, "discord.components")
+        return await inv.discord.defer_update()
     raise ValueError(f"unknown discord method: {method}")
