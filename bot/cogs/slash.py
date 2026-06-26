@@ -15,7 +15,7 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import func, select, update
 
-from bot.access import member_allowed, resolve_member
+from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import BotActions
 from bot.replies import chunk_text
 from olisar.config import settings
@@ -69,9 +69,11 @@ class Slash(commands.Cog):
     @app_commands.command(name="ask", description="Ask Olisar something.")
     @app_commands.describe(prompt="What do you want to ask?")
     async def ask(self, interaction: discord.Interaction, prompt: str) -> None:
-        # Role gate before deferring, so a denied user gets a clean ephemeral notice.
+        # Role gate before deferring, so a denied user gets a clean ephemeral notice. In a
+        # DM the command borrows a real guild the bot is in (DMs use guild_id 0 for memory).
+        cfg_guild = settings.target_guild_id if interaction.guild_id else dm_home_guild_id(self.bot)
         async with session_scope() as session:
-            cfg = await session.get(GuildConfig, settings.target_guild_id)
+            cfg = await session.get(GuildConfig, cfg_guild)
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
             denied_msg = render_message(
@@ -89,6 +91,7 @@ class Slash(commands.Cog):
             text = await generate_reply(
                 session,
                 guild_id=guild_id,
+                home_guild_id=cfg_guild,  # DM /ask draws features from a real guild
                 channel_id=interaction.channel_id,
                 current_message_id=0,  # not a stored message
                 bot_user_id=self.bot.user.id,
