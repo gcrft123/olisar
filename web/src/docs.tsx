@@ -381,7 +381,7 @@ on clearly relevant moments, at most once every 10 minutes per channel, and neve
 
 Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message **without replying**.
 It has its own, looser gate — no expensive classifier, just a light heuristic plus a **cooldown** and an
-**hourly cap** — so it stays sparse. Toggle it and tune the cooldown/cap on the [Behavior](tab:behavior) tab.
+**hourly cap** — so it stays sparse. Toggle it, tune **how liberal** it is, and set the cooldown/cap on the [Behavior](tab:behavior) tab.
 
 ## Situational awareness
 
