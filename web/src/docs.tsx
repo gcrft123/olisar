@@ -888,7 +888,7 @@ commands register on the next sync, and any [seeds](#ext-sdk) apply the first ti
 
 ## Editing the built-ins
 
-Every built-in — dice, calculator, concise mode, welcome, Star Citizen — **is itself an SDK extension.**
+Every built-in — Welcome and the Star Citizen pack — **is itself an SDK extension.**
 Open **Edit code** on any of them to see exactly how it's written; the Star Citizen pack is a complete,
 real-world example (live HTTP tools, a slash command, knowledge seeding).
 
@@ -935,6 +935,8 @@ specifically, see [Slash commands & flows](#ext-flows).
 | \`commands\` | CommandDef[] | Slash commands. See [flows](#ext-flows). |
 | \`seeds\` | object | Knowledge / glossary to add when enabled. |
 | \`settingsSchema\` | object | Declares a per-server settings pane. |
+| \`components\` | object | Persistent button/select handlers — see [Persistent buttons](#ext-flows). |
+| \`events\` | object | Gateway-event hooks (e.g. \`memberJoin\`) — see [Event hooks](#ext-sdk) below. First-party only. |
 | \`onEnable\` | function | Runs once on the OFF → ON transition (durable setup). |
 
 ## Tools
@@ -983,6 +985,8 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 | \`host.embed(spec)\` | — | Build a Discord embed to pass to \`reply({ embed })\`. |
 | \`host.log(msg)\` | — | Write a line to the bot log. Always available. |
 | \`host.discord.*\` (via the interaction) | \`discord.reply\`, \`discord.modal\`, \`discord.components\` | Reply, pop forms, and use buttons in slash commands — see [flows](#ext-flows). |
+| \`host.generate({ task, maxTokens? })\` | \`model.generate\` | Generate text in your server's persona voice (the persona is applied as the system prompt for you). Resolves to a string. **First-party only.** |
+| \`host.discord.send(channelId, payload)\` | \`discord.send\` | Post a message to a channel — for [event hooks](#ext-sdk) that have no interaction to reply to. **First-party only.** |
 
 :::warning Host secrets and shared code
 \`host.secret\` reads the **operator's** keys (Gemini, Cloudflare, UEX). That's fine for extensions you
@@ -1021,6 +1025,38 @@ const cfg = await host.settings.get()   // { channel, intro }
 
 Field types: \`text\`, \`textarea\`, \`channel\`, \`number\`, \`toggle\`. Settings are **per server**, so each server
 configures the extension its own way.
+
+## Event hooks
+
+An extension can react to Discord **gateway events** by declaring an \`events\` map. The host runs your
+handler in the sandbox when the event fires for a server where your extension is enabled. The event
+you can hook is \`memberJoin\`:
+
+\`\`\`
+permissions: ["model.generate", "discord.send"],
+settingsSchema: { fields: [{ key: "channel_id", type: "channel", label: "Welcome channel" }] },
+events: {
+  async memberJoin(ctx) {
+    const cfg = await host.settings.get()
+    if (!cfg.channel_id) return
+    const text = await host.generate({
+      task: "Welcome " + ctx.member.displayName + " to the server in one warm sentence.",
+      maxTokens: 200,
+    })
+    await host.discord.send(cfg.channel_id, ctx.member.mention + " " + text)
+  },
+}
+\`\`\`
+
+The handler's \`ctx\` carries \`guildId\` and \`member\` (\`{ id, displayName, username, mention, bot }\`). There's
+**no interaction to reply to** — an event handler posts with \`host.discord.send(channelId, payload)\`, and can
+generate a message in the server's voice with \`host.generate(...)\`.
+
+:::warning First-party only
+Event hooks, \`host.generate\`, and \`host.discord.send\` run only for **built-in and locally-authored**
+extensions — never imported or marketplace code, the same bar as [host secrets](#ext-security). The built-in
+**Welcome** extension is the worked example (open *Edit code* on it).
+:::
 
 ## systemNote
 
@@ -1124,6 +1160,49 @@ handler: async (i) => {
 A \`select\` component returns the chosen values in \`c.values\`. If nobody responds within \`timeoutMs\`, the
 await rejects — catch it and tidy up.
 
+## Persistent buttons
+
+\`awaitComponent\` is for a single, short-lived prompt — it stops listening after \`timeoutMs\` (and after a
+bot restart). For buttons many people click over hours or days — polls, RSVPs — declare a **\`components\`**
+map instead. Each handler has a short key; a button/select that references it by \`handlerId\` keeps working
+for everyone and **survives restarts** (no per-message rebuild).
+
+\`\`\`
+permissions: ["kv", "discord.reply", "discord.components"],
+components: {
+  // keyed by handlerId; runs on every click, by anyone, forever
+  vote: async (i) => {
+    const tally = (await host.kv.get("tally")) || {}
+    tally[i.userId] = i.arg            // i.arg is the small payload you set on the button
+    await host.kv.set("tally", tally)
+    await i.update({ embed: host.embed({ title: "Votes: " + Object.keys(tally).length }) })
+  },
+},
+commands: [{
+  name: "poll", description: "Start a poll.",
+  handler: async (i) => {
+    await i.reply({
+      content: "Pick one:",
+      components: [
+        { kind: "button", handlerId: "vote", arg: "a", label: "A" },
+        { kind: "button", handlerId: "vote", arg: "b", label: "B" },
+      ],
+    })
+  },
+}]
+\`\`\`
+
+A persistent handler receives a **ComponentInteraction** \`i\` with \`customId\`, \`arg\`, \`values\` (for selects),
+and the usual context. Its methods differ from a command's:
+
+- \`i.reply(payload)\` — answer the **clicker privately** (ephemeral).
+- \`i.update(payload)\` — edit the **source message** in place (live tally, attendee list). Pass
+  \`components: []\` to clear the buttons; omit \`components\` to leave them.
+- \`i.deferUpdate()\` — acknowledge the click with no visible change.
+
+Keep \`handlerId\` + \`arg\` short (under ~40 chars); store anything bigger in \`host.kv\` and pass its key as
+\`arg\`. The host stamps the routing id, so a click can only ever reach the extension that owns it.
+
 ## Embeds
 
 Build rich cards with \`host.embed\` and pass them to \`reply\`:
@@ -1207,7 +1286,20 @@ capabilities you approve, and **blocked from host secrets** (see [Security & tru
 On an extension you authored, the detail panel has a **Publish** button. The first time, you'll be asked to
 **claim a publisher handle** — your namespace in the catalog (e.g. \`m-studio\`). It's bound to your bot's
 [publisher key](#ext-security): once you own a handle, only your key can publish under it, and every bundle
-you publish is signed by it. Publish again to push a new version; **Yank** pulls a version from the catalog.
+you publish is signed by it.
+
+Once it's live, the panel shows a **Published** badge with its catalog version. Edit the code and it flags
+**unpublished changes**, and the button becomes **Push update** — click it to publish your new source. Bump
+the \`version\` in your code first if you want existing installs to be **offered the update**: a same-version
+re-publish overwrites in place, so people who already installed it won't be prompted to update.
+
+## Removing a version
+
+**Yank** pulls a version — or the whole extension — from the catalog. It stops appearing for everyone;
+anyone who already installed it sees a *Removed from marketplace* note but it keeps working. If an extension
+you **installed** from the marketplace is later yanked, it automatically **reverts to a plain local
+extension** — it drops the Marketplace label, keeps the capabilities you granted, and becomes publishable
+again, so you can keep using it or re-list it under your own handle.
 
 ## The verified badge
 
@@ -1270,6 +1362,10 @@ and that capability is simply unavailable to the extension at runtime.
 (built-ins and ones you authored locally) may use them once granted. **Imported and marketplace**
 extensions are **blocked from host secrets entirely** — even if you tick the box — so installed third-party
 code can never read or exfiltrate your keys. The consent screen marks those requests as unavailable.
+
+The same first-party bar applies to the other powerful capabilities: \`host.generate\` (host-paid model
+calls), \`host.discord.send\` (unprompted channel posts), and **event hooks** like \`memberJoin\`. Built-in and
+locally-authored extensions can use them; imported and marketplace code can't, regardless of what's granted.
 
 ## Signing and integrity
 
@@ -1370,7 +1466,7 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 | A setting didn't take effect | The change is still buffered in the save bar | Press **Save** in the bar at the bottom of the page |
 
 :::tip Still stuck?
-Check the [Usage](tab:usage) tab to see whether you're hammering the quota, and the bot's logs (which now name the
+Check the [Usage](tab:usage) tab to see whether you're hammering the quota, and the bot's logs (which name the
 specific knowledge-base chunks, indexed messages, web sources, and tools each reply used) to see what it
 actually did.
 :::
