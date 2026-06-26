@@ -675,8 +675,8 @@ async function downloadOlx(key: string) {
   URL.revokeObjectURL(url)
 }
 
-function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onEdit: (k: string) => void; onUpdate?: (k: string) => void; mkt?: any }) {
-  const { e, mkt } = props
+function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onEdit: (k: string) => void; onUpdate?: (k: string) => void; mkt?: any; pub?: any; onPublished?: () => void }) {
+  const { e, mkt, pub } = props
   const tools: string[] = e.tools ?? []
   const commands: string[] = e.commands ?? []
   const perms: string[] = e.permissions ?? []
@@ -689,18 +689,40 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   const warnBadge = { color: 'var(--warn)', background: 'var(--warn-soft)', borderColor: 'transparent' }
   // Publishable = locally-authored (not a built-in, not something installed from elsewhere).
   const publishable = e.editable && (!e.origin || e.origin === 'local')
+  // Already live on the marketplace under this bot's handle (from /marketplace/published).
+  const isPublished = publishable && !!pub
 
   const publishToMarketplace = async () => {
     try {
-      let pub = await api.marketplacePublisher()
-      if (!pub.registered) {
+      let info = await api.marketplacePublisher()
+      if (!info.registered) {
         const handle = window.prompt('Choose a publisher handle (your marketplace namespace, a-z 0-9 _ -):', '')?.trim()
         if (!handle) return
-        pub = await api.marketplaceRegister(handle)
+        info = await api.marketplaceRegister(handle)
       }
       const r = await api.marketplacePublish(e.key)
       alert(`Published ${r.id} v${r.version} to the marketplace.`)
+      props.onPublished?.()
     } catch (err: any) { alert('Publish failed: ' + err.message) }
+  }
+
+  // Push the current local source to an already-published extension. If the version
+  // number hasn't moved, warn — the registry overwrites it in place, so anyone who
+  // already installed it won't be offered an update unless the version is bumped.
+  const pushUpdate = async () => {
+    if (pub && !pub.version_is_new && pub.has_changes) {
+      const ok = window.confirm(
+        `You're re-publishing v${pub.local_version} in place — the version number hasn't changed, ` +
+        `so anyone who already installed it won't be offered an update. Bump the version in your code ` +
+        `to ship it as an update.\n\nPush these changes to v${pub.local_version} anyway?`,
+      )
+      if (!ok) return
+    }
+    try {
+      const r = await api.marketplacePublish(e.key)
+      alert(`Pushed ${r.id} v${r.version} to the marketplace.`)
+      props.onPublished?.()
+    } catch (err: any) { alert('Push failed: ' + err.message) }
   }
   return (
     <>
@@ -718,6 +740,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
                     ? <span className="badge" style={accentBadge}>Custom</span>
                     : <span className="badge">Built-in</span>}
               {e.user_modified && <span className="badge">edited</span>}
+              {isPublished && <span className="badge" style={accentBadge}>Published</span>}
+              {isPublished && pub.has_changes && <span className="badge" style={warnBadge}>Unpublished changes</span>}
               {mkt?.update_available && <span className="badge" style={accentBadge}>Update available</span>}
               {mkt?.yanked && <span className="badge" style={warnBadge}>Removed from marketplace</span>}
               <span className={'badge' + (e.enabled ? ' ready' : '')}>{e.enabled ? 'Enabled' : 'Disabled'}</span>
@@ -727,8 +751,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             {props.isOperator && marketplace && mkt?.update_available && (
               <button className="primary sm" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
             )}
-            {props.isOperator && publishable && (
+            {props.isOperator && publishable && !isPublished && (
               <button className="ghost sm" onClick={publishToMarketplace}>Publish</button>
+            )}
+            {props.isOperator && isPublished && pub.has_changes && (
+              <button className="primary sm" onClick={pushUpdate}>Push update</button>
+            )}
+            {props.isOperator && isPublished && !pub.has_changes && (
+              <button className="ghost sm" onClick={pushUpdate}>Re-publish</button>
             )}
             {props.isOperator && e.has_code && (
               <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => alert('Export failed: ' + err.message))}>Export</button>
@@ -747,6 +777,19 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             {e.signature_verified && e.signed_by
               ? ` · signed & verified (${e.signed_by})`
               : ' · unsigned'}
+          </div>
+        )}
+        {isPublished && (
+          <div className="ext-prov">
+            Published to the marketplace as <code>{pub.namespace}/{e.key}</code> · v{pub.published_version}
+            {pub.verified ? ' · ✓ verified publisher' : ''}
+            {pub.has_changes && (
+              <> · <span style={{ color: 'var(--warn)' }}>
+                {pub.version_is_new
+                  ? `local v${pub.local_version} not pushed yet`
+                  : 'local edits not pushed yet'}
+              </span></>
+            )}
           </div>
         )}
         {mkt?.yanked && (
@@ -1067,12 +1110,27 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   const [filter, setFilter] = useState<'all' | 'on' | 'custom'>('all')
   const [importing, setImporting] = useState(false)
   const [mktStatus, setMktStatus] = useState<Record<string, any>>({})
+  const [pubStatus, setPubStatus] = useState<Record<string, any>>({})
   const [updKey, setUpdKey] = useState<string | null>(null)
   const [updPreview, setUpdPreview] = useState<any>(null)
   const [updBusy, setUpdBusy] = useState(false)
   const [updErr, setUpdErr] = useState<string | null>(null)
-  // Per-marketplace-extension update/yank status, fetched once (cheap; few extensions).
-  useEffect(() => { api.marketplaceInstalled().then(setMktStatus).catch(() => {}) }, [])
+  // Per-marketplace-extension update/yank status, and per-authored-extension publish
+  // status (is it live, are there unpushed local changes). Fetched once; few extensions.
+  const reloadPubStatus = () => { api.marketplacePublished().then(setPubStatus).catch(() => {}) }
+  // A yanked/removed marketplace extension is reverted to a local one server-side (so it
+  // loses the Marketplace label and can be re-published). When that happens, drop its stale
+  // marketplace status and refresh the catalog + publish status so the change shows.
+  const reloadMktStatus = () => api.marketplaceInstalled().then((s: Record<string, any>) => {
+    const detached = Object.keys(s).filter((k) => s[k]?.detached)
+    if (detached.length) {
+      const cleaned = { ...s }; detached.forEach((k) => delete cleaned[k])
+      setMktStatus(cleaned); ed.reload(); reloadPubStatus()
+    } else {
+      setMktStatus(s)
+    }
+  }).catch(() => {})
+  useEffect(() => { reloadMktStatus(); reloadPubStatus() }, [])
   const saver = useSaver(async () => {
     const orig = new Map((ed.baseline() ?? []).map((e: any) => [e.key, e.enabled]))
     for (const e of ed.data ?? []) {
@@ -1094,7 +1152,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     try {
       await api.marketplaceUpdate(updKey, granted)
       setUpdKey(null); setUpdPreview(null); setUpdBusy(false)
-      ed.reload(); api.marketplaceInstalled().then(setMktStatus).catch(() => {})
+      ed.reload(); reloadMktStatus()
     } catch (e: any) { setUpdErr(e.message); setUpdBusy(false) }
   }
 
@@ -1102,7 +1160,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   if (view === 'editor') {
     return (
       <Suspense fallback={<Spinner />}>
-        <ExtensionEditor editKey={editKey} onBack={() => { setView('catalog'); ed.reload() }} onChanged={ed.reload} />
+        <ExtensionEditor editKey={editKey} onBack={() => { setView('catalog'); ed.reload(); reloadPubStatus() }} onChanged={ed.reload} />
       </Suspense>
     )
   }
@@ -1141,6 +1199,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
       <span className="nm">{e.name}</span>
       {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available">↑</span>}
       {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace">!</span>}
+      {pubStatus[e.key]?.has_changes && <span className="cust" style={{ color: 'var(--warn)' }} title="Unpublished changes">●</span>}
       {e.editable && <span className="cust">{e.origin === 'marketplace' ? 'Market' : 'Custom'}</span>}
     </button>
   )
@@ -1200,7 +1259,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
         <section>
           {effective ? (
-            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} />
+            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
           ) : (
             <Card>
               <div className="ext-overview">
