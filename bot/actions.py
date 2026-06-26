@@ -139,6 +139,59 @@ class BotActions:
             return "Nobody's in a voice channel right now."
         return "In voice right now —\n" + "\n".join(lines)
 
+    def _resolve_channel(self, channel: object, home_guild_id: int):
+        """The target channel for post_components: the current channel when ``channel`` is
+        falsy, else a channel by id / <#id> mention / name within ``home_guild_id``."""
+        if not channel:
+            return self.channel
+        raw = str(channel).strip().strip("<#>").lstrip("#")
+        if raw.isdigit():
+            return self.bot.get_channel(int(raw))
+        guild = self.bot.get_guild(int(home_guild_id)) if home_guild_id else None
+        if guild is None:
+            return None
+        name = raw.lower()
+        for ch in guild.text_channels:
+            if ch.name.lower() == name:
+                return ch
+        return None
+
+    async def post_components(
+        self, *, channel: object = None, content: object = None, embed: object = None,
+        components: object = None, ext_key: str = "", home_guild_id: int = 0,
+    ) -> str:
+        """Post to a channel with an optional embed + interactive components — the host side
+        of host.discord.send for a trusted tool. Persistent components keep working (they
+        route through the global DynamicItem template, same as a slash command's)."""
+        target = self._resolve_channel(channel, home_guild_id)
+        if target is None or not hasattr(target, "send"):
+            return (f"I couldn't find a channel matching {channel!r} to post in."
+                    if channel else "There's no channel to post in here.")
+        # Built in the cog layer (needs discord.py + the persistent-component templates).
+        from bot.cogs.sdk_commands import _build_view, _to_embed
+        try:
+            view = _build_view(list(components or []), ext_key=ext_key)
+        except Exception as exc:  # noqa: BLE001 - surfaced to the model
+            return f"couldn't build the message: {exc}"
+        kwargs: dict = {}
+        if content:
+            kwargs["content"] = str(content)[:2000]
+        emb = _to_embed(embed) if embed else None
+        if emb is not None:
+            kwargs["embed"] = emb
+        if view is not None:
+            kwargs["view"] = view
+        if not kwargs:
+            return "nothing to post"
+        where = "#" + target.name if getattr(target, "name", None) else "the channel"
+        try:
+            await target.send(**kwargs)
+        except discord.Forbidden:
+            return f"I don't have permission to post in {where}."
+        except Exception as exc:  # noqa: BLE001
+            return f"couldn't post in {where}: {exc}"
+        return f"Posted in {where}." if getattr(target, "name", None) else "Posted it here."
+
     async def send_image(
         self, data: bytes, *, filename: str = "olisar.png", caption: str = ""
     ) -> str:
