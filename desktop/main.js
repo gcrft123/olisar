@@ -5,7 +5,7 @@
 // and a system-tray menu. Closing the window hides to the tray; quitting kills
 // the backend so nothing is left running.
 
-const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain } = require('electron')
+const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, screen } = require('electron')
 const updater = require('./updater')
 const { spawn } = require('child_process')
 const path = require('path')
@@ -206,9 +206,12 @@ async function toggleTunnel() {
 
 function createWindow() {
   if (win) { win.show(); win.focus(); return }
+  // Open large enough that the dashboard's longest pages fit without scrolling,
+  // but never larger than the current screen's usable work area.
+  const { width: waW, height: waH } = screen.getPrimaryDisplay().workAreaSize
   win = new BrowserWindow({
-    width: 1180,
-    height: 820,
+    width: Math.min(1480, waW),
+    height: Math.min(1000, waH),
     minWidth: 900,
     minHeight: 620,
     title: 'Olisar',
