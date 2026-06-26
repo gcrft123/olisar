@@ -82,6 +82,15 @@ TOOLS_NOTE = (
 )
 
 
+# Folded into the system prompt for a DM so Olisar knows it's a private one-on-one, not
+# a server channel — kept subtle (it still has all its usual knowledge, memory, and tools).
+DM_NOTE = (
+    "This is a private direct message — just you and this person, no server channel and no "
+    "one else watching. You keep all your usual knowledge, memory, and tools. Keep it "
+    "personal and one-on-one, and don't act as if other members or channels are here."
+)
+
+
 def _function_calls(resp) -> list:
     """Pull function calls from a response. Prefers ``resp.function_calls`` but
     falls back to scanning the candidate parts directly — some SDK/AFC states
@@ -322,13 +331,19 @@ async def generate_reply(
     actions: DiscordActions | None = None,
     runtime_note: str = "",
     images: list[tuple[bytes, str]] | None = None,
+    home_guild_id: int | None = None,
 ) -> str:
     """Produce Olisar's reply text for one incoming message/prompt.
 
     ``images`` (``(data, mime)`` pairs from the triggering message) are shown to
     the model directly, so Olisar can react to screenshots/pictures in real time."""
-    # DMs (guild_id 0) borrow the home server's persona + config.
-    cfg_guild = guild_id or settings.target_guild_id
+    # DMs (guild_id 0 == DM_GUILD_ID) borrow a home server's persona, knowledge, and tools
+    # (cfg_guild — the caller passes a real guild the bot is in via home_guild_id), while the
+    # message history stays keyed to the per-user DM channel. Tell the model it's a private
+    # one-on-one so it doesn't act like a server channel.
+    cfg_guild = guild_id or home_guild_id or settings.target_guild_id
+    if not guild_id:
+        runtime_note = (DM_NOTE + (("\n\n" + runtime_note) if runtime_note else "")).strip()
 
     persona = await session.get(Persona, cfg_guild)
     if persona is None:
