@@ -84,6 +84,37 @@ class MarketplaceUpdateApplyIn(BaseModel):
     granted_permissions: list[str] = []
 
 
+class MarketplacePolicyIn(BaseModel):
+    risk_threshold: int  # 1-100; publishing is blocked at/above this AI risk score
+
+
+class ReportAttachmentIn(BaseModel):
+    name: str = "attachment"
+    type: str = "application/octet-stream"
+    content_b64: str
+
+
+class MarketplaceReportIn(BaseModel):
+    namespace: str
+    name: str
+    version: str | None = None
+    description: str = ""
+    logs: str = ""  # optional bot logs the reporter chose to attach
+    attachments: list[ReportAttachmentIn] = []
+
+
+class DevModerationIn(BaseModel):
+    discord_id: str
+    status: str  # warn | ban | clear
+    message: str = ""
+
+
+class DevYankIn(BaseModel):
+    namespace: str
+    name: str
+    version: str | None = None
+
+
 class SetupTokenIn(BaseModel):
     token: str
 

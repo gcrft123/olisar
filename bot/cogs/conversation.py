@@ -21,7 +21,6 @@ from bot.actions import MessageActions
 from bot.content import download_images, image_attachments, message_text
 from bot.replies import record_bot_messages, send_reply
 from bot.triggers import detect_trigger
-from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import ChannelMode, GuildConfig
 from olisar.gemini.vision import describe_images
@@ -139,7 +138,7 @@ class Conversation(commands.Cog):
         # Role gate: silently ignore people whose roles aren't allowed to use Olisar
         # (admins always pass; open to everyone when no roles are configured).
         member = resolve_member(self.bot, message.author)
-        if not member_allowed(member, allowed=allowed_roles, blocked=blocked_roles):
+        if not member_allowed(member, allowed=allowed_roles, blocked=blocked_roles, user_id=message.author.id):
             log.info("access denied (role gate) for %s", message.author)
             return
 

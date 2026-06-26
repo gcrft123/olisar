@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import discord
 
+from olisar import moderation
 from olisar.access import access_allowed
 from olisar.config import settings
 
@@ -50,9 +51,16 @@ def _role_ids(member: discord.Member | None) -> set[int]:
     return {role.id for role in member.roles if not role.is_default()}
 
 
-def member_allowed(member: discord.Member | None, *, allowed, blocked) -> bool:
-    """Whether ``member`` may use Olisar under the guild's access lists. A None
-    member (e.g. a DM from a non-member) is treated as having no roles / no admin."""
+def member_allowed(
+    member: discord.Member | None, *, allowed, blocked, user_id: int | None = None
+) -> bool:
+    """Whether ``member`` may use Olisar under the guild's access lists. A None member
+    (e.g. a DM from a non-member) is treated as having no roles / no admin. Pass
+    ``user_id`` (the raw author/interaction user id) so a globally-banned user is refused
+    even when they aren't a guild member."""
+    uid = user_id if user_id is not None else getattr(member, "id", None)
+    if moderation.is_banned(uid):
+        return False  # global ban (synced from the registry) overrides everything
     perms = getattr(member, "guild_permissions", None)
     return access_allowed(
         role_ids=_role_ids(member),

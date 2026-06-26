@@ -56,13 +56,15 @@ async def extract_manifest(compiled_js: str) -> dict:
 
 
 class _ToolBridge:
-    """Adapts a ToolContext's DiscordActions to the sandbox DiscordBridge so a *trusted*
-    tool can post to a channel (with components) via host.discord.send. Only ``send`` is
-    available from a tool — the interaction-bound methods raise."""
+    """Adapts a ToolContext's DiscordActions to the sandbox DiscordBridge so a tool can post
+    to a channel (with components) via host.discord.send. Only ``send`` is available from a
+    tool — the interaction-bound methods raise. ``trusted`` decides the mention policy on the
+    post (third-party posts can't ping)."""
 
-    def __init__(self, ctx: "ToolContext", ext_key: str) -> None:
+    def __init__(self, ctx: "ToolContext", ext_key: str, trusted: bool) -> None:
         self._ctx = ctx
         self._ext_key = ext_key
+        self._trusted = trusted
 
     async def send(self, channel_id: str, payload: Any) -> Any:
         p = {"content": payload} if isinstance(payload, str) else (payload or {})
@@ -72,7 +74,7 @@ class _ToolBridge:
         return await self._ctx.actions.post_components(
             channel=ch, content=p.get("content"), embed=p.get("embed"),
             components=p.get("components"), ext_key=self._ext_key,
-            home_guild_id=self._ctx.cfg_guild,
+            home_guild_id=self._ctx.cfg_guild, trusted=self._trusted,
         )
 
     async def reply(self, payload: Any) -> None:
@@ -99,9 +101,9 @@ async def run_tool(
     tool_name: str, args: dict, ctx: "ToolContext", trusted: bool = False,
 ) -> str:
     """Run a sandboxed LLM tool; always returns a string for the model."""
-    # A trusted tool can post to a channel via host.discord.send when Discord actions are
-    # available (the live reply path; not the dashboard sandbox, where actions is None).
-    bridge = _ToolBridge(ctx, ext_key) if getattr(ctx, "actions", None) is not None else None
+    # A tool can post to a channel via host.discord.send when Discord actions are available
+    # (the live reply path; not the dashboard sandbox, where actions is None).
+    bridge = _ToolBridge(ctx, ext_key, trusted) if getattr(ctx, "actions", None) is not None else None
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=ctx.cfg_guild, session=ctx.session, discord=bridge, trusted=trusted,

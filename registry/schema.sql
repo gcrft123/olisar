@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS versions (
   permissions   TEXT,                    -- JSON array (declared/requested)
   signature     TEXT,                    -- publisher signature over content_hash
   publisher_key TEXT,                    -- signer public key (base64)
+  risk_score    INTEGER,                 -- 0-100 AI risk assessment at publish (NULL = none)
+  risk_report   TEXT,                    -- JSON array of short risk bullets
   yanked        INTEGER NOT NULL DEFAULT 0,
   published_at  TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE (namespace, name, version)
@@ -55,3 +57,41 @@ CREATE TABLE IF NOT EXISTS usage (
   class_a      INTEGER NOT NULL DEFAULT 0,  -- R2 writes this period
   period       TEXT NOT NULL DEFAULT ''     -- YYYY-MM (resets class_a)
 );
+
+-- Platform-owner developer whitelist (by Discord id). A token whose publisher's
+-- discord_id is listed here may use the /v1/dev/* moderation + management routes.
+CREATE TABLE IF NOT EXISTS developers (
+  discord_id TEXT PRIMARY KEY,
+  note       TEXT,
+  added_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Global moderation standing for a Discord id. status: 'warned' | 'banned'.
+-- A warning shows once in the console (acknowledged flips to 1); a ban blocks
+-- publishing, de-lists the publisher's extensions, and locks console + bot.
+CREATE TABLE IF NOT EXISTS moderation (
+  discord_id   TEXT PRIMARY KEY,
+  status       TEXT NOT NULL,
+  message      TEXT,
+  acknowledged INTEGER NOT NULL DEFAULT 0,
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Abuse reports filed against a marketplace extension. Logs + attachments live in
+-- R2 (keys below); the row keeps the searchable metadata + reporter/publisher ids.
+CREATE TABLE IF NOT EXISTS reports (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  namespace            TEXT NOT NULL,
+  name                 TEXT NOT NULL,
+  version              TEXT,
+  publisher_id         INTEGER,
+  publisher_discord_id TEXT,
+  reporter_discord_id  TEXT,
+  description          TEXT,
+  logs_r2_key          TEXT,
+  attachments_r2_key   TEXT,
+  status               TEXT NOT NULL DEFAULT 'open',
+  created_at           TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_reports_ext ON reports (namespace, name);

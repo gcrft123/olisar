@@ -80,7 +80,7 @@ class Slash(commands.Cog):
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
         member = resolve_member(self.bot, interaction.user)
-        if not member_allowed(member, allowed=allowed, blocked=blocked):
+        if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
             return
 
@@ -122,7 +122,7 @@ class Slash(commands.Cog):
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
         member = resolve_member(self.bot, interaction.user)
-        if not member_allowed(member, allowed=allowed, blocked=blocked):
+        if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
             return
 

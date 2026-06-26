@@ -16,9 +16,9 @@ type Permission =
   | "discord.reply"    // reply / follow up to a slash command
   | "discord.modal"    // pop a modal form during a command
   | "discord.components" // buttons / select menus during a command
-  | "discord.send"     // host.discord.send — post to a channel from an event (first-party only)
-  | "model.generate"   // host.generate — generate text in the persona voice (first-party only)
-  | `secret:${string}`; // host.secret("uex_api_key") — read an approved secret by name
+  | "discord.send"     // host.discord.send — post a message to a channel (no @mentions for third-party)
+  | "model.generate"   // host.generate — generate text in the persona voice (uses the operator's model quota)
+  | `secret:${string}`; // host.secret("uex_api_key") — read an approved host secret (built-in/local only)
 
 type JSONSchema = {
   type: "object" | "string" | "number" | "integer" | "boolean" | "array";
@@ -241,7 +241,7 @@ declare const host: {
   /**
    * Generate text in the server's persona voice. The guild persona is applied as the
    * system prompt automatically, so output stays in character. Resolves to the generated
-   * string. First-party only (needs `model.generate`).
+   * string. Needs `model.generate`; uses the operator's own model quota.
    */
   generate(opts: { task: string; maxTokens?: number; systemNote?: string }): Promise<string>;
   discord: {
@@ -249,7 +249,8 @@ declare const host: {
      * Post a message to a channel — for event handlers and tools, which have no interaction
      * to reply to. `channel` is a channel id, `<#id>` mention, or name (resolved in the
      * server). The payload may carry interactive `components` (persistent buttons/selects
-     * keep working). First-party only (needs `discord.send`). Resolves to a status string.
+     * keep working). Needs `discord.send`; rate-limited, and a third-party extension's post
+     * can't @mention anyone. Resolves to a status string.
      */
     send(
       channel: string,

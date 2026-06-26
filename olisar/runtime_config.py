@@ -67,6 +67,9 @@ async def _load() -> dict:
                 values["target_guild_id"] = int(row.target_guild_id or 0)
                 values["tunnel_enabled"] = bool(row.tunnel_enabled)
                 values["configured"] = bool(row.configured)
+                values["extension_risk_threshold"] = int(
+                    getattr(row, "extension_risk_threshold", None) or 70
+                )
     except Exception:
         # app_config may not exist yet (fresh DB) — fall back to .env silently-ish.
         log.debug("reading app_config failed; falling back to .env config", exc_info=True)
@@ -152,6 +155,14 @@ async def session_secret() -> str:
     except Exception:
         log.exception("could not persist generated session secret; using ephemeral one")
     return generated
+
+
+async def extension_risk_threshold() -> int:
+    """The risk score (0-100) at/above which publishing an extension is blocked. Stored in
+    app_config; defaults to 70. Clamped to a sane range."""
+    raw = (await _load()).get("extension_risk_threshold")
+    val = int(raw) if raw is not None else 70
+    return max(1, min(val, 100))
 
 
 async def is_configured() -> bool:

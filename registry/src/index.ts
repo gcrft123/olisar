@@ -22,6 +22,9 @@ export interface Env {
   R2_MAX_BYTES?: string;   // hard storage cap (default 9 GB, under the 10 GB free tier)
   R2_MAX_BUNDLE_BYTES?: string; // per-bundle cap (default 1 MB)
   R2_CLASS_A_MAX?: string; // monthly R2 write cap (default 900k, under 1M free)
+  RESEND_API_KEY?: string; // Resend API key for abuse-report emails (a Worker secret)
+  REPORT_EMAIL?: string;   // where abuse reports are emailed (the platform owner)
+  REPORT_FROM?: string;    // From address (default "Olisar <onboarding@resend.dev>")
 }
 
 const CORS = { "access-control-allow-origin": "*" };
@@ -87,8 +90,27 @@ async function publisherForToken(env: Env, req: Request): Promise<any | null> {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) return null;
   return env.DB.prepare(
-    "SELECT id, handle, public_key, verified FROM publishers WHERE token_hash = ?",
+    "SELECT id, handle, public_key, verified, discord_id FROM publishers WHERE token_hash = ?",
   ).bind(await sha256hex(token)).first();
+}
+
+// A developer (platform moderator) is a publisher whose Discord id is in the `developers`
+// allowlist. The gate distinguishes an unknown/stale token (401, so the bot re-registers
+// and retries) from a valid token that simply isn't a developer (403).
+async function isDeveloper(env: Env, discordId: string): Promise<boolean> {
+  if (!discordId) return false;
+  const dev = await env.DB.prepare("SELECT discord_id FROM developers WHERE discord_id = ?")
+    .bind(discordId).first();
+  return !!dev;
+}
+
+async function requireDeveloper(env: Env, req: Request): Promise<{ pub?: any; resp?: Response }> {
+  const pub = await publisherForToken(env, req);
+  if (!pub) return { resp: json({ error: "unauthorized" }, 401) };
+  if (!pub.discord_id || !(await isDeveloper(env, String(pub.discord_id)))) {
+    return { resp: json({ error: "not a developer" }, 403) };
+  }
+  return { pub };
 }
 
 function entryFromRow(r: any) {
@@ -102,10 +124,20 @@ function entryFromRow(r: any) {
     downloads: r.downloads ?? 0,
     permissions: r.permissions ? JSON.parse(r.permissions) : [],
     sdk_version: r.sdk_version ?? null,
+    risk_score: r.risk_score ?? null,
+    risk_report: r.risk_report ? safeJson(r.risk_report) : null,
     publisher: r.publisher ?? null,
     publisher_fingerprint: r.publisher_fingerprint ?? null,
     publisher_verified: !!r.publisher_verified,
   };
+}
+
+function safeJson(s: string): any {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
 }
 
 export default {
@@ -135,6 +167,44 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/yank") {
         return await publisherYank(req, env);
       }
+      // Abuse reports, install counting, and moderation standing (consumed by every bot).
+      if (req.method === "POST" && url.pathname === "/v1/report") {
+        return await fileReport(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/install") {
+        return await bumpInstall(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/standing") {
+        return await standing(url, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/standing/ack") {
+        return await standingAck(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/moderation/bans") {
+        return await moderationBans(env);
+      }
+      // Developer (platform-moderator) management — every route token-gated to a whitelisted dev.
+      if (req.method === "GET" && url.pathname === "/v1/dev/me") {
+        return await devMe(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/dev/extensions") {
+        return await devExtensions(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/dev/source") {
+        return await devSource(url, req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/dev/reports") {
+        return await devReports(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/dev/moderation") {
+        return await devModerationList(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/dev/yank") {
+        return await devYank(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/dev/moderation") {
+        return await devModeration(req, env);
+      }
       if (req.method === "POST" && url.pathname === "/v1/admin/publish") {
         return await adminPublish(req, env);
       }
@@ -157,7 +227,8 @@ async function search(url: URL, env: Env): Promise<Response> {
 
   let sql = `SELECT e.namespace, e.name, e.category, e.description, e.latest_version, e.downloads,
       p.handle AS publisher, p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified,
-      v.permissions AS permissions, v.sdk_version AS sdk_version
+      v.permissions AS permissions, v.sdk_version AS sdk_version,
+      v.risk_score AS risk_score, v.risk_report AS risk_report
     FROM extensions e
     LEFT JOIN publishers p ON p.id = e.publisher_id
     LEFT JOIN versions v ON v.namespace = e.namespace AND v.name = e.name AND v.version = e.latest_version
@@ -180,14 +251,16 @@ async function search(url: URL, env: Env): Promise<Response> {
 
 async function detail(ns: string, name: string, env: Env): Promise<Response> {
   const ext = await env.DB.prepare(
-    `SELECT e.*, p.handle AS publisher, p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified
+    `SELECT e.*, p.handle AS publisher, p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified,
+            v.risk_score AS risk_score, v.risk_report AS risk_report
      FROM extensions e LEFT JOIN publishers p ON p.id = e.publisher_id
+     LEFT JOIN versions v ON v.namespace = e.namespace AND v.name = e.name AND v.version = e.latest_version
      WHERE e.namespace = ? AND e.name = ?`,
   ).bind(ns, name).first<any>();
   if (!ext) return json({ error: "not found" }, 404);
 
   const { results: versions } = await env.DB.prepare(
-    `SELECT version, content_hash, sdk_version, permissions, signature, publisher_key, yanked, published_at
+    `SELECT version, content_hash, sdk_version, permissions, signature, publisher_key, risk_score, risk_report, yanked, published_at
      FROM versions WHERE namespace = ? AND name = ? ORDER BY published_at DESC`,
   ).bind(ns, name).all();
 
@@ -199,6 +272,8 @@ async function detail(ns: string, name: string, env: Env): Promise<Response> {
       content_hash: v.content_hash,
       sdk_version: v.sdk_version,
       permissions: v.permissions ? JSON.parse(v.permissions) : [],
+      risk_score: v.risk_score ?? null,
+      risk_report: v.risk_report ? safeJson(v.risk_report) : null,
       signed: !!v.signature,
       yanked: !!v.yanked,
       published_at: v.published_at,
@@ -270,7 +345,33 @@ async function ensureSchema(env: Env): Promise<void> {
          id INTEGER PRIMARY KEY, stored_bytes INTEGER NOT NULL DEFAULT 0,
          class_a INTEGER NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT '')`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS developers (
+         discord_id TEXT PRIMARY KEY, note TEXT,
+         added_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS moderation (
+         discord_id TEXT PRIMARY KEY, status TEXT NOT NULL, message TEXT,
+         acknowledged INTEGER NOT NULL DEFAULT 0,
+         updated_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS reports (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, name TEXT NOT NULL,
+         version TEXT, publisher_id INTEGER, publisher_discord_id TEXT,
+         reporter_discord_id TEXT, description TEXT, logs_r2_key TEXT, attachments_r2_key TEXT,
+         status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ),
   ]);
+  // Add the risk columns to a pre-existing versions table (no-op once present).
+  for (const col of ["risk_score INTEGER", "risk_report TEXT"]) {
+    try {
+      await env.DB.prepare(`ALTER TABLE versions ADD COLUMN ${col}`).run();
+    } catch {
+      /* column already exists */
+    }
+  }
   schemaReady = true;
 }
 
@@ -352,17 +453,20 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
        status = 'published', updated_at = datetime('now')`,
   ).bind(namespace, name, publisherId, bundle.category ?? "General", bundle.description ?? "", version).run();
 
+  const riskScore = Number.isFinite(Number(bundle.risk_score)) ? Math.round(Number(bundle.risk_score)) : null;
+  const riskReport = bundle.risk_report != null ? JSON.stringify(bundle.risk_report) : null;
   await env.DB.prepare(
-    `INSERT INTO versions (namespace, name, version, content_hash, r2_key, sdk_version, permissions, signature, publisher_key)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO versions (namespace, name, version, content_hash, r2_key, sdk_version, permissions, signature, publisher_key, risk_score, risk_report)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(namespace, name, version) DO UPDATE SET
        content_hash = excluded.content_hash, r2_key = excluded.r2_key, sdk_version = excluded.sdk_version,
        permissions = excluded.permissions, signature = excluded.signature,
-       publisher_key = excluded.publisher_key, yanked = 0`,
+       publisher_key = excluded.publisher_key, risk_score = excluded.risk_score,
+       risk_report = excluded.risk_report, yanked = 0`,
   ).bind(
     namespace, name, version, bundle.content_hash, key,
     bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
-    bundle.signature ?? null, bundle.public_key ?? null,
+    bundle.signature ?? null, bundle.public_key ?? null, riskScore, riskReport,
   ).run();
 
   return json({ ok: true, id: `${namespace}/${name}`, version, stored_bytes: stored });
@@ -381,6 +485,9 @@ async function publishersRegister(req: Request, env: Env): Promise<Response> {
     return json({ error: "a public_key and a handle (2-64 chars, [a-z0-9_-]) are required" }, 400);
   }
   const fp = await fingerprintOf(pub);
+  if (body.discord_id && (await isBanned(env, String(body.discord_id)))) {
+    return json({ error: "this account is banned from the marketplace" }, 403);
+  }
   const owner = await env.DB.prepare("SELECT fingerprint FROM publishers WHERE handle = ?")
     .bind(handle).first<{ fingerprint: string }>();
   if (owner && owner.fingerprint !== fp) {
@@ -403,6 +510,9 @@ async function publisherPublish(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const publisher = await publisherForToken(env, req);
   if (!publisher) return json({ error: "unauthorized" }, 401);
+  if (publisher.discord_id && (await isBanned(env, String(publisher.discord_id)))) {
+    return json({ error: "this publisher is banned from the marketplace" }, 403);
+  }
   const body = await req.json<any>();
   const bundle = body?.bundle;
   if (!bundle || !bundle.id || !bundle.content_hash) {
@@ -457,14 +567,310 @@ async function publisherYank(req: Request, env: Env): Promise<Response> {
   const name = String(body?.name || "");
   const version = body?.version ? String(body.version) : null;
   if (!name) return json({ error: "name required" }, 400);
+  await yankExtension(env, publisher.handle, name, version);
+  return json({ ok: true });
+}
+
+async function yankExtension(env: Env, namespace: string, name: string, version: string | null): Promise<void> {
   if (version) {
     await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ? AND version = ?")
-      .bind(publisher.handle, name, version).run();
+      .bind(namespace, name, version).run();
   } else {
     await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ?")
-      .bind(publisher.handle, name).run();
+      .bind(namespace, name).run();
     await env.DB.prepare("UPDATE extensions SET status = 'yanked' WHERE namespace = ? AND name = ?")
-      .bind(publisher.handle, name).run();
+      .bind(namespace, name).run();
   }
+}
+
+// ── moderation standing (consumed continuously by console + bot) ─────────────
+async function isBanned(env: Env, discordId: string): Promise<boolean> {
+  if (!discordId) return false;
+  const row = await env.DB.prepare("SELECT status FROM moderation WHERE discord_id = ?")
+    .bind(discordId).first<{ status: string }>();
+  return !!row && row.status === "banned";
+}
+
+async function standing(url: URL, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const discordId = (url.searchParams.get("discord_id") || "").trim();
+  if (!discordId) return json({ status: "ok" });
+  const row = await env.DB.prepare(
+    "SELECT status, message, acknowledged FROM moderation WHERE discord_id = ?",
+  ).bind(discordId).first<{ status: string; message: string; acknowledged: number }>();
+  if (!row) return json({ status: "ok" });
+  return json({ status: row.status, message: row.message || "", acknowledged: !!row.acknowledged });
+}
+
+async function standingAck(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const discordId = String(body?.discord_id || "").trim();
+  if (!discordId) return json({ error: "discord_id required" }, 400);
+  await env.DB.prepare("UPDATE moderation SET acknowledged = 1 WHERE discord_id = ? AND status = 'warned'")
+    .bind(discordId).run();
   return json({ ok: true });
+}
+
+// The current ban list — a minimal blocklist (ids only) bots sync periodically.
+async function moderationBans(env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const { results } = await env.DB.prepare("SELECT discord_id FROM moderation WHERE status = 'banned'").all();
+  return json({ bans: (results || []).map((r: any) => String(r.discord_id)) });
+}
+
+// ── install counting ─────────────────────────────────────────────────────────
+async function bumpInstall(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const namespace = String(body?.namespace || "");
+  const name = String(body?.name || "");
+  if (!namespace || !name) return json({ error: "namespace and name required" }, 400);
+  await env.DB.prepare("UPDATE extensions SET downloads = downloads + 1 WHERE namespace = ? AND name = ?")
+    .bind(namespace, name).run();
+  return json({ ok: true });
+}
+
+// ── abuse reports ────────────────────────────────────────────────────────────
+const REPORT_DESC_MAX = 8000;
+const REPORT_LOGS_MAX = 120_000;
+const REPORT_ATTACH_MAX = 3_500_000; // total decoded bytes across attachments
+
+async function fileReport(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const namespace = String(body?.namespace || "").trim();
+  const name = String(body?.name || "").trim();
+  if (!namespace || !name) return json({ error: "namespace and name required" }, 400);
+  const version = body?.version ? String(body.version) : null;
+  const reporter = body?.reporter_discord_id ? String(body.reporter_discord_id) : null;
+  // Soft anti-flood: cap how many open reports one reporter can have outstanding.
+  if (reporter) {
+    const n = await env.DB.prepare(
+      "SELECT COUNT(*) AS c FROM reports WHERE reporter_discord_id = ? AND status = 'open'",
+    ).bind(reporter).first<{ c: number }>();
+    if ((n?.c ?? 0) >= 20) return json({ error: "too many open reports — please wait for review" }, 429);
+  }
+  const description = String(body?.description || "").slice(0, REPORT_DESC_MAX);
+  const logs = String(body?.logs || "").slice(0, REPORT_LOGS_MAX);
+  const attachments = sanitizeAttachments(body?.attachments);
+
+  // Resolve the publisher (the id the platform owner would warn/ban).
+  const pub = await env.DB.prepare(
+    `SELECT p.id AS id, p.handle AS handle, p.discord_id AS discord_id
+     FROM extensions e LEFT JOIN publishers p ON p.id = e.publisher_id
+     WHERE e.namespace = ? AND e.name = ?`,
+  ).bind(namespace, name).first<any>();
+
+  const ins = await env.DB.prepare(
+    `INSERT INTO reports (namespace, name, version, publisher_id, publisher_discord_id, reporter_discord_id, description)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(namespace, name, version, pub?.id ?? null, pub?.discord_id ?? null, reporter, description).run();
+  const id = ins.meta?.last_row_id ?? 0;
+
+  // Stash the bulky payload (logs + attachments) as a single R2 blob (one write).
+  let blobKey: string | null = null;
+  if (logs || attachments.length) {
+    blobKey = `reports/${id}.json`;
+    await env.BUNDLES.put(blobKey, JSON.stringify({ logs, attachments }), {
+      httpMetadata: { contentType: "application/json" },
+    });
+    await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
+  }
+
+  const emailed = await sendReportEmail(env, {
+    id, namespace, name, version,
+    publisherHandle: pub?.handle ?? null, publisherDiscordId: pub?.discord_id ?? null,
+    reporterDiscordId: reporter, description, logs, attachments,
+  });
+  return json({ ok: true, id, emailed });
+}
+
+function sanitizeAttachments(raw: any): { name: string; type: string; content_b64: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { name: string; type: string; content_b64: string }[] = [];
+  let total = 0;
+  for (const a of raw.slice(0, 8)) {
+    const content = String(a?.content_b64 || a?.content || "");
+    if (!content) continue;
+    total += Math.floor((content.length * 3) / 4);
+    if (total > REPORT_ATTACH_MAX) break;
+    out.push({
+      name: String(a?.name || "attachment").slice(0, 120),
+      type: String(a?.type || "application/octet-stream").slice(0, 100),
+      content_b64: content,
+    });
+  }
+  return out;
+}
+
+async function sendReportEmail(env: Env, r: any): Promise<boolean> {
+  if (!env.RESEND_API_KEY || !env.REPORT_EMAIL) return false;
+  const lines = [
+    `A marketplace extension was reported.`,
+    ``,
+    `Extension:   ${r.namespace}/${r.name}${r.version ? ` @ ${r.version}` : ""}`,
+    `Publisher:   ${r.publisherHandle || "(unknown)"}`,
+    `Publisher Discord ID (warn/ban): ${r.publisherDiscordId || "(unknown)"}`,
+    `Reporter Discord ID:             ${r.reporterDiscordId || "(unknown)"}`,
+    `Report #${r.id}`,
+    ``,
+    `What they reported:`,
+    r.description || "(no description)",
+  ];
+  const attachments: { filename: string; content: string }[] = [];
+  if (r.logs) attachments.push({ filename: "bot-logs.txt", content: btoa(unescape(encodeURIComponent(r.logs))) });
+  for (const a of r.attachments || []) attachments.push({ filename: a.name, content: a.content_b64 });
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from: env.REPORT_FROM || "Olisar <onboarding@resend.dev>",
+        to: [env.REPORT_EMAIL],
+        subject: `[Olisar report] ${r.namespace}/${r.name}`,
+        text: lines.join("\n"),
+        attachments: attachments.length ? attachments : undefined,
+      }),
+    });
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ── developer (platform-moderator) routes ────────────────────────────────────
+// Whether this token's publisher is a whitelisted developer (drives the console's
+// Developer tab). Always 200 so the caller gets a clean boolean.
+async function devMe(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const pub = await publisherForToken(env, req);
+  if (!pub) return json({ error: "unauthorized" }, 401); // stale token → bot re-registers + retries
+  const dev = !!pub.discord_id && (await isDeveloper(env, String(pub.discord_id)));
+  return json({ is_developer: dev, handle: pub.handle, discord_id: pub.discord_id ?? null });
+}
+
+async function devExtensions(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const { results } = await env.DB.prepare(
+    `SELECT e.namespace, e.name, e.category, e.description, e.latest_version, e.downloads, e.status,
+            e.created_at, e.updated_at,
+            p.handle AS publisher, p.discord_id AS publisher_discord_id,
+            p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified,
+            v.permissions, v.sdk_version, v.risk_score, v.risk_report, v.published_at
+     FROM extensions e
+     LEFT JOIN publishers p ON p.id = e.publisher_id
+     LEFT JOIN versions v ON v.namespace = e.namespace AND v.name = e.name AND v.version = e.latest_version
+     ORDER BY e.updated_at DESC`,
+  ).all();
+  return json({
+    extensions: (results || []).map((r: any) => ({
+      namespace: r.namespace, name: r.name, id: `${r.namespace}/${r.name}`,
+      category: r.category, description: r.description,
+      version: r.latest_version, installs: r.downloads ?? 0, status: r.status,
+      created_at: r.created_at, updated_at: r.updated_at, published_at: r.published_at,
+      publisher: r.publisher, publisher_discord_id: r.publisher_discord_id ?? null,
+      publisher_fingerprint: r.publisher_fingerprint, publisher_verified: !!r.publisher_verified,
+      permissions: r.permissions ? JSON.parse(r.permissions) : [],
+      sdk_version: r.sdk_version ?? null,
+      risk_score: r.risk_score ?? null,
+      risk_report: r.risk_report ? safeJson(r.risk_report) : null,
+    })),
+  });
+}
+
+async function devSource(url: URL, req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const ns = (url.searchParams.get("namespace") || "").trim();
+  const name = (url.searchParams.get("name") || "").trim();
+  let version = (url.searchParams.get("version") || "").trim();
+  if (!ns || !name) return json({ error: "namespace and name required" }, 400);
+  if (!version) {
+    const ext = await env.DB.prepare("SELECT latest_version FROM extensions WHERE namespace = ? AND name = ?")
+      .bind(ns, name).first<{ latest_version: string }>();
+    version = ext?.latest_version || "";
+  }
+  const row = await env.DB.prepare(
+    "SELECT content_hash FROM versions WHERE namespace = ? AND name = ? AND version = ?",
+  ).bind(ns, name, version).first<{ content_hash: string }>();
+  if (!row) return json({ error: "not found" }, 404);
+  const obj = await env.BUNDLES.get(bundleKey(row.content_hash));
+  if (!obj) return json({ error: "bundle blob missing" }, 404);
+  const bundle = await obj.json<any>();
+  return json({ namespace: ns, name, version, source: bundle?.source ?? "", sdk_version: bundle?.sdk_version ?? null });
+}
+
+async function devReports(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const { results } = await env.DB.prepare(
+    `SELECT id, namespace, name, version, publisher_discord_id, reporter_discord_id,
+            description, logs_r2_key, status, created_at
+     FROM reports ORDER BY created_at DESC LIMIT 500`,
+  ).all();
+  return json({ reports: results || [] });
+}
+
+async function devYank(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const body = await req.json<any>();
+  const namespace = String(body?.namespace || "").trim();
+  const name = String(body?.name || "").trim();
+  const version = body?.version ? String(body.version) : null;
+  if (!namespace || !name) return json({ error: "namespace and name required" }, 400);
+  await yankExtension(env, namespace, name, version);
+  return json({ ok: true });
+}
+
+async function devModerationList(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const { results } = await env.DB.prepare(
+    "SELECT discord_id, status, message, acknowledged, updated_at FROM moderation ORDER BY updated_at DESC",
+  ).all();
+  return json({ entries: results || [] });
+}
+
+async function devModeration(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const body = await req.json<any>();
+  const discordId = String(body?.discord_id || "").trim();
+  const action = String(body?.status || "").trim(); // warn | ban | clear
+  const message = String(body?.message || "").slice(0, 500);
+  if (!discordId) return json({ error: "discord_id required" }, 400);
+
+  if (action === "clear") {
+    await env.DB.prepare("DELETE FROM moderation WHERE discord_id = ?").bind(discordId).run();
+    // Restore extensions de-listed by the ban (leave genuinely-yanked ones alone).
+    await env.DB.prepare(
+      `UPDATE extensions SET status = 'published'
+       WHERE status = 'banned' AND publisher_id IN (SELECT id FROM publishers WHERE discord_id = ?)`,
+    ).bind(discordId).run();
+    return json({ ok: true, status: "ok" });
+  }
+  const status = action === "ban" ? "banned" : "warned";
+  await env.DB.prepare(
+    `INSERT INTO moderation (discord_id, status, message, acknowledged, updated_at)
+     VALUES (?, ?, ?, 0, datetime('now'))
+     ON CONFLICT(discord_id) DO UPDATE SET status = excluded.status, message = excluded.message,
+       acknowledged = 0, updated_at = datetime('now')`,
+  ).bind(discordId, status, message).run();
+  if (status === "banned") {
+    // De-list every extension by this publisher.
+    await env.DB.prepare(
+      `UPDATE extensions SET status = 'banned'
+       WHERE publisher_id IN (SELECT id FROM publishers WHERE discord_id = ?)`,
+    ).bind(discordId).run();
+  }
+  return json({ ok: true, status });
 }
