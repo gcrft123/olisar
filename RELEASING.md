@@ -79,7 +79,31 @@ Prefer to attach the artifact yourself? Build without publishing
 gh release create v0.2.0 desktop/out/Olisar-0.2.0-arm64.dmg --title "v0.2.0" --notes "…"
 ```
 
-## 3. Verify
+## 3. Write the release notes
+
+CI publishes the GitHub Release with an **empty body**, so add the notes by hand afterward
+(`gh release edit vX.Y.Z --notes-file notes.md`, or in the GitHub web UI).
+
+Title the release **`vX.Y.Z — <short summary>`**, and write the body with these four sections
+**in this order** — omit any that has nothing, but always keep **Install**:
+
+```md
+## Fixes
+- bug fixes / regressions
+
+## New
+- new features
+
+## Other
+- everything else: docs, refactors, dependency bumps, hardening, chores
+
+## Install
+Download the macOS `.dmg` (Apple Silicon) or Windows `.exe` below. The app is unsigned:
+- **macOS** — clear Gatekeeper once: `xattr -dr com.apple.quarantine /Applications/Olisar.app`
+- **Windows** — SmartScreen may warn; choose **More info → Run anyway**.
+```
+
+## 4. Verify
 
 Running an older build, open the tray → **Check for Updates…**. It should report the new
 version and offer **Download**. (Or wait — it polls automatically a few seconds after launch
