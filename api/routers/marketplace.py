@@ -39,10 +39,11 @@ from api.schemas import (
     MarketplaceUpdateIn,
     MarketplaceYankIn,
 )
+from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, ExtensionPackage, utcnow
-from olisar.extensions import signing
+from olisar.extensions import signing, user_registry
 
 log = logging.getLogger("olisar.api.marketplace")
 router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
@@ -88,7 +89,18 @@ def _registry_error(r: httpx.Response, fallback: str) -> HTTPException:
         detail = r.json().get("error") or fallback
     except Exception:  # noqa: BLE001
         detail = fallback
-    status = r.status_code if r.status_code in (400, 401, 403, 409, 413, 429, 507) else 502
+    if r.status_code == 401:
+        # A 401 here means the registry rejected this bot's *publisher token* — NOT the
+        # operator's console session. We must not return 401: the dashboard treats any 401
+        # as a sign-in failure and bounces to the login screen (which can't fix a stale
+        # publisher token). Surface it as an actionable publisher-identity error instead.
+        return HTTPException(
+            status_code=409,
+            detail="the marketplace no longer recognises this bot's publisher token — "
+            "re-register your publisher handle (Marketplace → Publishing as → re-register) "
+            f"and try again. ({detail})",
+        )
+    status = r.status_code if r.status_code in (400, 403, 409, 413, 429, 507) else 502
     return HTTPException(status_code=status, detail=detail)
 
 
@@ -163,10 +175,35 @@ async def install(
 
 
 # ── updates & revocation ────────────────────────────────────────────────────
+async def _detach_from_marketplace(keys: list[str], actor: int | None) -> None:
+    """A yanked/removed marketplace extension reverts to a plain *local* extension: it keeps
+    working and its granted capabilities, but sheds its 'Marketplace' provenance so it stops
+    advertising a marketplace link it no longer has — and becomes publishable again, so the
+    operator can re-list it under their own handle."""
+    changed = False
+    async with session_scope() as session:
+        for key in keys:
+            pkg = await session.get(ExtensionPackage, key)
+            if pkg is None or pkg.origin != "marketplace":
+                continue
+            pkg.origin = "local"
+            pkg.marketplace_ref = None
+            changed = True
+            await record_audit(
+                session, actor=actor, action="detach_extension",
+                target_type="extension_package", target_id=key,
+                after={"origin": "local", "reason": "yanked from marketplace"},
+            )
+    if changed:
+        user_registry.invalidate()
+
+
 @router.get("/installed")
 async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
     """For every marketplace-installed extension, report whether a newer version is
-    available or it's been yanked — so the catalog can surface Update / Removed."""
+    available or it's been yanked — so the catalog can surface Update / Removed. An
+    extension that's been yanked (or fully removed) is detached back to a local extension
+    so it loses the Marketplace label and can be re-published."""
     _operator(admin)
     async with session_scope() as session:
         rows = [
@@ -176,6 +213,7 @@ async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
             )).all()
         ]
     out: dict = {}
+    detach: list[str] = []
     for key, ver, refj in rows:
         if not refj:
             continue
@@ -185,7 +223,8 @@ async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
         except HTTPException:
             continue
         if r.status_code == 404:
-            out[key] = {"installed_version": ver, "yanked": True, "gone": True}
+            out[key] = {"installed_version": ver, "yanked": True, "gone": True, "detached": True}
+            detach.append(key)
             continue
         if r.status_code != 200:
             continue
@@ -194,12 +233,18 @@ async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
         versions = d.get("versions") or []
         latest_yanked = any(v.get("version") == latest and v.get("yanked") for v in versions)
         yanked = d.get("status") == "yanked" or latest_yanked
-        out[key] = {
+        entry = {
             "installed_version": ver,
             "latest_version": latest,
             "update_available": bool(latest and latest != ver and not yanked),
             "yanked": yanked,
         }
+        if yanked:
+            entry["detached"] = True  # reverting to local (below); UI should reload the catalog
+            detach.append(key)
+        out[key] = entry
+    if detach:
+        await _detach_from_marketplace(detach, admin.discord_user_id)
     return out
 
 
@@ -263,6 +308,55 @@ async def publisher(admin: AdminUser = Depends(require_admin)) -> dict:
         }
 
 
+@router.get("/published")
+async def published(admin: AdminUser = Depends(require_admin)) -> dict:
+    """For every locally-authored extension, report whether it's published under this bot's
+    handle and whether the local source has diverged from what's live — so the catalog can
+    offer a "Push update". Keyed by extension key; only includes ones we've published."""
+    _operator(admin)
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        handle = (ident.registry_handle or "").lower()
+        registered = bool(ident.registry_token and handle)
+        rows = [
+            (p.key, p.version, p.content_hash)
+            for p in (await session.scalars(
+                select(ExtensionPackage).where(
+                    ExtensionPackage.kind == "user", ExtensionPackage.origin == "local"
+                )
+            )).all()
+        ]
+    out: dict = {}
+    if not registered:
+        return out
+    for key, ver, chash in rows:
+        try:
+            r = await _registry_get(f"/v1/ext/{handle}/{key}")
+        except HTTPException:
+            continue
+        if r.status_code != 200:  # 404 → not published under our handle; skip
+            continue
+        d = r.json()
+        if (d.get("publisher") or "").lower() != handle:  # someone else owns that name
+            continue
+        versions = d.get("versions") or []
+        same = next((v for v in versions if v.get("version") == ver), None)
+        # No matching version on the registry → there's a new (bumped) version to push.
+        # Same version present → compare content to see if the local source diverged.
+        has_changes = same is None or bool(
+            chash and same.get("content_hash") and chash != same.get("content_hash")
+        )
+        out[key] = {
+            "namespace": handle,
+            "published_version": d.get("version"),
+            "local_version": ver,
+            "version_is_new": same is None,
+            "has_changes": has_changes,
+            "verified": bool(d.get("publisher_verified")),
+        }
+    return out
+
+
 @router.post("/register")
 async def register(body: MarketplaceRegisterIn, admin: AdminUser = Depends(require_admin)) -> dict:
     """Claim a publisher handle (namespace) on the registry, bound to this bot's signing
@@ -286,6 +380,29 @@ async def register(body: MarketplaceRegisterIn, admin: AdminUser = Depends(requi
     return {"ok": True, "handle": data["handle"], "fingerprint": data.get("fingerprint")}
 
 
+async def _reregister_token(admin: AdminUser) -> str | None:
+    """Mint a fresh publisher token by re-registering this bot's handle with its own key.
+    The registry rotates the token on every register, so a token can silently go stale if
+    the same handle+key was re-registered from somewhere else (e.g. a publish script). The
+    key never changes, so re-registering keeps the namespace and the verified badge; it just
+    refreshes the token. Returns the new token, or None if we can't recover it."""
+    async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
+        if not ident.registry_handle:
+            return None
+        r = await _registry_post("/v1/publishers/register", {
+            "public_key": ident.public_key, "handle": ident.registry_handle,
+            "discord_id": str(admin.discord_user_id),
+        })
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        ident.registry_token = data["token"]
+        ident.registry_handle = data["handle"]
+        ident.registered_at = utcnow()
+        return data["token"]
+
+
 @router.post("/publish")
 async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require_admin)) -> dict:
     """Publish a local extension to the registry under this bot's handle (signed)."""
@@ -302,6 +419,10 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
         doc = await build_signed_bundle(session, pkg)
         token = ident.registry_token
     r = await _registry_post("/v1/publish", {"bundle": doc}, token=token)
+    if r.status_code == 401:  # token rotated out from under us — refresh once and retry
+        fresh = await _reregister_token(admin)
+        if fresh:
+            r = await _registry_post("/v1/publish", {"bundle": doc}, token=fresh)
     if r.status_code != 200:
         raise _registry_error(r, "publish failed")
     return r.json()
@@ -317,6 +438,10 @@ async def yank(body: MarketplaceYankIn, admin: AdminUser = Depends(require_admin
             raise HTTPException(status_code=400, detail="this bot isn't a registered publisher")
         token = ident.registry_token
     r = await _registry_post("/v1/yank", {"name": body.name, "version": body.version}, token=token)
+    if r.status_code == 401:  # token rotated out from under us — refresh once and retry
+        fresh = await _reregister_token(admin)
+        if fresh:
+            r = await _registry_post("/v1/yank", {"name": body.name, "version": body.version}, token=fresh)
     if r.status_code != 200:
         raise _registry_error(r, "yank failed")
     return r.json()
