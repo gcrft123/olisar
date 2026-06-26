@@ -34,6 +34,13 @@ class DiscordActions(Protocol):
     async def send_image(self, data: bytes, *, filename: str = ..., caption: str = ...) -> str: ...
     async def user_status(self, query: str, guild_id: int) -> str: ...
     async def who_in_voice(self, guild_id: int) -> str: ...
+    # Post a message (optionally with an embed + interactive components) to a channel —
+    # backs host.discord.send for trusted extension tools. `channel` is None for the current
+    # channel, or a name/id/#mention resolved within `home_guild_id`. Returns a status string.
+    async def post_components(
+        self, *, channel: object, content: object, embed: object,
+        components: object, ext_key: str, home_guild_id: int,
+    ) -> str: ...
 
 
 @dataclass
