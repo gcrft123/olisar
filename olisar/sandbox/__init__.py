@@ -12,6 +12,7 @@ from olisar.sandbox.engine import SandboxError, self_check
 from olisar.sandbox.runner import (
     extract_manifest,
     run_command,
+    run_component,
     run_on_enable,
     run_tool,
 )
@@ -22,5 +23,6 @@ __all__ = [
     "extract_manifest",
     "run_tool",
     "run_command",
+    "run_component",
     "run_on_enable",
 ]
