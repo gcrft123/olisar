@@ -1182,9 +1182,11 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     (filter === 'all' || (filter === 'on' && e.enabled) || (filter === 'custom' && e.editable)) &&
     (!ql || e.name.toLowerCase().includes(ql) || (e.description || '').toLowerCase().includes(ql))
   const shown = rows.filter(match)
-  const custom = shown.filter((e) => e.editable)
-  const builtins = shown.filter((e) => !e.editable)
-  const cats = Array.from(new Set(builtins.map((e) => e.category)))
+  // Group every extension (built-in, custom, marketplace) under its own category, adding a
+  // group for any category present. Sorted A→Z with the catch-all "General" last.
+  const catOf = (e: any) => e.category || 'General'
+  const cats = Array.from(new Set(shown.map(catOf))).sort((a, b) =>
+    a === b ? 0 : a === 'General' ? 1 : b === 'General' ? -1 : a.localeCompare(b))
   const effective = shown.find((e) => e.key === selKey) ?? shown[0] ?? null
   const enabledCount = rows.filter((e) => e.enabled).length
   const customCount = rows.filter((e) => e.editable).length
@@ -1246,12 +1248,10 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
           </div>
           <div className="ext-list">
             {shown.length === 0 && <div className="ext-empty-rail">No extensions match.</div>}
-            {custom.length > 0 && <div className="ext-glabel">Custom</div>}
-            {custom.map(railItem)}
             {cats.map((cat) => (
               <div key={cat}>
                 <div className="ext-glabel">{cat}</div>
-                {builtins.filter((e) => e.category === cat).map(railItem)}
+                {shown.filter((e) => catOf(e) === cat).map(railItem)}
               </div>
             ))}
           </div>
