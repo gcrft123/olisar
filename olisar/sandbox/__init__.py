@@ -13,6 +13,7 @@ from olisar.sandbox.runner import (
     extract_manifest,
     run_command,
     run_component,
+    run_event,
     run_on_enable,
     run_tool,
 )
@@ -24,5 +25,6 @@ __all__ = [
     "run_tool",
     "run_command",
     "run_component",
+    "run_event",
     "run_on_enable",
 ]

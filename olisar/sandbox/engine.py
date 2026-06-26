@@ -34,6 +34,7 @@ COMMAND_CPU_SECONDS = 10.0
 TOOL_WALL_SECONDS = 20.0
 COMMAND_WALL_SECONDS = 900.0  # an interactive flow may wait on the user (modal/buttons)
 COMPONENT_WALL_SECONDS = 30.0  # one button/select click — quick state update + edit, never waits
+EVENT_WALL_SECONDS = 60.0  # a gateway-event hook — never waits on a user, but may call the model once
 
 # A capability performer: (cap, method, args) -> JSON-serialisable value. May raise.
 Perform = Callable[[str, str, list], Any]

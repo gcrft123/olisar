@@ -37,6 +37,17 @@ _DIR = Path(__file__).parent
 _FILES = ("welcome.js", "star_citizen.js")
 
 
+def _ver_tuple(v: str) -> tuple[int, ...]:
+    """Parse a dotted version into a comparable tuple (non-numeric parts -> 0)."""
+    out: list[int] = []
+    for part in str(v or "0").split("."):
+        try:
+            out.append(int(part))
+        except ValueError:
+            out.append(0)
+    return tuple(out)
+
+
 async def seed(session: "AsyncSession") -> None:
     """Insert/refresh the built-in extension packages. Idempotent.
 
@@ -62,17 +73,25 @@ async def seed(session: "AsyncSession") -> None:
             complete = False
             continue
         shipped.add(key)
+        shipped_version = manifest.get("version", "1.0.0")
         row = await session.get(ExtensionPackage, key)
         if row is not None:
-            # Preserve operator edits: once a built-in is changed in the console we never
-            # overwrite it. Untouched built-ins still receive shipped updates.
-            if row.user_modified or row.compiled_js == src:
+            if row.compiled_js == src:
+                continue  # already current
+            # Preserve operator edits to a built-in — UNLESS we ship a newer version, in
+            # which case the shipped update wins (e.g. a built-in re-architected, like
+            # Welcome moving from a Python cog to an SDK event handler). A same-version
+            # edit is still preserved.
+            if row.user_modified and _ver_tuple(row.version) >= _ver_tuple(shipped_version):
                 continue
+            if row.user_modified:
+                log.info("built-in %s: shipped v%s supersedes an edited v%s", key, shipped_version, row.version)
+                row.user_modified = False
         if row is None:
             row = ExtensionPackage(key=key)
             session.add(row)
         row.name = manifest.get("name", key)
-        row.version = manifest.get("version", "1.0.0")
+        row.version = shipped_version
         row.kind = "builtin"
         row.category = manifest.get("category", "General")
         row.description = manifest.get("description", "")

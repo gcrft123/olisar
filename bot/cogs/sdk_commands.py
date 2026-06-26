@@ -220,6 +220,9 @@ class _DiscordBridge:
     async def defer_update(self) -> None:
         raise RuntimeError("deferUpdate() is only available from a persistent button/select handler")
 
+    async def send(self, channel_id: str, payload: Any) -> None:
+        raise RuntimeError("host.discord.send is only available from an event handler — use reply()")
+
 
 # ── Persistent components (buttons/selects that survive restarts) ─────────────
 # A click routes via a global DynamicItem template to the owning extension; no
@@ -297,6 +300,9 @@ class _ComponentBridge:
 
     async def await_component(self, opts: Any) -> dict:
         raise RuntimeError("awaitComponent isn't available in a button handler")
+
+    async def send(self, channel_id: str, payload: Any) -> None:
+        raise RuntimeError("host.discord.send is only available from an event handler")
 
 
 async def _dispatch_component(it: discord.Interaction, ext_key: str, handler_id: str, arg: str) -> None:

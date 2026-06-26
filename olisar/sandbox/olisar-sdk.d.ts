@@ -16,6 +16,8 @@ type Permission =
   | "discord.reply"    // reply / follow up to a slash command
   | "discord.modal"    // pop a modal form during a command
   | "discord.components" // buttons / select menus during a command
+  | "discord.send"     // host.discord.send — post to a channel from an event (first-party only)
+  | "model.generate"   // host.generate — generate text in the persona voice (first-party only)
   | `secret:${string}`; // host.secret("uex_api_key") — read an approved secret by name
 
 type JSONSchema = {
@@ -147,6 +149,29 @@ interface SettingsSchema { fields: SettingsField[] }
 /** Context passed to onEnable (runs once when an admin turns the extension on). */
 interface EnableCtx { guildId: string }
 
+/** A member as seen by an event handler. */
+interface EventMember {
+  id: string;
+  /** Server nickname or display name. */
+  displayName: string;
+  /** Discord username (without nickname). */
+  username: string;
+  /** A mention string (`<@id>`) to ping them. */
+  mention: string;
+  bot: boolean;
+}
+
+/** Context passed to a gateway-event handler (e.g. `events.memberJoin`). There is no
+ * interaction to reply to — post with `host.discord.send(channelId, …)`. */
+interface EventContext {
+  event: string;
+  guildId: string;
+  /** The member the event is about (for member events like `memberJoin`). */
+  member: EventMember | null;
+}
+
+type EventHandler = (ctx: EventContext) => Promise<void> | void;
+
 interface ExtensionSpec {
   id: string;
   name: string;
@@ -168,6 +193,13 @@ interface ExtensionSpec {
    * to carry a small payload (store anything bigger in host.kv and pass its key).
    */
   components?: Record<string, ComponentHandler>;
+  /**
+   * Gateway-event handlers, keyed by event name (currently `memberJoin`). The host runs
+   * the handler when the event fires for a guild where this extension is enabled. Event
+   * hooks are first-party only — built-in and locally-authored extensions, never imported
+   * or marketplace code. Post with `host.discord.send(channelId, …)`; there's no reply.
+   */
+  events?: { memberJoin?: EventHandler } & Record<string, EventHandler>;
   /** Runs once on the OFF -> ON transition; use it to seed durable state. */
   onEnable?(ctx: EnableCtx): Promise<void> | void;
 }
@@ -206,4 +238,17 @@ declare const host: {
   embed(spec: EmbedSpec): any;
   /** Write a line to the bot's log (always available). */
   log(message: string): Promise<void>;
+  /**
+   * Generate text in the server's persona voice. The guild persona is applied as the
+   * system prompt automatically, so output stays in character. Resolves to the generated
+   * string. First-party only (needs `model.generate`).
+   */
+  generate(opts: { task: string; maxTokens?: number; systemNote?: string }): Promise<string>;
+  discord: {
+    /**
+     * Post a message to a channel by id — for event handlers, which have no interaction to
+     * reply to. First-party only (needs `discord.send`).
+     */
+    send(channelId: string, payload: string | { content?: string; embed?: any }): Promise<void>;
+  };
 };

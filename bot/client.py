@@ -25,8 +25,8 @@ INITIAL_COGS = [
     "bot.cogs.self_destruct",
     "bot.cogs.proactive",
     "bot.cogs.reminders",
-    "bot.cogs.welcome",
     "bot.cogs.sdk_commands",
+    "bot.cogs.sdk_events",  # dispatches gateway events (member join, …) to SDK extensions
 ]
 
 

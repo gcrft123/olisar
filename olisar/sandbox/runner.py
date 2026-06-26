@@ -115,6 +115,25 @@ async def run_component(
     )
 
 
+async def run_event(
+    *, ext_key: str, compiled_js: str, permissions: list[str],
+    handler_name: str, event_ctx: dict, guild_id: int,
+    session: "AsyncSession", discord: DiscordBridge | None = None, trusted: bool = False,
+) -> None:
+    """Run a gateway-event handler (e.g. memberJoin). It never waits on a user, but may
+    call the model once (host.generate) and post via host.discord.send, so it's bounded by
+    the event wall limit rather than the long interactive one."""
+    inv = Invocation(
+        ext_key=ext_key, permissions=set(permissions or []),
+        guild_id=guild_id, session=session, discord=discord, trusted=trusted,
+    )
+    await _invoke(
+        inv, compiled_js, "event", handler_name, {"ctx": event_ctx},
+        perform_timeout=engine.EVENT_WALL_SECONDS,
+        cpu_seconds=engine.COMMAND_CPU_SECONDS, wall_seconds=engine.EVENT_WALL_SECONDS,
+    )
+
+
 async def run_on_enable(
     *, ext_key: str, compiled_js: str, permissions: list[str],
     session: "AsyncSession", guild_id: int, trusted: bool = False,
@@ -131,6 +150,6 @@ async def run_on_enable(
 
 
 __all__ = [
-    "extract_manifest", "run_tool", "run_command", "run_component", "run_on_enable",
-    "SandboxError", "DiscordBridge",
+    "extract_manifest", "run_tool", "run_command", "run_component", "run_event",
+    "run_on_enable", "SandboxError", "DiscordBridge",
 ]
