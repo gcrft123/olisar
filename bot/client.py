@@ -27,6 +27,8 @@ INITIAL_COGS = [
     "bot.cogs.reminders",
     "bot.cogs.sdk_commands",
     "bot.cogs.sdk_events",  # dispatches gateway events (member join, …) to SDK extensions
+    "bot.cogs.killswitch",  # /killswitch — instantly disable an extension in a guild
+    "bot.cogs.moderation",  # syncs + enforces the global ban list from the registry
 ]
 
 

@@ -32,9 +32,11 @@ from api.routers.extensions import (
 )
 from api.schemas import (
     MarketplaceInstallIn,
+    MarketplacePolicyIn,
     MarketplacePublishIn,
     MarketplaceRefIn,
     MarketplaceRegisterIn,
+    MarketplaceReportIn,
     MarketplaceUpdateApplyIn,
     MarketplaceUpdateIn,
     MarketplaceYankIn,
@@ -44,6 +46,7 @@ from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, ExtensionPackage, utcnow
 from olisar.extensions import signing, user_registry
+from olisar.extensions.review import review_source
 
 log = logging.getLogger("olisar.api.marketplace")
 router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
@@ -58,13 +61,16 @@ def _registry_base() -> str:
     return (settings.registry_url or "").rstrip("/")
 
 
-async def _registry_get(path: str, params: dict | None = None) -> httpx.Response:
+async def _registry_get(
+    path: str, params: dict | None = None, token: str | None = None
+) -> httpx.Response:
     base = _registry_base()
     if not base:
         raise HTTPException(status_code=503, detail="no marketplace registry is configured")
+    headers = {"authorization": f"Bearer {token}"} if token else None
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            return await client.get(base + path, params=params)
+            return await client.get(base + path, params=params, headers=headers)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"couldn't reach the marketplace: {exc}") from exc
 
@@ -171,6 +177,10 @@ async def install(
         origin="marketplace", marketplace_ref=ref,
     )
     _resync_commands(request)
+    try:  # best-effort install counter; never fail the install over it
+        await _registry_post("/v1/install", {"namespace": body.namespace, "name": body.name})
+    except HTTPException:
+        pass
     return result
 
 
@@ -418,6 +428,25 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
             raise HTTPException(status_code=400, detail="this extension has no source to publish")
         doc = await build_signed_bundle(session, pkg)
         token = ident.registry_token
+        manifest = pkg.manifest or {}
+        requested = pkg.requested_permissions or pkg.permissions or []
+    # AI risk review (operator's own Gemini). Block at/above the operator's threshold; on a
+    # model hiccup (ok=False) we fail open — never brick publishing on a transient error.
+    review = await review_source(pkg.source_ts or "", manifest, requested_permissions=requested)
+    if review.get("ok"):
+        threshold = await runtime_config.extension_risk_threshold()
+        if review["score"] >= threshold:
+            bullets = "; ".join(review.get("bullets") or []) or review.get("summary") or ""
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Publishing blocked — the automated risk review scored "
+                    f"{review['score']}/100 (block threshold {threshold}). {bullets}".strip()
+                ),
+            )
+        # Unsigned metadata (not part of the canonical source hash) so the signature holds.
+        doc["risk_score"] = review["score"]
+        doc["risk_report"] = review.get("bullets") or []
     r = await _registry_post("/v1/publish", {"bundle": doc}, token=token)
     if r.status_code == 401:  # token rotated out from under us — refresh once and retry
         fresh = await _reregister_token(admin)
@@ -425,6 +454,43 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
             r = await _registry_post("/v1/publish", {"bundle": doc}, token=fresh)
     if r.status_code != 200:
         raise _registry_error(r, "publish failed")
+    return r.json()
+
+
+@router.get("/policy")
+async def get_policy(admin: AdminUser = Depends(require_admin)) -> dict:
+    """Marketplace publishing policy — currently the AI risk-score block threshold."""
+    _operator(admin)
+    return {"risk_threshold": await runtime_config.extension_risk_threshold()}
+
+
+@router.put("/policy")
+async def put_policy(body: MarketplacePolicyIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Set the risk-score threshold (1-100) at/above which publishing is blocked."""
+    _operator(admin)
+    value = max(1, min(int(body.risk_threshold), 100))
+    await runtime_config.save(extension_risk_threshold=value)
+    return {"ok": True, "risk_threshold": value}
+
+
+@router.post("/report")
+async def report(body: MarketplaceReportIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """File an abuse report against a marketplace extension. The registry stores it, emails
+    the platform owner (with the publisher's Discord id to warn/ban), and surfaces it in the
+    developer console. The reporter is this operator's Discord id."""
+    _operator(admin)
+    payload = {
+        "namespace": body.namespace,
+        "name": body.name,
+        "version": body.version,
+        "reporter_discord_id": str(admin.discord_user_id),
+        "description": body.description,
+        "logs": body.logs,
+        "attachments": [a.model_dump() for a in body.attachments],
+    }
+    r = await _registry_post("/v1/report", payload)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't file the report")
     return r.json()
 
 

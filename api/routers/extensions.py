@@ -37,6 +37,7 @@ from olisar.db.models import (
 )
 from olisar.extensions import bundle, signing, user_registry
 from olisar.extensions.base import _REGISTRY  # built-in (Python) keys, reserved
+from olisar.extensions.review import review_source
 from olisar.sandbox import transpile
 from olisar.sandbox.transpile import SDK_VERSION
 
@@ -92,6 +93,12 @@ async def _build(source: str) -> tuple[str, dict]:
 
 
 def _summary(pkg: ExtensionPackage) -> dict:
+    ref = None
+    if pkg.marketplace_ref:
+        try:
+            ref = json.loads(pkg.marketplace_ref)
+        except (TypeError, ValueError):
+            ref = None
     return {
         "key": pkg.key, "name": pkg.name, "version": pkg.version, "kind": pkg.kind,
         "category": pkg.category, "description": pkg.description,
@@ -99,6 +106,8 @@ def _summary(pkg: ExtensionPackage) -> dict:
         "requested_permissions": pkg.requested_permissions or [],
         "origin": pkg.origin or "local", "sdk_version": pkg.sdk_version or SDK_VERSION,
         "editable": pkg.kind == "user",
+        # {registry, namespace, name, version} for marketplace installs — used to report it.
+        "marketplace_ref": ref,
         "updated_at": pkg.updated_at.isoformat() if pkg.updated_at else None,
     }
 
@@ -205,12 +214,31 @@ async def _prepare_import(bundle_data: dict) -> tuple[object, str, dict]:
     return parsed, compiled_js, manifest
 
 
+# Install-time risk reviews, cached by content hash so re-previewing the same bytes is free.
+_REVIEW_CACHE: dict[str, dict] = {}
+
+
+async def _review_cached(content_hash: str, source: str, manifest: dict) -> dict:
+    key = content_hash or ""
+    if key and key in _REVIEW_CACHE:
+        return _REVIEW_CACHE[key]
+    result = await review_source(source, manifest, requested_permissions=manifest.get("permissions"))
+    if key:
+        if len(_REVIEW_CACHE) > 256:
+            _REVIEW_CACHE.clear()
+        _REVIEW_CACHE[key] = result
+    return result
+
+
 async def preview_bundle(bundle_doc: dict) -> dict:
     """Shared preview for file-import and marketplace-install: re-derives the manifest and
-    checks the signature, returning what the extension adds + the capabilities it requests."""
+    checks the signature, returning what the extension adds + the capabilities it requests.
+    Also runs a fresh AI risk review on the installer's side (so a publisher can't fake a
+    low score) and includes it for the consent screen."""
     parsed, _, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     sig_status, sig_fingerprint, _ = signing.verify_bundle(bundle_doc, parsed.content_hash)
+    risk = await _review_cached(parsed.content_hash, parsed.source, manifest)
     async with session_scope() as session:
         exists = await session.get(ExtensionPackage, key) is not None
     return {
@@ -230,6 +258,8 @@ async def preview_bundle(bundle_doc: dict) -> dict:
         "is_builtin_key": key in _REGISTRY,
         # unsigned | valid | invalid — an invalid signature blocks install (likely tampered).
         "signature": {"status": sig_status, "fingerprint": sig_fingerprint},
+        # {score, summary, bullets, ok} — ok=False means "review unavailable", not "safe".
+        "risk": risk,
     }
 
 

@@ -159,10 +159,13 @@ class BotActions:
     async def post_components(
         self, *, channel: object = None, content: object = None, embed: object = None,
         components: object = None, ext_key: str = "", home_guild_id: int = 0,
+        trusted: bool = False,
     ) -> str:
         """Post to a channel with an optional embed + interactive components — the host side
-        of host.discord.send for a trusted tool. Persistent components keep working (they
-        route through the global DynamicItem template, same as a slash command's)."""
+        of host.discord.send for an extension tool. Persistent components keep working (they
+        route through the global DynamicItem template, same as a slash command's). A
+        third-party (untrusted) extension's post is stripped of @mentions so it can't
+        @everyone / mass-ping; built-ins keep normal mentions."""
         target = self._resolve_channel(channel, home_guild_id)
         if target is None or not hasattr(target, "send"):
             return (f"I couldn't find a channel matching {channel!r} to post in."
@@ -183,6 +186,8 @@ class BotActions:
             kwargs["view"] = view
         if not kwargs:
             return "nothing to post"
+        if not trusted:  # third-party posts can't ping anyone
+            kwargs["allowed_mentions"] = discord.AllowedMentions.none()
         where = "#" + target.name if getattr(target, "name", None) else "the channel"
         try:
             await target.send(**kwargs)

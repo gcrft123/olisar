@@ -117,6 +117,29 @@ export const api = {
     req('/api/marketplace/update/preview', { method: 'POST', body: JSON.stringify({ key }) }),
   marketplaceUpdate: (key: string, granted: string[]) =>
     req('/api/marketplace/update', { method: 'POST', body: JSON.stringify({ key, granted_permissions: granted }) }),
+  // Publish-block risk threshold (operator-tunable).
+  marketplacePolicy: () => req('/api/marketplace/policy'),
+  setMarketplacePolicy: (risk_threshold: number) =>
+    req('/api/marketplace/policy', { method: 'PUT', body: JSON.stringify({ risk_threshold }) }),
+  // Abuse report against a marketplace extension (→ email to the platform owner + dev console).
+  marketplaceReport: (b: {
+    namespace: string; name: string; version?: string | null; description: string;
+    logs?: string; attachments?: { name: string; type: string; content_b64: string }[]
+  }) => req('/api/marketplace/report', { method: 'POST', body: JSON.stringify(b) }),
+
+  // Developer console (platform owner) — proxied to the registry behind the publisher token.
+  devStatus: () => req('/api/dev/status'),
+  devExtensions: () => req('/api/dev/extensions'),
+  devReports: () => req('/api/dev/reports'),
+  devSource: (namespace: string, name: string, version = '') =>
+    req(`/api/dev/source?namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`),
+  devYank: (namespace: string, name: string, version?: string | null) =>
+    req('/api/dev/yank', { method: 'POST', body: JSON.stringify({ namespace, name, version }) }),
+  devModerationList: () => req('/api/dev/moderation'),
+  devModeration: (discord_id: string, status: 'warn' | 'ban' | 'clear', message = '') =>
+    req('/api/dev/moderation', { method: 'POST', body: JSON.stringify({ discord_id, status, message }) }),
+  devStanding: () => req('/api/dev/standing'),
+  devStandingAck: () => req('/api/dev/standing/ack', { method: 'POST' }),
 
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
