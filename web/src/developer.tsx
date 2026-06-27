@@ -8,11 +8,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
 
-type DevTab = 'extensions' | 'reports' | 'moderation' | 'logs' | 'funnel' | 'policy'
+type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
 const TABS: { id: DevTab; label: string }[] = [
   { id: 'extensions', label: 'Extensions' },
   { id: 'reports', label: 'Reports' },
+  { id: 'blocked', label: 'Blocked' },
   { id: 'moderation', label: 'Moderation' },
   { id: 'logs', label: 'Bot logs' },
   { id: 'funnel', label: 'Funnel logs' },
@@ -51,6 +52,7 @@ export function Developer() {
       </div>
       {tab === 'extensions' && <DevExtensions />}
       {tab === 'reports' && <DevReports />}
+      {tab === 'blocked' && <DevBlocked />}
       {tab === 'moderation' && <DevModeration />}
       {tab === 'logs' && <DevLogs kind="bot" />}
       {tab === 'funnel' && <DevLogs kind="funnel" />}
@@ -111,7 +113,7 @@ function DevExtensions() {
   return (
     <div className="card">
       <div className="dev-toolbar">
-        <input className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, publisher, or Discord ID…" />
+        <input type="text" className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, publisher, or Discord ID…" />
         <span className="settings-muted">{filtered.length} of {rows.length}</span>
         <span className="grow" />
         <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
@@ -212,6 +214,42 @@ function DevReports() {
   )
 }
 
+// ── Blocked publishes ────────────────────────────────────────────────────────
+function DevBlocked() {
+  const [rows, setRows] = useState<any[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const load = () => { setErr(null); api.devBlocked().then((d) => setRows(d.blocked || [])).catch((e) => setErr(e.message)) }
+  useEffect(load, [])
+
+  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (!rows) return <Loading />
+  if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
+  return (
+    <div className="card">
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button></div>
+      <div className="dev-reports">
+        {rows.map((r) => (
+          <div key={r.id} className="dev-report">
+            <div className="dev-report-head">
+              <span className="mono">{r.namespace ? r.namespace + '/' : ''}{r.name}{r.version ? ` @ ${r.version}` : ''}</span>
+              <span className={'risk-pill ' + riskCls(r.risk_score ?? 0)}>{r.risk_score ?? '—'}</span>
+              <span className="settings-muted">/ threshold {r.threshold ?? '—'}</span>
+              <span className="grow" />
+              <span className="settings-muted">{fmtDate(r.created_at)}</span>
+            </div>
+            {(r.bullets || []).length > 0 && (
+              <ul className="dev-blocked-reasons">
+                {r.bullets.map((b: string, i: number) => <li key={i}>{b}</li>)}
+              </ul>
+            )}
+            <div className="dev-report-meta"><span>by <code>{r.reporter_discord_id || 'unknown'}</code></span></div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Moderation ───────────────────────────────────────────────────────────────
 function DevModeration() {
   const [entries, setEntries] = useState<any[] | null>(null)
@@ -231,8 +269,8 @@ function DevModeration() {
     <div className="card">
       <div className="settings-subhead">Warn or ban a Discord ID</div>
       <div className="dev-mod-form">
-        <input className="dev-search" value={id} onChange={(e) => setId(e.target.value)} placeholder="Discord user ID" />
-        <input className="dev-search" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message (shown to the user, optional)" />
+        <input type="text" className="dev-search" value={id} onChange={(e) => setId(e.target.value)} placeholder="Discord user ID" />
+        <input type="text" className="dev-search" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message (shown to the user, optional)" />
         <button className="ghost sm warn" onClick={() => act(id, 'warn', msg)}>Warn</button>
         <button className="ghost sm danger" onClick={() => act(id, 'ban', msg)}>Ban</button>
       </div>
@@ -271,14 +309,14 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
   useEffect(() => { if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight }, [lines])
 
   return (
-    <div className="card" style={{ display: 'flex', flexDirection: 'column', minHeight: 420 }}>
+    <div className="card">
       <div className="dev-toolbar">
         <span className="settings-muted">{kind === 'bot' ? 'Backend (bot + API) logs' : 'Remote-access (Tailscale Funnel) logs'}</span>
         <span className="grow" />
         <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
       </div>
       {err && <div className="settings-err">{err}</div>}
-      <pre className="logview fill" ref={preRef}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
+      <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
     </div>
   )
 }

@@ -139,6 +139,7 @@ export const api = {
   devStatus: () => req('/api/dev/status'),
   devExtensions: () => req('/api/dev/extensions'),
   devReports: () => req('/api/dev/reports'),
+  devBlocked: () => req('/api/dev/blocked'),
   devSource: (namespace: string, name: string, version = '') =>
     req(`/api/dev/source?namespace=${encodeURIComponent(namespace)}&name=${encodeURIComponent(name)}&version=${encodeURIComponent(version)}`),
   devYank: (namespace: string, name: string, version?: string | null) =>

@@ -174,6 +174,9 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/install") {
         return await bumpInstall(req, env);
       }
+      if (req.method === "POST" && url.pathname === "/v1/blocked") {
+        return await recordBlocked(req, env);
+      }
       if (req.method === "GET" && url.pathname === "/v1/standing") {
         return await standing(url, env);
       }
@@ -195,6 +198,9 @@ export default {
       }
       if (req.method === "GET" && url.pathname === "/v1/dev/reports") {
         return await devReports(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/dev/blocked") {
+        return await devBlocked(req, env);
       }
       if (req.method === "GET" && url.pathname === "/v1/dev/moderation") {
         return await devModerationList(req, env);
@@ -362,6 +368,12 @@ async function ensureSchema(env: Env): Promise<void> {
          version TEXT, publisher_id INTEGER, publisher_discord_id TEXT,
          reporter_discord_id TEXT, description TEXT, logs_r2_key TEXT, attachments_r2_key TEXT,
          status TEXT NOT NULL DEFAULT 'open', created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+    ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS blocked_publishes (
+         id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT, name TEXT NOT NULL, version TEXT,
+         reporter_discord_id TEXT, risk_score INTEGER, threshold INTEGER, bullets TEXT,
+         created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     ),
   ]);
   // Add the risk columns to a pre-existing versions table (no-op once present).
@@ -631,6 +643,27 @@ async function bumpInstall(req: Request, env: Env): Promise<Response> {
   return json({ ok: true });
 }
 
+// ── blocked publishes (recorded by a bot when its risk review blocks a publish) ──
+async function recordBlocked(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const body = await req.json<any>();
+  const name = String(body?.name || "").trim();
+  if (!name) return json({ error: "name required" }, 400);
+  await env.DB.prepare(
+    `INSERT INTO blocked_publishes (namespace, name, version, reporter_discord_id, risk_score, threshold, bullets)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(
+    body.namespace ? String(body.namespace) : null,
+    name,
+    body.version ? String(body.version) : null,
+    body.reporter_discord_id ? String(body.reporter_discord_id) : null,
+    Number.isFinite(Number(body.risk_score)) ? Math.round(Number(body.risk_score)) : null,
+    Number.isFinite(Number(body.threshold)) ? Math.round(Number(body.threshold)) : null,
+    body.bullets != null ? JSON.stringify(body.bullets) : null,
+  ).run();
+  return json({ ok: true });
+}
+
 // ── abuse reports ────────────────────────────────────────────────────────────
 const REPORT_DESC_MAX = 8000;
 const REPORT_LOGS_MAX = 120_000;
@@ -678,12 +711,12 @@ async function fileReport(req: Request, env: Env): Promise<Response> {
     await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
   }
 
-  const emailed = await sendReportEmail(env, {
+  const email = await sendReportEmail(env, {
     id, namespace, name, version,
     publisherHandle: pub?.handle ?? null, publisherDiscordId: pub?.discord_id ?? null,
     reporterDiscordId: reporter, description, logs, attachments,
   });
-  return json({ ok: true, id, emailed });
+  return json({ ok: true, id, emailed: email.ok, email });
 }
 
 function sanitizeAttachments(raw: any): { name: string; type: string; content_b64: string }[] {
@@ -704,8 +737,9 @@ function sanitizeAttachments(raw: any): { name: string; type: string; content_b6
   return out;
 }
 
-async function sendReportEmail(env: Env, r: any): Promise<boolean> {
-  if (!env.RESEND_API_KEY || !env.REPORT_EMAIL) return false;
+async function sendReportEmail(env: Env, r: any): Promise<{ ok: boolean; status?: number; error?: string; skipped?: string }> {
+  if (!env.RESEND_API_KEY) return { ok: false, skipped: "RESEND_API_KEY secret is not set" };
+  if (!env.REPORT_EMAIL) return { ok: false, skipped: "REPORT_EMAIL secret is not set" };
   const lines = [
     `A marketplace extension was reported.`,
     ``,
@@ -733,9 +767,13 @@ async function sendReportEmail(env: Env, r: any): Promise<boolean> {
         attachments: attachments.length ? attachments : undefined,
       }),
     });
-    return resp.ok;
-  } catch {
-    return false;
+    if (resp.ok) return { ok: true, status: resp.status };
+    let body = "";
+    try { body = await resp.text(); } catch { /* ignore */ }
+    console.log("resend send failed", resp.status, body);
+    return { ok: false, status: resp.status, error: body.slice(0, 500) };
+  } catch (e: any) {
+    return { ok: false, error: String((e && e.message) || e) };
   }
 }
 
@@ -827,6 +865,22 @@ async function devYank(req: Request, env: Env): Promise<Response> {
   if (!namespace || !name) return json({ error: "namespace and name required" }, 400);
   await yankExtension(env, namespace, name, version);
   return json({ ok: true });
+}
+
+async function devBlocked(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const { results } = await env.DB.prepare(
+    `SELECT id, namespace, name, version, reporter_discord_id, risk_score, threshold, bullets, created_at
+     FROM blocked_publishes ORDER BY created_at DESC LIMIT 500`,
+  ).all();
+  return json({
+    blocked: (results || []).map((b: any) => ({
+      ...b,
+      bullets: b.bullets ? safeJson(b.bullets) : [],
+    })),
+  });
 }
 
 async function devModerationList(req: Request, env: Env): Promise<Response> {
