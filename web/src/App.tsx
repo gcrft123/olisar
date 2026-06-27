@@ -337,6 +337,13 @@ function BotPower() {
   const [st, setSt] = useState<BotState | null>(null)
   const [phase, setPhase] = useState<'idle' | 'holding' | 'stopping' | 'starting'>('idle')
   const hold = useRef<number | null>(null)
+  // Once we've seen a powerable bot, keep the card mounted — a transient poll during a
+  // power cycle can momentarily report unavailable, which used to make the card vanish.
+  const seen = useRef(false)
+  // True while a hold-to-power-down is completing, so the release click that follows
+  // doesn't immediately power the bot back on. (Declared up here — all hooks must run
+  // before the early return below, or the hook order changes when the card appears.)
+  const didPowerDown = useRef(false)
 
   const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
   useEffect(() => {
@@ -347,7 +354,8 @@ function BotPower() {
     return () => { alive = false; clearInterval(id) }
   }, [])
 
-  if (!st || !st.available || !st.can_power) return null
+  if (st && st.available && st.can_power) seen.current = true
+  if (!st || !seen.current) return null
 
   const busy = phase === 'stopping' || phase === 'starting'
   const online = st.running && st.ready && !busy
@@ -357,6 +365,7 @@ function BotPower() {
   const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null } }
 
   async function powerDown() {
+    didPowerDown.current = true
     setPhase('stopping')
     try { setSt(await api.botPower(false)) } catch { /* ignore */ }
     setPhase('idle'); pull()
@@ -374,11 +383,15 @@ function BotPower() {
   }
 
   const startHold = () => {
-    if (!online) return
     setPhase('holding')
     hold.current = window.setTimeout(() => { hold.current = null; powerDown() }, HOLD_MS)
   }
   const endHold = () => { clearHold(); setPhase((p) => (p === 'holding' ? 'idle' : p)) }
+  const onPointerDown = () => { didPowerDown.current = false; if (online) startHold() }
+  const onClick = () => {
+    if (didPowerDown.current) { didPowerDown.current = false; return }  // swallow the post-hold release
+    if (offline) powerUp()
+  }
 
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
     : starting ? 'starting' : online ? 'online' : 'offline'
@@ -396,19 +409,19 @@ function BotPower() {
         className="power-btn"
         disabled={busy}
         title={online ? 'Hold to power down' : offline ? 'Power on' : ''}
-        onPointerDown={online ? startHold : undefined}
+        onPointerDown={onPointerDown}
         onPointerUp={endHold}
         onPointerLeave={endHold}
         onPointerCancel={endHold}
-        onClick={offline ? powerUp : undefined}
+        onClick={onClick}
       >
         <svg className="power-ring" viewBox="0 0 44 44" aria-hidden="true">
           <circle cx="22" cy="22" r="19" />
         </svg>
-        <Icon.power size={17} weight="Bold" />
+        <Icon.bolt size={17} weight="Bold" />
       </button>
       <div className="botpower-text">
-        <div className="bp-status"><span className="bp-dot" />{label}</div>
+        <div className="bp-status">{label}</div>
         <div className="bp-hint">{hint}</div>
       </div>
     </div>
@@ -449,7 +462,6 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
   return (
     <div className="weblink">
       <div className="weblink-head">
-        <span className={'dot' + (tunnel.running ? ' on' : ' warn')} />
         <span className="weblink-label">{tunnel.running ? 'Open from the web' : 'Reconnecting…'}</span>
       </div>
       <div className="weblink-row">
