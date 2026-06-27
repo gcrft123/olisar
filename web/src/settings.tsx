@@ -91,7 +91,7 @@ function Appearance() {
           <input type="color" value={accent} onChange={(e) => pick(e.target.value)} />
           <span>Custom — {accent}</span>
         </label>
-        <button className="ghost sm" onClick={() => pick(DEFAULT_ACCENT)} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
+        <button className="ghost" onClick={() => pick(DEFAULT_ACCENT)} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
           Reset
         </button>
       </div>
@@ -116,7 +116,7 @@ function Logs() {
     <>
       <Head title="Bot logs" sub="Recent backend activity — the bot and the dashboard API, newest at the bottom." />
       <div className="settings-row end">
-        <button className="ghost sm" onClick={() => load(true)}><Icon.refresh size={14} /> Refresh</button>
+        <button className="ghost" onClick={() => load(true)}><Icon.refresh size={14} /> Refresh</button>
       </div>
       {err && <div className="settings-err">{err}</div>}
       <pre className="logview fill" ref={preRef}>{lines === null ? 'Loading…' : (lines.length ? lines.join('\n') : 'No logs yet.')}</pre>
@@ -152,7 +152,7 @@ function Remote() {
                 ? <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, '')}</a>
                 : <span className="settings-muted">No public link — turn on remote access from the tray.</span>}
             </div>
-            <button className="ghost sm" onClick={() => load(true)} style={{ marginLeft: 'auto' }}><Icon.refresh size={14} /></button>
+            <button className="ghost" onClick={() => load(true)} style={{ marginLeft: 'auto' }}><Icon.refresh size={14} /></button>
           </div>
 
           <div className="settings-subhead">Who can access ({data.users?.length || 0})</div>
@@ -244,7 +244,7 @@ function Updates() {
             <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (canSelfUpdate ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
           </button>
         )}
-        <button className="ghost sm" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
+        <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
       <p className="settings-foot">
         {du

@@ -416,7 +416,8 @@ button.danger:hover { background: var(--danger-soft); border-color: transparent;
 button.caution { color: var(--warn); }
 button.caution:hover { background: var(--warn-soft); border-color: transparent; }
 button.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
-button.icon-btn { width: 34px; padding: 0; justify-content: center; }
+button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* Inline spinner for the "acting" button state (Saving…). */
 .spinner {
@@ -1004,9 +1005,6 @@ button.icon-btn { width: 34px; padding: 0; justify-content: center; }
 .import-accept input { accent-color: var(--accent); width: 15px; height: 15px; margin-top: 1px; flex-shrink: 0; }
 
 /* Report flag + report form. */
-.icon-flag { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: none; background: transparent; color: var(--text-3); border-radius: var(--radius-sm); cursor: pointer; }
-.icon-flag:focus-visible { outline: none; box-shadow: var(--ring); }
-.icon-flag:hover { color: var(--danger); background: var(--danger-soft); }
 .report-attach { display: flex; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
 .report-attach .ghost.on { color: var(--ok); border-color: transparent; background: var(--ok-soft); }
 .report-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -1096,13 +1094,6 @@ button.icon-btn { width: 34px; padding: 0; justify-content: center; }
 .dev-perms { max-width: 220px; }
 .dev-perms .tag { margin: 1px 3px 1px 0; font-size: 10.5px; }
 .dev-row-actions { white-space: nowrap; text-align: right; }
-.iconbtn { width: 28px; height: 28px; padding: 0; border: none; background: transparent; color: var(--text-3); border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
-.iconbtn:hover { color: var(--text); background: var(--bg-inset); }
-.iconbtn:focus-visible { outline: none; box-shadow: var(--ring); }
-.iconbtn.warn:hover { color: var(--warn); background: var(--warn-soft); }
-.iconbtn.danger:hover { color: var(--danger); background: var(--danger-soft); }
-.ghost.sm.warn { color: var(--warn); }
-.ghost.sm.danger { color: var(--danger); }
 .dev-code-modal { position: relative; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); width: min(900px, 92vw); max-height: 86vh; padding: 24px 26px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out); }
 .dev-code { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre; overflow: auto; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
 .dev-reports { display: flex; flex-direction: column; gap: 12px; }
@@ -1156,7 +1147,7 @@ button.icon-btn { width: 34px; padding: 0; justify-content: center; }
 .mkt-pub { display: flex; gap: 6px; }
 .mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; flex: 1; }
 .mkt-perms { display: flex; flex-wrap: wrap; gap: 5px; }
-.mkt-card-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+.mkt-card-foot { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .mkt-pubbar {
   display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
   padding: 9px 13px; background: var(--bg-inset); border: 1px solid var(--border);
@@ -1277,6 +1268,13 @@ button.icon-btn { width: 34px; padding: 0; justify-content: center; }
   box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s ease;
 }
 .tooltip.below { transform: translate(-50%, 0); }
+/* Stem: a small bordered diamond pointing at the target. */
+.tooltip::after {
+  content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px;
+  background: var(--panel); transform: rotate(45deg);
+}
+.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
 @keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Trailing count chip on a tab (DESIGN.md Tabs: "a trailing count chip"). */

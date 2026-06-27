@@ -497,10 +497,10 @@ function SearchIndexCard() {
               <span className="rx-dim"> · {data.indexed_messages.toLocaleString()} messages</span>
             </div>
             <div className="reindex-actions">
-              <button className="primary sm" onClick={start} disabled={busy}>
+              <button className="primary" onClick={start} disabled={busy}>
                 <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
               </button>
-              <button className="danger sm" onClick={clear} disabled={busy || data.indexed_messages === 0}>
+              <button className="danger" onClick={clear} disabled={busy || data.indexed_messages === 0}>
                 <Icon.trash size={14} /> Clear index
               </button>
             </div>
@@ -580,7 +580,7 @@ export function Knowledge() {
               </div>
             </div>
             <span className={'badge ' + s.status}>{s.status}</span>
-            <button className="danger sm" onClick={async () => { await api.deleteSource(s.id); reload() }}>
+            <button className="danger" onClick={async () => { await api.deleteSource(s.id); reload() }}>
               <Icon.trash size={15} /> Remove
             </button>
           </div>
@@ -607,7 +607,7 @@ export function Knowledge() {
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}
               </div>
             </div>
-            <button className="danger sm" onClick={async () => { await api.deleteFact(f.id); reloadFacts() }}>
+            <button className="danger" onClick={async () => { await api.deleteFact(f.id); reloadFacts() }}>
               <Icon.trash size={15} /> Delete
             </button>
           </div>
@@ -799,25 +799,25 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
           </div>
           <div className="ext-dactions">
             {props.isOperator && marketplace && mkt?.update_available && (
-              <button className="primary sm" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
+              <button className="primary" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
             )}
             {props.isOperator && publishable && !isPublished && (
-              <button className="ghost sm" onClick={publishToMarketplace}>Publish</button>
+              <button className="ghost" onClick={publishToMarketplace}>Publish</button>
             )}
             {props.isOperator && isPublished && pub.has_changes && (
-              <button className="primary sm" onClick={pushUpdate}>Push update</button>
+              <button className="primary" onClick={pushUpdate}>Push update</button>
             )}
             {props.isOperator && isPublished && !pub.has_changes && (
-              <button className="ghost sm" onClick={pushUpdate}>Re-publish</button>
+              <button className="ghost" onClick={pushUpdate}>Re-publish</button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))}>Export</button>
+              <button className="ghost" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))}>Export</button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost sm" onClick={() => props.onEdit(e.key)}>Edit code</button>
+              <button className="ghost" onClick={() => props.onEdit(e.key)}>Edit code</button>
             )}
             {marketplace && ref && (
-              <button className="icon-flag" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
+              <button className="ghost icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
             )}
             <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} />
           </div>
@@ -1096,10 +1096,10 @@ function ReportModal(props: {
               />
               <div className="settings-subhead">Evidence (optional)</div>
               <div className="report-attach">
-                <button className="ghost sm" onClick={() => fileRef.current?.click()}>
+                <button className="ghost" onClick={() => fileRef.current?.click()}>
                   <Icon.add size={14} /> Add attachments
                 </button>
-                <button className={'ghost sm' + (logsAttached ? ' on' : '')} onClick={attachLogs}>
+                <button className={'ghost' + (logsAttached ? ' on' : '')} onClick={attachLogs}>
                   <Icon.docs size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}
                 </button>
               </div>
@@ -1367,10 +1367,10 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   return (
     <>
       <div className="mkt-head">
-        <button className="ghost sm" onClick={props.onBack}><Icon.arrowLeft size={15} /> Back</button>
+        <button className="ghost" onClick={props.onBack}><Icon.arrowLeft size={15} /> Back</button>
         <form className="mkt-search" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
           <Text value={q} onChange={setQ} placeholder="Search the marketplace…" />
-          <button className="sm" type="submit">Search</button>
+          <button type="submit">Search</button>
         </form>
       </div>
 
@@ -1379,9 +1379,9 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
           <span>Publishing as <code>{pubInfo.handle}</code></span>
           {pubInfo.verified
             ? <span className="badge info"><Icon.verified size={13} weight="Bold" /> Discord-verified</span>
-            : <button className="ghost sm" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
+            : <button className="ghost" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
           <span className="grow" />
-          <button className="ghost sm" onClick={changeHandle}>Change handle</button>
+          <button className="ghost" onClick={changeHandle}>Change handle</button>
         </div>
       )}
 
@@ -1407,12 +1407,12 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
-                <button className="icon-flag" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
+                <button className="ghost icon-btn sm" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
                 <span className="grow" />
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
-                  <button className="ghost sm" onClick={() => doYank(r)}>Yank</button>
+                  <button className="ghost" onClick={() => doYank(r)}>Yank</button>
                 )}
-                <button className="sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
               </div>
             </div>
           ))}
@@ -1547,9 +1547,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
         {props.isOperator && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
-            <button className="ghost sm" onClick={() => setView('marketplace')}>Marketplace</button>
-            <button className="ghost sm" onClick={() => setImporting(true)}>Import .olx</button>
-            <button className="primary sm" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
+            <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
+            <button className="ghost" onClick={() => setImporting(true)}>Import .olx</button>
+            <button className="primary" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
           </div>
         )}
       </div>
@@ -1841,7 +1841,7 @@ export function Members() {
                 </div>
               )}
               <div className="member-actions">
-                <button className="ghost sm" disabled={busy} onClick={() => build(p.user_id)}>
+                <button className="ghost" disabled={busy} onClick={() => build(p.user_id)}>
                   {busy ? 'Building…' : impression ? 'Rebuild impression' : 'Create impression'}
                 </button>
                 {errs[p.user_id] && <span className="err sm">{errs[p.user_id]}</span>}
@@ -1893,7 +1893,7 @@ function KeyField(props: {
         {s.dashboard ? (
           <>
             <span className="badge ready">set in dashboard</span>
-            <button className="danger sm" onClick={props.onClear}>
+            <button className="danger" onClick={props.onClear}>
               <Icon.trash size={14} /> Clear
             </button>
           </>
