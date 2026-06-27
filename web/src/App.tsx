@@ -203,10 +203,10 @@ export default function App() {
             </span>
           </div>
           <div className="foot-row">
-            <button className="ghost sm" onClick={() => setSettingsOpen(true)}>
+            <button className="ghost" onClick={() => setSettingsOpen(true)}>
               <Icon.settings size={16} /> Settings
             </button>
-            <button className="ghost sm" onClick={async () => { await api.logout(); setAuth('out') }}>
+            <button className="ghost" onClick={async () => { await api.logout(); setAuth('out') }}>
               <Icon.logout size={16} /> Log out
             </button>
           </div>
@@ -447,7 +447,6 @@ function BotPower() {
       <button
         className="power-btn"
         disabled={busy}
-        data-tip={online ? 'Hold to power down' : offline ? 'Power on' : undefined}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}
         onPointerLeave={endHold}
@@ -505,7 +504,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
       </div>
       <div className="weblink-row">
         <a href={url} target="_blank" rel="noreferrer" title={url}>{host}</a>
-        <button className="iconbtn" onClick={copy} title="Copy link" aria-label="Copy link">
+        <button className="ghost icon-btn sm" onClick={copy} title="Copy link" aria-label="Copy link">
           {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>
       </div>

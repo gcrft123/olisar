@@ -309,7 +309,7 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 
 ### Tooltip
 
-A small dark chip on a hairline border, shown on hover/focus of any control whose meaning isn't a visible label. Driven by one portal-mounted, delegated host that reads `data-tip="…"` (or a native `title`, which it migrates to `data-tip` so the OS tooltip is suppressed) — so it's never clipped by an `overflow:hidden` modal. Sits above the target; flips below when there's no room. ~300 ms show delay, instant hide.
+A small dark chip on a hairline border with a **stem** (a bordered diamond) pointing at its target, shown on hover/focus of any control whose meaning isn't a visible label. Driven by one portal-mounted, delegated host that reads `data-tip="…"` (or a native `title`, which it migrates to `data-tip` so the OS tooltip is suppressed) — so it's never clipped by an `overflow:hidden` modal. Sits above the target; flips below (stem on top) when there's no room. **Pops up instantly on hover**; instant hide.
 
 ```css
 .tooltip {
@@ -320,10 +320,14 @@ A small dark chip on a hairline border, shown on hover/focus of any control whos
   box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in .1s ease;
 }
 .tooltip.below { transform: translate(-50%, 0); }      /* flipped below the target */
+/* stem: a small bordered diamond pointing at the target */
+.tooltip::after { content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px; background: var(--panel); transform: rotate(45deg); }
+.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
 @keyframes tip-in { from { opacity: 0 } to { opacity: 1 } }
 ```
 
-Every **icon-only button** (close ×, copy, report flag, row actions, the bot-power control, the server picker…) carries a `data-tip`/`title`, paired with an `aria-label` for assistive tech.
+Every **icon-only button** (close ×, copy, report flag, row actions, the server picker…) carries a `data-tip`/`title`, paired with an `aria-label` for assistive tech. The press-and-hold **bot-power control** is the deliberate exception — it surfaces its state as a visible hint beneath the button, so it carries no hover tooltip.
 
 ### Overlays (Dialog / Modal / SaveDock)
 

@@ -144,7 +144,7 @@ function DevExtensions() {
         </span>
         <span className="settings-muted">{filtered.length} of {rows.length}</span>
         <span className="grow" />
-        <button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
+        <button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       <div className="dev-table-wrap">
         <table className="dev-table">
@@ -169,10 +169,10 @@ function DevExtensions() {
                 <td className="muted">{fmtDate(r.published_at)}</td>
                 <td className="dev-perms">{(r.permissions || []).map((p: string) => <span key={p} className="tag">{p}</span>)}</td>
                 <td className="dev-row-actions">
-                  <button className="iconbtn" onClick={() => viewCode(r)} title="View code"><Icon.code size={15} /></button>
-                  <button className="iconbtn" onClick={() => yank(r)} title="Yank"><Icon.trash size={15} /></button>
-                  <button className="iconbtn warn" onClick={() => moderate(r, 'warn')} title="Warn publisher"><Icon.warn size={15} /></button>
-                  <button className="iconbtn danger" onClick={() => moderate(r, 'ban')} title="Ban publisher"><Icon.ban size={15} /></button>
+                  <button className="ghost icon-btn sm" onClick={() => viewCode(r)} title="View code"><Icon.code size={15} /></button>
+                  <button className="ghost icon-btn sm" onClick={() => yank(r)} title="Yank"><Icon.trash size={15} /></button>
+                  <button className="ghost icon-btn sm" onClick={() => moderate(r, 'warn')} title="Warn publisher"><Icon.warn size={15} /></button>
+                  <button className="ghost icon-btn sm" onClick={() => moderate(r, 'ban')} title="Ban publisher"><Icon.ban size={15} /></button>
                 </td>
               </tr>
             ))}
@@ -216,7 +216,7 @@ function DevReports() {
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -232,8 +232,8 @@ function DevReports() {
               {r.logs_r2_key && <span className="badge">logs + attachments emailed</span>}
             </div>
             <div className="dev-report-actions">
-              <button className="ghost sm warn" disabled={!r.publisher_discord_id} onClick={() => moderate(r.publisher_discord_id, 'warn')}>Warn publisher</button>
-              <button className="ghost sm danger" disabled={!r.publisher_discord_id} onClick={() => moderate(r.publisher_discord_id, 'ban')}>Ban publisher</button>
+              <button className="caution" disabled={!r.publisher_discord_id} onClick={() => moderate(r.publisher_discord_id, 'warn')}>Warn publisher</button>
+              <button className="danger" disabled={!r.publisher_discord_id} onClick={() => moderate(r.publisher_discord_id, 'ban')}>Ban publisher</button>
             </div>
           </div>
         ))}
@@ -254,7 +254,7 @@ function DevBlocked() {
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -304,8 +304,8 @@ function DevModeration() {
       <div className="dev-mod-form">
         <input type="text" className="dev-search" value={id} onChange={(e) => setId(e.target.value)} placeholder="Discord user ID" />
         <input type="text" className="dev-search" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message (shown to the user, optional)" />
-        <button className="ghost sm warn" onClick={() => act(id, 'warn', msg)}>Warn</button>
-        <button className="ghost sm danger" onClick={() => act(id, 'ban', msg)}>Ban</button>
+        <button className="caution" onClick={() => act(id, 'warn', msg)}>Warn</button>
+        <button className="danger" onClick={() => act(id, 'ban', msg)}>Ban</button>
       </div>
       <div className="import-warn">A ban de-lists the publisher’s extensions and blocks them from Olisar (console + bot), enforced within ~a minute on every bot. A warning shows once in their console.</div>
 
@@ -319,7 +319,7 @@ function DevModeration() {
               <code className="grow">{m.discord_id}</code>
               {m.message && <span className="settings-muted">{m.message}</span>}
               <span className="settings-muted">{fmtDate(m.updated_at)}</span>
-              <button className="ghost sm" onClick={() => act(m.discord_id, 'clear')}>Clear</button>
+              <button className="ghost" onClick={() => act(m.discord_id, 'clear')}>Clear</button>
             </div>
           ))}
         </div>
@@ -346,7 +346,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
       <div className="dev-toolbar">
         <span className="settings-muted">{kind === 'bot' ? 'Backend (bot + API) logs' : 'Remote-access (Tailscale Funnel) logs'}</span>
         <span className="grow" />
-        <button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
+        <button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       {err && <div className="settings-err">{err}</div>}
       <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
@@ -378,7 +378,7 @@ function DevPolicy() {
       <div className="dev-policy-row">
         <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))} className="dev-range" style={{ '--fill': `${v ?? 70}%` } as any} />
         <span className={'risk-pill ' + riskCls(v ?? 70)} style={{ minWidth: 38, textAlign: 'center' }}>{v ?? 70}</span>
-        <button className="primary sm" onClick={save}>{saved ? <><Icon.check size={14} weight="Bold" /> Saved</> : 'Save'}</button>
+        <button className="primary" onClick={save}>{saved ? <><Icon.check size={14} weight="Bold" /> Saved</> : 'Save'}</button>
       </div>
     </div>
   )

@@ -12,3 +12,8 @@ Essentials:
 - Icons: the Solar set via the `web/src/icons.tsx` registry only — no emoji or unicode-as-icon. Modal/menu closes use the simple line `<CloseX>`.
 - Controls share a 34px height (28px `.sm`); every icon-only button carries a `data-tip`/`title` (styled via the delegated tooltip host in `web/src/overlays.tsx`) plus an `aria-label`.
 - Sentence case everywhere except the small uppercase tracked eyebrow/nav labels.
+- **All text buttons share the 34px height** (only `icon-btn` may be `sm`/28px). Each button uses exactly one variant: `primary` / secondary(base) / `ghost` / `danger` / `caution` — never mix (no `ghost danger`), never `warn`.
+
+## Design linter (enforced on build)
+
+`npm run build` runs `web/scripts/design-lint.mjs` first and **fails the build** on: raw hex/rgb colours outside `:root` or in inline styles (use `var(--…)`; brand/syntax/neutral colours are allowlisted), text buttons with `sm`, buttons mixing variants or using `warn`, and native `alert/confirm/prompt`. Keep it green; add new rules there as the system grows.

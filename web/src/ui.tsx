@@ -177,9 +177,9 @@ export function SaveDock(props: {
         </span>
         <div className="savedock-actions">
           {props.onReset && (
-            <button className="ghost sm" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
+            <button className="ghost" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
           )}
-          <button className="primary sm" disabled={s.busy || !props.dirty} onClick={s.run}>
+          <button className="primary" disabled={s.busy || !props.dirty} onClick={s.run}>
             {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
           </button>
         </div>

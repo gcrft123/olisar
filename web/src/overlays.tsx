@@ -150,9 +150,7 @@ function TooltipHost() {
   const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null)
   useEffect(() => {
     let current: Element | null = null
-    let timer: number | undefined
-    const clear = () => { if (timer) { clearTimeout(timer); timer = undefined } }
-    const hide = () => { clear(); current = null; setTip(null) }
+    const hide = () => { current = null; setTip(null) }
     const textOf = (el: Element): string | null => {
       let t = el.getAttribute('data-tip')
       if (!t && el.hasAttribute('title')) {
@@ -162,17 +160,15 @@ function TooltipHost() {
       }
       return t || null
     }
+    // Pops up instantly on hover (no delay), per the design system.
     const show = (el: Element) => {
       if (el.closest('.monaco-editor')) return
       const text = textOf(el)
       if (!text) return
       current = el
-      clear()
-      timer = window.setTimeout(() => {
-        const r = el.getBoundingClientRect()
-        const below = r.top < 52
-        setTip({ text, x: Math.round(r.left + r.width / 2), y: Math.round(below ? r.bottom + 7 : r.top - 7), below })
-      }, 300)
+      const r = el.getBoundingClientRect()
+      const below = r.top < 52
+      setTip({ text, x: Math.round(r.left + r.width / 2), y: Math.round(below ? r.bottom + 8 : r.top - 8), below })
     }
     const onOver = (e: Event) => {
       const el = (e.target as Element)?.closest?.('[data-tip],[title]')
