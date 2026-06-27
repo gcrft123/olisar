@@ -170,19 +170,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="server-switch" title="Switch server">
-          {current.icon
-            ? <img className="server-icon" src={current.icon} alt="" />
-            : <div className="server-icon ph">{(current.name || '?').slice(0, 1).toUpperCase()}</div>}
-          <select
-            className="server-select"
-            value={guild ?? ''}
-            onChange={(e) => changeGuild(e.target.value)}
-            disabled={guilds.length < 2}
-          >
-            {guilds.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        </div>
+        <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
         <div className="nav-label">Configure</div>
         {nav.map((n) => {
@@ -333,6 +321,50 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
   )
 }
 
+// Server picker: a popup menu that always opens (even with a single server), instead of
+// a native select that disables itself when there's only one option.
+function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Guild; onPick: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
+  }, [open])
+  const icon = (g: Guild, cls = '') => (g.icon
+    ? <img className={'server-icon ' + cls} src={g.icon} alt="" />
+    : <div className={'server-icon ph ' + cls}>{(g.name || '?').slice(0, 1).toUpperCase()}</div>)
+  return (
+    <div className={'server-switch' + (open ? ' open' : '')} ref={ref}>
+      {icon(current)}
+      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} title="Switch server">
+        <span className="server-name">{current.name}</span>
+        <Icon.chevron size={14} className="server-chev" />
+      </button>
+      {open && (
+        <div className="server-menu" role="listbox">
+          {guilds.map((g) => (
+            <button
+              key={g.id}
+              role="option"
+              aria-selected={g.id === current.id}
+              className={'server-menu-item' + (g.id === current.id ? ' on' : '')}
+              onClick={() => { onPick(g.id); setOpen(false) }}
+            >
+              {icon(g, 'sm')}
+              <span className="server-menu-name">{g.name}</span>
+              {g.id === current.id && <Icon.check size={14} weight="Bold" className="server-menu-check" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean }
 const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
 
@@ -373,17 +405,18 @@ function BotPower() {
   async function powerDown() {
     didPowerDown.current = true
     setPhase('stopping')
-    try { setSt(await api.botPower(false)) } catch { /* ignore */ }
+    try { setSt(await api.botPower(false)); toast('Bot powered down', 'neutral') }
+    catch { toast('Couldn’t power down the bot', 'danger') }
     setPhase('idle'); pull()
   }
   async function powerUp() {
     setPhase('starting')
-    try { setSt(await api.botPower(true)) } catch { /* ignore */ }
+    try { setSt(await api.botPower(true)) } catch { toast('Couldn’t start the bot', 'danger') }
     // poll until the gateway connection is actually ready
     for (let i = 0; i < 25; i++) {
       await new Promise((r) => setTimeout(r, 700))
       const s = await api.botStatus().catch(() => null)
-      if (s) { setSt(s); if (s.ready || !s.running) break }
+      if (s) { setSt(s); if (s.ready) { toast('Bot is online', 'success'); break } if (!s.running) break }
     }
     setPhase('idle')
   }
@@ -472,8 +505,8 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
       </div>
       <div className="weblink-row">
         <a href={url} target="_blank" rel="noreferrer" title={url}>{host}</a>
-        <button className="ghost sm" onClick={copy}>
-          {copied ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+        <button className="iconbtn" onClick={copy} title="Copy link" aria-label="Copy link">
+          {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>
       </div>
     </div>
