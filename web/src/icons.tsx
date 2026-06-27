@@ -43,6 +43,7 @@ import {
   AltArrowUp,
   InfoCircle,
   ShieldCheck,
+  Copy,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -86,6 +87,18 @@ export const Icon = {
   arrowUp: AltArrowUp,
   info: InfoCircle,
   verified: ShieldCheck,
+  copy: Copy,
 } as const
 
 export type IconName = keyof typeof Icon
+
+// A plain line-stroke "×" for modal/menu close affordances — lighter than the
+// circled Solar CloseCircle, which reads too heavy at small sizes.
+export function CloseX({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" aria-hidden="true">
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  )
+}

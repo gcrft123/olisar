@@ -34,13 +34,25 @@ export function Text(props: { value: string; onChange: (v: string) => void; plac
 }
 
 export function Area(props: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; maxLength?: number }) {
+  const ref = React.useRef<HTMLTextAreaElement>(null)
+  // Auto-grow to fit content (no manual resize handle) — reset to auto first so it
+  // shrinks back when text is removed, then size to the scroll height + border.
+  const grow = React.useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = el.scrollHeight + (el.offsetHeight - el.clientHeight) + 'px'
+  }, [])
+  React.useEffect(() => { grow() }, [props.value, grow])
   return (
     <textarea
-      rows={props.rows ?? 4}
+      ref={ref}
+      rows={props.rows ?? 3}
       value={props.value ?? ''}
       placeholder={props.placeholder}
       maxLength={props.maxLength}
       onChange={(e) => props.onChange(e.target.value)}
+      onInput={grow}
     />
   )
 }
@@ -265,14 +277,23 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
     const k = kb + i
     const line = lines[i].trim()
 
-    // Fenced code block: ``` … ``` rendered verbatim (indentation preserved).
+    // Fenced code block: ``` … ``` rendered verbatim in a framed code-preview box.
     if (line.startsWith('```')) {
       flushList(k); flushPara(k)
+      const lang = line.slice(3).trim()
       const code: string[] = []
       i++
       while (i < lines.length && lines[i].trim() !== '```') { code.push(lines[i]); i++ }
       i++ // skip closing ```
-      out.push(<pre key={'pre' + k} className="doc-pre"><code>{code.join('\n')}</code></pre>)
+      out.push(
+        <div key={'pre' + k} className="codeblock">
+          <div className="cb-head">
+            <span className="cb-dots" aria-hidden="true"><i /><i /><i /></span>
+            {lang && <span className="cb-lang">{lang}</span>}
+          </div>
+          <pre><code>{code.join('\n')}</code></pre>
+        </div>,
+      )
       continue
     }
 

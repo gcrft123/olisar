@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
-import { Icon, type IconName } from './icons'
+import { Icon, CloseX, type IconName } from './icons'
 import { confirmDialog, promptDialog, toast } from './overlays'
 import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Select, Text, Toggle, headingsOf, useAsync, useEditable, useSaver } from './ui'
 
@@ -920,7 +920,7 @@ function ConsentModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head"><h2>{props.title}</h2><p>{props.subtitle}</p></div>
 
         <div className="import-review">
@@ -1076,7 +1076,7 @@ function ReportModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head">
           <h2>Report extension</h2>
           <p>{props.target.id || `${props.target.namespace}/${props.target.name}`}</p>
@@ -1108,7 +1108,7 @@ function ReportModal(props: {
                   {files.map((f, i) => (
                     <span key={i} className="tag">
                       {f.name}
-                      <button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove"><Icon.close size={11} /></button>
+                      <button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove" title="Remove"><CloseX size={11} /></button>
                     </span>
                   ))}
                 </div>
@@ -1189,7 +1189,7 @@ function PublishReviewModal(props: {
     return (
       <div className="modal-backdrop" onClick={props.onClose}>
         <div className="deny-modal scan" onClick={(e) => e.stopPropagation()}>
-          <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+          <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
           <h2 className="deny-title">Security review</h2>
           <div className="deny-sub">{props.subject}</div>
           <RiskMeter score={0} band="ok" scanning />
@@ -1206,7 +1206,7 @@ function PublishReviewModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className={'deny-modal ' + (blocked ? band : 'pass ' + band)} onClick={(e) => e.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <h2 className="deny-title">{blocked ? 'Publish blocked' : 'Review passed'}</h2>
         <div className="deny-sub">{props.subject}</div>
 
@@ -1239,7 +1239,7 @@ function PublishReviewModal(props: {
             <>
               <button className="ghost" onClick={props.onClose} disabled={props.publishing}>Cancel</button>
               <button className="primary" onClick={props.onPublish} disabled={props.publishing}>
-                {props.publishing ? 'Publishing…' : 'Publish'}
+                {props.publishing ? <><span className="spinner" /> Publishing…</> : 'Publish'}
               </button>
             </>
           )}
@@ -1268,7 +1268,7 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   }
   const install = async (granted: string[]) => {
     setBusy(true); setErr(null)
-    try { const r = await api.importAuthoring(bundle, granted); props.onImported(r.key) }
+    try { const r = await api.importAuthoring(bundle, granted); toast('Extension imported', 'success'); props.onImported(r.key) }
     catch (e: any) { setErr(e.message); setBusy(false) }
   }
 
@@ -1284,7 +1284,7 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head">
           <h2>Import extension</h2>
           <p>Install an <code>.olx</code> bundle exported from Olisar.</p>
@@ -1338,6 +1338,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
     setBusy(true); setPerr(null)
     try {
       const r = await api.marketplaceInstall({ namespace: sel.namespace, name: sel.name, version: sel.version, granted_permissions: granted })
+      toast('Extension installed', 'success')
       props.onInstalled(r.key)
     } catch (e: any) { setPerr(e.message); setBusy(false) }
   }
@@ -1618,6 +1619,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const [active, setActive] = useState(DOCS[0].id)
   const [q, setQ] = useState('')
+  const [activeHeading, setActiveHeading] = useState('')
   useEffect(() => { window.scrollTo({ top: 0 }) }, [active])
 
   const section = DOCS.find((s) => s.id === active) ?? DOCS[0]
@@ -1628,6 +1630,26 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const prev = DOCS.find((s) => s.id === order[oidx - 1])
   const next = DOCS.find((s) => s.id === order[oidx + 1])
   const headings = headingsOf(section.body)
+
+  // Scroll-spy: highlight the in-view heading in the "On this page" rail.
+  useEffect(() => {
+    setActiveHeading('')
+    const els = headings.map((h) => document.getElementById(h.slug)).filter((e): e is HTMLElement => !!e)
+    if (!els.length) return
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const vis = entries.filter((e) => e.isIntersecting)
+        if (vis.length) {
+          const top = vis.reduce((a, b) => (a.boundingClientRect.top < b.boundingClientRect.top ? a : b))
+          setActiveHeading((top.target as HTMLElement).id)
+        }
+      },
+      { rootMargin: '0px 0px -65% 0px', threshold: 0 },
+    )
+    els.forEach((el) => obs.observe(el))
+    return () => obs.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
 
   const term = q.trim().toLowerCase()
   const matches = (s: { title: string; body: string }) =>
@@ -1675,7 +1697,6 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
       </aside>
 
       <main className="docs-content">
-        <div className="docs-eyebrow">Olisar documentation</div>
         <h1 className="docs-title">{section.title}</h1>
         <Markdown md={section.body} onDocLink={goLink} />
         <div className="docs-prevnext">
@@ -1691,9 +1712,18 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
       {headings.length > 0 && (
         <aside className="docs-toc">
           <div className="docs-toc-label">On this page</div>
-          {headings.map((h) => (
-            <a key={h.slug} href={`#${h.slug}`} className={'lvl' + h.level}>{h.text}</a>
-          ))}
+          <div className="docs-toc-rail">
+            {headings.map((h) => (
+              <a
+                key={h.slug}
+                href={`#${h.slug}`}
+                className={'lvl' + h.level + (activeHeading === h.slug ? ' active' : '')}
+                onClick={() => setActiveHeading(h.slug)}
+              >
+                {h.text}
+              </a>
+            ))}
+          </div>
         </aside>
       )}
     </div>
