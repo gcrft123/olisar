@@ -32,11 +32,17 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     let msg = body || res.statusText
+    let detail: any = null
     try {
       const j = JSON.parse(body)
-      if (j?.detail) msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail)
+      if (j?.detail !== undefined && j?.detail !== null) {
+        detail = j.detail
+        msg = typeof j.detail === 'string' ? j.detail : (j.detail?.message || JSON.stringify(j.detail))
+      }
     } catch { /* not JSON — use the raw body */ }
-    throw new Error(msg)
+    const err = new Error(msg) as Error & { detail?: any }
+    err.detail = detail  // structured payloads (e.g. a risk-blocked publish) ride here
+    throw err
   }
   if (res.status === 204) return null
   return res.json()
@@ -108,6 +114,8 @@ export const api = {
     req('/api/marketplace/register', { method: 'POST', body: JSON.stringify({ handle }) }),
   marketplacePublish: (key: string) =>
     req('/api/marketplace/publish', { method: 'POST', body: JSON.stringify({ key }) }),
+  marketplaceReview: (key: string) =>
+    req('/api/marketplace/review', { method: 'POST', body: JSON.stringify({ key }) }),
   marketplacePublished: () => req('/api/marketplace/published'),
   marketplaceYank: (name: string, version?: string) =>
     req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
