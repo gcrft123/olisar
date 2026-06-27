@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { Icon, type IconName } from './icons'
+import { Icon, CloseX, type IconName } from './icons'
 import { Toggle } from './ui'
 import { toast } from './overlays'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
@@ -44,7 +44,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </nav>
         <div className="settings-body">
           <button className="settings-close" onClick={onClose} title="Close (Esc)">
-            <Icon.close size={18} weight="Linear" />
+            <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
           {section === 'logs' && <Logs />}

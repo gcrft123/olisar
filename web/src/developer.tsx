@@ -4,9 +4,9 @@
 // developer (App gates the nav item on api.devStatus()). All data is proxied to the
 // registry behind the bot's publisher token.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
-import { Icon } from './icons'
+import { Icon, CloseX } from './icons'
 import { toast, confirmDialog } from './overlays'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
@@ -35,21 +35,26 @@ function Loading() { return <div className="empty" style={{ padding: 24 }}>Loadi
 
 export function Developer() {
   const [tab, setTab] = useState<DevTab>('extensions')
+  const barRef = useRef<HTMLDivElement>(null)
+  const [ind, setInd] = useState<{ left: number; width: number }>({ left: 0, width: 0 })
+  useLayoutEffect(() => {
+    const el = barRef.current?.querySelector('.dev-tab.active') as HTMLElement | null
+    if (el) setInd({ left: el.offsetLeft, width: el.offsetWidth })
+  }, [tab])
   return (
     <div className="dev">
       <div className="page-head">
         <div className="title-row">
           <div className="title-ic"><Icon.developer size={19} weight="Linear" /></div>
-          <div>
-            <h1>Developer</h1>
-            <div className="page-sub">Marketplace management, reports, and moderation for the Olisar platform.</div>
-          </div>
+          <h1>Developer</h1>
         </div>
+        <p>Marketplace management, reports, and moderation for the Olisar platform.</p>
       </div>
-      <div className="dev-tabs">
+      <div className="dev-tabs" ref={barRef}>
         {TABS.map((t) => (
           <button key={t.id} className={'dev-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
+        <span className="dev-tab-ind" style={{ left: ind.left, width: ind.width }} />
       </div>
       {tab === 'extensions' && <DevExtensions />}
       {tab === 'reports' && <DevReports />}
@@ -87,9 +92,12 @@ function DevExtensions() {
   const th = (key: string, label: string, numeric = false) => (
     <th className={(numeric ? 'num ' : '') + 'sortable' + (sort.key === key ? ' on' : '')}
       onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}>
-      {label}{sort.key === key && (
-        <Icon.chevron size={12} style={{ color: 'var(--accent)', transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
-      )}
+      <span className="th-label">
+        {label}
+        {sort.key === key && (
+          <Icon.chevron size={11} className="th-sort" style={{ transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
+        )}
+      </span>
     </th>
   )
 
@@ -125,7 +133,7 @@ function DevExtensions() {
         </span>
         <span className="settings-muted">{filtered.length} of {rows.length}</span>
         <span className="grow" />
-        <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
+        <button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       <div className="dev-table-wrap">
         <table className="dev-table">
@@ -170,7 +178,7 @@ function CodeModal(props: { code: { id: string; source?: string; version?: strin
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="dev-code-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head"><h2>{props.code.id}</h2><p>v{props.code.version} · source</p></div>
         <pre className="dev-code">{props.code.source || '(no source)'}</pre>
       </div>
@@ -197,7 +205,7 @@ function DevReports() {
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -235,7 +243,7 @@ function DevBlocked() {
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -327,7 +335,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
       <div className="dev-toolbar">
         <span className="settings-muted">{kind === 'bot' ? 'Backend (bot + API) logs' : 'Remote-access (Tailscale Funnel) logs'}</span>
         <span className="grow" />
-        <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
+        <button className="iconbtn" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       {err && <div className="settings-err">{err}</div>}
       <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
@@ -357,7 +365,7 @@ function DevPolicy() {
       </div>
       {err && <div className="settings-err">{err}</div>}
       <div className="dev-policy-row">
-        <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))} className="dev-range" />
+        <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))} className="dev-range" style={{ '--fill': `${v ?? 70}%` } as any} />
         <span className={'risk-pill ' + riskCls(v ?? 70)} style={{ minWidth: 38, textAlign: 'center' }}>{v ?? 70}</span>
         <button className="primary sm" onClick={save}>{saved ? <><Icon.check size={14} weight="Bold" /> Saved</> : 'Save'}</button>
       </div>
