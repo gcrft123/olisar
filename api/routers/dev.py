@@ -91,6 +91,16 @@ async def reports(admin: AdminUser = Depends(require_admin)) -> dict:
     return r.json()
 
 
+@router.get("/blocked")
+async def blocked(admin: AdminUser = Depends(require_admin)) -> dict:
+    """Publishes blocked by a bot's risk review across the marketplace."""
+    _operator(admin)
+    r = await _get("/v1/dev/blocked", admin)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't load blocked publishes")
+    return r.json()
+
+
 @router.get("/source")
 async def source(
     namespace: str, name: str, version: str = "", admin: AdminUser = Depends(require_admin)

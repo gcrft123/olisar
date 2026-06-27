@@ -413,6 +413,19 @@ async def _reregister_token(admin: AdminUser) -> str | None:
         return data["token"]
 
 
+async def _record_blocked(handle: str | None, key: str, version: str | None,
+                          discord_id: int, score: int, threshold: int, bullets: list) -> None:
+    """Best-effort: log a blocked publish to the registry for the developer console."""
+    try:
+        await _registry_post("/v1/blocked", {
+            "namespace": handle or None, "name": key, "version": version,
+            "reporter_discord_id": str(discord_id), "risk_score": score,
+            "threshold": threshold, "bullets": bullets or [],
+        })
+    except HTTPException:
+        pass
+
+
 @router.post("/publish")
 async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require_admin)) -> dict:
     """Publish a local extension to the registry under this bot's handle (signed)."""
@@ -428,6 +441,8 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
             raise HTTPException(status_code=400, detail="this extension has no source to publish")
         doc = await build_signed_bundle(session, pkg)
         token = ident.registry_token
+        handle = ident.registry_handle
+        version = pkg.version
         manifest = pkg.manifest or {}
         requested = pkg.requested_permissions or pkg.permissions or []
     # AI risk review (operator's own Gemini). Block at/above the operator's threshold; on a
@@ -436,6 +451,8 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
     if review.get("ok"):
         threshold = await runtime_config.extension_risk_threshold()
         if review["score"] >= threshold:
+            await _record_blocked(handle, body.key, version, admin.discord_user_id,
+                                  review["score"], threshold, review.get("bullets") or [])
             # Structured so the console can render the risk readout (meter + reasons).
             raise HTTPException(status_code=400, detail={
                 "code": "risk_blocked",
@@ -464,6 +481,7 @@ async def review(body: MarketplacePublishIn, admin: AdminUser = Depends(require_
     scan screen so the operator sees the verdict (and can confirm) before shipping."""
     _operator(admin)
     async with session_scope() as session:
+        ident = await signing.ensure_identity(session)
         pkg = await session.get(ExtensionPackage, body.key)
         if pkg is None:
             raise HTTPException(status_code=404, detail="unknown extension")
@@ -472,15 +490,21 @@ async def review(body: MarketplacePublishIn, admin: AdminUser = Depends(require_
         manifest = pkg.manifest or {}
         requested = pkg.requested_permissions or pkg.permissions or []
         source = pkg.source_ts or ""
+        handle = ident.registry_handle
+        version = pkg.version
     result = await review_source(source, manifest, requested_permissions=requested)
     threshold = await runtime_config.extension_risk_threshold()
+    blocked = bool(result.get("ok") and result["score"] >= threshold)
+    if blocked:  # the user tried to publish and was stopped — log it for the dev console
+        await _record_blocked(handle, body.key, version, admin.discord_user_id,
+                              result["score"], threshold, result.get("bullets") or [])
     return {
         "review_available": bool(result.get("ok")),
         "risk_score": result.get("score", 0),
         "threshold": threshold,
         "summary": result.get("summary", ""),
         "bullets": result.get("bullets", []),
-        "blocked": bool(result.get("ok") and result["score"] >= threshold),
+        "blocked": blocked,
     }
 
 

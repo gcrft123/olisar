@@ -95,3 +95,16 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_ext ON reports (namespace, name);
+
+-- Publishes blocked by a bot's AI risk review (recorded for the developer console).
+CREATE TABLE IF NOT EXISTS blocked_publishes (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  namespace           TEXT,
+  name                TEXT NOT NULL,
+  version             TEXT,
+  reporter_discord_id TEXT,
+  risk_score          INTEGER,
+  threshold           INTEGER,
+  bullets             TEXT,                    -- JSON array of the flagged reasons
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);

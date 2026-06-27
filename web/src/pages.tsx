@@ -265,9 +265,9 @@ export function Messages() {
   return (
     <>
       <PageHead icon="messages" title="Command replies" sub="Customize the text Olisar sends when slash commands are run or it can't respond. Leave blank to use the default. Use {placeholders} where shown." />
-      {Object.keys(data).map((key) => (
+      {Object.keys(data).filter((key) => key !== 'privacy').map((key) => (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
-          <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={key === 'privacy' ? 6 : 2} placeholder={data[key].default} />
+          <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={2} placeholder={data[key].default} />
           <div className="code-default">default: {data[key].default}</div>
           {data[key].placeholders.length > 0 && (
             <div className="placeholders">placeholders: {data[key].placeholders.map((p: string) => <code key={p}>{`{${p}}`} </code>)}</div>
@@ -814,7 +814,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         )}
         {reviewing && (
           <PublishReviewModal
-            subject={`${e.key} · v${e.version}`} canTune={props.isOperator}
+            subject={`${e.key} · v${e.version}`}
             result={reviewResult} publishing={publishing}
             onPublish={confirmPublish} onClose={() => { setReviewing(false); setReviewResult(null) }}
           />
@@ -1169,7 +1169,7 @@ function RiskMeter({ score, band, scanning }: { score: number; band: string; sca
 // either a BLOCKED readout (with reasons) or a PASSED card with a Publish button. Same size
 // throughout, so the scan animation morphs into the result in place.
 function PublishReviewModal(props: {
-  subject: string; canTune?: boolean; result: any; publishing?: boolean;
+  subject: string; result: any; publishing?: boolean;
   onPublish: () => void; onClose: () => void;
 }) {
   const r = props.result
@@ -1221,7 +1221,6 @@ function PublishReviewModal(props: {
         )}
 
         <div className="deny-foot">
-          {props.canTune && blocked && <span className="deny-hint">Tune the threshold in Developer → Policy.</span>}
           {blocked ? (
             <button className="primary" onClick={props.onClose}>Got it</button>
           ) : (
@@ -1682,6 +1681,34 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
 // ── Members (the profiles Olisar builds) ─────────────────────────────────────
 const MAX_ROLES = 3  // cap role chips per card so they don't overflow
 
+// The "+N" chip on a member card: hover/focus opens a wide, height-capped popup with every
+// role. It flips above or below the chip toward whichever side has more room.
+function RolesChip({ count, roles }: { count: number; roles: string[] }) {
+  const [open, setOpen] = useState(false)
+  const [up, setUp] = useState(false)
+  const ref = useRef<HTMLSpanElement>(null)
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect()
+    if (r) {
+      const below = window.innerHeight - r.bottom
+      setUp(below < 280 && r.top > below)  // open upward only when there's more room above
+    }
+    setOpen(true)
+  }
+  return (
+    <span ref={ref} className="tag more rolepop-wrap" tabIndex={0}
+      onMouseEnter={show} onMouseLeave={() => setOpen(false)} onFocus={show} onBlur={() => setOpen(false)}>
+      +{count}
+      {open && (
+        <span className={'rolepop ' + (up ? 'up' : 'down')} role="tooltip">
+          <span className="rolepop-head">All roles ({roles.length})</span>
+          <span className="rolepop-list">{roles.map((r) => <span className="tag" key={r}>{r}</span>)}</span>
+        </span>
+      )}
+    </span>
+  )
+}
+
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
   try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) } catch { return '—' }
@@ -1743,7 +1770,7 @@ export function Members() {
               {roles.length > 0 && (
                 <div className="member-roles">
                   {roles.slice(0, MAX_ROLES).map((r) => <span className="tag" key={r}>{r}</span>)}
-                  {extra > 0 && <span className="tag more" title={roles.slice(MAX_ROLES).join(', ')}>+{extra}</span>}
+                  {extra > 0 && <RolesChip count={extra} roles={roles} />}
                 </div>
               )}
               {impression

@@ -34,6 +34,7 @@ import {
   ShieldWarning,
   ForbiddenCircle,
   CodeSquare,
+  Bolt,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -68,6 +69,7 @@ export const Icon = {
   developer: ShieldWarning,
   ban: ForbiddenCircle,
   code: CodeSquare,
+  bolt: Bolt,
 } as const
 
 export type IconName = keyof typeof Icon
