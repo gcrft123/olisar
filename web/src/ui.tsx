@@ -274,6 +274,30 @@ function highlight(code: string, lang: string): React.ReactNode {
   return out
 }
 
+// A docs code-preview box (DESIGN.md): filename head + a trailing copy button whose
+// glyph swaps to a green check-circle with a small pop on click.
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard blocked — code is still selectable */ }
+  }
+  return (
+    <div className="codeblock">
+      <div className="head">
+        <span className="file">{LANG_LABEL[lang.toLowerCase()] || lang || 'typescript'}</span>
+        <button className="cb-copy" onClick={copy} data-tip={copied ? 'Copied' : 'Copy'} aria-label="Copy code">
+          {copied ? <Icon.check size={15} weight="Bold" className="cb-check" /> : <Icon.copy size={15} />}
+        </button>
+      </div>
+      <pre><code>{highlight(code, lang)}</code></pre>
+    </div>
+  )
+}
+
 // Leading icon per callout tone (the Resend-style callout has no uppercase eyebrow).
 const CALLOUT_ICON: Record<string, React.ReactNode> = {
   tip: <Icon.check size={17} weight="Bold" />,
@@ -322,12 +346,7 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       i++
       while (i < lines.length && lines[i].trim() !== '```') { code.push(lines[i]); i++ }
       i++ // skip closing ```
-      out.push(
-        <div key={'pre' + k} className="codeblock">
-          <div className="head"><span className="file">{LANG_LABEL[lang.toLowerCase()] || lang || 'typescript'}</span></div>
-          <pre><code>{highlight(code.join('\n'), lang)}</code></pre>
-        </div>,
-      )
+      out.push(<CodeBlock key={'pre' + k} lang={lang} code={code.join('\n')} />)
       continue
     }
 
