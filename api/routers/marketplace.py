@@ -436,14 +436,15 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
     if review.get("ok"):
         threshold = await runtime_config.extension_risk_threshold()
         if review["score"] >= threshold:
-            bullets = "; ".join(review.get("bullets") or []) or review.get("summary") or ""
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    f"Publishing blocked — the automated risk review scored "
-                    f"{review['score']}/100 (block threshold {threshold}). {bullets}".strip()
-                ),
-            )
+            # Structured so the console can render the risk readout (meter + reasons).
+            raise HTTPException(status_code=400, detail={
+                "code": "risk_blocked",
+                "message": f"Publishing blocked — risk {review['score']}/100 (threshold {threshold}).",
+                "risk_score": review["score"],
+                "threshold": threshold,
+                "summary": review.get("summary") or "",
+                "bullets": review.get("bullets") or [],
+            })
         # Unsigned metadata (not part of the canonical source hash) so the signature holds.
         doc["risk_score"] = review["score"]
         doc["risk_report"] = review.get("bullets") or []
@@ -455,6 +456,32 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
     if r.status_code != 200:
         raise _registry_error(r, "publish failed")
     return r.json()
+
+
+@router.post("/review")
+async def review(body: MarketplacePublishIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Run the AI risk review on a local extension WITHOUT publishing — powers the console's
+    scan screen so the operator sees the verdict (and can confirm) before shipping."""
+    _operator(admin)
+    async with session_scope() as session:
+        pkg = await session.get(ExtensionPackage, body.key)
+        if pkg is None:
+            raise HTTPException(status_code=404, detail="unknown extension")
+        if not (pkg.source_ts or "").strip():
+            raise HTTPException(status_code=400, detail="this extension has no source to publish")
+        manifest = pkg.manifest or {}
+        requested = pkg.requested_permissions or pkg.permissions or []
+        source = pkg.source_ts or ""
+    result = await review_source(source, manifest, requested_permissions=requested)
+    threshold = await runtime_config.extension_risk_threshold()
+    return {
+        "review_available": bool(result.get("ok")),
+        "risk_score": result.get("score", 0),
+        "threshold": threshold,
+        "summary": result.get("summary", ""),
+        "bullets": result.get("bullets", []),
+        "blocked": bool(result.get("ok") and result["score"] >= threshold),
+    }
 
 
 @router.get("/policy")
