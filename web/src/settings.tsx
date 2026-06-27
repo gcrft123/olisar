@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, type IconName } from './icons'
 import { Toggle } from './ui'
+import { toast } from './overlays'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
@@ -43,7 +44,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
         </nav>
         <div className="settings-body">
           <button className="settings-close" onClick={onClose} title="Close (Esc)">
-            <Icon.add size={18} weight="Linear" style={{ transform: 'rotate(45deg)' }} />
+            <Icon.close size={18} weight="Linear" />
           </button>
           {section === 'appearance' && <Appearance />}
           {section === 'logs' && <Logs />}
@@ -103,19 +104,19 @@ function Logs() {
   const [lines, setLines] = useState<string[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const preRef = useRef<HTMLPreElement>(null)
-  const load = () => {
+  const load = (notify = false) => {
     setErr(null)
     api.getLogs(1000)
-      .then((r: { lines: string[] }) => setLines(r.lines || []))
-      .catch((e: any) => setErr(e?.message || 'failed to load logs'))
+      .then((r: { lines: string[] }) => { setLines(r.lines || []); if (notify) toast('Logs refreshed', 'success') })
+      .catch((e: any) => { const m = e?.message || 'failed to load logs'; setErr(m); if (notify) toast(m, 'danger') })
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
   useEffect(() => { if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight }, [lines])
   return (
     <>
       <Head title="Bot logs" sub="Recent backend activity — the bot and the dashboard API, newest at the bottom." />
       <div className="settings-row end">
-        <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
+        <button className="ghost sm" onClick={() => load(true)}><Icon.refresh size={14} /> Refresh</button>
       </div>
       {err && <div className="settings-err">{err}</div>}
       <pre className="logview fill" ref={preRef}>{lines === null ? 'Loading…' : (lines.length ? lines.join('\n') : 'No logs yet.')}</pre>
@@ -127,11 +128,13 @@ function Logs() {
 function Remote() {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
-  const load = () => {
+  const load = (notify = false) => {
     setErr(null)
-    api.getRemote().then(setData).catch((e: any) => setErr(e?.message || 'failed'))
+    api.getRemote()
+      .then((d: any) => { setData(d); if (notify) toast('Remote access refreshed', 'success') })
+      .catch((e: any) => { const m = e?.message || 'failed'; setErr(m); if (notify) toast(m, 'danger') })
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
   const st = data?.status
   const url = (st?.public_url || '').replace(/\/$/, '')
   const isWeb = /^https:\/\//.test(url)
@@ -149,7 +152,7 @@ function Remote() {
                 ? <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, '')}</a>
                 : <span className="settings-muted">No public link — turn on remote access from the tray.</span>}
             </div>
-            <button className="ghost sm" onClick={load} style={{ marginLeft: 'auto' }}><Icon.refresh size={14} /></button>
+            <button className="ghost sm" onClick={() => load(true)} style={{ marginLeft: 'auto' }}><Icon.refresh size={14} /></button>
           </div>
 
           <div className="settings-subhead">Who can access ({data.users?.length || 0})</div>
@@ -185,16 +188,23 @@ function Updates() {
   const [installing, setInstalling] = useState(false)
   const du = desktopUpdates()
 
-  const load = () => {
+  const load = (notify = false) => {
     setChecking(true)
     Promise.all([
       api.getUpdates().catch(() => ({ error: "couldn't check" })),
       du ? du.check().catch(() => null) : Promise.resolve(null),
     ])
-      .then(([backend, desk]) => { setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate) })
+      .then(([backend, desk]: [any, any]) => {
+        setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate)
+        if (notify) {
+          if (backend?.error) toast(backend.error, 'danger')
+          else if (backend?.available) toast(`Update available — ${backend.latest}`, 'success')
+          else toast('Up to date', 'success')
+        }
+      })
       .finally(() => setChecking(false))
   }
-  useEffect(load, [])
+  useEffect(() => { load() }, [])
 
   const install = async () => {
     if (!du) return
@@ -234,7 +244,7 @@ function Updates() {
             <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (canSelfUpdate ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
           </button>
         )}
-        <button className="ghost sm" onClick={load} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
+        <button className="ghost sm" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
       <p className="settings-foot">
         {du

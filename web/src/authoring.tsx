@@ -5,6 +5,8 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Card, Field, SaveBar, Text, useSaver } from './ui'
+import { Icon } from './icons'
+import { confirmDialog } from './overlays'
 
 const TEMPLATE = `// A new Olisar extension. Autocomplete shows the host.* capabilities you can use.
 defineExtension({
@@ -101,7 +103,12 @@ export default function ExtensionEditor(props: {
 
   const del = async () => {
     if (!key) return
-    if (!confirm(`Delete extension "${key}"? This can't be undone.`)) return
+    if (!(await confirmDialog({
+      title: `Delete extension "${key}"?`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    }))) return
     try { await api.deleteAuthoring(key); props.onChanged(); props.onBack() }
     catch (e: any) { setStatus({ kind: 'err', msg: e.message }) }
   }
@@ -111,9 +118,9 @@ export default function ExtensionEditor(props: {
   return (
     <>
       <div className="page-head">
-        <button className="ghost sm" onClick={props.onBack} style={{ marginBottom: 14 }}>← Extensions</button>
+        <button className="ghost sm" onClick={props.onBack} style={{ marginBottom: 14 }}><Icon.arrowLeft size={14} /> Extensions</button>
         <div className="title-row">
-          <div className="title-ic"><span style={{ fontFamily: 'var(--mono)', fontSize: 15 }}>{'</>'}</span></div>
+          <div className="title-ic"><Icon.code size={19} /></div>
           <h1>{title}</h1>
         </div>
         <p>
@@ -126,12 +133,12 @@ export default function ExtensionEditor(props: {
         <Field label="Display name" desc="Shown in the catalog (optional; defaults to the manifest name).">
           <Text value={name} onChange={setName} placeholder="My extension" />
         </Field>
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', marginTop: 8 }}>
+        <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', marginTop: 8 }}>
           {Editor ? (
             <Editor
               height="480px"
               defaultLanguage="typescript"
-              theme="vs-dark"
+              theme="olisar-dark"
               value={source}
               onChange={(v: string | undefined) => setSource(v ?? '')}
               // fixedOverflowWidgets keeps the autocomplete/hover popups from being clipped
@@ -147,7 +154,7 @@ export default function ExtensionEditor(props: {
           <div style={{ marginTop: 14 }}>
             <div className="meta" style={{ marginBottom: 6 }}>Capabilities this extension uses:</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {manifest.permissions.map((p: string) => <Pill key={p}>{p}</Pill>)}
+              {manifest.permissions.map((p: string) => <span className="tag" key={p}>{p}</span>)}
             </div>
           </div>
         ) : null}
@@ -163,14 +170,5 @@ export default function ExtensionEditor(props: {
         </div>
       </Card>
     </>
-  )
-}
-
-function Pill(props: { children: React.ReactNode }) {
-  return (
-    <span style={{
-      fontFamily: 'var(--mono)', fontSize: 11, padding: '2px 7px', borderRadius: 999,
-      border: '1px solid var(--border)', color: 'var(--text-3)', whiteSpace: 'nowrap',
-    }}>{props.children}</span>
   )
 }

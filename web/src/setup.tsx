@@ -36,6 +36,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
 
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
+  const [copied, setCopied] = useState<'' | 'local' | 'tunnel'>('')
 
   // Step 1 — bot token
   const [token, setToken] = useState(pf.discord_token || '')
@@ -152,7 +153,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
               <span className="grow">
                 {botName && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Connected as {botName}</span>}
               </span>
-              <button className="ghost" disabled={!token.trim() || validating} onClick={validate}>
+              <button disabled={!token.trim() || validating} onClick={validate}>
                 {validating ? 'Checking…' : 'Test token'}
               </button>
             </div>
@@ -225,7 +226,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
                     {tunnelDone && tunnelUrl && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
                     {tunnelErr && <span className="err" style={{ margin: 0 }}>{tunnelErr}</span>}
                   </span>
-                  <button className="ghost" disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
+                  <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
                     {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
                   </button>
                 </div>
@@ -238,12 +239,16 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
             >
               <div className="redirect-box">
                 <span>{redirectLocal}</span>
-                <button className="ghost sm" onClick={() => navigator.clipboard?.writeText(redirectLocal)}>Copy</button>
+                <button className="ghost sm" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
+                  {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+                </button>
               </div>
               {mode === 'tunnel' && redirectTunnel && (
                 <div className="redirect-box" style={{ marginTop: 8 }}>
                   <span>{redirectTunnel}</span>
-                  <button className="ghost sm" onClick={() => navigator.clipboard?.writeText(redirectTunnel)}>Copy</button>
+                  <button className="ghost sm" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
+                    {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+                  </button>
                 </div>
               )}
             </Field>
@@ -273,7 +278,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
         {err && <div className="err">{err}</div>}
 
         <div className="wiz-foot">
-          <button className="ghost" disabled={step === 0 || saving} onClick={() => { setErr(''); setStep((s) => Math.max(0, s - 1)) }}>
+          <button disabled={step === 0 || saving} onClick={() => { setErr(''); setStep((s) => Math.max(0, s - 1)) }}>
             Back
           </button>
           <span className="grow" />
