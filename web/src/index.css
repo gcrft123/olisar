@@ -757,6 +757,18 @@ button.icon-btn { width: 34px; padding: 0; justify-content: center; }
 .codeblock .tok-str { color: #7fd1a0; }
 .codeblock .tok-kw { color: #b69cff; }
 .codeblock .tok-num, .codeblock .tok-fn { color: #e0a458; }
+/* Trailing copy button (DESIGN.md code box): a plain top-right ghost icon whose
+   glyph flips to a green check-circle with a small pop on click. No divider. */
+.cb-copy {
+  margin-left: auto; width: 30px; height: 30px; padding: 0; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius-xs);
+  background: transparent; color: var(--text-3); cursor: pointer; transition: color 0.12s, background 0.12s;
+}
+.cb-copy:hover { color: var(--text); background: var(--bg-inset); }
+.cb-copy:focus-visible { outline: none; box-shadow: var(--ring); }
+.cb-check { color: var(--ok); animation: copy-pop 0.4s var(--ease-out); }
+@keyframes copy-pop { 0% { transform: scale(0.4); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 
 /* Callouts (Resend-style: tinted fill + colored hairline + leading icon, no eyebrow).
    Tones via --cc: tip→ok, note/info→accent, warning→warn. */
