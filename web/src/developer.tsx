@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
+import { toast, confirmDialog } from './overlays'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -83,29 +84,34 @@ function DevExtensions() {
     })
   }, [rows, q, sort])
 
-  const th = (key: string, label: string) => (
-    <th className={'sortable' + (sort.key === key ? ' on' : '')}
+  const th = (key: string, label: string, numeric = false) => (
+    <th className={(numeric ? 'num ' : '') + 'sortable' + (sort.key === key ? ' on' : '')}
       onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}>
-      {label}{sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
+      {label}{sort.key === key && (
+        <Icon.chevron size={12} style={{ color: 'var(--accent)', transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
+      )}
     </th>
   )
 
   const viewCode = async (r: any) => {
     try { const d = await api.devSource(r.namespace, r.name, r.version); setCode({ id: r.id, ...d }) }
-    catch (e: any) { alert('Couldn’t load source: ' + e.message) }
+    catch (e: any) { toast('Couldn’t load source: ' + e.message, 'danger') }
   }
   const yank = async (r: any) => {
-    if (!confirm(`Yank ${r.id} from the marketplace? It stops appearing for everyone.`)) return
-    try { await api.devYank(r.namespace, r.name); load() } catch (e: any) { alert('Yank failed: ' + e.message) }
+    if (!(await confirmDialog({ title: `Yank ${r.id}?`, message: 'It stops appearing in the marketplace for everyone.', confirmLabel: 'Yank', tone: 'danger' }))) return
+    try { await api.devYank(r.namespace, r.name); load() } catch (e: any) { toast('Yank failed: ' + e.message, 'danger') }
   }
   const moderate = async (r: any, status: 'warn' | 'ban') => {
-    if (!r.publisher_discord_id) { alert('No publisher Discord ID on record for this extension.'); return }
-    const msg = status === 'ban'
-      ? `Ban ${r.publisher} (Discord ${r.publisher_discord_id})?\n\nTheir extensions are de-listed and they’re blocked from Olisar (console + bot).`
-      : `Warn ${r.publisher} (Discord ${r.publisher_discord_id})? They’ll see a notice next time they open the console.`
-    if (!confirm(msg)) return
-    try { await api.devModeration(String(r.publisher_discord_id), status, ''); alert(status === 'ban' ? 'Publisher banned.' : 'Publisher warned.') }
-    catch (e: any) { alert('Failed: ' + e.message) }
+    if (!r.publisher_discord_id) { toast('No publisher Discord ID on record for this extension.', 'warning'); return }
+    const message = status === 'ban'
+      ? `Their extensions are de-listed and they’re blocked from Olisar (console + bot).`
+      : `They’ll see a notice next time they open the console.`
+    if (!(await confirmDialog({
+      title: `${status === 'ban' ? 'Ban' : 'Warn'} ${r.publisher} (Discord ${r.publisher_discord_id})?`,
+      message, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger',
+    }))) return
+    try { await api.devModeration(String(r.publisher_discord_id), status, ''); toast(status === 'ban' ? 'Publisher banned.' : 'Publisher warned.', 'success') }
+    catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
   if (err) return <div className="card"><div className="settings-err">{err}</div></div>
@@ -113,7 +119,10 @@ function DevExtensions() {
   return (
     <div className="card">
       <div className="dev-toolbar">
-        <input type="text" className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, publisher, or Discord ID…" />
+        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '0 1 320px' }}>
+          <Icon.search size={15} style={{ position: 'absolute', left: 11, color: 'var(--text-3)', pointerEvents: 'none' }} />
+          <input type="text" className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, publisher, or Discord ID…" style={{ paddingLeft: 32, width: '100%' }} />
+        </span>
         <span className="settings-muted">{filtered.length} of {rows.length}</span>
         <span className="grow" />
         <button className="ghost sm" onClick={load}><Icon.refresh size={14} /> Refresh</button>
@@ -123,7 +132,7 @@ function DevExtensions() {
           <thead>
             <tr>
               {th('id', 'Extension')}{th('publisher', 'Publisher')}{th('publisher_discord_id', 'Discord ID')}
-              {th('version', 'Version')}{th('installs', 'Installs')}{th('risk_score', 'Risk')}
+              {th('version', 'Version')}{th('installs', 'Installs', true)}{th('risk_score', 'Risk', true)}
               {th('status', 'Status')}{th('published_at', 'Published')}
               <th>Permissions</th><th aria-label="actions"></th>
             </tr>
@@ -132,12 +141,12 @@ function DevExtensions() {
             {filtered.map((r) => (
               <tr key={r.id}>
                 <td className="mono">{r.id}</td>
-                <td>{r.publisher_verified ? '✓ ' : ''}{r.publisher || '—'}</td>
+                <td>{r.publisher_verified && <Icon.check size={13} weight="Bold" style={{ color: 'var(--ok)', verticalAlign: '-2px', marginRight: 4 }} />}{r.publisher || '—'}</td>
                 <td className="mono">{r.publisher_discord_id || '—'}</td>
                 <td>{r.version}</td>
-                <td>{r.installs}</td>
-                <td>{r.risk_score == null ? '—' : <span className={'risk-pill ' + riskCls(r.risk_score)}>{r.risk_score}</span>}</td>
-                <td><span className={'badge' + (r.status !== 'published' ? ' error' : '')}>{r.status}</span></td>
+                <td className="num">{r.installs}</td>
+                <td className="num">{r.risk_score == null ? '—' : <span className={'risk-pill ' + riskCls(r.risk_score)}>{r.risk_score}</span>}</td>
+                <td><span className={'badge ' + (r.status === 'published' ? 'success' : r.status === 'yanked' ? 'error' : 'pending')}>{r.status}</span></td>
                 <td className="muted">{fmtDate(r.published_at)}</td>
                 <td className="dev-perms">{(r.permissions || []).map((p: string) => <span key={p} className="tag">{p}</span>)}</td>
                 <td className="dev-row-actions">
@@ -161,7 +170,7 @@ function CodeModal(props: { code: { id: string; source?: string; version?: strin
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="dev-code-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
         <div className="settings-head"><h2>{props.code.id}</h2><p>v{props.code.version} · source</p></div>
         <pre className="dev-code">{props.code.source || '(no source)'}</pre>
       </div>
@@ -177,10 +186,10 @@ function DevReports() {
   useEffect(load, [])
 
   const moderate = async (discordId: string, status: 'warn' | 'ban') => {
-    if (!discordId) { alert('No publisher Discord ID on this report.'); return }
-    if (!confirm(`${status === 'ban' ? 'Ban' : 'Warn'} Discord ${discordId}?`)) return
-    try { await api.devModeration(discordId, status, ''); alert(status === 'ban' ? 'Banned.' : 'Warned.') }
-    catch (e: any) { alert('Failed: ' + e.message) }
+    if (!discordId) { toast('No publisher Discord ID on this report.', 'warning'); return }
+    if (!(await confirmDialog({ title: `${status === 'ban' ? 'Ban' : 'Warn'} Discord ${discordId}?`, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger' }))) return
+    try { await api.devModeration(discordId, status, ''); toast(status === 'ban' ? 'Banned.' : 'Warned.', 'success') }
+    catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
   if (err) return <div className="card"><div className="settings-err">{err}</div></div>
@@ -238,9 +247,14 @@ function DevBlocked() {
               <span className="settings-muted">{fmtDate(r.created_at)}</span>
             </div>
             {(r.bullets || []).length > 0 && (
-              <ul className="dev-blocked-reasons">
-                {r.bullets.map((b: string, i: number) => <li key={i}>{b}</li>)}
-              </ul>
+              <div className="dev-blocked-reasons" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {r.bullets.map((b: string, i: number) => (
+                  <div key={i} className="callout warning">
+                    <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                    <div className="callout-body">{b}</div>
+                  </div>
+                ))}
+              </div>
             )}
             <div className="dev-report-meta"><span>by <code>{r.reporter_discord_id || 'unknown'}</code></span></div>
           </div>
@@ -260,9 +274,9 @@ function DevModeration() {
   useEffect(load, [])
 
   const act = async (discordId: string, status: 'warn' | 'ban' | 'clear', message = '') => {
-    if (!discordId.trim()) { alert('Enter a Discord ID.'); return }
+    if (!discordId.trim()) { toast('Enter a Discord ID.', 'warning'); return }
     try { await api.devModeration(discordId.trim(), status, message); setId(''); setMsg(''); load() }
-    catch (e: any) { alert('Failed: ' + e.message) }
+    catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
   return (
@@ -345,7 +359,7 @@ function DevPolicy() {
       <div className="dev-policy-row">
         <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))} className="dev-range" />
         <span className={'risk-pill ' + riskCls(v ?? 70)} style={{ minWidth: 38, textAlign: 'center' }}>{v ?? 70}</span>
-        <button className="primary sm" onClick={save}>{saved ? 'Saved ✓' : 'Save'}</button>
+        <button className="primary sm" onClick={save}>{saved ? <><Icon.check size={14} weight="Bold" /> Saved</> : 'Save'}</button>
       </div>
     </div>
   )

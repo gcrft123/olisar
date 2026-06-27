@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, type IconName } from './icons'
+import { confirmDialog, promptDialog, toast } from './overlays'
 import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Select, Text, Toggle, headingsOf, useAsync, useEditable, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
@@ -97,7 +98,7 @@ function SandboxPanel() {
         <div className="sandbox-log" ref={logRef}>
           {messages.length === 0 && !busy && (
             <div className="sandbox-empty">
-              Try out Olisar's persona without affecting server context. 
+              Try out Olisar's persona without affecting server context.
               Nothing here is saved.
             </div>
           )}
@@ -433,7 +434,7 @@ export function Access() {
                     <span
                       style={{
                         display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                        background: r.color || 'var(--muted, #888)', marginRight: 8, verticalAlign: 'middle',
+                        background: r.color || 'var(--text-3)', marginRight: 8, verticalAlign: 'middle',
                       }}
                     />
                     {r.name}
@@ -471,7 +472,12 @@ function SearchIndexCard() {
     try { await api.reindex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
   }
   const clear = async () => {
-    if (!window.confirm('Clear the entire message search index? New posts keep indexing live, and "Re-index all" rebuilds history.')) return
+    if (!(await confirmDialog({
+      title: 'Clear search index?',
+      message: 'Clear the entire message search index? New posts keep indexing live, and "Re-index all" rebuilds history.',
+      confirmLabel: 'Clear index',
+      tone: 'danger',
+    }))) return
     setBusy(true)
     try { await api.clearIndex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
   }
@@ -694,8 +700,6 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   const marketplace = e.origin === 'marketplace'
   const imported = e.origin === 'imported'
   const fromElsewhere = marketplace || imported
-  const accentBadge = { color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }
-  const warnBadge = { color: 'var(--warn)', background: 'var(--warn-soft)', borderColor: 'transparent' }
   // Publishable = locally-authored (not a built-in, not something installed from elsewhere).
   const publishable = e.editable && (!e.origin || e.origin === 'local')
   // Already live on the marketplace under this bot's handle (from /marketplace/published).
@@ -713,7 +717,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       setReviewResult(await api.marketplaceReview(e.key))
     } catch (err: any) {
       setReviewing(false)
-      alert('Scan failed: ' + err.message)
+      toast('Scan failed: ' + err.message, 'danger')
     }
   }
 
@@ -721,11 +725,16 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
     try {
       const info = await api.marketplacePublisher()
       if (!info.registered) {
-        const handle = window.prompt('Choose a publisher handle (your marketplace namespace, a-z 0-9 _ -):', '')?.trim()
+        const handle = (await promptDialog({
+          title: 'Choose a publisher handle',
+          message: 'Your marketplace namespace (a-z 0-9 _ -).',
+          prompt: { placeholder: 'handle' },
+          confirmLabel: 'Register',
+        }))?.trim()
         if (!handle) return
         await api.marketplaceRegister(handle)
       }
-    } catch (err: any) { alert('Publish failed: ' + err.message); return }
+    } catch (err: any) { toast('Publish failed: ' + err.message, 'danger'); return }
     await startReview()
   }
 
@@ -734,11 +743,15 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   // already installed it won't be offered an update unless the version is bumped.
   const pushUpdate = async () => {
     if (pub && !pub.version_is_new && pub.has_changes) {
-      const ok = window.confirm(
-        `You're re-publishing v${pub.local_version} in place — the version number hasn't changed, ` +
-        `so anyone who already installed it won't be offered an update. Bump the version in your code ` +
-        `to ship it as an update.\n\nPush these changes to v${pub.local_version} anyway?`,
-      )
+      const ok = await confirmDialog({
+        title: `Re-publish v${pub.local_version} in place?`,
+        message:
+          `The version number hasn't changed, so anyone who already installed it won't be offered ` +
+          `an update. Bump the version in your code to ship it as an update. Push these changes to ` +
+          `v${pub.local_version} anyway?`,
+        confirmLabel: 'Push anyway',
+        tone: 'warning',
+      })
       if (!ok) return
     }
     await startReview()
@@ -750,14 +763,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
     try {
       const r = await api.marketplacePublish(e.key)
       setReviewing(false); setReviewResult(null)
-      alert(`Published ${r.id} v${r.version} to the marketplace.`)
+      toast(`Published ${r.id} v${r.version} to the marketplace.`, 'success')
       props.onPublished?.()
     } catch (err: any) {
       const d = err?.detail
       if (d && typeof d === 'object' && d.code === 'risk_blocked') {
         setReviewResult({ ...d, blocked: true, review_available: true })  // server caught it after all
       } else {
-        setReviewing(false); alert('Publish failed: ' + err.message)
+        setReviewing(false); toast('Publish failed: ' + err.message, 'danger')
       }
     } finally { setPublishing(false) }
   }
@@ -770,17 +783,17 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             <div className="ext-chips">
               <span className="badge">{e.category}</span>
               {marketplace
-                ? <span className="badge" style={accentBadge}>Marketplace</span>
+                ? <span className="badge info">Marketplace</span>
                 : imported
-                  ? <span className="badge" style={accentBadge}>Imported</span>
+                  ? <span className="badge info">Imported</span>
                   : e.editable
-                    ? <span className="badge" style={accentBadge}>Custom</span>
+                    ? <span className="badge info">Custom</span>
                     : <span className="badge">Built-in</span>}
               {e.user_modified && <span className="badge">edited</span>}
-              {isPublished && <span className="badge" style={accentBadge}>Published</span>}
-              {isPublished && pub.has_changes && <span className="badge" style={warnBadge}>Unpublished changes</span>}
-              {mkt?.update_available && <span className="badge" style={accentBadge}>Update available</span>}
-              {mkt?.yanked && <span className="badge" style={warnBadge}>Removed from marketplace</span>}
+              {isPublished && <span className="badge info">Published</span>}
+              {isPublished && pub.has_changes && <span className="badge warning">Unpublished changes</span>}
+              {mkt?.update_available && <span className="badge info">Update available</span>}
+              {mkt?.yanked && <span className="badge warning">Removed from marketplace</span>}
               <span className={'badge' + (e.enabled ? ' ready' : '')}>{e.enabled ? 'Enabled' : 'Disabled'}</span>
             </div>
           </div>
@@ -798,7 +811,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button className="ghost sm" onClick={pushUpdate}>Re-publish</button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => alert('Export failed: ' + err.message))}>Export</button>
+              <button className="ghost sm" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))}>Export</button>
             )}
             {props.isOperator && e.has_code && (
               <button className="ghost sm" onClick={() => props.onEdit(e.key)}>Edit code</button>
@@ -832,7 +845,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         {isPublished && (
           <div className="ext-prov">
             Published to the marketplace as <code>{pub.namespace}/{e.key}</code> · v{pub.published_version}
-            {pub.verified ? ' · ✓ verified publisher' : ''}
+            {pub.verified && <> · <span className="ok-text"><Icon.check size={13} weight="Bold" /> verified publisher</span></>}
             {pub.has_changes && (
               <> · <span style={{ color: 'var(--warn)' }}>
                 {pub.version_is_new
@@ -843,8 +856,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
           </div>
         )}
         {mkt?.yanked && (
-          <div className="ext-prov" style={{ color: 'var(--warn)' }}>
-            ⚠ Removed from the marketplace{mkt.gone ? '' : ' by the publisher'} — it keeps working but won't get updates.
+          <div className="ext-prov" style={{ color: 'var(--warn)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon.warn size={14} weight="Bold" /> Removed from the marketplace{mkt.gone ? '' : ' by the publisher'} — it keeps working but won't get updates.
           </div>
         )}
 
@@ -853,7 +866,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             <div className="ext-block-l">What it adds</div>
             <div className="ext-caps">
               {tools.map((t) => <span key={'t' + t} className="tag">{t}()</span>)}
-              {commands.map((c) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
+              {commands.map((c) => <span key={'c' + c} className="tag">/{c}</span>)}
               {e.behavior && <span className="badge">Shapes replies</span>}
             </div>
           </div>
@@ -862,14 +875,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         {perms.length > 0 && (
           <div className="ext-block">
             <div className="ext-block-l">Capabilities it uses</div>
-            <div className="ext-caps">{perms.map((p) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
+            <div className="ext-caps">{perms.map((p) => <span key={p} className="tag">{p}</span>)}</div>
           </div>
         )}
 
         {fromElsewhere && ungranted.length > 0 && (
           <div className="ext-block">
             <div className="ext-block-l">Requested but not granted</div>
-            <div className="ext-caps">{ungranted.map((p) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none', opacity: 0.55 }}>{p}</span>)}</div>
+            <div className="ext-caps">{ungranted.map((p) => <span key={p} className="tag" style={{ opacity: 0.55 }}>{p}</span>)}</div>
           </div>
         )}
       </Card>
@@ -907,7 +920,7 @@ function ConsentModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
         <div className="settings-head"><h2>{props.title}</h2><p>{props.subtitle}</p></div>
 
         <div className="import-review">
@@ -935,7 +948,7 @@ function ConsentModal(props: {
               <div className="settings-subhead">What it adds</div>
               <div className="ext-caps">
                 {(preview.tools || []).map((t: string) => <span key={'t' + t} className="tag">{t}()</span>)}
-                {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag" style={{ color: 'var(--accent)' }}>/{c}</span>)}
+                {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag">/{c}</span>)}
                 {preview.behavior && <span className="badge">Shapes replies</span>}
               </div>
             </>
@@ -1063,7 +1076,7 @@ function ReportModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
         <div className="settings-head">
           <h2>Report extension</h2>
           <p>{props.target.id || `${props.target.namespace}/${props.target.name}`}</p>
@@ -1077,10 +1090,9 @@ function ReportModal(props: {
           <>
             <div className="import-review">
               <div className="settings-subhead">What went wrong?</div>
-              <textarea
-                value={desc} onChange={(e) => setDesc(e.target.value)} rows={5}
+              <Area
+                value={desc} onChange={setDesc} rows={5}
                 placeholder="Describe the behaviour you saw — what the extension did, when, and why it concerned you."
-                style={{ width: '100%' }}
               />
               <div className="settings-subhead">Evidence (optional)</div>
               <div className="report-attach">
@@ -1096,7 +1108,7 @@ function ReportModal(props: {
                   {files.map((f, i) => (
                     <span key={i} className="tag">
                       {f.name}
-                      <button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove">✕</button>
+                      <button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove"><Icon.close size={11} /></button>
                     </span>
                   ))}
                 </div>
@@ -1177,7 +1189,7 @@ function PublishReviewModal(props: {
     return (
       <div className="modal-backdrop" onClick={props.onClose}>
         <div className="deny-modal scan" onClick={(e) => e.stopPropagation()}>
-          <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+          <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
           <h2 className="deny-title">Security review</h2>
           <div className="deny-sub">{props.subject}</div>
           <RiskMeter score={0} band="ok" scanning />
@@ -1194,7 +1206,7 @@ function PublishReviewModal(props: {
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className={'deny-modal ' + (blocked ? band : 'pass ' + band)} onClick={(e) => e.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
         <h2 className="deny-title">{blocked ? 'Publish blocked' : 'Review passed'}</h2>
         <div className="deny-sub">{props.subject}</div>
 
@@ -1272,7 +1284,7 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close"><Icon.close size={16} /></button>
         <div className="settings-head">
           <h2>Import extension</h2>
           <p>Install an <code>.olx</code> bundle exported from Olisar.</p>
@@ -1319,7 +1331,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
     try {
       const p = await api.marketplaceInstallPreview({ namespace: item.namespace, name: item.name, version: item.version })
       setPreview(p)
-    } catch (e: any) { setPerr(e.message); setSel(null); alert('Couldn’t load: ' + e.message) } finally { setBusy(false) }
+    } catch (e: any) { setPerr(e.message); setSel(null); toast('Couldn’t load: ' + e.message, 'danger') } finally { setBusy(false) }
   }
   const doInstall = async (granted: string[]) => {
     if (!sel) return
@@ -1330,24 +1342,34 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
     } catch (e: any) { setPerr(e.message); setBusy(false) }
   }
   const doYank = async (item: any) => {
-    if (!confirm(`Yank ${item.id} from the marketplace? It'll stop appearing for everyone.`)) return
+    if (!(await confirmDialog({
+      title: `Yank ${item.id}?`,
+      message: "It'll stop appearing in the marketplace for everyone.",
+      confirmLabel: 'Yank',
+      tone: 'danger',
+    }))) return
     try { await api.marketplaceYank(item.name); await runSearch() }  // whole extension, all versions
-    catch (e: any) { alert('Yank failed: ' + e.message) }
+    catch (e: any) { toast('Yank failed: ' + e.message, 'danger') }
   }
   const changeHandle = async () => {
-    const h = window.prompt('New publisher handle (a-z 0-9 _ -). Re-registering rotates your token; verification carries over.', pubInfo?.handle || '')?.trim()
+    const h = (await promptDialog({
+      title: 'Change publisher handle',
+      message: 'New publisher handle (a-z 0-9 _ -). Re-registering rotates your token; verification carries over.',
+      prompt: { defaultValue: pubInfo?.handle || '', placeholder: 'handle' },
+      confirmLabel: 'Change handle',
+    }))?.trim()
     if (!h || h === pubInfo?.handle) return
     try { await api.marketplaceRegister(h); setPubInfo(await api.marketplacePublisher()); await runSearch() }
-    catch (e: any) { alert('Couldn’t change handle: ' + e.message) }
+    catch (e: any) { toast('Couldn’t change handle: ' + e.message, 'danger') }
   }
 
   return (
     <>
       <div className="mkt-head">
-        <button className="ghost sm" onClick={props.onBack}>← Back</button>
+        <button className="ghost sm" onClick={props.onBack}><Icon.arrowLeft size={15} /> Back</button>
         <form className="mkt-search" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
           <Text value={q} onChange={setQ} placeholder="Search the marketplace…" />
-          <button className="primary sm" type="submit">Search</button>
+          <button className="sm" type="submit">Search</button>
         </form>
       </div>
 
@@ -1355,7 +1377,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
         <div className="mkt-pubbar">
           <span>Publishing as <code>{pubInfo.handle}</code></span>
           {pubInfo.verified
-            ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ Discord-verified</span>
+            ? <span className="badge info"><Icon.verified size={13} weight="Bold" /> Discord-verified</span>
             : <button className="ghost sm" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
           <span className="grow" />
           <button className="ghost sm" onClick={changeHandle}>Change handle</button>
@@ -1376,12 +1398,12 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
               </div>
               <div className="mkt-pub">
                 {r.publisher_verified
-                  ? <span className="badge" style={{ color: 'var(--accent)', background: 'var(--accent-soft)', borderColor: 'transparent' }}>✓ {r.publisher}</span>
+                  ? <span className="badge info"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
                   : <span className="badge">{r.publisher || 'unknown publisher'}</span>}
               </div>
               {r.description && <div className="mkt-desc">{r.description}</div>}
               {r.permissions?.length > 0 && (
-                <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="badge" style={{ fontFamily: 'var(--mono)', textTransform: 'none' }}>{p}</span>)}</div>
+                <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
                 <button className="icon-flag" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
@@ -1389,7 +1411,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
                   <button className="ghost sm" onClick={() => doYank(r)}>Yank</button>
                 )}
-                <button className="primary sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                <button className="sm" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
               </div>
             </div>
           ))}
@@ -1456,7 +1478,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   const startUpdate = async (key: string) => {
     setUpdErr(null); setUpdPreview(null); setUpdKey(key)
     try { setUpdPreview(await api.marketplaceUpdatePreview(key)) }
-    catch (e: any) { setUpdKey(null); alert('Update check failed: ' + e.message) }
+    catch (e: any) { setUpdKey(null); toast('Update check failed: ' + e.message, 'danger') }
   }
   const applyUpdate = async (granted: string[]) => {
     if (!updKey) return
@@ -1511,9 +1533,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     >
       <span className="dot" />
       <span className="nm">{e.name}</span>
-      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available">↑</span>}
-      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace">!</span>}
-      {pubStatus[e.key]?.has_changes && <span className="cust" style={{ color: 'var(--warn)' }} title="Unpublished changes">●</span>}
+      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available"><Icon.update size={13} /></span>}
+      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace"><Icon.warn size={13} /></span>}
+      {pubStatus[e.key]?.has_changes && <span className="dot" style={{ background: 'var(--warn)', boxShadow: 'none' }} title="Unpublished changes" />}
       {e.editable && <span className="cust">{e.origin === 'marketplace' ? 'Market' : 'Custom'}</span>}
     </button>
   )
@@ -1526,7 +1548,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
             <button className="ghost sm" onClick={() => setView('marketplace')}>Marketplace</button>
             <button className="ghost sm" onClick={() => setImporting(true)}>Import .olx</button>
-            <button className="primary sm" onClick={() => openEditor(null)}>+ New extension</button>
+            <button className="primary sm" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
           </div>
         )}
       </div>
@@ -1658,10 +1680,10 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
         <Markdown md={section.body} onDocLink={goLink} />
         <div className="docs-prevnext">
           {prev ? (
-            <button className="ghost" onClick={() => setActive(prev.id)}>← {prev.title}</button>
+            <button className="ghost" onClick={() => setActive(prev.id)}><Icon.arrowLeft size={15} /> {prev.title}</button>
           ) : <span />}
           {next ? (
-            <button className="ghost" onClick={() => setActive(next.id)}>{next.title} →</button>
+            <button className="ghost" onClick={() => setActive(next.id)}>{next.title} <Icon.arrowRight size={15} /></button>
           ) : <span />}
         </div>
       </main>

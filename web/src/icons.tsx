@@ -35,6 +35,14 @@ import {
   ForbiddenCircle,
   CodeSquare,
   Bolt,
+  CloseCircle,
+  Magnifer,
+  AltArrowLeft,
+  AltArrowRight,
+  AltArrowDown,
+  AltArrowUp,
+  InfoCircle,
+  ShieldCheck,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -70,6 +78,14 @@ export const Icon = {
   ban: ForbiddenCircle,
   code: CodeSquare,
   bolt: Bolt,
+  close: CloseCircle,
+  search: Magnifer,
+  arrowLeft: AltArrowLeft,
+  arrowRight: AltArrowRight,
+  chevron: AltArrowDown,
+  arrowUp: AltArrowUp,
+  info: InfoCircle,
+  verified: ShieldCheck,
 } as const
 
 export type IconName = keyof typeof Icon
