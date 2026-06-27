@@ -141,7 +141,76 @@ function ConfirmHost() {
   )
 }
 
+// ── Tooltip ──────────────────────────────────────────────────────────────────
+// One delegated, portal-rendered tooltip for any element carrying data-tip="…"
+// (or a native title, which is migrated to data-tip so the OS tooltip never shows).
+// Fixed-positioned so it's never clipped by an overflow:hidden modal; flips below
+// the target when there's no room above. Monaco owns its own hovers, so it's skipped.
+function TooltipHost() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null)
+  useEffect(() => {
+    let current: Element | null = null
+    let timer: number | undefined
+    const clear = () => { if (timer) { clearTimeout(timer); timer = undefined } }
+    const hide = () => { clear(); current = null; setTip(null) }
+    const textOf = (el: Element): string | null => {
+      let t = el.getAttribute('data-tip')
+      if (!t && el.hasAttribute('title')) {
+        t = el.getAttribute('title')
+        el.setAttribute('data-tip', t || '')
+        el.removeAttribute('title')   // suppress the native tooltip
+      }
+      return t || null
+    }
+    const show = (el: Element) => {
+      if (el.closest('.monaco-editor')) return
+      const text = textOf(el)
+      if (!text) return
+      current = el
+      clear()
+      timer = window.setTimeout(() => {
+        const r = el.getBoundingClientRect()
+        const below = r.top < 52
+        setTip({ text, x: Math.round(r.left + r.width / 2), y: Math.round(below ? r.bottom + 7 : r.top - 7), below })
+      }, 300)
+    }
+    const onOver = (e: Event) => {
+      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
+      if (el && el !== current) show(el)
+    }
+    const onOut = (e: MouseEvent) => {
+      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
+      if (el && el === current) {
+        const to = e.relatedTarget as Node | null
+        if (to && el.contains(to)) return   // moved onto a child — keep showing
+        hide()
+      }
+    }
+    const onFocus = (e: Event) => { const el = (e.target as Element)?.closest?.('[data-tip],[title]'); if (el) show(el) }
+    document.addEventListener('mouseover', onOver, true)
+    document.addEventListener('mouseout', onOut as EventListener, true)
+    document.addEventListener('focusin', onFocus)
+    document.addEventListener('focusout', hide)
+    document.addEventListener('mousedown', hide, true)
+    window.addEventListener('scroll', hide, true)
+    return () => {
+      document.removeEventListener('mouseover', onOver, true)
+      document.removeEventListener('mouseout', onOut as EventListener, true)
+      document.removeEventListener('focusin', onFocus)
+      document.removeEventListener('focusout', hide)
+      document.removeEventListener('mousedown', hide, true)
+      window.removeEventListener('scroll', hide, true)
+    }
+  }, [])
+  if (!tip) return null
+  return (
+    <div className={'tooltip' + (tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
+      {tip.text}
+    </div>
+  )
+}
+
 // Mounted once, near the app root.
 export function Overlays() {
-  return <><ToastStack /><ConfirmHost /></>
+  return <><ToastStack /><ConfirmHost /><TooltipHost /></>
 }

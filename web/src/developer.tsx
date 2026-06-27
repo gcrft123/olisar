@@ -33,14 +33,22 @@ function fmtDate(s?: string): string {
 }
 function Loading() { return <div className="empty" style={{ padding: 24 }}>Loading…</div> }
 
+const COUNTED: Record<string, true> = { reports: true, blocked: true, moderation: true }
+
 export function Developer() {
   const [tab, setTab] = useState<DevTab>('extensions')
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const barRef = useRef<HTMLDivElement>(null)
   const [ind, setInd] = useState<{ left: number; width: number }>({ left: 0, width: 0 })
+  useEffect(() => {
+    api.devReports().then((d) => setCounts((c) => ({ ...c, reports: (d.reports || []).length }))).catch(() => {})
+    api.devBlocked().then((d) => setCounts((c) => ({ ...c, blocked: (d.blocked || []).length }))).catch(() => {})
+    api.devModerationList().then((d) => setCounts((c) => ({ ...c, moderation: (d.entries || []).length }))).catch(() => {})
+  }, [])
   useLayoutEffect(() => {
     const el = barRef.current?.querySelector('.dev-tab.active') as HTMLElement | null
     if (el) setInd({ left: el.offsetLeft, width: el.offsetWidth })
-  }, [tab])
+  }, [tab, counts])
   return (
     <div className="dev">
       <div className="page-head">
@@ -52,7 +60,10 @@ export function Developer() {
       </div>
       <div className="dev-tabs" ref={barRef}>
         {TABS.map((t) => (
-          <button key={t.id} className={'dev-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>{t.label}</button>
+          <button key={t.id} className={'dev-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
+            {t.label}
+            {COUNTED[t.id] && counts[t.id] != null && <span className="dev-tab-count">{counts[t.id]}</span>}
+          </button>
         ))}
         <span className="dev-tab-ind" style={{ left: ind.left, width: ind.width }} />
       </div>
