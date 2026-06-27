@@ -447,7 +447,7 @@ function BotPower() {
       <button
         className="power-btn"
         disabled={busy}
-        title={online ? 'Hold to power down' : offline ? 'Power on' : ''}
+        data-tip={online ? 'Hold to power down' : offline ? 'Power on' : undefined}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}
         onPointerLeave={endHold}

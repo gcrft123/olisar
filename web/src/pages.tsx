@@ -1616,6 +1616,11 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 }
 
 // ── Docs (OpenClaw-style: left nav · content · on-this-page) ─────────────────
+// Render a heading string for the TOC, turning inline `code` spans into <code>.
+function tocInline(text: string) {
+  return text.split('`').map((seg, i) => (i % 2 === 1 ? <code key={i}>{seg}</code> : seg))
+}
+
 export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const [active, setActive] = useState(DOCS[0].id)
   const [q, setQ] = useState('')
@@ -1720,7 +1725,7 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
                 className={'lvl' + h.level + (activeHeading === h.slug ? ' active' : '')}
                 onClick={() => setActiveHeading(h.slug)}
               >
-                {h.text}
+                {tocInline(h.text)}
               </a>
             ))}
           </div>

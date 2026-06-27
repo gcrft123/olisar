@@ -307,6 +307,24 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
 ```
 
+### Tooltip
+
+A small dark chip on a hairline border, shown on hover/focus of any control whose meaning isn't a visible label. Driven by one portal-mounted, delegated host that reads `data-tip="…"` (or a native `title`, which it migrates to `data-tip` so the OS tooltip is suppressed) — so it's never clipped by an `overflow:hidden` modal. Sits above the target; flips below when there's no room. ~300 ms show delay, instant hide.
+
+```css
+.tooltip {
+  position: fixed; z-index: 400; transform: translate(-50%, -100%);
+  padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  font-size: 11.5px; font-weight: 500; line-height: 1.3;
+  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in .1s ease;
+}
+.tooltip.below { transform: translate(-50%, 0); }      /* flipped below the target */
+@keyframes tip-in { from { opacity: 0 } to { opacity: 1 } }
+```
+
+Every **icon-only button** (close ×, copy, report flag, row actions, the bot-power control, the server picker…) carries a `data-tip`/`title`, paired with an `aria-label` for assistive tech.
+
 ### Overlays (Dialog / Modal / SaveDock)
 
 - **Dialog** (centered info+action): blurred backdrop `rgba(0,0,0,.55)` + `backdrop-filter: blur(3px)` fading in; the card (`--panel`, `--border-strong`, `--shadow-modal`) scales-and-lifts from `translateY(12px) scale(.96)` → `0/1` over `.22s var(--ease-out)`. Optional tinted icon tile (46px, `--radius` 15px) + footer actions. Close on backdrop click / Escape.
