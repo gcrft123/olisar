@@ -817,7 +817,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button className="ghost" onClick={() => props.onEdit(e.key)}>Edit code</button>
             )}
             {marketplace && ref && (
-              <button className="ghost icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
+              <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
             )}
             <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} />
           </div>
@@ -1407,8 +1407,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
-                <button className="ghost icon-btn sm" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
-                <span className="grow" />
+                <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
                   <button className="ghost" onClick={() => doYank(r)}>Yank</button>
                 )}

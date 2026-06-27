@@ -16,4 +16,12 @@ Essentials:
 
 ## Design linter (enforced on build)
 
-`npm run build` runs `web/scripts/design-lint.mjs` first and **fails the build** on: raw hex/rgb colours outside `:root` or in inline styles (use `var(--…)`; brand/syntax/neutral colours are allowlisted), text buttons with `sm`, buttons mixing variants or using `warn`, and native `alert/confirm/prompt`. Keep it green; add new rules there as the system grows.
+`npm run build` runs `web/scripts/design-lint.mjs` first and **fails the build** on:
+- **colours** — raw hex/rgb outside `:root` or in inline styles (use `var(--…)`; brand/syntax/neutral allowlisted)
+- **buttons** — text buttons with `sm`, mixed variants, or `warn`
+- **corner radii** — raw `border-radius` (use `var(--radius*)`; only `0` / `50%` / `≤6px` chips allowed raw)
+- **spacing** — `padding`/`margin`/`gap` off the established px scale (CSS + inline styles)
+- **animation easing** — raw `cubic-bezier()` (use `var(--ease-out)`)
+- **native dialogs** — `alert/confirm/prompt` (use the overlays)
+
+Keep it green; add new rules / scale values there as the system grows.
