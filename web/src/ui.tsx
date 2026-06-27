@@ -237,6 +237,43 @@ export function headingsOf(md: string): { level: number; text: string; slug: str
   return out
 }
 
+// Friendly labels for the code-preview box header, keyed by the fence's info string.
+const LANG_LABEL: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+  json: 'json', bash: 'shell', sh: 'shell', py: 'python', md: 'markdown',
+}
+
+const KEYWORDS = new Set([
+  'const', 'let', 'var', 'function', 'return', 'async', 'await', 'if', 'else', 'for', 'while',
+  'do', 'of', 'in', 'new', 'class', 'extends', 'implements', 'import', 'from', 'export', 'default',
+  'true', 'false', 'null', 'undefined', 'void', 'typeof', 'instanceof', 'interface', 'type', 'enum',
+  'public', 'private', 'protected', 'readonly', 'static', 'this', 'super', 'try', 'catch', 'finally',
+  'throw', 'switch', 'case', 'break', 'continue', 'yield', 'as', 'satisfies',
+])
+
+// Minimal TS/JS/JSON syntax highlighter for the code-preview box, using the exact
+// DESIGN.md token colours: comment var(--text-3) · string #7fd1a0 · keyword #b69cff ·
+// fn/number #e0a458. Other languages render uncoloured.
+function highlight(code: string, lang: string): React.ReactNode {
+  const l = lang.toLowerCase()
+  if (l && !['ts', 'tsx', 'js', 'jsx', 'javascript', 'typescript', 'json'].includes(l)) return code
+  const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d[\w.]*)|([A-Za-z_$][\w$]*)(?=\s*\()|([A-Za-z_$][\w$]*)|([\s\S])/g
+  const out: React.ReactNode[] = []
+  let m: RegExpExecArray | null
+  let key = 0
+  while ((m = re.exec(code))) {
+    if (m[1]) out.push(<span key={key++} className="tok-com">{m[1]}</span>)
+    else if (m[2]) out.push(<span key={key++} className="tok-str">{m[2]}</span>)
+    else if (m[3]) out.push(<span key={key++} className="tok-num">{m[3]}</span>)
+    else if (m[4]) out.push(KEYWORDS.has(m[4])
+      ? <span key={key++} className="tok-kw">{m[4]}</span>
+      : <span key={key++} className="tok-fn">{m[4]}</span>)
+    else if (m[5]) out.push(KEYWORDS.has(m[5]) ? <span key={key++} className="tok-kw">{m[5]}</span> : m[5])
+    else out.push(m[6])
+  }
+  return out
+}
+
 // Leading icon per callout tone (the Resend-style callout has no uppercase eyebrow).
 const CALLOUT_ICON: Record<string, React.ReactNode> = {
   tip: <Icon.check size={17} weight="Bold" />,
@@ -287,11 +324,8 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       i++ // skip closing ```
       out.push(
         <div key={'pre' + k} className="codeblock">
-          <div className="cb-head">
-            <span className="cb-dots" aria-hidden="true"><i /><i /><i /></span>
-            {lang && <span className="cb-lang">{lang}</span>}
-          </div>
-          <pre><code>{code.join('\n')}</code></pre>
+          <div className="head"><span className="file">{LANG_LABEL[lang.toLowerCase()] || lang || 'typescript'}</span></div>
+          <pre><code>{highlight(code.join('\n'), lang)}</code></pre>
         </div>,
       )
       continue
