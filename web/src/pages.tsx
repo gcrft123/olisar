@@ -701,20 +701,32 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   // Already live on the marketplace under this bot's handle (from /marketplace/published).
   const isPublished = publishable && !!pub
   const [reporting, setReporting] = useState(false)
+  // Publish flow: open the scan modal, run the review-only endpoint, then show pass/blocked.
+  const [reviewing, setReviewing] = useState(false)
+  const [reviewResult, setReviewResult] = useState<any>(null)
+  const [publishing, setPublishing] = useState(false)
   const ref = e.marketplace_ref
+
+  const startReview = async () => {
+    setReviewResult(null); setReviewing(true)
+    try {
+      setReviewResult(await api.marketplaceReview(e.key))
+    } catch (err: any) {
+      setReviewing(false)
+      alert('Scan failed: ' + err.message)
+    }
+  }
 
   const publishToMarketplace = async () => {
     try {
-      let info = await api.marketplacePublisher()
+      const info = await api.marketplacePublisher()
       if (!info.registered) {
         const handle = window.prompt('Choose a publisher handle (your marketplace namespace, a-z 0-9 _ -):', '')?.trim()
         if (!handle) return
-        info = await api.marketplaceRegister(handle)
+        await api.marketplaceRegister(handle)
       }
-      const r = await api.marketplacePublish(e.key)
-      alert(`Published ${r.id} v${r.version} to the marketplace.`)
-      props.onPublished?.()
-    } catch (err: any) { alert('Publish failed: ' + err.message) }
+    } catch (err: any) { alert('Publish failed: ' + err.message); return }
+    await startReview()
   }
 
   // Push the current local source to an already-published extension. If the version
@@ -729,11 +741,25 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       )
       if (!ok) return
     }
+    await startReview()
+  }
+
+  // Clicked from the "pass" screen — actually ship it (the server re-reviews as the gate).
+  const confirmPublish = async () => {
+    setPublishing(true)
     try {
       const r = await api.marketplacePublish(e.key)
-      alert(`Pushed ${r.id} v${r.version} to the marketplace.`)
+      setReviewing(false); setReviewResult(null)
+      alert(`Published ${r.id} v${r.version} to the marketplace.`)
       props.onPublished?.()
-    } catch (err: any) { alert('Push failed: ' + err.message) }
+    } catch (err: any) {
+      const d = err?.detail
+      if (d && typeof d === 'object' && d.code === 'risk_blocked') {
+        setReviewResult({ ...d, blocked: true, review_available: true })  // server caught it after all
+      } else {
+        setReviewing(false); alert('Publish failed: ' + err.message)
+      }
+    } finally { setPublishing(false) }
   }
   return (
     <>
@@ -785,6 +811,13 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         </div>
         {reporting && ref && (
           <ReportModal target={{ namespace: ref.namespace, name: ref.name, version: ref.version, id: e.key }} onClose={() => setReporting(false)} />
+        )}
+        {reviewing && (
+          <PublishReviewModal
+            subject={`${e.key} · v${e.version}`} canTune={props.isOperator}
+            result={reviewResult} publishing={publishing}
+            onPublish={confirmPublish} onClose={() => { setReviewing(false); setReviewResult(null) }}
+          />
         )}
 
         <div className="ext-desc">{e.description || 'No description provided.'}</div>
@@ -1082,6 +1115,124 @@ function ReportModal(props: {
             </div>
           </>
         )}
+      </div>
+    </div>
+  )
+}
+
+// A circular risk gauge. While `scanning`, an indeterminate sweep rotates the ring; once a
+// score lands, an arc sweeps to it (synced with the counting number), colour-graded by band,
+// (no threshold tick — the band colour + score carry the verdict).
+function RiskMeter({ score, band, scanning }: { score: number; band: string; scanning?: boolean }) {
+  const [shown, setShown] = useState(0)
+  useEffect(() => {
+    if (scanning) return
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    if (reduce) { setShown(score); return }
+    let raf = 0
+    const start = performance.now()
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / 1100)
+      setShown(Math.round(score * (1 - Math.pow(1 - p, 3)))) // easeOutCubic
+      if (p < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [score, scanning])
+  const R = 80
+  return (
+    <div className={'riskmeter ' + (scanning ? 'scanning' : band)}>
+      <svg viewBox="0 0 200 200" className="riskmeter-svg">
+        <circle className="rm-track" cx={100} cy={100} r={R} pathLength={100} />
+        {scanning ? (
+          <circle className="rm-sweep" cx={100} cy={100} r={R} pathLength={100} />
+        ) : (
+          <circle className="rm-arc" cx={100} cy={100} r={R} pathLength={100} style={{ strokeDasharray: `${shown} 100` }} />
+        )}
+      </svg>
+      <div className="riskmeter-center">
+        {scanning ? (
+          <div className="rm-scanning">SCANNING…</div>
+        ) : (
+          <>
+            <div className="rm-score">{shown}</div>
+            <div className="rm-of">/ 100</div>
+            <div className="rm-label">RISK</div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// The publish flow's modal: first a security-scan screen, then it becomes the verdict —
+// either a BLOCKED readout (with reasons) or a PASSED card with a Publish button. Same size
+// throughout, so the scan animation morphs into the result in place.
+function PublishReviewModal(props: {
+  subject: string; canTune?: boolean; result: any; publishing?: boolean;
+  onPublish: () => void; onClose: () => void;
+}) {
+  const r = props.result
+  if (!r) {
+    return (
+      <div className="modal-backdrop" onClick={props.onClose}>
+        <div className="deny-modal scan" onClick={(e) => e.stopPropagation()}>
+          <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+          <h2 className="deny-title">Security review</h2>
+          <div className="deny-sub">{props.subject}</div>
+          <RiskMeter score={0} band="ok" scanning />
+          <div className="deny-verdict" style={{ textAlign: 'center' }}>Analysing the source for risky behaviour…</div>
+        </div>
+      </div>
+    )
+  }
+  const score = Number(r.risk_score ?? 0)
+  const threshold = Number(r.threshold ?? 70)
+  const bullets: string[] = r.bullets || []
+  const blocked = !!r.blocked
+  const band = score >= 70 ? 'danger' : score >= 31 ? 'warn' : 'ok'
+  return (
+    <div className="modal-backdrop" onClick={props.onClose}>
+      <div className={'deny-modal ' + (blocked ? band : 'pass ' + band)} onClick={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={props.onClose} aria-label="Close">✕</button>
+        <h2 className="deny-title">{blocked ? 'Publish blocked' : 'Review passed'}</h2>
+        <div className="deny-sub">{props.subject}</div>
+
+        <RiskMeter score={score} band={band} />
+
+        {blocked ? (
+          <>
+            <div className="deny-verdict">
+              Scored <b>{score}</b> — over your block threshold of <b>{threshold}</b>.
+              {bullets.length > 0 ? ' The security review flagged:' : ''}
+            </div>
+            {bullets.length > 0 ? (
+              <ul className="deny-reasons">
+                {bullets.map((b, i) => <li key={i} style={{ animationDelay: `${0.18 + i * 0.07}s` }}>{b}</li>)}
+              </ul>
+            ) : r.summary ? <div className="deny-verdict" style={{ marginTop: 8 }}>{r.summary}</div> : null}
+          </>
+        ) : (
+          <div className="deny-verdict" style={{ textAlign: 'center' }}>
+            {r.review_available
+              ? <>Scored <b>{score}</b> — under your threshold of <b>{threshold}</b>. {r.summary || 'No major concerns found.'}</>
+              : <>Automated review was unavailable, so nothing could be flagged — publish at your discretion.</>}
+          </div>
+        )}
+
+        <div className="deny-foot">
+          {props.canTune && blocked && <span className="deny-hint">Tune the threshold in Developer → Policy.</span>}
+          {blocked ? (
+            <button className="primary" onClick={props.onClose}>Got it</button>
+          ) : (
+            <>
+              <button className="ghost" onClick={props.onClose} disabled={props.publishing}>Cancel</button>
+              <button className="primary" onClick={props.onPublish} disabled={props.publishing}>
+                {props.publishing ? 'Publishing…' : 'Publish'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

@@ -886,6 +886,52 @@ button.icon-btn { padding: 7px; justify-content: center; }
 .tag-x { border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0; font-size: 11px; line-height: 1; }
 .tag-x:hover { color: var(--danger); }
 
+/* Publish-blocked readout — a circular risk meter + flagged reasons. */
+.deny-modal {
+  position: relative; width: min(420px, 92vw); padding: 30px 30px 24px; text-align: center;
+  background: radial-gradient(120% 75% at 50% -8%, var(--dc-soft), transparent 62%), var(--panel);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  animation: denyIn 0.34s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.deny-modal.danger { --dc: var(--danger); --dc-soft: var(--danger-soft); }
+.deny-modal.warn { --dc: var(--warn); --dc-soft: var(--warn-soft); }
+.deny-modal.ok { --dc: var(--ok); --dc-soft: var(--ok-soft); }
+.deny-modal.scan { --dc: var(--accent); --dc-soft: var(--accent-soft); }
+@keyframes denyIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.deny-title { margin: 0; font-size: 19px; letter-spacing: -0.01em; }
+.deny-sub { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+
+.riskmeter { position: relative; width: 200px; height: 200px; margin: 16px auto 4px; }
+.riskmeter.danger { --rm: var(--danger); }
+.riskmeter.warn { --rm: var(--warn); }
+.riskmeter.ok { --rm: var(--ok); }
+.riskmeter-svg { width: 100%; height: 100%; overflow: visible; }
+.rm-track { fill: none; stroke: var(--bg-inset); stroke-width: 11; }
+.rm-arc { fill: none; stroke: var(--rm); stroke-width: 11; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 100px 100px; filter: drop-shadow(0 0 7px var(--rm)); }
+.riskmeter-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.rm-score { font-family: var(--mono); font-weight: 600; font-size: 52px; line-height: 1; color: var(--rm); font-variant-numeric: tabular-nums; }
+.rm-of { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 3px; }
+.rm-label { font-size: 10px; letter-spacing: 0.3em; color: var(--text-3); margin-top: 9px; }
+.riskmeter.danger { animation: rmPulse 2.6s ease-in-out infinite; }
+@keyframes rmPulse { 0%, 100% { filter: none; } 50% { filter: brightness(1.07); } }
+
+/* Scanning state: an indeterminate sweep rotates the ring while the review runs. */
+.riskmeter.scanning { --rm: var(--accent); }
+.riskmeter.scanning .rm-track { stroke: var(--border-strong); } /* visible ring during the scan */
+.rm-sweep { fill: none; stroke: var(--accent); stroke-width: 11; stroke-linecap: round; stroke-dasharray: 22 100; transform-origin: 100px 100px; filter: drop-shadow(0 0 8px var(--accent)); animation: rmSpin 1.05s linear infinite; }
+@keyframes rmSpin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+.rm-scanning { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.2em; color: var(--text-2); }
+
+.deny-verdict { font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 12px 2px 0; text-align: left; }
+.deny-verdict b { color: var(--text); font-weight: 600; }
+.deny-reasons { list-style: none; margin: 12px 0 0; padding: 0; text-align: left; }
+.deny-reasons li { position: relative; padding: 8px 12px 8px 30px; margin-bottom: 6px; font-size: 12.5px; line-height: 1.5; color: var(--text); background: var(--bg-inset); border: 1px solid var(--border); border-left: 2px solid var(--dc); border-radius: var(--radius-sm); opacity: 0; animation: reasonIn 0.4s ease forwards; }
+.deny-reasons li::before { content: '!'; position: absolute; left: 13px; top: 8px; font-family: var(--mono); font-weight: 700; color: var(--dc); }
+@keyframes reasonIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+.deny-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.deny-hint { font-size: 11.5px; color: var(--text-3); text-align: left; margin-right: auto; }
+
 /* Developer console. */
 .page-sub { color: var(--text-2); font-size: 13px; margin-top: 2px; }
 .dev-tabs { display: flex; gap: 6px; margin: 4px 0 18px; flex-wrap: wrap; }
