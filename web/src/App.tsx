@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
+import { toast } from './overlays'
 import { Icon, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
@@ -50,9 +51,9 @@ export default function App() {
     if (p.has('verified') || p.has('verify')) {
       const ok = p.get('verified') === '1'
       window.history.replaceState({}, '', window.location.pathname)
-      setTimeout(() => alert(ok
+      toast(ok
         ? 'Publisher verified with Discord — your published extensions now show a verified badge.'
-        : 'Discord verification didn’t complete.'), 0)
+        : 'Discord verification didn’t complete.', ok ? 'success' : 'warning')
     }
   }, [])
 
@@ -191,7 +192,11 @@ export default function App() {
             <div
               key={n.id}
               className={'nav-item' + (active ? ' active' : '')}
+              role="button"
+              tabIndex={0}
+              aria-current={active ? 'page' : undefined}
               onClick={() => setTab(n.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id) } }}
             >
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}
@@ -316,8 +321,9 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="import-modal" onClick={(e) => e.stopPropagation()}>
         <div className="settings-head"><h2>A note from the Olisar team</h2></div>
-        <div className="import-review">
-          <div style={{ padding: '12px 14px', borderRadius: 9, background: 'var(--warn-soft)', color: 'var(--warn)', fontSize: 13, lineHeight: 1.55 }}>
+        <div className="callout warning" style={{ marginTop: 4 }}>
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
             {props.message || 'Your account has received a warning. Please review the marketplace guidelines.'}
           </div>
         </div>

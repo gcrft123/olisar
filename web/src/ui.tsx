@@ -70,7 +70,16 @@ export function Select(props: { value: string; onChange: (v: string) => void; op
 
 export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
-    <div className={'toggle' + (props.value ? ' on' : '')} onClick={() => props.onChange(!props.value)}>
+    <div
+      className={'toggle' + (props.value ? ' on' : '')}
+      role="switch"
+      aria-checked={props.value}
+      tabIndex={0}
+      onClick={() => props.onChange(!props.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onChange(!props.value) }
+      }}
+    >
       <div className="track"><div className="knob" /></div>
       {props.label && <span className="lbl">{props.label}</span>}
     </div>
@@ -102,7 +111,7 @@ export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: str
   return (
     <div className="savebar">
       <button className="primary" disabled={s.busy} onClick={s.run}>
-        {s.busy ? 'Saving…' : props.label ?? 'Save changes'}
+        {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
       </button>
       {s.saved && (
         <span className="saved"><Icon.check size={15} weight="Bold" /> Saved — live now</span>
@@ -159,7 +168,7 @@ export function SaveDock(props: {
             <button className="ghost sm" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
           )}
           <button className="primary sm" disabled={s.busy || !props.dirty} onClick={s.run}>
-            {s.busy ? 'Saving…' : props.label ?? 'Save changes'}
+            {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
           </button>
         </div>
       </div>
@@ -216,7 +225,13 @@ export function headingsOf(md: string): { level: number; text: string; slug: str
   return out
 }
 
-const CALLOUT_LABELS: Record<string, string> = { tip: 'Tip', note: 'Note', warning: 'Warning', info: 'Info' }
+// Leading icon per callout tone (the Resend-style callout has no uppercase eyebrow).
+const CALLOUT_ICON: Record<string, React.ReactNode> = {
+  tip: <Icon.check size={17} weight="Bold" />,
+  note: <Icon.info size={17} weight="Bold" />,
+  info: <Icon.info size={17} weight="Bold" />,
+  warning: <Icon.warn size={17} weight="Bold" />,
+}
 
 function splitRow(line: string): string[] {
   return line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())
@@ -269,9 +284,12 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       while (i < lines.length && lines[i].trim() !== ':::') { inner.push(lines[i]); i++ }
       i++ // skip closing :::
       out.push(
-        <div key={'c' + k} className={'callout callout-' + cm[1]}>
-          <div className="callout-label">{cm[2].trim() || CALLOUT_LABELS[cm[1]]}</div>
-          <div className="callout-body">{renderBlocks(inner, 'in' + k, onLink)}</div>
+        <div key={'c' + k} className={'callout ' + cm[1]}>
+          <span className="ic">{CALLOUT_ICON[cm[1]] ?? CALLOUT_ICON.note}</span>
+          <div className="callout-body">
+            {cm[2].trim() && <div className="callout-title">{cm[2].trim()}</div>}
+            {renderBlocks(inner, 'in' + k, onLink)}
+          </div>
         </div>,
       )
       continue
