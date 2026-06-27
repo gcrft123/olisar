@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "design-lint": "node scripts/design-lint.mjs",
+    "build": "node scripts/design-lint.mjs && tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

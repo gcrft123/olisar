@@ -4,7 +4,7 @@
 // editor/transpiler only load when an operator drills in to create or edit.
 import { useEffect, useState } from 'react'
 import { api } from './api'
-import { Card, Field, SaveBar, Text, useSaver } from './ui'
+import { Card, Field, Text, useSaver } from './ui'
 import { Icon } from './icons'
 import { confirmDialog } from './overlays'
 
@@ -118,7 +118,7 @@ export default function ExtensionEditor(props: {
   return (
     <>
       <div className="page-head">
-        <button className="ghost sm" onClick={props.onBack} style={{ marginBottom: 14 }}><Icon.arrowLeft size={14} /> Extensions</button>
+        <button className="ghost" onClick={props.onBack} style={{ marginBottom: 14 }}><Icon.arrowLeft size={14} /> Extensions</button>
         <div className="title-row">
           <div className="title-ic"><Icon.code size={19} /></div>
           <h1>{title}</h1>
@@ -164,9 +164,13 @@ export default function ExtensionEditor(props: {
         )}
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 16 }}>
-          <SaveBar saver={saver} label={key ? 'Save changes' : 'Create extension'} />
-          <button className="ghost sm" onClick={validate}>Validate</button>
-          {key && kind === 'user' && <button className="ghost sm" onClick={del} style={{ color: 'var(--danger)' }}>Delete</button>}
+          <button className="primary" disabled={saver.busy} onClick={saver.run}>
+            {saver.busy ? <><span className="spinner" /> Saving…</> : (key ? 'Save changes' : 'Create extension')}
+          </button>
+          <button className="ghost" onClick={validate}>Validate</button>
+          {key && kind === 'user' && <button className="danger" onClick={del}>Delete</button>}
+          {saver.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved — live now</span>}
+          {saver.error && <span className="err">{saver.error}</span>}
         </div>
       </Card>
     </>

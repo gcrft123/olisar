@@ -239,14 +239,14 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
             >
               <div className="redirect-box">
                 <span>{redirectLocal}</span>
-                <button className="ghost sm" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
+                <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
                   {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
                 </button>
               </div>
               {mode === 'tunnel' && redirectTunnel && (
                 <div className="redirect-box" style={{ marginTop: 8 }}>
                   <span>{redirectTunnel}</span>
-                  <button className="ghost sm" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
+                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
                     {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
                   </button>
                 </div>
