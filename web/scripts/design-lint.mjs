@@ -25,6 +25,11 @@ const COLOR_ALLOW = new Set([
 // Files where raw hex is unavoidable (Monaco theme, the accent-token source).
 const COLOR_EXEMPT = new Set(['monaco-setup.ts', 'theme.ts'])
 
+// The established spacing rhythm (px). padding / margin / gap must use these values;
+// corner radii must use var(--radius*) tokens (raw 0, 50%, ≤6px chips excepted); and
+// custom easing must be var(--ease-out). These prevent arbitrary drift.
+const SPACING = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 44, 48, 56, 64, 72, 80, 96, 128])
+
 const BTN_VARIANTS = new Set(['primary', 'ghost', 'danger', 'caution'])
 
 const violations = []
@@ -92,9 +97,25 @@ for (const file of walk(SRC)) {
   if (ext === '.css') {
     let inRoot = false, depth = 0
     src.split('\n').forEach((l, i) => {
+      const ln = i + 1
       if (!inRoot && /:root\b[^{]*\{/.test(l)) { inRoot = true; depth = 1; return }
       if (inRoot) { depth += (l.match(/\{/g) || []).length - (l.match(/\}/g) || []).length; if (depth <= 0) inRoot = false; return }
-      for (const c of rawColors(l)) add(file, i + 1, 'no-raw-color', `raw colour ${c} — use a var(--…) token`)
+      for (const c of rawColors(l)) add(file, ln, 'no-raw-color', `raw colour ${c} — use a var(--…) token`)
+      if (/cubic-bezier\(/.test(l)) add(file, ln, 'ease-token', `raw cubic-bezier() — use var(--ease-out)`)
+      // corner radii → var(--radius*) (only 0 / 50% / ≤6px chips allowed raw)
+      for (const mm of l.matchAll(/[a-z-]*radius:\s*([^;{]+)/g)) {
+        for (const part of mm[1].trim().split(/\s+/)) {
+          if (!/px$/.test(part)) continue
+          if (+part.slice(0, -2) <= 6) continue
+          add(file, ln, 'radius-token', `border-radius "${part}" — use a var(--radius*) token`)
+        }
+      }
+      // padding / margin / gap → established spacing scale
+      for (const mm of l.matchAll(/\b(?:row-gap|column-gap|gap|padding|margin)(?:-(?:top|right|bottom|left))?:\s*([^;{]+)/g)) {
+        for (const px of mm[1].matchAll(/\b(\d+)px\b/g)) {
+          if (!SPACING.has(+px[1])) add(file, ln, 'spacing-scale', `spacing ${px[1]}px is off the established scale`)
+        }
+      }
     })
     continue
   }
@@ -117,11 +138,18 @@ for (const file of walk(SRC)) {
         for (const s of dyn[1].match(/['"`]([^'"`]*)['"`]/g) || []) checkButtonClasses(s.slice(1, -1), file, tag.line)
       }
     }
-    // Raw colours inside inline style={{ … }}
+    // Inline style={{ … }} — raw colours, off-scale spacing, raw radii
     if (!COLOR_EXEMPT.has(name)) {
       const styleRe = /style=\{\{([^}]*)\}\}/g
       while ((m = styleRe.exec(src))) {
-        for (const c of rawColors(m[1])) add(file, lineOf(src, m.index), 'no-raw-color', `inline style raw colour ${c} — use var(--…)`)
+        const body = m[1], ln = lineOf(src, m.index)
+        for (const c of rawColors(body)) add(file, ln, 'no-raw-color', `inline style raw colour ${c} — use var(--…)`)
+        for (const sp of body.matchAll(/\b(?:gap|rowGap|columnGap|padding(?:Top|Right|Bottom|Left)?|margin(?:Top|Right|Bottom|Left)?):\s*(\d+)\b/g)) {
+          if (!SPACING.has(+sp[1])) add(file, ln, 'spacing-scale', `inline spacing ${sp[1]} is off the established scale`)
+        }
+        for (const rr of body.matchAll(/borderRadius:\s*(\d+)\b/g)) {
+          if (+rr[1] > 6) add(file, ln, 'radius-token', `inline borderRadius ${rr[1]} — use var(--radius*)`)
+        }
       }
     }
   }
