@@ -27,6 +27,7 @@ from api.schemas import (
 from olisar import runtime_keys
 from olisar.audit import record_audit
 from olisar.config import settings
+from olisar.memory.purge import wipe_brain
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     AdminUser,
@@ -189,6 +190,27 @@ async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_
             target_type="guild_config", target_id=gctx.guild_id, after=data,
         )
     return {"ok": True}
+
+
+_DM_GUILD_ID = 0  # DM-stored memory lives under guild 0 (matches the conversation cog)
+
+
+@router.post("/clear-memory")
+async def clear_memory(gctx: GuildContext = Depends(require_guild_admin)) -> dict:
+    """Erase everything Olisar has *learned* about this server — conversation memory,
+    summaries, the search index, remembered facts, the glossary, resource/feed snapshots,
+    usage stats, its read on each person, and the knowledge base — while keeping its
+    persona, behaviour, channel roles, and command replies. Irreversible; per-user
+    opt-outs survive. (Replaces the old /self-destruct command; now driven from
+    Settings → Bot behind a typed-phrase confirmation.)"""
+    async with session_scope() as session:
+        counts = await wipe_brain(session, guild_ids=[gctx.guild_id, _DM_GUILD_ID])
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="clear_memory",
+            target_type="guild", target_id=gctx.guild_id, after=counts,
+        )
+    log.warning("memory cleared for guild %s by %s: %s", gctx.guild_id, gctx.admin.discord_user_id, counts)
+    return {"ok": True, "counts": counts}
 
 
 # ── API keys are global (one set powers the whole bot), so these stay session-only ──

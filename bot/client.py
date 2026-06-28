@@ -22,7 +22,6 @@ INITIAL_COGS = [
     "bot.cogs.context_channels",
     "bot.cogs.search_index",
     "bot.cogs.events",
-    "bot.cogs.self_destruct",
     "bot.cogs.proactive",
     "bot.cogs.reminders",
     "bot.cogs.sdk_commands",
