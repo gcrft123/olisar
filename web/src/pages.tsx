@@ -289,7 +289,7 @@ export function Behavior() {
       </Card>
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Confidence threshold" desc="Minimum classifier confidence (0–1) before it reacts.">
+        <Field label="Confidence threshold" desc="Minimum confidence (0–1) before it reacts.">
           <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
         <div className="row">
