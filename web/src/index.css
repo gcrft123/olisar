@@ -1145,7 +1145,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .risk-pill.danger { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .dev-perms { max-width: 220px; }
 .dev-perms .tag { margin: 1px 3px 1px 0; font-size: 10.5px; }
-.dev-row-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Stay a normal table cell (keeps the row's vertical-align: middle); space the icon
+   buttons with margins since JSX strips the whitespace between them. */
+.dev-row-actions { white-space: nowrap; text-align: right; }
+.dev-row-actions button + button { margin-left: 8px; }
 .dev-code-modal { position: relative; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); width: min(900px, 92vw); max-height: 86vh; padding: 24px 26px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out); }
 .dev-code { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre; overflow: auto; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
 .dev-reports { display: flex; flex-direction: column; gap: 12px; }
