@@ -22,11 +22,12 @@
   --text-2: #9d9da7;
   --text-3: #6a6a73;
 
-  /* The one accent (re-tinted at runtime from theme.ts; drives --accent-soft + the glow) */
-  --accent: #8a8af2;
-  --accent-soft: rgba(138, 138, 242, 0.16);
-  --glow-a: rgba(138, 138, 242, 0.18);  /* ambient background blobs */
-  --glow-b: rgba(138, 138, 242, 0.10);
+  /* The one accent (re-tinted at runtime from theme.ts; drives --accent-soft + the glow).
+     Default is Blue; theme.ts overrides per-browser on load. */
+  --accent: #5b9cf6;
+  --accent-soft: rgba(91, 156, 246, 0.16);
+  --glow-a: rgba(91, 156, 246, 0.18);  /* ambient background blobs */
+  --glow-b: rgba(91, 156, 246, 0.10);
 
   /* Selectable accent hues */
   --accent-violet: #8a8af2; --accent-iris: #7c6cf0; --accent-blue: #5b9cf6;
@@ -511,6 +512,12 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .badge.pending, .badge.crawling, .badge.chunking, .badge.missing, .badge.event { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 .badge.preference { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+/* Marketplace publisher chip — the violet accent, regardless of the active theme accent. */
+.badge.publisher {
+  color: var(--accent-violet);
+  background: color-mix(in srgb, var(--accent-violet) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent-violet) 34%, transparent);
+}
 
 .member-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, 1fr); } }

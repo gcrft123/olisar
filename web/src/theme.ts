@@ -3,7 +3,7 @@
 // backend round-trip. Changing it updates --accent and the derived --accent-soft live.
 
 const KEY = 'olisar_accent'
-export const DEFAULT_ACCENT = '#8a8af2'
+export const DEFAULT_ACCENT = '#5b9cf6'
 
 export const ACCENTS: { name: string; value: string }[] = [
   { name: 'Violet', value: '#8a8af2' },

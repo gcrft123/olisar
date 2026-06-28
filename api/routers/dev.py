@@ -101,6 +101,26 @@ async def blocked(admin: AdminUser = Depends(require_admin)) -> dict:
     return r.json()
 
 
+@router.post("/reports/clear")
+async def clear_reports(admin: AdminUser = Depends(require_admin)) -> dict:
+    """Clear every standing abuse report (platform-developer only)."""
+    _operator(admin)
+    r = await _post("/v1/dev/reports/clear", {}, admin)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't clear reports")
+    return r.json()
+
+
+@router.post("/blocked/clear")
+async def clear_blocked(admin: AdminUser = Depends(require_admin)) -> dict:
+    """Clear every recorded blocked-publish (platform-developer only)."""
+    _operator(admin)
+    r = await _post("/v1/dev/blocked/clear", {}, admin)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't clear blocked publishes")
+    return r.json()
+
+
 @router.get("/source")
 async def source(
     namespace: str, name: str, version: str = "", admin: AdminUser = Depends(require_admin)

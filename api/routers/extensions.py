@@ -230,15 +230,18 @@ async def _review_cached(content_hash: str, source: str, manifest: dict) -> dict
     return result
 
 
-async def preview_bundle(bundle_doc: dict) -> dict:
+async def preview_bundle(bundle_doc: dict, *, prestored_risk: dict | None = None) -> dict:
     """Shared preview for file-import and marketplace-install: re-derives the manifest and
     checks the signature, returning what the extension adds + the capabilities it requests.
-    Also runs a fresh AI risk review on the installer's side (so a publisher can't fake a
-    low score) and includes it for the consent screen."""
+    Runs a fresh AI risk review for the consent screen — unless ``prestored_risk`` is given
+    (marketplace installs reuse the publish-time audit so the modal opens instantly instead
+    of waiting on a live Gemini call)."""
     parsed, _, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     sig_status, sig_fingerprint, _ = signing.verify_bundle(bundle_doc, parsed.content_hash)
-    risk = await _review_cached(parsed.content_hash, parsed.source, manifest)
+    risk = prestored_risk if prestored_risk is not None else await _review_cached(
+        parsed.content_hash, parsed.source, manifest
+    )
     async with session_scope() as session:
         exists = await session.get(ExtensionPackage, key) is not None
     return {

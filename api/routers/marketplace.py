@@ -156,7 +156,18 @@ async def install_preview(body: MarketplaceRefIn, admin: AdminUser = Depends(req
     console can show the consent screen before granting capabilities."""
     _operator(admin)
     doc = await _fetch_olx(body.namespace, body.name, body.version)
-    preview = await preview_bundle(doc)
+    # Reuse the publish-time risk audit stamped on the listing instead of re-running the
+    # (slow) AI review on every preview — the score is advisory (shown for consent, not a
+    # hard install gate). Falls back to a live review only for listings with no stored score.
+    prestored = None
+    if "risk_score" in doc:
+        prestored = {
+            "score": int(doc.get("risk_score") or 0),
+            "summary": "",
+            "bullets": list(doc.get("risk_report") or []),
+            "ok": True,
+        }
+    preview = await preview_bundle(doc, prestored_risk=prestored)
     preview["source"] = "marketplace"
     return preview
 
