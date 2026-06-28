@@ -90,6 +90,10 @@ for pkg in ("trafilatura", "justext", "courlan", "htmldate"):
 # resolves this to <_MEIPASS>/web_dist when frozen.
 datas += [(os.path.join(ROOT, "web", "dist"), "web_dist")]
 
+# pyproject.toml at the bundle root so olisar.updates.current_version() can read the
+# version from a frozen build too (its <_MEIPASS>/pyproject.toml fallback).
+datas += [(os.path.join(ROOT, "pyproject.toml"), ".")]
+
 a = Analysis(
     [os.path.join(ROOT, "olisar", "runtime", "__main__.py")],
     pathex=[ROOT],
