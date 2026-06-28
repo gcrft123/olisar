@@ -108,6 +108,7 @@ export default function ExtensionEditor(props: {
       message: "This can't be undone.",
       confirmLabel: 'Delete',
       tone: 'danger',
+      requirePhrase: { phrase: `delete ${key}` },
     }))) return
     try { await api.deleteAuthoring(key); props.onChanged(); props.onBack() }
     catch (e: any) { setStatus({ kind: 'err', msg: e.message }) }

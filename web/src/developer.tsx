@@ -117,7 +117,7 @@ function DevExtensions() {
     catch (e: any) { toast('Couldn’t load source: ' + e.message, 'danger') }
   }
   const yank = async (r: any) => {
-    if (!(await confirmDialog({ title: `Yank ${r.id}?`, message: 'It stops appearing in the marketplace for everyone.', confirmLabel: 'Yank', tone: 'danger' }))) return
+    if (!(await confirmDialog({ title: `Yank ${r.id}?`, message: 'It stops appearing in the marketplace for everyone.', confirmLabel: 'Yank', tone: 'danger', requirePhrase: { phrase: `yank ${r.id}` } }))) return
     try { await api.devYank(r.namespace, r.name); load() } catch (e: any) { toast('Yank failed: ' + e.message, 'danger') }
   }
   const moderate = async (r: any, status: 'warn' | 'ban') => {
@@ -128,6 +128,7 @@ function DevExtensions() {
     if (!(await confirmDialog({
       title: `${status === 'ban' ? 'Ban' : 'Warn'} ${r.publisher} (Discord ${r.publisher_discord_id})?`,
       message, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger',
+      requirePhrase: { phrase: `${status} ${r.publisher_discord_id}` },
     }))) return
     try { await api.devModeration(String(r.publisher_discord_id), status, ''); toast(status === 'ban' ? 'Publisher banned.' : 'Publisher warned.', 'success') }
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
@@ -205,14 +206,14 @@ function DevReports() {
   useEffect(load, [])
 
   const clearAll = async () => {
-    if (!(await confirmDialog({ title: 'Clear all reports?', message: 'Removes every standing report from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger' }))) return
+    if (!(await confirmDialog({ title: 'Clear all reports?', message: 'Removes every standing report from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear reports' } }))) return
     try { await api.devClearReports(); toast('Reports cleared.', 'success'); load() }
     catch (e: any) { toast('Couldn’t clear reports: ' + e.message, 'danger') }
   }
 
   const moderate = async (discordId: string, status: 'warn' | 'ban') => {
     if (!discordId) { toast('No publisher Discord ID on this report.', 'warning'); return }
-    if (!(await confirmDialog({ title: `${status === 'ban' ? 'Ban' : 'Warn'} Discord ${discordId}?`, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger' }))) return
+    if (!(await confirmDialog({ title: `${status === 'ban' ? 'Ban' : 'Warn'} Discord ${discordId}?`, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger', requirePhrase: { phrase: `${status} ${discordId}` } }))) return
     try { await api.devModeration(discordId, status, ''); toast(status === 'ban' ? 'Banned.' : 'Warned.', 'success') }
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
@@ -256,7 +257,7 @@ function DevBlocked() {
   useEffect(load, [])
 
   const clearAll = async () => {
-    if (!(await confirmDialog({ title: 'Clear all blocked publishes?', message: 'Removes every recorded blocked-publish from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger' }))) return
+    if (!(await confirmDialog({ title: 'Clear all blocked publishes?', message: 'Removes every recorded blocked-publish from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear blocked publishes' } }))) return
     try { await api.devClearBlocked(); toast('Blocked publishes cleared.', 'success'); load() }
     catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
   }
