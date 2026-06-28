@@ -186,7 +186,19 @@ Common semantic names: `user-circle` (persona), `tuning-2` (behavior), `hashtag`
 
 Self-contained CSS + markup for the core set. Class names are illustrative — adapt to your conventions. All buttons/inputs share a **34px height**, the same radius, and the same border so they line up.
 
-### Buttons
+**The system has 29 components. Every one is covered below:**
+
+| Group | Components |
+|---|---|
+| Buttons | **Button**, **IconButton** |
+| Forms | **TextField**, **TextArea**, **Select**, **Toggle**, **Field** |
+| Data display | **Card**, **Badge**, **Tag**, **StatTile**, **DocTable**, **DataTable** |
+| Feedback | **Callout**, **Spinner** |
+| Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast** |
+| Navigation | **NavItem**, **PageNav**, **Tabs**, **Avatar** |
+| Content | **InlineCode**, **CodeBlock**, **CopyField**, **Link** |
+
+### Button & IconButton
 
 ```css
 .btn { height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
@@ -208,9 +220,13 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 .btn.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
 ```
 
-Variants: **primary** (one bright CTA per view), **secondary** (the base hairline button), **ghost**, **danger** (red), **caution** (amber), and an **acting** state (disabled + a spinning ring) for "Saving…". Icon-only buttons are a 34×34 square (default ghost); on click of a copy/confirm action, swap the glyph to a green `check-circle` briefly.
+Variants: **primary** (one bright CTA per view), **secondary** (the base hairline button), **ghost**, **danger** (red), **caution** (amber), and an **acting** state (disabled + a spinning ring) for "Saving…". Sizes `md` (34px) / `sm` (28px); optional leading icon.
 
-### Inputs, select, textarea
+**IconButton** — a 34×34 square (default ghost) for toolbar/row actions. On hover/focus it shows an instant dark tooltip pill (with a small downward arrow). Set a **confirm** behavior so that on click of a copy/confirm action the glyph swaps to a green `check-circle` briefly (pop animation), then reverts.
+
+### TextField, TextArea & Select
+
+`.input` = **TextField**, `.textarea` = **TextArea**, `.select` = **Select** (add a custom chevron via a background SVG; `appearance: none`).
 
 ```css
 .input, .select, .textarea {
@@ -248,26 +264,6 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 .field .desc { color: var(--text-2); font-size: 12px; margin: -3px 0 8px; line-height: 1.5; }
 ```
 
-### Multi-choice chips
-
-Selectable pills for a pick-any-subset choice (e.g. Behavior → which mentions Olisar may not ping). Each is a `<label>` wrapping a visually-hidden checkbox; the accent marks the chosen ones. 34px tall like other controls.
-
-```html
-<div class="choice-row">
-  <label class="choice on"><input type="checkbox" checked> @everyone</label>
-  <label class="choice"><input type="checkbox"> @here</label>
-</div>
-```
-```css
-.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.choice { display: inline-flex; align-items: center; height: 34px; padding: 0 14px;
-  border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
-  background: var(--panel); color: var(--text-2); font-size: 13px; font-weight: 550; cursor: pointer; }
-.choice:hover { background: var(--bg-inset); color: var(--text); }
-.choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
-.choice input { position: absolute; opacity: 0; width: 0; height: 0; }
-```
-
 ### Card (the flat panel)
 
 ```css
@@ -292,9 +288,25 @@ Selectable pills for a pick-any-subset choice (e.g. Behavior → which mentions 
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text); }
 ```
 
+### StatTile (metric) & Spinner
+
+A single metric — big number over a muted label, on an inset well; compose several in a grid for overview rows. The spinner is a minimal accent ring for quiet loading states.
+
+```css
+.stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px; }
+.stat .n { font-size: 25px; font-weight: 650; letter-spacing: -.02em; line-height: 1; }
+.stat .k { color: var(--text-2); font-size: 12px; margin-top: 6px; }
+/* grid: display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:12px; */
+
+.spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-strong);
+  border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
+```
+
 ### Callout (Resend-style, no eyebrow)
 
-A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn, `danger`→danger. Structure: a `.ic` span (Solar icon) + a `.callout-body` that may hold a `.callout-title` plus paragraphs/lists. Used for the security-review (publish) verdict, where each flagged reason renders as its own callout, stacked with a gap.
+A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn.
 
 ```css
 .callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
@@ -307,9 +319,6 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
 .callout.warning { --cc: var(--warn); }
 .callout.note    { --cc: var(--accent); }
 .callout.tip     { --cc: var(--ok); }
-.callout.danger  { --cc: var(--danger); }
-.callout-body code { font-family: var(--mono); font-size: 0.92em; background: var(--bg-inset);
-  border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }  /* inline `code` */
 ```
 
 ### Toast (bottom-right status)
@@ -330,34 +339,13 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
 ```
 
-### Tooltip
-
-A small dark chip on a hairline border with a **stem** (a bordered diamond) pointing at its target, shown on hover/focus of any control whose meaning isn't a visible label. Driven by one portal-mounted, delegated host that reads `data-tip="…"` (or a native `title`, which it migrates to `data-tip` so the OS tooltip is suppressed) — so it's never clipped by an `overflow:hidden` modal. Sits above the target; flips below (stem on top) when there's no room. **Pops up instantly on hover**; instant hide.
-
-```css
-.tooltip {
-  position: fixed; z-index: 400; transform: translate(-50%, -100%);
-  padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
-  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
-  font-size: 11.5px; font-weight: 500; line-height: 1.3;
-  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in .1s ease;
-}
-.tooltip.below { transform: translate(-50%, 0); }      /* flipped below the target */
-/* stem: a small bordered diamond pointing at the target */
-.tooltip::after { content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px; background: var(--panel); transform: rotate(45deg); }
-.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
-.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
-@keyframes tip-in { from { opacity: 0 } to { opacity: 1 } }
-```
-
-Every **icon-only button** (close ×, copy, report flag, row actions, the server picker…) carries a `data-tip`/`title`, paired with an `aria-label` for assistive tech. The press-and-hold **bot-power control** is the deliberate exception — it surfaces its state as a visible hint beneath the button, so it carries no hover tooltip.
-
-### Overlays (Dialog / Modal / SaveDock)
+### Overlays (Dialog / Modal / SaveDock / ActionMenu / HoverCard)
 
 - **Dialog** (centered info+action): blurred backdrop `rgba(0,0,0,.55)` + `backdrop-filter: blur(3px)` fading in; the card (`--panel`, `--border-strong`, `--shadow-modal`) scales-and-lifts from `translateY(12px) scale(.96)` → `0/1` over `.22s var(--ease-out)`. Optional tinted icon tile (46px, `--radius` 15px) + footer actions. Close on backdrop click / Escape.
 - **Modal** (full-UI sheet): same backdrop; a `min(900px,94vw) × min(620px,90vh)` sheet with a header (title + close ×), a scrollable body (put a two-pane nav+content inside), and an optional footer.
 - **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. A `--panel` pill, message + Reset/Save.
-- **Slide-over drawer** (a side-docked panel, e.g. the Persona Test chat): a fixed `--panel` panel pinned to the right edge — `width: min(440px, 94vw)`, full height, `--border-strong` left edge, `--shadow-modal` — that slides in from `translateX(100%)` → `0` over `var(--dur-slow) var(--ease-out)`, behind a fading `rgba(0,0,0,.5)` + `blur(2px)` backdrop. Opened by a fixed corner **launcher** (a `--radius-pill` `--panel` button with an accent icon + `--shadow-pop`, `right/bottom: 24px`); closes on the backdrop, its close ×, or Escape. Stays mounted so it slides (not pops) and its contents survive close/reopen.
+- **ActionMenu** (click-to-open dropdown anchored to a trigger): a `--panel` menu (`--border-strong`, `--shadow-pop`, `--radius-sm`) that pops in with a `.14s` fade + scale from the top (`translateY(-6px) scale(.97)` → `0/1`). Items are `7px 9px` rows with a leading icon, optional right-aligned mono shortcut, hover → `--bg-inset`; a `danger` item is `--danger` (hover `--danger-soft`); thin `--border` dividers and uppercase section labels. Closes on outside-click / Escape / select.
+- **HoverCard** (expand-on-hover detail, e.g. a roles/members row): a `--panel` card (`--border-strong`, `--shadow-pop`, `--radius`) absolutely positioned above the trigger; fades + lifts in (`translateY(6px) scale(.98)` → `0/1`, `.15s`) **after a ~.18s delay**, closes immediately on leave. Make the trigger `tabindex=0` so `:focus-within` opens it too.
 
 ### Tabs
 
@@ -369,36 +357,46 @@ Three idioms: **underline** (hairline `border-bottom`, active item bold `--text`
 - **PageNav** ("On this page"): a header (list icon + label), a vertical rail (`border-left: 1px solid var(--border)`), items muted (`--text-3`) that brighten on hover; the active item is bold `--text` with a 2px foreground bar on the rail. One level of nesting via extra left padding.
 - **Avatar**: rounded square (`object-fit: cover`), or a tinted initial — `background: var(--accent-soft); color: var(--accent); font-weight: 700`.
 
-### Tables
+### DocTable & DataTable
 
-- **Doc table** (minimal): `border-collapse`, hairline `border-bottom` row rules, header in `--text` with a `--border-strong` underline, first column emphasized (`--text`), body `--text-2`. Generous 12px cell padding.
-- **Data table** (functional): a rounded `--panel` container; a toolbar with a search input (`magnifer` icon) and a row count; uppercase header cells on `--bg-sidebar`, click-to-sort with an accent arrow; rows hover to `--bg-inset`; right-aligned tabular-nums numerics; status pills via the Badge; per-row icon actions. Add a checkbox column (`accent-color: var(--accent)`) with select-all and a bulk-action toolbar (tinted `--accent-soft`) that replaces the search row while rows are selected.
+- **DocTable** (minimal): `border-collapse`, hairline `border-bottom` row rules, header in `--text` with a `--border-strong` underline, first column emphasized (`--text`), body `--text-2`. Generous 12px cell padding.
+- **DataTable** (functional): a rounded `--panel` container; a toolbar with a search input (`magnifer` icon) and a row count; uppercase header cells on `--bg-sidebar`, click-to-sort with an accent arrow; rows hover to `--bg-inset`; right-aligned tabular-nums numerics; status pills via the Badge; per-row icon actions. Add a checkbox column (`accent-color: var(--accent)`) with select-all and a bulk-action toolbar (tinted `--accent-soft`) that replaces the search row while rows are selected.
 
-### Code & links
+### Content — InlineCode, CodeBlock, CopyField, Link
+
+**InlineCode** — a monospaced chip for tokens/paths in running text; tone it to a semantic state when used inside a matching callout. **CodeBlock** — a titled preview with a filename header, a copy button, and light JS/TS syntax highlighting. **CopyField** — a value in a `--bg-inset` box with a trailing copy button (divider `border-left`) that flips to a green `check-circle` on click (`boxed` for domains/keys, `bare`+`lg` for an editable-title look). **Link** — `default` (accent), `prose` (muted underline → white on hover), `subtle` (quiet foreground), `inherit` (takes the surrounding text colour — use inside callouts/toasts); `external` opens a new tab + appends a ↗ arrow.
 
 ```css
-/* Inline code chip */
+/* InlineCode — inline code chip */
 .icode { font-family: var(--font-mono); font-size: .86em; padding: 1px 6px; border-radius: 6px;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text); }
-/* tone it inside a callout, e.g. */
-.icode.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
+.icode.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }  /* tone inside a callout */
 
-/* Code preview block */
+/* CodeBlock — code preview block */
 .codeblock { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
 .codeblock .head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 15px; border-bottom: 1px solid var(--border); }
 .codeblock .file { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-2); }
 .codeblock pre { margin: 0; padding: 14px 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
 /* syntax: comment var(--text-3) · string #7fd1a0 · keyword #b69cff · fn/number #e0a458 */
 
-/* Links */
-.link { color: var(--accent); }                                   /* default */
+/* CopyField — copyable value box */
+.copy { display: inline-flex; align-items: stretch; height: 34px; overflow: hidden;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-inset); }
+.copy .val { display: inline-flex; align-items: center; padding: 0 12px; font-family: var(--font-mono); font-size: 12.5px; }
+.copy .btn { width: 36px; display: grid; place-items: center; border: none; border-left: 1px solid var(--border);
+  background: transparent; color: var(--text-3); cursor: pointer; }
+.copy .btn.done { color: var(--ok); }   /* swaps to check-circle on click */
+
+/* Link */
+.link { color: var(--accent); }
 .link:hover { text-decoration: underline; text-underline-offset: 2px; }
 .link.prose { color: var(--text-2); text-decoration: underline; text-decoration-color: var(--text-3); text-underline-offset: 2px; }
 .link.prose:hover { color: #fff; text-decoration-color: #fff; }
+.link.subtle { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); }
 .link.inherit { color: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); }
 ```
 
-**CopyField:** a value in a `--bg-inset` box with a trailing copy button (divider `border-left`) that flips to a green `check-circle` on click. **Confirm pattern:** any copy/confirm icon button briefly swaps to a green check with a small pop (`@keyframes` scale .4→1.12→1).
+**Confirm pattern** (shared by IconButton, CopyField, and CodeBlock's copy button): on click, briefly swap the glyph to a green `check-circle` with a small pop — `@keyframes pop { 0% { transform: scale(.4); opacity: 0 } 55% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }`.
 
 ---
 
