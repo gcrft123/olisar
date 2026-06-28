@@ -475,12 +475,6 @@ Send **feedback, a bug report, or a question** straight to the Olisar team — i
   for bug reports.
 - Press **Send**; you'll get a confirmation and can send another.
 
-> [!NOTE]
-> **Where it goes**
-> Feedback is delivered by email through the Olisar registry's mail service — your message, any email you give,
-> and whatever you attached. Nothing is posted publicly. Skip the bot-logs attachment if you'd rather not
-> share recent activity.
-
 ---
 
 ## Configure
@@ -492,9 +486,10 @@ The [Persona](#persona) tab is Olisar's character — the single biggest lever o
 - **System prompt** — its core character, lore, and rules. The operating/safety rules are appended
   automatically, so you only write the personality.
 - **Style notes** — tone and formatting guidance.
-- **Profile bio (About Me)** — the bot's public About Me. Saving applies it to Discord automatically (no
-  more pasting into the Developer Portal). It's a single **bot-wide** setting — not per-server — and is
-  capped at 400 characters.
+- **Profile bio (About Me)** — the bot's public About Me, applied to Discord automatically when you save
+  (no Developer-Portal copy-paste). It's a single **bot-wide** setting — not per-server. Your text is
+  capped at **300 characters**, and a short `Powered by Olisar AI` attribution line is appended
+  automatically below it (it stays even if you leave the bio blank).
 
 > [!TIP]
 > **Write it like a person**
