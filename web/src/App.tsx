@@ -80,7 +80,10 @@ export default function App() {
     const pull = () => api.tunnelStatus().then((t: TunnelInfo) => { if (alive) setTunnel(t) }).catch(() => {})
     pull()
     const id = setInterval(pull, 20000)
-    return () => { alive = false; clearInterval(id) }
+    // Refresh immediately when the funnel is toggled from Settings, so the sidebar
+    // card flips on/off right away instead of waiting for the next poll.
+    window.addEventListener('olisar:tunnel-changed', pull)
+    return () => { alive = false; clearInterval(id); window.removeEventListener('olisar:tunnel-changed', pull) }
   }, [auth])
 
   // Is this operator a whitelisted platform developer? Gates the Developer tab.
