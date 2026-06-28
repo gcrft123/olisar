@@ -8,7 +8,9 @@ queries the public Releases API and compares versions; it never downloads or ins
 from __future__ import annotations
 
 import logging
+import os
 import re
+import sys
 import tomllib
 from functools import lru_cache
 from pathlib import Path
@@ -24,20 +26,35 @@ RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 
 @lru_cache(maxsize=1)
 def current_version() -> str:
-    """This build's version. Prefers installed package metadata, falls back to reading
-    pyproject.toml (editable/source runs), then to a sentinel."""
+    """This build's version.
+
+    In the packaged desktop app the Electron shell passes ``OLISAR_VERSION`` (its own
+    ``app.getVersion()``), because a PyInstaller bundle has neither installed package
+    metadata nor a readable ``pyproject.toml`` — without this the backend reported
+    ``0.0.0``, so Settings → Updates showed v0.0.0 and "update available" forever.
+    Falls back to installed metadata, then a bundled/source ``pyproject.toml``, then a
+    sentinel."""
+    env = os.environ.get("OLISAR_VERSION", "").strip().lstrip("vV")
+    if env:
+        return env
     try:
         from importlib.metadata import version
 
         return version("discord-olisar")
     except Exception:
         pass
-    try:
-        pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
-        data = tomllib.loads(pyproject.read_text("utf-8"))
-        return str(data["project"]["version"])
-    except Exception:
-        return "0.0.0"
+    # Source runs read the repo's pyproject; the frozen bundle ships a copy at the
+    # PyInstaller root (_MEIPASS == updates.py's parent.parent), so this still resolves.
+    for cand in (
+        Path(__file__).resolve().parent.parent / "pyproject.toml",
+        Path(getattr(sys, "_MEIPASS", "")) / "pyproject.toml",
+    ):
+        try:
+            data = tomllib.loads(cand.read_text("utf-8"))
+            return str(data["project"]["version"])
+        except Exception:
+            continue
+    return "0.0.0"
 
 
 def _parts(v: str) -> tuple[int, ...]:

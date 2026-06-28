@@ -112,6 +112,10 @@ function startBackend(port) {
       // from before our code runs (bootloader / argparse).
       PYTHONUTF8: '1',
       PYTHONIOENCODING: 'utf-8',
+      // The frozen backend can't read its own version (no package metadata / pyproject
+      // in the bundle) and otherwise reports 0.0.0 — which made Settings → Updates show
+      // v0.0.0 and "update available" forever. Hand it the shell's real version.
+      OLISAR_VERSION: app.getVersion(),
       OLISAR_DATA_DIR: app.getPath('userData'),
       OLISAR_PORT: String(port),
       ...(funnelPath() ? { OLISAR_FUNNEL: funnelPath() } : {}),
