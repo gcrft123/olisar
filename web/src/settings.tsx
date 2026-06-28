@@ -218,6 +218,7 @@ function Remote() {
       else await api.disableTunnel()
       toast(on ? 'Remote access on' : 'Remote access off', 'success')
       load()
+      window.dispatchEvent(new Event('olisar:tunnel-changed'))  // refresh the sidebar card now
     } catch (e: any) {
       toast(e?.message || 'Could not change remote access', 'danger')
     } finally {
