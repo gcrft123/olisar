@@ -1453,7 +1453,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
         <div className="mkt-pubbar">
           <span>Publishing as <code>{pubInfo.handle}</code></span>
           {pubInfo.verified
-            ? <span className="badge info"><Icon.verified size={13} weight="Bold" /> Discord-verified</span>
+            ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> Discord-verified</span>
             : <button className="ghost" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
           <span className="grow" />
           <button className="ghost" onClick={changeHandle}>Change handle</button>

@@ -222,7 +222,7 @@ function DevReports() {
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="primary icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -266,7 +266,7 @@ function DevBlocked() {
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="primary icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
