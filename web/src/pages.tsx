@@ -35,14 +35,14 @@ export function Persona() {
         </Field>
       </Card>
       <div className="grid2">
-        <Card title="Style notes" hint="How Olisar writes — its voice, tone, and formatting, separate from what it knows.">
+        <Card title="Style notes" hint="Olisar's voice, tone, and formatting.">
           <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
         </Card>
         <Card
           title="About Me"
           hint={
             <>
-              Olisar's public Discord bio — <strong>bot-wide</strong>, not per-server. To keep Olisar free for everyone, the line <em>“Powered by Olisar AI — try it free on your server: https://gcrft.s.gy/olisar”</em> is added automatically on its own line below your text (and stays even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
+              Olisar's public Discord bio (bot-wide, not per-server). To keep Olisar free for everyone, an attribution is added automatically below your text (and stays even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
             </>
           }
         >
@@ -154,7 +154,7 @@ function TestChatDrawer() {
         <div className="chatdrawer-head">
           <div className="chatdrawer-titles">
             <div className="chatdrawer-title">Test chat</div>
-            <div className="chatdrawer-sub">An enclosed sandbox with the full persona, knowledge base, and tools — but no memory. Nothing here is saved.</div>
+            <div className="chatdrawer-sub">An enclosed sandbox with the full persona, knowledge base, and tools, but no memory.</div>
           </div>
           <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
         </div>
@@ -210,7 +210,7 @@ export function Behavior() {
         <Field label="Loose messages" desc="Reply to all messages in talk-enabled channels without a trigger.">
           <Toggle value={data.loose_msg_enabled} onChange={(v) => set('loose_msg_enabled', v)} label="Join freely" />
         </Field>
-        <Field label="Don't let Olisar ping" desc="Pick any. Olisar won't ping these in its replies even if it writes the mention — @everyone/@here are quietly defused in the text, role pings are suppressed.">
+        <Field label="Don't let Olisar ping" desc="Olisar won't ping these in its replies even if it writes the mention.">
           <div className="choice-row">
             {MENTION_OPTS.map((o) => {
               const on = (data.blocked_mentions || []).includes(o.value)
@@ -242,7 +242,7 @@ export function Behavior() {
         <Field label="Grounding daily cap" desc="The most web-grounded answers Olisar will run in a day.">
           <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} />
         </Field>
-        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal; run /privacy to see how Olisar handles your data.">
+        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
         </Field>
       </Card>
@@ -259,7 +259,7 @@ export function Behavior() {
       </Card>
         </div>
         <div className="col">
-      <Card title="Proactivity" hint="When Olisar chimes in unprompted — and how often.">
+      <Card title="Proactivity" hint="When and how often Olisar chimes in unprompted.">
         <Field label="Enabled"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} label="Let Olisar speak up on its own" /></Field>
         <Field label="Eagerness">
           <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
@@ -272,7 +272,6 @@ export function Behavior() {
         <Field label="Confidence threshold" desc="Minimum classifier confidence (0–1) before it replies.">
           <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
-        <div className="settings-subhead">Rate limits</div>
         <div className="row">
           <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} /></Field>
           <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} /></Field>
@@ -290,7 +289,7 @@ export function Behavior() {
       </Card>
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Liberalness threshold" desc="How freely Olisar reacts — the bar (0–1) a message must clear before a reaction is weighed. Lower is more liberal (0 = consider anything); the cooldown and hourly cap below still apply.">
+        <Field label="Confidence threshold" desc="Minimum classifier confidence (0–1) before it reacts.">
           <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
         <div className="row">
