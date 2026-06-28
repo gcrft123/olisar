@@ -420,6 +420,19 @@ select { appearance: none; cursor: pointer;
 .toggle:focus-visible { outline: none; }
 .toggle:focus-visible .track { box-shadow: var(--ring); }
 
+/* Multi-choice chips — selectable pills backed by a hidden checkbox; the accent marks
+   the chosen ones. Used for Behavior → mention limits. */
+.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice {
+  display: inline-flex; align-items: center; height: 34px; padding: 0 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--panel); color: var(--text-2); font-size: 13px; font-weight: 550;
+  cursor: pointer; user-select: none; transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.choice:hover { background: var(--bg-inset); color: var(--text); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 button {
   height: 34px; padding: 0 14px;

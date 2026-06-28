@@ -157,6 +157,11 @@ class GuildConfig(Base):
     # live Discord presence — privileged + sensitive, so opt-in per server and
     # disclosed in /privacy. Off by default.
     presence_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Mention types Olisar may NOT ping in its replies — any of "everyone", "here",
+    # "roles". @everyone/@here are neutralised in the reply text (Discord can't separate
+    # the two via allowed_mentions); roles via allowed_mentions. Empty = no restriction.
+    # Enforced in bot/replies.py.
+    blocked_mentions: Mapped[list] = mapped_column(JSON, default=list)
     # Deprecated: the rate-limit reply now lives in command_messages["rate_limit"]
     # (editable under Command replies). Column kept to avoid a destructive migration.
     rate_limit_message: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -140,6 +140,12 @@ function SandboxPanel() {
 }
 
 // ── Behavior (guild_config + proactivity) ──────────────────────────────────
+// Mention types Olisar can be barred from pinging (multi-choice).
+const MENTION_OPTS = [
+  { value: 'everyone', label: '@everyone' },
+  { value: 'here', label: '@here' },
+  { value: 'roles', label: 'All roles' },
+]
 export function Behavior() {
   const configEd = useEditable<any>(api.getConfig)
   const { data: models } = useAsync<any[]>(api.models)
@@ -178,6 +184,27 @@ export function Behavior() {
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
         <Field label="Loose messages" desc="Reply to all messages in talk-enabled channels without a trigger.">
           <Toggle value={data.loose_msg_enabled} onChange={(v) => set('loose_msg_enabled', v)} label="Join freely" />
+        </Field>
+        <Field label="Don't let Olisar ping" desc="Pick any. Olisar won't ping these in its replies even if it writes the mention — @everyone/@here are quietly defused in the text, role pings are suppressed.">
+          <div className="choice-row">
+            {MENTION_OPTS.map((o) => {
+              const on = (data.blocked_mentions || []).includes(o.value)
+              return (
+                <label key={o.value} className={'choice' + (on ? ' on' : '')}>
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => {
+                      const cur = new Set<string>(data.blocked_mentions || [])
+                      if (on) cur.delete(o.value); else cur.add(o.value)
+                      set('blocked_mentions', [...cur])
+                    }}
+                  />
+                  {o.label}
+                </label>
+              )
+            })}
+          </div>
         </Field>
       </Card>
       <Card title="Model & search">

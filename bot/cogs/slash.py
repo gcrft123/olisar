@@ -17,7 +17,7 @@ from sqlalchemy import func, select, update
 
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import BotActions
-from bot.replies import chunk_text
+from bot.replies import chunk_text, mention_policy, sanitize_mentions
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -76,6 +76,7 @@ class Slash(commands.Cog):
             cfg = await session.get(GuildConfig, cfg_guild)
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
+            mention_block = list(cfg.blocked_mentions or []) if cfg else []
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
@@ -100,10 +101,11 @@ class Slash(commands.Cog):
                 user_text=prompt,
                 actions=BotActions(self.bot, channel=interaction.channel),
             )
-        chunks = chunk_text(text) or ["…"]
-        await interaction.followup.send(chunks[0])
+        am = mention_policy(mention_block)
+        chunks = chunk_text(sanitize_mentions(text, mention_block)) or ["…"]
+        await interaction.followup.send(chunks[0], allowed_mentions=am)
         for extra in chunks[1:]:
-            await interaction.followup.send(extra)
+            await interaction.followup.send(extra, allowed_mentions=am)
 
     @app_commands.command(
         name="catchup", description="Get caught up on what you missed in this channel."
@@ -118,6 +120,7 @@ class Slash(commands.Cog):
             cfg = await session.get(GuildConfig, settings.target_guild_id)
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
+            mention_block = list(cfg.blocked_mentions or []) if cfg else []
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
@@ -136,10 +139,11 @@ class Slash(commands.Cog):
                 user_id=interaction.user.id,
                 hours=hours if (hours and hours > 0) else None,
             )
-        chunks = chunk_text(text) or ["…"]
-        await interaction.followup.send(chunks[0])
+        am = mention_policy(mention_block)
+        chunks = chunk_text(sanitize_mentions(text, mention_block)) or ["…"]
+        await interaction.followup.send(chunks[0], allowed_mentions=am)
         for extra in chunks[1:]:
-            await interaction.followup.send(extra)
+            await interaction.followup.send(extra, allowed_mentions=am)
 
     @app_commands.command(name="privacy", description="See how Olisar handles your data.")
     async def privacy(self, interaction: discord.Interaction) -> None:
