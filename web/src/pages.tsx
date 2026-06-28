@@ -783,6 +783,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       const d = err?.detail
       if (d && typeof d === 'object' && d.code === 'risk_blocked') {
         setReviewResult({ ...d, blocked: true, review_available: true })  // server caught it after all
+      } else if (d && typeof d === 'object' && d.code === 'review_unavailable') {
+        setReviewResult({ review_available: false, blocked: false, message: d.message })  // quota died mid-flow
       } else {
         setReviewing(false); toast('Publish failed: ' + err.message, 'danger')
       }
@@ -1216,18 +1218,23 @@ function PublishReviewModal(props: {
   const threshold = Number(r.threshold ?? 70)
   const bullets: string[] = r.bullets || []
   const blocked = !!r.blocked
+  // No score came back (e.g. the AI review quota is exhausted). Publishing fails closed
+  // server-side, so the modal must not offer a Publish button here either.
+  const unavailable = !blocked && r.review_available === false
   const band = score >= 70 ? 'danger' : score >= 31 ? 'warn' : 'ok'
   // Callout tone tracks the risk band (a block is never shown green); the matching
   // leading icon: a check when clean, otherwise the warning glyph.
   const passTone = band === 'ok' ? 'tip' : band === 'warn' ? 'warning' : 'danger'
+  const tone = blocked ? band : unavailable ? 'warn' : 'pass ' + band
+  const title = blocked ? 'Publish blocked' : unavailable ? 'Review unavailable' : 'Review passed'
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className={'deny-modal ' + (blocked ? band : 'pass ' + band)} onClick={(e) => e.stopPropagation()}>
+      <div className={'deny-modal ' + tone} onClick={(e) => e.stopPropagation()}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
-        <h2 className="deny-title">{blocked ? 'Publish blocked' : 'Review passed'}</h2>
+        <h2 className="deny-title">{title}</h2>
         <div className="deny-sub">{props.subject}</div>
 
-        <RiskMeter score={score} band={band} />
+        {!unavailable && <RiskMeter score={score} band={band} />}
 
         {blocked ? (
           <>
@@ -1251,10 +1258,12 @@ function PublishReviewModal(props: {
                 )}
             </div>
           </>
-        ) : !r.review_available ? (
-          <div className="callout note">
-            <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-            <div className="callout-body">Automated review was unavailable, so nothing could be flagged — publish at your discretion.</div>
+        ) : unavailable ? (
+          <div className="callout warning">
+            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">
+              {r.message || 'The security review couldn’t run (your Gemini quota may be exhausted). Publishing is blocked until a review completes — try again later.'}
+            </div>
           </div>
         ) : (
           <div className={'callout ' + passTone}>
@@ -1266,8 +1275,8 @@ function PublishReviewModal(props: {
         )}
 
         <div className="deny-foot">
-          {blocked ? (
-            <button className="primary" onClick={props.onClose}>Got it</button>
+          {blocked || unavailable ? (
+            <button className="primary" onClick={props.onClose}>{unavailable ? 'Close' : 'Got it'}</button>
           ) : (
             <>
               <button className="ghost" onClick={props.onClose} disabled={props.publishing}>Cancel</button>
