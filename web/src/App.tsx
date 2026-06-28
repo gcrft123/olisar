@@ -20,7 +20,6 @@ const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'extensions', label: 'Extensions', ic: 'extensions' },
   { id: 'keys', label: 'API keys', ic: 'keys' },
   { id: 'usage', label: 'Usage', ic: 'usage' },
-  { id: 'docs', label: 'Docs', ic: 'docs' },
 ]
 
 type Guild = { id: string; name: string; icon: string }
@@ -151,8 +150,12 @@ export default function App() {
     docs: <Docs onNavigate={setTab} />,
     developer: <Developer />,
   }
-  // The Developer tab only appears for whitelisted platform developers.
-  const nav = isDev ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName }] : NAV
+  // The Developer tab only appears for whitelisted platform developers; Docs always sits
+  // last in the rail, below Developer.
+  const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName }
+  const nav = isDev
+    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName }, docsNav]
+    : [...NAV, docsNav]
 
   // A banned account is locked out of the console entirely (re-checked every poll).
   if (standing?.status === 'banned') {
