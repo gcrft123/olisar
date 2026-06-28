@@ -177,7 +177,7 @@ export function Behavior() {
       <PageHead icon="behavior" title="Behavior" sub="Control how and when Olisar participates in your server. Fallback message customization lives in Command replies." />
       <div className="cols2">
         <div className="col">
-      <Card title="Triggers">
+      <Card title="Engagement" hint="When and where Olisar joins the conversation.">
         <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
           <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
         </Field>
@@ -207,24 +207,34 @@ export function Behavior() {
           </div>
         </Field>
       </Card>
-      <Card title="Model & search">
+      <Card title="Model & tools" hint="The model Olisar runs on and the live lookups it may use while replying.">
         <Field label="Primary model" desc="The fallback chain starts here and walks down to the next best on a rate limit.">
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
-        <Field label="Web search (grounding)"><Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" /></Field>
+        <Field label="Web search (grounding)" desc="Let Olisar look things up on the web to ground its answers.">
+          <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" />
+        </Field>
+        <Field label="Grounding daily cap" desc="The most web-grounded answers Olisar will run in a day.">
+          <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} />
+        </Field>
         <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal; run /privacy to see how Olisar handles your data.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
         </Field>
-        <div className="row">
-          <Field label="Grounding daily cap"><Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} /></Field>
-          <Field label="Summary token threshold"><Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} /></Field>
-          <Field label="Glossary mine threshold"><Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} /></Field>
-          <Field label="Persona rebuild (msgs)"><Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} /></Field>
-        </div>
+      </Card>
+      <Card title="Memory & summaries" hint="How often Olisar condenses activity into long-term memory and refreshes what it knows.">
+        <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens.">
+          <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} />
+        </Field>
+        <Field label="Glossary mine threshold" desc="Mine the server glossary for new facts after this many new tokens.">
+          <Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} />
+        </Field>
+        <Field label="Persona rebuild (messages)" desc="Rebuild a member's persona after this many new messages from them.">
+          <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} />
+        </Field>
       </Card>
         </div>
         <div className="col">
-      <Card title="Proactivity" hint="Adjust when/if Olisar chimes in unprompted.">
+      <Card title="Proactivity" hint="When Olisar chimes in unprompted — and how often.">
         <Field label="Enabled"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} label="Let Olisar speak up on its own" /></Field>
         <Field label="Eagerness">
           <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
@@ -237,8 +247,7 @@ export function Behavior() {
         <Field label="Confidence threshold" desc="Minimum classifier confidence (0–1) before it replies.">
           <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
-      </Card>
-      <Card title="Proactive rate control">
+        <div className="settings-subhead">Rate limits</div>
         <div className="row">
           <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} /></Field>
           <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} /></Field>
@@ -254,9 +263,9 @@ export function Behavior() {
           </div>
         )}
       </Card>
-      <Card title="Passive reactions" hint="Passive reactions let Olisar decide to react to a message rather than reply. Useful when a message is overkill but an emoji reaction is warranted.">
+      <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Liberalness threshold" desc="How freely Olisar reacts — the heuristic bar (0–1) a message must clear before it weighs a reaction, like the proactivity confidence threshold. Lower is more liberal (0 = consider anything); raise it to react only to more notable messages. The cooldown and hourly cap below still apply.">
+        <Field label="Liberalness threshold" desc="How freely Olisar reacts — the bar (0–1) a message must clear before a reaction is weighed. Lower is more liberal (0 = consider anything); the cooldown and hourly cap below still apply.">
           <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
         <div className="row">
@@ -1279,7 +1288,7 @@ function PublishReviewModal(props: {
           <div className="callout warning">
             <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">
-              {inlineCode(r.message || 'The security review couldn’t run (your Gemini quota may be exhausted). Publishing is blocked until a review completes — try again later.')}
+              {inlineCode(r.message || 'The security review couldn’t run (your Gemi quota may be exhausted). Publishing is blocked until a review completes — try again later.')}
             </div>
           </div>
         ) : (

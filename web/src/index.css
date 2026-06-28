@@ -403,7 +403,7 @@ select { appearance: none; cursor: pointer;
 .placeholders code { color: var(--accent); font-family: var(--mono); }
 
 .row { display: flex; gap: 14px; }
-.row > * { flex: 1; }
+.row > * { flex: 1; min-width: 0; }   /* shrink to share — never let a wide row force its column wider */
 
 /* ── Toggle ─────────────────────────────────────────────────────────────── */
 .toggle { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; }
