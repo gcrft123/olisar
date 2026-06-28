@@ -175,7 +175,6 @@ export default function App() {
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
-        <div className="nav-label">Configure</div>
         {nav.map((n) => {
           const Glyph = Icon[n.ic]
           const active = tab === n.id
