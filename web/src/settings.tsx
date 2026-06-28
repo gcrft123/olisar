@@ -197,6 +197,7 @@ function Appearance() {
 function Remote() {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const load = (notify = false) => {
     setErr(null)
     api.getRemote()
@@ -207,9 +208,25 @@ function Remote() {
   const st = data?.status
   const url = (st?.public_url || '').replace(/\/$/, '')
   const isWeb = /^https:\/\//.test(url)
+  // The funnel can only be toggled when the bundled helper is present; flipping it on
+  // re-uses the auth key saved during first-run setup (no key → the backend tells us).
+  const canToggle = !!st?.available && !!st?.helper
+  const toggle = async (on: boolean) => {
+    setBusy(true)
+    try {
+      if (on) await api.enableTunnel()
+      else await api.disableTunnel()
+      toast(on ? 'Remote access on' : 'Remote access off', 'success')
+      load()
+    } catch (e: any) {
+      toast(e?.message || 'Could not change remote access', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
     <>
-      <Head title="Remote access" sub="Reach this console from anywhere over Tailscale Funnel. Toggle it from the menu-bar tray." />
+      <Head title="Remote access" sub="Reach this console from anywhere over Tailscale Funnel." />
       {err && <div className="settings-err">{err}</div>}
       {!data ? <div className="settings-muted">Loading…</div> : (
         <>
@@ -219,10 +236,20 @@ function Remote() {
               <div className="status-line">{st?.running ? 'Online' : st?.available ? 'Off' : 'Not available in this build'}</div>
               {isWeb
                 ? <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, '')}</a>
-                : <span className="settings-muted">No public link — turn on remote access from the tray.</span>}
+                : <span className="settings-muted">{st?.running ? 'Starting…' : 'No public link — turn remote access on.'}</span>}
             </div>
-            <button className="ghost" onClick={() => load(true)} style={{ marginLeft: 'auto' }}><Icon.refresh size={14} /></button>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button className="ghost" onClick={() => load(true)} title="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
+              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} />}
+            </div>
           </div>
+          {canToggle && (
+            <p className="settings-foot">
+              {st?.running
+                ? 'The funnel is live. Turning it off closes the public link; you can still reach the console locally.'
+                : 'Turning it on exposes the console over Tailscale Funnel using the auth key from setup. You can also toggle it from the menu-bar tray.'}
+            </p>
+          )}
 
           <div className="settings-subhead">Who can access ({data.users?.length || 0})</div>
           <div className="userlist">

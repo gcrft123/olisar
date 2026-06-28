@@ -413,6 +413,7 @@ select { appearance: none; cursor: pointer;
 .toggle .lbl { font-weight: 500; font-size: 13px; color: var(--text); }
 .toggle:focus-visible { outline: none; }
 .toggle:focus-visible .track { box-shadow: var(--ring); }
+.toggle.disabled { cursor: not-allowed; opacity: 0.45; }
 
 /* Multi-choice chips — selectable pills backed by a hidden checkbox; the accent marks
    the chosen ones. Used for Behavior → mention limits. */
