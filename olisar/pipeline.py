@@ -332,6 +332,7 @@ async def generate_reply(
     runtime_note: str = "",
     images: list[tuple[bytes, str]] | None = None,
     home_guild_id: int | None = None,
+    reply_to: tuple[str, str] | None = None,
 ) -> str:
     """Produce Olisar's reply text for one incoming message/prompt.
 
@@ -380,6 +381,7 @@ async def generate_reply(
         current_display_name=display_name,
         current_text=user_text,
         current_images=images,
+        reply_to=reply_to,
     )
 
     # A people directory (name -> id) so Olisar can DM participants by id.

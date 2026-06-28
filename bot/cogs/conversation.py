@@ -18,7 +18,7 @@ from discord.ext import commands
 
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import MessageActions
-from bot.content import download_images, image_attachments, message_text
+from bot.content import download_images, image_attachments, message_text, resolve_reply
 from bot.replies import record_bot_messages, send_reply
 from bot.triggers import detect_trigger
 from olisar.db.engine import session_scope
@@ -146,6 +146,8 @@ class Conversation(commands.Cog):
 
         # Let Olisar actually see images in the message it's replying to.
         images = await download_images(message)
+        # Surface which message this one replies to (used only when it's relevant).
+        reply_to = await resolve_reply(message)
 
         async with message.channel.typing():
             async with session_scope() as session:
@@ -161,6 +163,7 @@ class Conversation(commands.Cog):
                     user_text=text_body,
                     actions=MessageActions(self.bot, message),
                     images=images,
+                    reply_to=reply_to,
                 )
             sent = await send_reply(message.channel, text, reply_to=message)
 

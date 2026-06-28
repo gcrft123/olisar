@@ -109,6 +109,32 @@ def raw_message_text(data: dict) -> str:
     return "\n".join(chunks).strip()
 
 
+async def resolve_reply(message: discord.Message) -> tuple[str, str] | None:
+    """The ``(author display name, text)`` of the message this one replies to, or
+    ``None`` when it isn't a reply / the target was deleted / can't be fetched.
+
+    This is what lets Olisar be *aware* of reply context. It deliberately stops at
+    surfacing the quoted message — whether that context is actually relevant is the
+    model's call (see ``CONTEXT_NOTE``), so an off-topic reply doesn't drag the old
+    message into the answer. Best-effort: network/permission failures return None."""
+    ref = getattr(message, "reference", None)
+    if ref is None or ref.message_id is None:
+        return None
+    target = ref.resolved if isinstance(ref.resolved, discord.Message) else None
+    if target is None:
+        if isinstance(ref.resolved, discord.DeletedReferencedMessage):
+            return None
+        try:  # not resolved on the gateway payload — fetch it once
+            target = await message.channel.fetch_message(ref.message_id)
+        except Exception:
+            log.debug("couldn't fetch replied-to message %s", ref.message_id)
+            return None
+    text = message_text(target).strip()
+    if not text:
+        return None
+    return (target.author.display_name, text)
+
+
 def image_attachments(message: discord.Message) -> list[discord.Attachment]:
     """The message's image attachments worth sending to vision (capped + size-bounded)."""
     out: list[discord.Attachment] = []
