@@ -445,26 +445,36 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
         version = pkg.version
         manifest = pkg.manifest or {}
         requested = pkg.requested_permissions or pkg.permissions or []
-    # AI risk review (operator's own Gemini). Block at/above the operator's threshold; on a
-    # model hiccup (ok=False) we fail open — never brick publishing on a transient error.
+    # AI risk review (operator's own Gemini). Block at/above the operator's threshold.
     review = await review_source(pkg.source_ts or "", manifest, requested_permissions=requested)
-    if review.get("ok"):
-        threshold = await runtime_config.extension_risk_threshold()
-        if review["score"] >= threshold:
-            await _record_blocked(handle, body.key, version, admin.discord_user_id,
-                                  review["score"], threshold, review.get("bullets") or [])
-            # Structured so the console can render the risk readout (meter + reasons).
-            raise HTTPException(status_code=400, detail={
-                "code": "risk_blocked",
-                "message": f"Publishing blocked — risk {review['score']}/100 (threshold {threshold}).",
-                "risk_score": review["score"],
-                "threshold": threshold,
-                "summary": review.get("summary") or "",
-                "bullets": review.get("bullets") or [],
-            })
-        # Unsigned metadata (not part of the canonical source hash) so the signature holds.
-        doc["risk_score"] = review["score"]
-        doc["risk_report"] = review.get("bullets") or []
+    if not review.get("ok"):
+        # Fail CLOSED: no score means we can't vouch for this source, so we don't ship it.
+        # Failing open here was a loophole — a publisher could exhaust their AI quota (or trip
+        # a transient error) to push unscored code to everyone. Block until a review can run.
+        raise HTTPException(status_code=400, detail={
+            "code": "review_unavailable",
+            "message": (
+                "Couldn't complete the security review — the AI review is unavailable (for "
+                "example your Gemini quota may be exhausted). Publishing is blocked until a "
+                "review can run; try again later."
+            ),
+        })
+    threshold = await runtime_config.extension_risk_threshold()
+    if review["score"] >= threshold:
+        await _record_blocked(handle, body.key, version, admin.discord_user_id,
+                              review["score"], threshold, review.get("bullets") or [])
+        # Structured so the console can render the risk readout (meter + reasons).
+        raise HTTPException(status_code=400, detail={
+            "code": "risk_blocked",
+            "message": f"Publishing blocked — risk {review['score']}/100 (threshold {threshold}).",
+            "risk_score": review["score"],
+            "threshold": threshold,
+            "summary": review.get("summary") or "",
+            "bullets": review.get("bullets") or [],
+        })
+    # Unsigned metadata (not part of the canonical source hash) so the signature holds.
+    doc["risk_score"] = review["score"]
+    doc["risk_report"] = review.get("bullets") or []
     r = await _registry_post("/v1/publish", {"bundle": doc}, token=token)
     if r.status_code == 401:  # token rotated out from under us — refresh once and retry
         fresh = await _reregister_token(admin)
