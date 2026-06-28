@@ -9,7 +9,7 @@ export type DocSection = { id: string; title: string; body: string }
 // linear prev/next order, so the buttons match the sidebar.
 export const DOC_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Start', ids: ['overview', 'servers', 'talking', 'commands'] },
-  { label: 'Hosting & access', ids: ['hosting', 'remote'] },
+  { label: 'Hosting & access', ids: ['hosting', 'remote', 'settings'] },
   { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'replies', 'keys'] },
   { label: 'Knowledge & memory', ids: ['knowledge', 'memory', 'members', 'images'] },
   { label: 'Extend', ids: ['extensions', 'ext-build', 'ext-sdk', 'ext-flows', 'ext-share', 'ext-marketplace', 'ext-security'] },
@@ -54,6 +54,9 @@ The tabs on the left:
 - [Extensions](tab:extensions) — togglable packages of extra features.
 - [API keys](tab:keys) — bring your own Gemini, Cloudflare, and UEX keys.
 - [Usage](tab:usage) — how much of the free model quota you're using.
+
+The sidebar footer also has **[Settings](#settings)** — app-wide preferences (accent color, remote access,
+updates, and feedback) that aren't tied to any one server.
 `,
   },
   {
@@ -112,6 +115,13 @@ Members can reach Olisar a few ways:
 
 :::note Example
 "olisar, what's the plan for the raid tonight?" — or just reply to its last message with a follow-up.
+:::
+
+:::tip Reply to point at a message
+When you **reply** to a message (Olisar's or anyone's) while addressing it, Olisar notices which message you
+replied to and uses it as context — "isn't there a later one?" as a reply to an event post just works. It's
+deliberately light-touch: if your question stands on its own, it answers that and won't drag the quoted
+message in.
 :::
 
 It can do a lot in conversation without any command: answer questions, search the server's history
@@ -262,7 +272,7 @@ need Tailscale at all — they just open the link.
 
 ## Turning it on
 
-The operator enables it once, from the **setup wizard** or the **menu-bar icon**:
+The operator sets it up once, from the **setup wizard** or the **menu-bar icon**:
 - Create a free [Tailscale account](https://login.tailscale.com/start).
 - Generate a **reusable** auth key under [Settings → Keys](https://login.tailscale.com/admin/settings/keys)
   and paste it in.
@@ -270,6 +280,13 @@ The operator enables it once, from the **setup wizard** or the **menu-bar icon**
   device — Olisar shows the exact link to click, then enable again.
 
 Olisar then registers the public \`…/auth/callback\` so Discord login works both locally and remotely.
+
+:::tip Flip it on and off from the console
+Once it's been set up once, you don't need the tray to toggle it. **Settings → Remote access** (the
+**Settings** button in the sidebar footer) shows the current status — Online / Off — and an **on/off
+switch** that reuses the auth key from setup, so you can take the public link down or bring it back
+without re-entering anything. The same panel lists who has signed in.
+:::
 
 ## The web link
 
@@ -279,8 +296,49 @@ Discord account and only sees the servers where they have **Manage Server** (see
 
 :::warning Keep the auth key private
 The Tailscale auth key is stored locally and only ever handed to the bundled Tailscale helper — it's never
-shown in this console or sent anywhere. Turning remote access **off** (from the tray) takes the public
-address down immediately; local access keeps working.
+shown in this console or sent anywhere. Turning remote access **off** — from the tray or **Settings →
+Remote access** — takes the public address down immediately; local access keeps working.
+:::
+`,
+  },
+  {
+    id: 'settings',
+    title: 'Console settings',
+    body: `
+The **Settings** button in the sidebar footer (next to **Log out**) opens an app-wide settings popup. Unlike
+the tabs above it, nothing here is per-server — these are operator/device-level preferences. It has five
+sections:
+
+## Appearance
+The **accent color** used across the console — for selection, links, focus rings, and active state. Pick one
+of the swatches, dial in a **custom** color, or **Reset** to the default blue. It's saved **on this device**
+(per browser), so each person who signs in can have their own.
+
+## Remote access
+The status and **on/off switch** for the public web link, plus the list of who has signed in — covered in
+full under [Remote access](#remote).
+
+## Updates
+Shows Olisar's **current version** and checks [GitHub Releases](https://github.com/) for a newer one. In the
+desktop app an available update can be **installed and relaunched** in one click; from a browser it points you
+to the desktop app to update there.
+
+## Desktop app
+A single toggle — **Show in the menu bar** — for whether Olisar keeps its tray icon (used for quick access and
+[remote-access](#remote) control). It applies to the installed desktop app, which picks it up on its next launch.
+
+## Feedback
+Send **feedback, a bug report, or a question** straight to the Olisar team — it's emailed on submit.
+- Pick a **type** (Feedback / Bug report / Question), write your **message**, and optionally add **your email**
+  so the team can reply.
+- Attach up to **8 files** (≤ 3 MB each), and/or click **Add bot logs** to include recent log lines — handy
+  for bug reports.
+- Press **Send**; you'll get a confirmation and can send another.
+
+:::note Where it goes
+Feedback is delivered by email through the Olisar registry's mail service — your message, any email you give,
+and whatever you attached. Nothing is posted publicly. Skip the bot-logs attachment if you'd rather not share
+recent activity.
 :::
 `,
   },
@@ -305,10 +363,10 @@ keeps replies short." Put hard rules ("never reveal spoilers for X") in the syst
 :::
 
 :::tip Try changes live
-The **Test chat** panel beside Identity talks to Olisar in an enclosed sandbox — full persona, knowledge
-base, and tools, but **no memory**: nothing said there is saved, and it never touches the server's
-glossary or chat history. Save the persona first; the sandbox uses the saved version, not your unsaved
-draft.
+The **Test chat** — click the **Test chat** button to slide it in from the right — talks to Olisar in an
+enclosed sandbox: full persona, knowledge base, and tools, but **no memory**. Nothing said there is saved,
+and it never touches the server's glossary or chat history. Save the persona first; the sandbox uses the
+saved version, not your unsaved draft.
 :::
 
 :::note
@@ -335,6 +393,17 @@ How Olisar decides a message is for it:
 :::warning Loose mode can get chatty
 Loose messages make Olisar feel present but can be noisy in busy channels. Pair it with proactivity
 cooldowns, or limit which channels are talk-enabled.
+:::
+
+## Mentions
+
+**Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
+reply. Tick any of **@everyone**, **@here**, and **All roles** — Olisar can still *say* "@everyone" but the
+ping is neutralized, so nobody gets pinged. Leave them unticked to let it mention normally.
+
+:::tip Stop accidental mass-pings
+Blocking **@everyone**/**@here** is the safe default for a chatty bot — it can reference the words without
+lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. \`@Mods\`).
 :::
 
 ## Model & search
@@ -1461,7 +1530,7 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 | Web lookups stopped working | Daily grounding cap reached | Raise the cap on [Behavior](tab:behavior), or wait for reset |
 | Olisar quoted a deleted message | Rare timing between the edit/delete and the sync | It syncs automatically — try again |
 | Dashboard won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting)) |
-| Other admins can't open the web link | Remote access is off, or the address changed | Operator re-enables it from the menu-bar icon and re-shares the link from the sidebar ([Remote access](#remote)) |
+| Other admins can't open the web link | Remote access is off, or the address changed | Operator re-enables it from **Settings → Remote access** (or the menu-bar icon) and re-shares the link from the sidebar ([Remote access](#remote)) |
 | Discord login bounces or says "invalid or expired state" | The redirect URL for that address isn't registered | Register the exact \`…/auth/callback\` the wizard shows (both the local and \`…ts.net\` ones) |
 | A setting didn't take effect | The change is still buffered in the save bar | Press **Save** in the bar at the bottom of the page |
 
