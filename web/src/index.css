@@ -301,8 +301,7 @@ body::after {
   .botpower.stopping .power-btn, .botpower.starting .power-ring { animation: none; }
 }
 
-.main { padding: 40px 44px 96px; max-width: 880px; }
-.main.wide { max-width: 1180px; }
+.main { padding: 40px 44px 96px; max-width: 1180px; margin: 0 auto; }
 /* Monaco names some of its own internal nodes with generic classes that collide with our
    layout classes above — notably `.main`, which Monaco gives each autocomplete row's
    content box. Our page `.main` padding/width then leaked into the editor and pushed every
@@ -321,6 +320,14 @@ body::after {
    when the chat panel is the taller column. */
 .persona-grid > .card:first-child { align-self: start; }
 @media (max-width: 980px) { .persona-grid { grid-template-columns: 1fr; align-items: start; } }
+
+/* Page layouts for the wide content area. .cols2 = two explicit columns that each
+   hug their own content; .grid2 = an auto-flow two-column card grid. */
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.cols2 > .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.cols2 .card, .grid2 > .card { margin: 0; }
+@media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
 .page-head .title-ic {
@@ -471,7 +478,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 .badge.preference { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
 
-.member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.member-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .member-grid { grid-template-columns: 1fr; } }
 .member-card {
   display: flex; flex-direction: column;
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
@@ -1203,7 +1212,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .progress.indeterminate { position: relative; }
 .progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: var(--radius-pill); animation: rx-indef 1.2s ease-in-out infinite; }
 @keyframes rx-indef { 0% { left: -38%; } 100% { left: 100%; } }
-.reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 320px; overflow-y: auto; }
+.reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 560px; overflow-y: auto; }
 .reindex-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
 .reindex-row:last-child { border-bottom: none; }
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
