@@ -211,6 +211,12 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/dev/moderation") {
         return await devModeration(req, env);
       }
+      if (req.method === "POST" && url.pathname === "/v1/dev/reports/clear") {
+        return await devClearReports(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/dev/blocked/clear") {
+        return await devClearBlocked(req, env);
+      }
       if (req.method === "POST" && url.pathname === "/v1/admin/publish") {
         return await adminPublish(req, env);
       }
@@ -881,6 +887,22 @@ async function devBlocked(req: Request, env: Env): Promise<Response> {
       bullets: b.bullets ? safeJson(b.bullets) : [],
     })),
   });
+}
+
+async function devClearReports(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const r = await env.DB.prepare("DELETE FROM reports").run();
+  return json({ ok: true, cleared: r.meta?.changes ?? 0 });
+}
+
+async function devClearBlocked(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const gate = await requireDeveloper(env, req);
+  if (gate.resp) return gate.resp;
+  const r = await env.DB.prepare("DELETE FROM blocked_publishes").run();
+  return json({ ok: true, cleared: r.meta?.changes ?? 0 });
 }
 
 async function devModerationList(req: Request, env: Env): Promise<Response> {

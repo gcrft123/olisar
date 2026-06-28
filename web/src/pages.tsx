@@ -1474,8 +1474,8 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
               </div>
               <div className="mkt-pub">
                 {r.publisher_verified
-                  ? <span className="badge info"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
-                  : <span className="badge">{r.publisher || 'unknown publisher'}</span>}
+                  ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
+                  : <span className="badge publisher">{r.publisher || 'unknown publisher'}</span>}
               </div>
               {r.description && <div className="mkt-desc">{r.description}</div>}
               {r.permissions?.length > 0 && (
