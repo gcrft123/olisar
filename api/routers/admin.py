@@ -168,6 +168,7 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "glossary_mine_token_threshold": c.glossary_mine_token_threshold,
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
             "presence_tools_enabled": c.presence_tools_enabled,
+            "blocked_mentions": list(c.blocked_mentions or []),
             "allowed_role_ids": [str(r) for r in (c.allowed_role_ids or [])],
             "blocked_role_ids": [str(r) for r in (c.blocked_role_ids or [])],
         }

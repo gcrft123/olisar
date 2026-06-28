@@ -248,6 +248,26 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 .field .desc { color: var(--text-2); font-size: 12px; margin: -3px 0 8px; line-height: 1.5; }
 ```
 
+### Multi-choice chips
+
+Selectable pills for a pick-any-subset choice (e.g. Behavior → which mentions Olisar may not ping). Each is a `<label>` wrapping a visually-hidden checkbox; the accent marks the chosen ones. 34px tall like other controls.
+
+```html
+<div class="choice-row">
+  <label class="choice on"><input type="checkbox" checked> @everyone</label>
+  <label class="choice"><input type="checkbox"> @here</label>
+</div>
+```
+```css
+.choice-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.choice { display: inline-flex; align-items: center; height: 34px; padding: 0 14px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
+  background: var(--panel); color: var(--text-2); font-size: 13px; font-weight: 550; cursor: pointer; }
+.choice:hover { background: var(--bg-inset); color: var(--text); }
+.choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+```
+
 ### Card (the flat panel)
 
 ```css
