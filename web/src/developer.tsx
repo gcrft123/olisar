@@ -204,6 +204,12 @@ function DevReports() {
   const load = () => { setErr(null); api.devReports().then((d) => setRows(d.reports || [])).catch((e) => setErr(e.message)) }
   useEffect(load, [])
 
+  const clearAll = async () => {
+    if (!(await confirmDialog({ title: 'Clear all reports?', message: 'Removes every standing report from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger' }))) return
+    try { await api.devClearReports(); toast('Reports cleared.', 'success'); load() }
+    catch (e: any) { toast('Couldn’t clear reports: ' + e.message, 'danger') }
+  }
+
   const moderate = async (discordId: string, status: 'warn' | 'ban') => {
     if (!discordId) { toast('No publisher Discord ID on this report.', 'warning'); return }
     if (!(await confirmDialog({ title: `${status === 'ban' ? 'Ban' : 'Warn'} Discord ${discordId}?`, confirmLabel: status === 'ban' ? 'Ban' : 'Warn', tone: 'danger' }))) return
@@ -216,7 +222,7 @@ function DevReports() {
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="primary icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -249,12 +255,18 @@ function DevBlocked() {
   const load = () => { setErr(null); api.devBlocked().then((d) => setRows(d.blocked || [])).catch((e) => setErr(e.message)) }
   useEffect(load, [])
 
+  const clearAll = async () => {
+    if (!(await confirmDialog({ title: 'Clear all blocked publishes?', message: 'Removes every recorded blocked-publish from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger' }))) return
+    try { await api.devClearBlocked(); toast('Blocked publishes cleared.', 'success'); load() }
+    catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
+  }
+
   if (err) return <div className="card"><div className="settings-err">{err}</div></div>
   if (!rows) return <Loading />
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="primary icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
