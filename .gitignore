@@ -42,3 +42,6 @@ desktop/funnel-sidecar/olisar-funnel.exe
 .idea/
 .vscode/
 .claude/
+
+# Local dev helper (frontend hot-swap into the installed app bundle)
+web/swap.sh
