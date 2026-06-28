@@ -888,7 +888,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button className="ghost" onClick={pushUpdate}>Re-publish</button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost icon-btn" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))} data-tip="Export .olx" aria-label="Export extension"><Icon.download size={16} /></button>
+              <button className="ghost icon-btn" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))} data-tip="Export .olx" aria-label="Export extension"><Icon.upload size={16} /></button>
             )}
             {props.isOperator && e.has_code && (
               <button className="ghost icon-btn" onClick={() => props.onEdit(e.key)} data-tip="Edit code" aria-label="Edit extension code"><Icon.edit size={16} /></button>
@@ -1656,7 +1656,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         {props.isOperator && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
             <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
-            <button className="ghost icon-btn" onClick={() => setImporting(true)} data-tip="Import .olx" aria-label="Import .olx"><Icon.upload size={16} /></button>
+            <button className="ghost icon-btn" onClick={() => setImporting(true)} data-tip="Import .olx" aria-label="Import .olx"><Icon.download size={16} /></button>
             <button className="primary" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
           </div>
         )}

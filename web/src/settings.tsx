@@ -28,7 +28,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <nav className="settings-nav">
-          <div className="settings-nav-title">Settings</div>
           {SECTIONS.map((s) => {
             const Glyph = Icon[s.ic]
             return (
