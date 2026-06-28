@@ -288,6 +288,8 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
 .callout.note    { --cc: var(--accent); }
 .callout.tip     { --cc: var(--ok); }
 .callout.danger  { --cc: var(--danger); }
+.callout-body code { font-family: var(--mono); font-size: 0.92em; background: var(--bg-inset);
+  border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }  /* inline `code` */
 ```
 
 ### Toast (bottom-right status)

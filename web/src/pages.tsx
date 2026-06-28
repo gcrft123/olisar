@@ -1193,6 +1193,12 @@ function RiskMeter({ score, band, scanning }: { score: number; band: string; sca
   )
 }
 
+// Render a plain string with inline `code` spans turned into <code> (used by the security
+// review callouts and the docs TOC).
+function inlineCode(text: string) {
+  return text.split('`').map((seg, i) => (i % 2 === 1 ? <code key={i}>{seg}</code> : seg))
+}
+
 // The publish flow's modal: first a security-scan screen, then it becomes the verdict —
 // either a BLOCKED readout (with reasons) or a PASSED card with a Publish button. Same size
 // throughout, so the scan animation morphs into the result in place.
@@ -1227,49 +1233,49 @@ function PublishReviewModal(props: {
   const passTone = band === 'ok' ? 'tip' : band === 'warn' ? 'warning' : 'danger'
   const tone = blocked ? band : unavailable ? 'warn' : 'pass ' + band
   const title = blocked ? 'Publish blocked' : unavailable ? 'Review unavailable' : 'Review passed'
+  // The verdict laid out two-up — meter + description on the left, callout cards on the
+  // right — except the unavailable state, which has no score so stays single-column.
+  const blockCallout = (text: string, key?: number) => (
+    <div key={key} className={'callout ' + (band === 'danger' ? 'danger' : 'warning')}>
+      <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+      <div className="callout-body">{inlineCode(text)}</div>
+    </div>
+  )
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className={'deny-modal ' + tone} onClick={(e) => e.stopPropagation()}>
+      <div className={'deny-modal ' + (unavailable ? '' : 'split ') + tone} onClick={(e) => e.stopPropagation()}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <h2 className="deny-title">{title}</h2>
         <div className="deny-sub">{props.subject}</div>
 
-        {!unavailable && <RiskMeter score={score} band={band} />}
-
-        {blocked ? (
-          <>
-            <div className="deny-verdict">
-              Scored <b>{score}</b> — over your block threshold of <b>{threshold}</b>.
-              {bullets.length > 0 ? ' The security review flagged:' : ''}
-            </div>
-            <div className="deny-callouts">
-              {bullets.length > 0
-                ? bullets.map((b, i) => (
-                  <div key={i} className={'callout ' + (band === 'danger' ? 'danger' : 'warning')}>
-                    <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-                    <div className="callout-body">{b}</div>
-                  </div>
-                ))
-                : (
-                  <div className={'callout ' + (band === 'danger' ? 'danger' : 'warning')}>
-                    <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-                    <div className="callout-body">{r.summary || 'The security review flagged concerns in the source.'}</div>
-                  </div>
-                )}
-            </div>
-          </>
-        ) : unavailable ? (
+        {unavailable ? (
           <div className="callout warning">
             <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">
-              {r.message || 'The security review couldn’t run (your Gemini quota may be exhausted). Publishing is blocked until a review completes — try again later.'}
+              {inlineCode(r.message || 'The security review couldn’t run (your Gemini quota may be exhausted). Publishing is blocked until a review completes — try again later.')}
             </div>
           </div>
         ) : (
-          <div className={'callout ' + passTone}>
-            <span className="ic">{band === 'ok' ? <Icon.check size={17} weight="Bold" /> : <Icon.warn size={17} weight="Bold" />}</span>
-            <div className="callout-body">
-              Scored <b>{score}</b> — under your threshold of <b>{threshold}</b>. {r.summary || 'No major concerns found.'}
+          <div className="deny-body">
+            <div className="deny-side">
+              <RiskMeter score={score} band={band} />
+              <div className="deny-verdict">
+                {blocked
+                  ? <>Scored <b>{score}</b> — over your block threshold of <b>{threshold}</b>.</>
+                  : <>Scored <b>{score}</b> — under your threshold of <b>{threshold}</b>.</>}
+              </div>
+            </div>
+            <div className="deny-callouts">
+              {blocked
+                ? (bullets.length > 0
+                  ? bullets.map((b, i) => blockCallout(b, i))
+                  : blockCallout(r.summary || 'The security review flagged concerns in the source.'))
+                : (
+                  <div className={'callout ' + passTone}>
+                    <span className="ic">{band === 'ok' ? <Icon.check size={17} weight="Bold" /> : <Icon.warn size={17} weight="Bold" />}</span>
+                    <div className="callout-body">{inlineCode(r.summary || 'No major concerns found.')}</div>
+                  </div>
+                )}
             </div>
           </div>
         )}
@@ -1657,10 +1663,6 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 }
 
 // ── Docs (OpenClaw-style: left nav · content · on-this-page) ─────────────────
-// Render a heading string for the TOC, turning inline `code` spans into <code>.
-function tocInline(text: string) {
-  return text.split('`').map((seg, i) => (i % 2 === 1 ? <code key={i}>{seg}</code> : seg))
-}
 
 export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const [active, setActive] = useState(DOCS[0].id)
@@ -1766,7 +1768,7 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
                 className={'lvl' + h.level + (activeHeading === h.slug ? ' active' : '')}
                 onClick={() => setActiveHeading(h.slug)}
               >
-                {tocInline(h.text)}
+                {inlineCode(h.text)}
               </a>
             ))}
           </div>
