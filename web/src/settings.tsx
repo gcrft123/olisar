@@ -2,14 +2,15 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Select, Text, Toggle } from './ui'
-import { toast } from './overlays'
+import { toast, confirmDialog } from './overlays'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'remote' | 'updates' | 'desktop' | 'feedback'
+type SectionId = 'appearance' | 'bot' | 'remote' | 'updates' | 'desktop' | 'feedback'
 const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'appearance', label: 'Appearance', ic: 'palette' },
+  { id: 'bot', label: 'Bot', ic: 'bolt' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
@@ -46,6 +47,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
+          {section === 'bot' && <Bot />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
@@ -155,6 +157,53 @@ function Feedback() {
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
       <div className="settings-row end" style={{ marginTop: 18 }}>
         <button className="primary" onClick={submit} disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</button>
+      </div>
+    </>
+  )
+}
+
+// ── Bot (what Olisar remembers for this server) ───────────────────────────────
+function Bot() {
+  const [busy, setBusy] = useState(false)
+  const clearMemory = async () => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: 'Clear memory',
+      message: (
+        <>
+          This erases everything Olisar has learned about this server — conversation memory, summaries, the
+          search index, remembered facts, the glossary, snapshots, usage stats, its read on each member, and
+          the knowledge base. Its persona, behaviour, channel roles, and command replies are kept.{' '}
+          <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
+        </>
+      ),
+      requirePhrase: { phrase: 'clear olisar memory' },
+      confirmLabel: 'Clear memory',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const r = await api.clearMemory()
+      const c = (r && r.counts) || {}
+      toast(`Memory cleared — forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t clear memory', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <Head title="Bot" sub="Manage what Olisar remembers for the server you're configuring." />
+      <div className="settings-subhead">Danger zone</div>
+      <div className="settings-row between">
+        <div>
+          <div className="opt-label">Clear memory</div>
+          <div className="settings-muted">Erase everything Olisar has learned about this server — memory, member profiles, facts, the search index, glossary, and the knowledge base. It keeps its persona and your settings. This can't be undone.</div>
+        </div>
+        <button className="danger" onClick={clearMemory} disabled={busy}>
+          {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
+        </button>
       </div>
     </>
   )

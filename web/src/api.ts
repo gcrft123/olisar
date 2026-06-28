@@ -62,6 +62,9 @@ export const api = {
   getConfig: () => req('/api/config'),
   putConfig: (b: any) => req('/api/config', { method: 'PUT', body: JSON.stringify(b) }),
 
+  // Wipe everything Olisar has learned about the current server (keeps persona/settings).
+  clearMemory: () => req('/api/clear-memory', { method: 'POST' }),
+
   getMessages: () => req('/api/messages'),
   putMessages: (b: any) => req('/api/messages', { method: 'PUT', body: JSON.stringify(b) }),
 
