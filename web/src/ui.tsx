@@ -80,15 +80,18 @@ export function Select(props: { value: string; onChange: (v: string) => void; op
   )
 }
 
-export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
+export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
+  const dis = !!props.disabled
   return (
     <div
-      className={'toggle' + (props.value ? ' on' : '')}
+      className={'toggle' + (props.value ? ' on' : '') + (dis ? ' disabled' : '')}
       role="switch"
       aria-checked={props.value}
-      tabIndex={0}
-      onClick={() => props.onChange(!props.value)}
+      aria-disabled={dis}
+      tabIndex={dis ? -1 : 0}
+      onClick={() => { if (!dis) props.onChange(!props.value) }}
       onKeyDown={(e) => {
+        if (dis) return
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onChange(!props.value) }
       }}
     >
