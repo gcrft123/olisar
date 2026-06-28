@@ -547,6 +547,7 @@ function SearchIndexCard() {
       message: 'Clear the entire message search index? New posts keep indexing live, and "Re-index all" rebuilds history.',
       confirmLabel: 'Clear index',
       tone: 'danger',
+      requirePhrase: { phrase: 'clear index' },
     }))) return
     setBusy(true)
     try { await api.clearIndex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
@@ -1456,6 +1457,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
       message: "It'll stop appearing in the marketplace for everyone.",
       confirmLabel: 'Yank',
       tone: 'danger',
+      requirePhrase: { phrase: `yank ${item.id}` },
     }))) return
     try { await api.marketplaceYank(item.name); await runSearch() }  // whole extension, all versions
     catch (e: any) { toast('Yank failed: ' + e.message, 'danger') }
