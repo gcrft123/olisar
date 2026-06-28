@@ -20,8 +20,15 @@ CONTEXT_NOTE = (
     "You are in a Discord conversation. Below is recent history as a transcript: "
     "each person's line is prefixed with their display name, and your own past "
     "replies appear with no prefix. Reply naturally as yourself — do not prefix "
-    "your reply with a name, and don't restate the transcript."
+    "your reply with a name, and don't restate the transcript.\n\n"
+    "If a line is marked as replying to an earlier message "
+    "(e.g. `Wumpus (replying to Olisar: \"…\"): …`), treat that quoted message as "
+    "background only. Lean on it when the new message clearly depends on it, but if "
+    "the new message stands on its own, just answer it — don't force a connection to "
+    "the quoted message or steer back to it."
 )
+
+REPLY_SNIPPET_MAX = 300  # how much of the replied-to message to quote inline
 
 
 async def name_map(session: AsyncSession, author_ids: set[int]) -> dict[int, str]:
@@ -65,6 +72,22 @@ async def people_directory(
     )
 
 
+def _reply_tag(reply_to: tuple[str, str] | None) -> str:
+    """The inline `` (replying to Author: "…")`` marker for a reply, or ''.
+
+    Whitespace is collapsed and the quote is clipped so a long replied-to message
+    stays a brief, non-dominating aside rather than crowding out the new question."""
+    if not reply_to:
+        return ""
+    author, text = reply_to
+    snippet = " ".join((text or "").split())
+    if not snippet:
+        return ""
+    if len(snippet) > REPLY_SNIPPET_MAX:
+        snippet = snippet[: REPLY_SNIPPET_MAX - 1].rstrip() + "…"
+    return f' (replying to {author}: "{snippet}")'
+
+
 def _append(contents: list, role: str, text: str) -> None:
     """Append text, merging into the previous turn if it has the same role
     (Gemini prefers alternating roles)."""
@@ -83,12 +106,17 @@ async def build_contents(
     current_display_name: str,
     current_text: str,
     current_images: list[tuple[bytes, str]] | None = None,
+    reply_to: tuple[str, str] | None = None,
 ) -> tuple[list, set[int]]:
     """Return Gemini `contents` (recent history + new message) and the set of
     Discord message ids included, so semantic recall can skip duplicates.
 
     ``current_images`` (``(data, mime)`` pairs) are attached to the new message's
-    turn as inline image parts, so the model literally sees what was posted."""
+    turn as inline image parts, so the model literally sees what was posted.
+
+    ``reply_to`` is ``(author, text)`` of the message the new one replies to; it's
+    folded into the new turn as a quoted prefix so the model is *aware* of the reply
+    target. The judgement of whether it matters is left to the model (CONTEXT_NOTE)."""
     rows = (
         await session.scalars(
             select(Message)
@@ -114,7 +142,7 @@ async def build_contents(
             speaker = names.get(m.author_id, str(m.author_id))
             _append(contents, "user", f"{speaker}: {m.content}")
 
-    _append(contents, "user", f"{current_display_name}: {current_text}")
+    _append(contents, "user", f"{current_display_name}{_reply_tag(reply_to)}: {current_text}")
     # Attach the new message's images to that same user turn (it's contents[-1]).
     for data, mime in current_images or []:
         contents[-1].parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=data)))
