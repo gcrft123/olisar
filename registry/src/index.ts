@@ -171,6 +171,9 @@ export default {
       if (req.method === "POST" && url.pathname === "/v1/report") {
         return await fileReport(req, env);
       }
+      if (req.method === "POST" && url.pathname === "/v1/feedback") {
+        return await fileFeedback(req, env);
+      }
       if (req.method === "POST" && url.pathname === "/v1/install") {
         return await bumpInstall(req, env);
       }
@@ -777,6 +780,59 @@ async function sendReportEmail(env: Env, r: any): Promise<{ ok: boolean; status?
     let body = "";
     try { body = await resp.text(); } catch { /* ignore */ }
     console.log("resend send failed", resp.status, body);
+    return { ok: false, status: resp.status, error: body.slice(0, 500) };
+  } catch (e: any) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+// ── console feedback (feedback / bug report / question, emailed to the owner) ──
+const FEEDBACK_MSG_MAX = 8000;
+
+async function fileFeedback(req: Request, env: Env): Promise<Response> {
+  const body = await req.json<any>();
+  const message = String(body?.message || "").trim().slice(0, FEEDBACK_MSG_MAX);
+  if (!message) return json({ error: "message required" }, 400);
+  const category = String(body?.category || "Feedback").slice(0, 40);
+  const email = String(body?.email || "").trim().slice(0, 200);
+  const logs = String(body?.logs || "").slice(0, REPORT_LOGS_MAX);
+  const attachments = sanitizeAttachments(body?.attachments);
+  const sent = await sendFeedbackEmail(env, { category, message, email, logs, attachments });
+  return json({ ok: true, emailed: sent.ok, email: sent });
+}
+
+async function sendFeedbackEmail(env: Env, f: any): Promise<{ ok: boolean; status?: number; error?: string; skipped?: string }> {
+  if (!env.RESEND_API_KEY) return { ok: false, skipped: "RESEND_API_KEY secret is not set" };
+  if (!env.REPORT_EMAIL) return { ok: false, skipped: "REPORT_EMAIL secret is not set" };
+  const lines = [
+    `New ${f.category} from the Olisar console.`,
+    ``,
+    `From:      ${f.email || "(no email given)"}`,
+    `Category:  ${f.category}`,
+    ``,
+    f.message,
+  ];
+  const attachments: { filename: string; content: string }[] = [];
+  if (f.logs) attachments.push({ filename: "bot-logs.txt", content: btoa(unescape(encodeURIComponent(f.logs))) });
+  for (const a of f.attachments || []) attachments.push({ filename: a.name, content: a.content_b64 });
+  const validEmail = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.email || "");
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        from: env.REPORT_FROM || "Olisar <onboarding@resend.dev>",
+        to: [env.REPORT_EMAIL],
+        reply_to: validEmail ? f.email : undefined,
+        subject: `[Olisar ${f.category}] ${f.message.slice(0, 60)}`,
+        text: lines.join("\n"),
+        attachments: attachments.length ? attachments : undefined,
+      }),
+    });
+    if (resp.ok) return { ok: true, status: resp.status };
+    let body = "";
+    try { body = await resp.text(); } catch { /* ignore */ }
+    console.log("resend feedback send failed", resp.status, body);
     return { ok: false, status: resp.status, error: body.slice(0, 500) };
   } catch (e: any) {
     return { ok: false, error: String((e && e.message) || e) };

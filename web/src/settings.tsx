@@ -1,18 +1,19 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Toggle } from './ui'
+import { Area, Field, Select, Text, Toggle } from './ui'
 import { toast } from './overlays'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'remote' | 'updates' | 'desktop'
+type SectionId = 'appearance' | 'remote' | 'updates' | 'desktop' | 'feedback'
 const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'appearance', label: 'Appearance', ic: 'palette' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
+  { id: 'feedback', label: 'Feedback', ic: 'messages' },
 ]
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
@@ -49,6 +50,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
+          {section === 'feedback' && <Feedback />}
         </div>
       </div>
     </div>
@@ -61,6 +63,101 @@ function Head({ title, sub }: { title: string; sub: string }) {
       <h2>{title}</h2>
       <p>{sub}</p>
     </div>
+  )
+}
+
+// ── Feedback ──────────────────────────────────────────────────────────────────
+const FEEDBACK_TYPES = [
+  { value: 'Feedback', label: 'Feedback' },
+  { value: 'Bug report', label: 'Bug report' },
+  { value: 'Question', label: 'Question' },
+]
+function fileToB64(f: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).split(',')[1] || '')
+    r.onerror = () => reject(new Error('read failed'))
+    r.readAsDataURL(f)
+  })
+}
+
+function Feedback() {
+  const [category, setCategory] = useState('Feedback')
+  const [message, setMessage] = useState('')
+  const [email, setEmail] = useState('')
+  const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
+  const [logsAttached, setLogsAttached] = useState(false)
+  const [logs, setLogs] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const addFiles = async (list: FileList) => {
+    const out = [...files]
+    for (const f of Array.from(list)) {
+      if (out.length >= 8) break
+      if (f.size > 3_000_000) { toast(`${f.name} is too large (max 3 MB each).`, 'warning'); continue }
+      out.push({ name: f.name, type: f.type || 'application/octet-stream', content_b64: await fileToB64(f) })
+    }
+    setFiles(out)
+  }
+  const attachLogs = async () => {
+    try { const d = await api.getLogs(800); setLogs((d.lines || []).join('\n')); setLogsAttached(true) }
+    catch { toast('Couldn’t read the bot logs.', 'danger') }
+  }
+  const submit = async () => {
+    if (!message.trim()) { toast('Add a message first.', 'warning'); return }
+    setBusy(true)
+    try {
+      const r = await api.sendFeedback({ category, message: message.trim(), email: email.trim(), logs: logsAttached ? logs : '', attachments: files })
+      if (r && r.emailed === false) toast('Sent — but the email didn’t go through. The team will still see it.', 'warning')
+      else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
+      setDone(true)
+    } catch (e: any) { toast('Couldn’t send: ' + (e?.message || 'try again'), 'danger') }
+    finally { setBusy(false) }
+  }
+
+  const placeholder = category === 'Bug report'
+    ? 'What happened, and what did you expect instead?'
+    : category === 'Question' ? 'What would you like to know?' : "What's on your mind?"
+
+  if (done) {
+    return (
+      <>
+        <Head title="Feedback" sub="Send feedback, report a bug, or ask a question — it's emailed straight to the Olisar team." />
+        <div className="callout tip">
+          <span className="ic"><Icon.check size={17} weight="Bold" /></span>
+          <div className="callout-body">Thanks — your {category.toLowerCase()} was sent to the Olisar team.{email.trim() ? ` They'll reply to ${email.trim()} if needed.` : ''}</div>
+        </div>
+        <div className="settings-row end" style={{ marginTop: 16 }}>
+          <button className="ghost" onClick={() => { setDone(false); setMessage(''); setFiles([]); setLogsAttached(false); setLogs('') }}>Send another</button>
+        </div>
+      </>
+    )
+  }
+  return (
+    <>
+      <Head title="Feedback" sub="Send feedback, report a bug, or ask a question — it's emailed straight to the Olisar team." />
+      <Field label="Type"><Select value={category} onChange={setCategory} options={FEEDBACK_TYPES} /></Field>
+      <Field label="Message"><Area value={message} onChange={setMessage} rows={6} placeholder={placeholder} /></Field>
+      <Field label="Your email" desc="Optional — so the team can reply."><Text value={email} onChange={setEmail} placeholder="you@example.com" /></Field>
+      <div className="settings-subhead">Attachments (optional)</div>
+      <div className="report-attach">
+        <button className="ghost" onClick={() => fileRef.current?.click()}><Icon.add size={14} /> Add files</button>
+        <button className={'ghost' + (logsAttached ? ' on' : '')} onClick={attachLogs}><Icon.docs size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}</button>
+      </div>
+      {files.length > 0 && (
+        <div className="report-files">
+          {files.map((f, i) => (
+            <span key={i} className="tag">{f.name}<button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove" title="Remove"><CloseX size={11} /></button></span>
+          ))}
+        </div>
+      )}
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
+      <div className="settings-row end" style={{ marginTop: 18 }}>
+        <button className="primary" onClick={submit} disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</button>
+      </div>
+    </>
   )
 }
 
