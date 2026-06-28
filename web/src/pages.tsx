@@ -1217,6 +1217,9 @@ function PublishReviewModal(props: {
   const bullets: string[] = r.bullets || []
   const blocked = !!r.blocked
   const band = score >= 70 ? 'danger' : score >= 31 ? 'warn' : 'ok'
+  // Callout tone tracks the risk band (a block is never shown green); the matching
+  // leading icon: a check when clean, otherwise the warning glyph.
+  const passTone = band === 'ok' ? 'tip' : band === 'warn' ? 'warning' : 'danger'
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className={'deny-modal ' + (blocked ? band : 'pass ' + band)} onClick={(e) => e.stopPropagation()}>
@@ -1232,17 +1235,33 @@ function PublishReviewModal(props: {
               Scored <b>{score}</b> — over your block threshold of <b>{threshold}</b>.
               {bullets.length > 0 ? ' The security review flagged:' : ''}
             </div>
-            {bullets.length > 0 ? (
-              <ul className="deny-reasons">
-                {bullets.map((b, i) => <li key={i} style={{ animationDelay: `${0.18 + i * 0.07}s` }}>{b}</li>)}
-              </ul>
-            ) : r.summary ? <div className="deny-verdict" style={{ marginTop: 8 }}>{r.summary}</div> : null}
+            <div className="deny-callouts">
+              {bullets.length > 0
+                ? bullets.map((b, i) => (
+                  <div key={i} className={'callout ' + (band === 'danger' ? 'danger' : 'warning')}>
+                    <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                    <div className="callout-body">{b}</div>
+                  </div>
+                ))
+                : (
+                  <div className={'callout ' + (band === 'danger' ? 'danger' : 'warning')}>
+                    <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                    <div className="callout-body">{r.summary || 'The security review flagged concerns in the source.'}</div>
+                  </div>
+                )}
+            </div>
           </>
+        ) : !r.review_available ? (
+          <div className="callout note">
+            <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+            <div className="callout-body">Automated review was unavailable, so nothing could be flagged — publish at your discretion.</div>
+          </div>
         ) : (
-          <div className="deny-verdict" style={{ textAlign: 'center' }}>
-            {r.review_available
-              ? <>Scored <b>{score}</b> — under your threshold of <b>{threshold}</b>. {r.summary || 'No major concerns found.'}</>
-              : <>Automated review was unavailable, so nothing could be flagged — publish at your discretion.</>}
+          <div className={'callout ' + passTone}>
+            <span className="ic">{band === 'ok' ? <Icon.check size={17} weight="Bold" /> : <Icon.warn size={17} weight="Bold" />}</span>
+            <div className="callout-body">
+              Scored <b>{score}</b> — under your threshold of <b>{threshold}</b>. {r.summary || 'No major concerns found.'}
+            </div>
           </div>
         )}
 

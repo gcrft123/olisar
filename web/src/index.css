@@ -821,7 +821,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .callout a { color: var(--cc); text-decoration: underline; text-underline-offset: 2px; }
 .callout.tip { --cc: var(--ok); }
 .callout.warning { --cc: var(--warn); }
+.callout.danger { --cc: var(--danger); }
 .callout.note, .callout.info { --cc: var(--accent); }
+.callout-body ul { margin: 6px 0 0; padding-left: 18px; }
+.callout-body li { margin: 2px 0; }
 
 /* Tables */
 .doc-table-wrap { overflow-x: auto; margin: 0 0 14px; }
@@ -1083,10 +1086,11 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 
 .deny-verdict { font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 12px 2px 0; text-align: left; }
 .deny-verdict b { color: var(--text); font-weight: 600; }
-.deny-reasons { list-style: none; margin: 12px 0 0; padding: 0; text-align: left; }
-.deny-reasons li { position: relative; padding: 8px 12px 8px 30px; margin-bottom: 6px; font-size: 12.5px; line-height: 1.5; color: var(--text); background: var(--bg-inset); border: 1px solid var(--border); border-left: 2px solid var(--dc); border-radius: var(--radius-sm); opacity: 0; animation: reasonIn 0.4s ease forwards; }
-.deny-reasons li::before { content: '!'; position: absolute; left: 13px; top: 8px; font-family: var(--mono); font-weight: 700; color: var(--dc); }
-@keyframes reasonIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+/* The verdict/flagged-reasons readout uses the standard callout box; left-aligned and
+   spaced for the centred modal. Each flagged reason is its own callout, stacked with a gap. */
+.deny-modal .callout { text-align: left; margin: 18px 0 0; }
+.deny-callouts { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.deny-callouts .callout { margin: 0; }
 .deny-foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 
 /* Developer console. */

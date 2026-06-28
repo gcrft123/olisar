@@ -274,7 +274,7 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 
 ### Callout (Resend-style, no eyebrow)
 
-A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn.
+A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn, `danger`→danger. Structure: a `.ic` span (Solar icon) + a `.callout-body` that may hold a `.callout-title` plus paragraphs/lists. Used for the security-review (publish) verdict, where each flagged reason renders as its own callout, stacked with a gap.
 
 ```css
 .callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
@@ -287,6 +287,7 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
 .callout.warning { --cc: var(--warn); }
 .callout.note    { --cc: var(--accent); }
 .callout.tip     { --cc: var(--ok); }
+.callout.danger  { --cc: var(--danger); }
 ```
 
 ### Toast (bottom-right status)
