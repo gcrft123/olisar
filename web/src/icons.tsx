@@ -44,6 +44,11 @@ import {
   InfoCircle,
   ShieldCheck,
   Copy,
+  DownloadMinimalistic,
+  UploadMinimalistic,
+  PenNewSquare,
+  Plain2,
+  Eraser,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -88,6 +93,11 @@ export const Icon = {
   info: InfoCircle,
   verified: ShieldCheck,
   copy: Copy,
+  download: DownloadMinimalistic,
+  upload: UploadMinimalistic,
+  edit: PenNewSquare,
+  send: Plain2,
+  eraser: Eraser,
 } as const
 
 export type IconName = keyof typeof Icon
