@@ -485,7 +485,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
     return (
       <div className="weblink off">
         <span className="weblink-label">Web access off</span>
-        <span className="weblink-hint">Turn on remote access from the Olisar menu-bar icon to get a shareable link.</span>
+        <span className="weblink-hint">Turn it on under Settings → Remote access (or the menu-bar icon) to get a shareable link.</span>
       </div>
     )
   }
