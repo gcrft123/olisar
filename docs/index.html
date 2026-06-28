@@ -22,8 +22,8 @@
     --ink: #f5f5f7;
     --ink-2: #a0a0aa;
     --ink-3: #6a6a74;
-    --violet: #8a8af2;
-    --violet-bright: #aaaaf9;
+    --violet: #5b9cf6;
+    --violet-bright: #8fc0fb;
     --cyan: #55d6ff;
     --ok: #43cf8e;
     --mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -38,25 +38,17 @@
     overflow-x: hidden;
   }
   a { color: inherit; text-decoration: none; }
-  ::selection { background: rgba(138,138,242,0.32); }
+  ::selection { background: rgba(91,156,246,0.32); }
 
   /* ── atmosphere ─────────────────────────────────────────────── */
   .glow { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
-  .glow::before, .glow::after {
-    content: ''; position: absolute; border-radius: 50%; filter: blur(110px);
-  }
   .glow::before {
+    content: ''; position: absolute; border-radius: 50%; filter: blur(110px);
     width: 760px; height: 760px; top: -300px; left: 50%; transform: translateX(-55%);
-    background: radial-gradient(circle, rgba(138,138,242,0.30), transparent 68%);
+    background: radial-gradient(circle, rgba(91,156,246,0.30), transparent 68%);
     animation: drift-a 26s ease-in-out infinite;
   }
-  .glow::after {
-    width: 620px; height: 620px; top: 280px; right: -180px;
-    background: radial-gradient(circle, rgba(70,120,255,0.18), transparent 70%);
-    animation: drift-b 32s ease-in-out infinite;
-  }
   @keyframes drift-a { 50% { transform: translateX(-45%) translateY(40px); } }
-  @keyframes drift-b { 50% { transform: translateY(-50px); } }
   .grid-tex {
     position: fixed; inset: 0; z-index: -1; pointer-events: none;
     background-image:
@@ -80,15 +72,15 @@
   .brand b { font-weight: 600; letter-spacing: -0.01em; font-size: 17px; }
   .brand span { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); display: block; margin-top: -3px; letter-spacing: 0.04em; }
   .nav-links { display: flex; gap: 26px; align-items: center; }
-  .nav-links a { font-size: 14px; color: var(--ink-2); transition: color .15s; }
-  .nav-links a:hover { color: var(--ink); }
+  .nav-links a:not(.btn) { font-size: 14px; color: var(--ink-2); transition: color .15s; }
+  .nav-links a:not(.btn):hover { color: var(--ink); }
   .btn {
     display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px;
     padding: 9px 16px; border-radius: 10px; transition: transform .15s, box-shadow .2s, background .2s, border-color .2s;
     border: 1px solid transparent; white-space: nowrap;
   }
-  .btn-primary { background: #6354ec; color: #fff; box-shadow: 0 6px 24px -8px rgba(99,84,236,0.78); }
-  .btn-primary:hover { transform: translateY(-1px); background: #5a4ce6; box-shadow: 0 12px 32px -8px rgba(99,84,236,0.95); }
+  .btn-primary { background: #3b82f6; color: #fff; box-shadow: 0 6px 24px -8px rgba(59,130,246,0.78); }
+  .btn-primary:hover { transform: translateY(-1px); background: #2f6fe0; box-shadow: 0 12px 32px -8px rgba(59,130,246,0.95); }
   .btn-ghost { border-color: var(--line-2); color: var(--ink); background: rgba(255,255,255,0.02); }
   .btn-ghost:hover { border-color: #3a3a44; background: rgba(255,255,255,0.05); }
   @media (max-width: 720px) { .nav-links a:not(.btn) { display: none; } }
@@ -99,7 +91,7 @@
   .dl .dl-caret { position: relative; justify-content: center; align-items: center; padding: 0; width: 44px; border-top-left-radius: 0; border-bottom-left-radius: 0; cursor: pointer; }
   .dl .dl-caret::before { content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 1px; height: 52%; background: rgba(255,255,255,0.32); }
   .dl-ic { width: 16px; height: 16px; display: block; flex: none; }
-  .dl .btn-primary:hover { transform: none; background: #5a4ce6; }
+  .dl .btn-primary:hover { transform: none; background: #2f6fe0; }
   .dl-menu { position: absolute; top: calc(100% + 9px); right: 0; min-width: 236px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 6px; box-shadow: 0 18px 44px -14px rgba(0,0,0,0.75); z-index: 60; text-align: left; }
   .dl-menu[hidden] { display: none; }
   .dl-menu a { display: block; font-size: 13.5px; font-weight: 500; color: var(--ink-2); padding: 9px 12px; border-radius: 8px; white-space: nowrap; transition: background .12s, color .12s; }
@@ -118,7 +110,7 @@
     font-family: var(--mono); font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase;
     color: var(--violet-bright); display: inline-flex; align-items: center; gap: 10px;
     padding: 7px 14px; border: 1px solid var(--line-2); border-radius: 999px;
-    background: rgba(138,138,242,0.06);
+    background: rgba(91,156,246,0.06);
   }
   .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
   h1 {
@@ -158,14 +150,14 @@
   .ds-brand .n { font-weight: 600; font-size: 14px; }
   .ds-brand .s { font-size: 10.5px; color: var(--ink-3); }
   .ds-switch { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 9px; background: #131316; margin-bottom: 12px; }
-  .ds-switch .ic { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg,#8a8af2,#5b5be0); flex: none; }
+  .ds-switch .ic { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg,#5b9cf6,#3b6fd6); flex: none; }
   .ds-switch .t { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ds-switch .cv { margin-left: auto; color: var(--ink-3); }
   .ds-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 6px 8px 4px; }
   .ds-item { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 8px; color: var(--ink-2); }
   .ds-item .gl { width: 16px; height: 16px; border-radius: 4px; border: 1.6px solid currentColor; opacity: .55; flex: none; }
-  .ds-item.on { background: rgba(138,138,242,0.13); color: #fff; }
-  .ds-item.on .gl { opacity: 1; border-color: var(--violet); background: rgba(138,138,242,0.25); }
+  .ds-item.on { background: rgba(91,156,246,0.13); color: #fff; }
+  .ds-item.on .gl { opacity: 1; border-color: var(--violet); background: rgba(91,156,246,0.25); }
   .ds-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
   .ds-power { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: #131316; border: 1px solid var(--line); border-radius: 9px; }
   .ds-power .pbtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(67,207,142,0.5); display: grid; place-items: center; color: var(--ok); box-shadow: 0 0 0 3px rgba(67,207,142,0.12); flex: none; }
@@ -177,7 +169,7 @@
 
   .dash-main { padding: 30px 34px; overflow: hidden; }
   .dm-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
-  .dm-head .hi { width: 34px; height: 34px; border-radius: 9px; background: rgba(138,138,242,0.14); color: var(--violet); display: grid; place-items: center; }
+  .dm-head .hi { width: 34px; height: 34px; border-radius: 9px; background: rgba(91,156,246,0.14); color: var(--violet); display: grid; place-items: center; }
   .dm-head h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
   .dm-sub { color: var(--ink-2); font-size: 13px; margin: 0 0 22px 46px; max-width: 460px; }
   .card { background: #111113; border: 1px solid var(--line); border-radius: 13px; padding: 20px; margin-bottom: 16px; }
@@ -218,14 +210,15 @@
   .tag { background: var(--violet); color: #fff; font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; letter-spacing: .02em; position: relative; top: -1px; }
   .msg .time { font-size: 11.5px; color: #949ba4; }
   .msg .text { color: #dbdee1; font-size: 14.5px; line-height: 1.5; }
-  .msg .text .jump { color: var(--violet-bright); background: rgba(138,138,242,0.12); padding: 0 3px; border-radius: 3px; }
+  .msg .text .jump { color: var(--violet-bright); background: rgba(91,156,246,0.12); padding: 0 3px; border-radius: 3px; }
 
   /* ── features ───────────────────────────────────────────────── */
   .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 44px; }
   @media (max-width: 900px) { .feat-grid { grid-template-columns: 1fr; } }
-  .fcard { border: 1px solid var(--line); border-radius: 14px; padding: 24px; background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent); transition: border-color .2s, transform .2s, background .2s; }
-  .fcard:hover { border-color: var(--line-2); transform: translateY(-3px); background: linear-gradient(180deg, rgba(138,138,242,0.05), transparent); }
-  .fic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--violet); background: rgba(138,138,242,0.1); border: 1px solid rgba(138,138,242,0.18); margin-bottom: 16px; }
+  .fcard { border: 1px solid var(--line); border-radius: 14px; padding: 24px; background: linear-gradient(180deg, rgba(255,255,255,0.018), transparent); transition: border-color .2s, transform .2s, background .2s, box-shadow .2s; }
+  .fcard:hover { border-color: rgba(91,156,246,0.42); transform: translateY(-3px); background: linear-gradient(180deg, rgba(91,156,246,0.06), transparent); box-shadow: 0 18px 44px -24px rgba(91,156,246,0.55); }
+  .fic { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--violet); background: rgba(91,156,246,0.1); border: 1px solid rgba(91,156,246,0.22); margin-bottom: 16px; transition: transform .2s ease; }
+  .fcard:hover .fic { transform: translateY(-1px) scale(1.04); }
   .fcard h3 { font-size: 17px; font-weight: 600; margin-bottom: 7px; letter-spacing: -0.01em; }
   .fcard p { color: var(--ink-2); font-size: 14px; line-height: 1.55; }
   .flink { display: inline-flex; align-items: center; gap: 5px; margin-top: 13px; color: var(--violet-bright); font-weight: 600; font-size: 13.5px; text-decoration: none; transition: color .18s; }
@@ -235,8 +228,8 @@
 
   /* ── security band ──────────────────────────────────────────── */
   .band { margin-top: clamp(70px,12vh,130px); border: 1px solid var(--line); border-radius: 20px; padding: clamp(34px,6vw,60px); position: relative; overflow: hidden;
-    background: radial-gradient(120% 160% at 0% 0%, rgba(138,138,242,0.1), transparent 55%), #0c0c10; }
-  .band .badge { width: 56px; height: 56px; border-radius: 16px; background: #fff; display: grid; place-items: center; margin-bottom: 22px; box-shadow: 0 0 50px -10px rgba(138,138,242,0.6); }
+    background: radial-gradient(120% 160% at 0% 0%, rgba(91,156,246,0.1), transparent 55%), #0c0c10; }
+  .band .badge { width: 56px; height: 56px; border-radius: 16px; background: #fff; display: grid; place-items: center; margin-bottom: 22px; box-shadow: 0 0 50px -10px rgba(91,156,246,0.6); }
   .band .badge img { width: 56px; height: 56px; }
   .band h2 { font-family: var(--serif); font-weight: 400; font-size: clamp(30px,4.6vw,46px); line-height: 1.1; }
   .band p { color: var(--ink-2); font-size: 16px; max-width: 600px; margin-top: 14px; line-height: 1.65; }
@@ -324,10 +317,37 @@
   @media (prefers-reduced-motion: reduce) { .foot-orb { animation: none; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .glow::before, .glow::after, .stage .window { animation: none; }
+    .glow::before, .stage .window { animation: none; }
     .reveal { transition: none; opacity: 1; transform: none; }
     html { scroll-behavior: auto; }
   }
+
+  /* ── post-download "what's next" dialog ─────────────────────────── */
+  .dlg-back { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center; padding: 24px;
+    background: rgba(6,6,9,0.62); backdrop-filter: blur(4px); opacity: 0; transition: opacity .22s ease; }
+  .dlg-back.open { opacity: 1; }
+  .dlg-back[hidden] { display: none; }
+  .dlg { width: min(520px, 100%); background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px;
+    box-shadow: 0 40px 120px -40px rgba(0,0,0,0.9), 0 0 0 1px rgba(255,255,255,0.02) inset; padding: 28px 28px 26px;
+    transform: translateY(14px) scale(.97); opacity: 0; transition: transform .26s cubic-bezier(.2,.7,.2,1), opacity .26s ease; }
+  .dlg-back.open .dlg { transform: none; opacity: 1; }
+  .dlg-x { position: absolute; top: 16px; right: 16px; width: 32px; height: 32px; display: grid; place-items: center;
+    border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--ink-3); cursor: pointer; transition: color .15s, background .15s; }
+  .dlg-x:hover { color: var(--ink); background: rgba(255,255,255,0.05); }
+  .dlg-x svg { width: 16px; height: 16px; }
+  .dlg h3 { font-family: var(--serif); font-weight: 400; font-size: 30px; line-height: 1.1; letter-spacing: -0.01em; margin: 2px 0 8px; }
+  .dlg .lede { color: var(--ink-2); font-size: 14.5px; line-height: 1.6; }
+  .dlg .lede code { font-family: var(--mono); font-size: 12.5px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; color: var(--ink); }
+  .dlg-steps { list-style: none; margin: 20px 0 24px; padding: 0; counter-reset: dstep; display: flex; flex-direction: column; gap: 14px; }
+  .dlg-steps li { display: flex; gap: 13px; align-items: flex-start; }
+  .dlg-steps li::before { counter-increment: dstep; content: counter(dstep); flex: none; width: 24px; height: 24px; border-radius: 50%;
+    display: grid; place-items: center; font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--violet-bright);
+    background: rgba(91,156,246,0.12); border: 1px solid rgba(91,156,246,0.28); margin-top: 1px; }
+  .dlg-steps b { color: var(--ink); font-weight: 600; }
+  .dlg-steps p { color: var(--ink-2); font-size: 13.5px; line-height: 1.55; margin: 2px 0 0; }
+  .dlg-steps code { font-family: var(--mono); font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 5px; color: var(--ink); }
+  .dlg-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .dlg-actions .btn { padding: 11px 18px; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -390,7 +410,6 @@
       <aside class="dash-side">
         <div class="ds-brand"><img src="logo-dash.png" alt="" /><div><div class="n">Olisar</div><div class="s">Secure Console</div></div></div>
         <div class="ds-switch"><div class="ic"></div><div class="t">Red Nebula Industries</div><div class="cv">⌄</div></div>
-        <div class="ds-label">Configure</div>
         <div class="ds-item on"><svg class="ds-ic"><use href="#ic-persona"/></svg> Persona</div>
         <div class="ds-item"><svg class="ds-ic"><use href="#ic-behavior"/></svg> Behavior</div>
         <div class="ds-item"><svg class="ds-ic"><use href="#ic-channels"/></svg> Channels</div>
@@ -547,6 +566,85 @@
     <div class="foot-orb-wrap"><object class="foot-orb" type="image/svg+xml" data="living-orb.svg" tabindex="-1"></object></div>
   </div>
 </footer>
+
+<!-- POST-DOWNLOAD "WHAT'S NEXT" DIALOG -->
+<div class="dlg-back" id="dlNext" hidden role="dialog" aria-modal="true" aria-labelledby="dlNextTitle">
+  <div class="dlg">
+    <button class="dlg-x" id="dlNextClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <h3 id="dlNextTitle">You're almost there.</h3>
+    <p class="lede">Olisar is downloading. Once it lands, three quick steps and your bot is live — no server, no terminal.</p>
+    <ol class="dlg-steps">
+      <li><div><b>Open the installer</b><p id="dlStepOpen">Open the file you just downloaded and move Olisar to your Applications.</p></div></li>
+      <li><div><b>Let it run</b><p id="dlStepRun">It's unsigned, so your OS may warn the first time.</p></div></li>
+      <li><div><b>Finish the setup wizard</b><p>Olisar opens to a short wizard — paste your Discord bot token and a free Gemini key, and it goes live.</p></div></li>
+    </ol>
+    <div class="dlg-actions">
+      <a class="btn btn-primary" href="docs.html#install">Open the Setup guide &rarr;</a>
+      <button class="btn btn-ghost" id="dlNextDismiss" type="button">Got it</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // After a download begins, surface a short "what's next" dialog that points at the
+  // Docs → Setup section. Triggered by any real app-file download link (not "All releases").
+  (function () {
+    var back = document.getElementById('dlNext');
+    if (!back) return;
+    var openStep = document.getElementById('dlStepOpen');
+    var runStep = document.getElementById('dlStepRun');
+    function osGuess() {
+      var s = ((navigator.userAgentData && navigator.userAgentData.platform || navigator.platform || '') + ' ' + (navigator.userAgent || '')).toLowerCase();
+      if (s.indexOf('win') !== -1) return 'win';
+      if (s.indexOf('mac') !== -1) return 'mac';
+      return null;
+    }
+    // Which build was actually downloaded — keyed off the clicked link (the per-OS menu
+    // items, or the main button once its asset URL resolves to a .dmg/.exe). Falls back to
+    // the visitor's OS for the main button before the release assets have resolved.
+    function osForLink(a) {
+      var href = a.getAttribute('href') || '';
+      if (a.classList.contains('dl-mac') || /\.dmg(\?|#|$)/i.test(href)) return 'mac';
+      if (a.classList.contains('dl-win') || /\.exe(\?|#|$)/i.test(href)) return 'win';
+      return osGuess();
+    }
+    function tailor(os) {
+      if (os === 'win') {
+        openStep.innerHTML = 'Run <code>Olisar Setup &lt;version&gt;.exe</code> from your downloads.';
+        runStep.innerHTML = 'SmartScreen may warn about an unknown publisher — click <b>More info &rarr; Run anyway</b>.';
+      } else if (os === 'mac') {
+        openStep.innerHTML = 'Open the <code>.dmg</code> and drag <b>Olisar</b> into Applications.';
+        runStep.innerHTML = 'Gatekeeper blocks unsigned apps — run <code>xattr -dr com.apple.quarantine /Applications/Olisar.app</code> once, then open it.';
+      } else {
+        openStep.innerHTML = 'Open the file you just downloaded and move <b>Olisar</b> to your Applications.';
+        runStep.innerHTML = "It's unsigned, so your OS may warn the first time — allow it to run (details in the Setup guide).";
+      }
+    }
+    var lastFocus = null;
+    function open(os) {
+      tailor(os);
+      lastFocus = document.activeElement;
+      back.hidden = false;
+      requestAnimationFrame(function () { back.classList.add('open'); });
+      var cta = back.querySelector('.btn-primary');
+      if (cta) setTimeout(function () { cta.focus(); }, 60);
+    }
+    function close() {
+      back.classList.remove('open');
+      setTimeout(function () { back.hidden = true; }, 240);
+      if (lastFocus && lastFocus.focus) lastFocus.focus();
+    }
+    // Open on any real download-asset link (the main button + the per-OS menu items),
+    // not the "All releases" page link. The link's own navigation still fires the download.
+    document.querySelectorAll('.dl-main, .dl-mac, .dl-win').forEach(function (a) {
+      a.addEventListener('click', function () { var os = osForLink(a); setTimeout(function () { open(os); }, 120); });
+    });
+    back.addEventListener('click', function (e) { if (e.target === back) close(); });
+    document.getElementById('dlNextClose').addEventListener('click', close);
+    document.getElementById('dlNextDismiss').addEventListener('click', close);
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !back.hidden) close(); });
+  })();
+</script>
 
 <script>
   const io = new IntersectionObserver((es) => {
