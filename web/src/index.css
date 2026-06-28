@@ -74,6 +74,10 @@ html, body, #root { height: 100%; }
 /* Always reserve the scrollbar gutter so a page that scrolls isn't ~11px narrower (and
    off-centre) than one that doesn't — every tab gets the same content width. */
 html { scrollbar-gutter: stable; }
+/* Lock page scroll behind any open overlay — modals all share .modal-backdrop; the
+   test-chat drawer toggles .chatdrawer-backdrop.open. (scrollbar-gutter:stable above
+   keeps the layout from shifting when the page scrollbar disappears.) */
+html:has(.modal-backdrop), html:has(.chatdrawer-backdrop.open) { overflow: hidden; }
 body {
   margin: 0;
   font-family: var(--font-sans);
