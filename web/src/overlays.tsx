@@ -63,6 +63,9 @@ type DialogOpts = {
   tone?: DialogTone
   icon?: IconName
   prompt?: { placeholder?: string; defaultValue?: string; multiline?: boolean }
+  // High-friction confirm: show the phrase in a CopyField and only arm the confirm
+  // button once the user types it back exactly (case/whitespace-insensitive).
+  requirePhrase?: { phrase: string; placeholder?: string }
 }
 
 let dialogShow: ((o: DialogOpts, resolve: (v: boolean | string | null) => void) => void) | null = null
@@ -81,6 +84,25 @@ export function promptDialog(
     if (dialogShow) dialogShow(opts, (v) => resolve(typeof v === 'string' ? v : null))
     else resolve(null)
   })
+}
+
+// CopyField — a value in an inset box with a trailing copy button that flips to a
+// green check on click (DESIGN.md). Used by the requirePhrase confirm friction.
+function CopyField({ value }: { value: string }) {
+  const [done, setDone] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(value); setDone(true); setTimeout(() => setDone(false), 1400) }
+    catch { /* clipboard blocked — the phrase is still selectable */ }
+  }
+  return (
+    <span className="copy">
+      <span className="val">{value}</span>
+      <button type="button" className={'btn' + (done ? ' done' : '')} onClick={copy}
+        data-tip={done ? 'Copied' : 'Copy'} aria-label="Copy phrase">
+        {done ? <Icon.check size={15} weight="Bold" /> : <Icon.copy size={15} />}
+      </button>
+    </span>
+  )
 }
 
 function ConfirmHost() {
@@ -103,7 +125,9 @@ function ConfirmHost() {
   if (!state) return null
   const { opts, resolve } = state
   const close = (result: boolean | string | null) => { setState(null); resolve(result) }
-  const onConfirm = () => close(opts.prompt ? value : true)
+  const phrase = opts.requirePhrase?.phrase
+  const phraseOK = !phrase || value.trim().toLowerCase().replace(/\s+/g, ' ') === phrase.trim().toLowerCase()
+  const onConfirm = () => { if (!phraseOK) return; close(opts.prompt ? value : true) }
   const onCancel = () => close(opts.prompt ? null : false)
   const toneClass = opts.tone === 'danger' ? 'danger' : opts.tone === 'warning' ? 'warning' : ''
   const Glyph = Icon[opts.icon ?? (opts.tone === 'danger' ? 'warn' : opts.tone === 'warning' ? 'warn' : 'info')]
@@ -118,6 +142,17 @@ function ConfirmHost() {
             {opts.message && <div className="confirm-msg">{opts.message}</div>}
           </div>
         </div>
+        {phrase && (
+          <>
+            <div className="confirm-phrase"><span>Type</span> <CopyField value={phrase} /> <span>to confirm.</span></div>
+            <div className="confirm-input">
+              <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false}
+                placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+            </div>
+          </>
+        )}
         {opts.prompt && (
           <div className="confirm-input">
             {opts.prompt.multiline ? (
@@ -132,7 +167,7 @@ function ConfirmHost() {
         )}
         <div className="confirm-foot">
           <button className="ghost" onClick={onCancel}>{opts.cancelLabel ?? 'Cancel'}</button>
-          <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm}>
+          <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
             {opts.confirmLabel ?? 'Confirm'}
           </button>
         </div>
