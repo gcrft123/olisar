@@ -317,17 +317,6 @@ body::after {
    layout styles out of the editor (scoped to .monaco-editor; the suggest widget renders
    inside it even with fixedOverflowWidgets). */
 .monaco-editor .main { padding: 0; max-width: none; }
-/* Persona: Identity on the left, the test-chat panel to its right. */
-.persona-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px; align-items: stretch; margin-bottom: 14px;
-}
-/* stretch makes both columns equal height; flex lets the chat panel fill its card */
-.persona-grid > .card { margin: 0; display: flex; flex-direction: column; }
-/* Identity hugs its content so the last field doesn't leave an uneven gap below it
-   when the chat panel is the taller column. */
-.persona-grid > .card:first-child { align-self: start; }
-@media (max-width: 980px) { .persona-grid { grid-template-columns: 1fr; align-items: start; } }
 
 /* Page layouts for the wide content area. .cols2 = two explicit columns that each
    hug their own content; .grid2 = an auto-flow two-column card grid. */
@@ -936,6 +925,48 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .sandbox-input textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
 .sandbox-input textarea:disabled { opacity: 0.6; }
 .sandbox-actions { display: flex; flex-direction: column; gap: 7px; }
+
+/* ── Test chat — corner launcher + right slide-over drawer ───────────────── */
+.testchat-fab {
+  position: fixed; right: 24px; bottom: 24px; z-index: 60;
+  display: inline-flex; align-items: center; gap: 9px;
+  height: 40px; padding: 0 17px; border-radius: var(--radius-pill);
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  font: inherit; font-weight: 550; font-size: 13px; cursor: pointer;
+  box-shadow: var(--shadow-pop);
+  transition: background 0.12s, border-color 0.12s, transform 0.08s var(--ease-out);
+}
+.testchat-fab svg { color: var(--accent); }
+.testchat-fab:hover { background: var(--bg-inset); border-color: var(--accent); }
+.testchat-fab:active { transform: scale(0.97); }
+.testchat-fab:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
+
+.chatdrawer-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) ease;
+}
+.chatdrawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
+.chatdrawer {
+  position: fixed; top: 0; right: 0; height: 100vh; z-index: 101;
+  width: min(440px, 94vw);
+  display: flex; flex-direction: column;
+  background: var(--panel); border-left: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-modal);
+  transform: translateX(100%); transition: transform var(--dur-slow) var(--ease-out);
+}
+.chatdrawer.open { transform: none; }
+.chatdrawer-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 18px 20px; border-bottom: 1px solid var(--border); flex: none;
+}
+.chatdrawer-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.chatdrawer-sub { color: var(--text-2); font-size: 12px; margin-top: 4px; line-height: 1.5; }
+.chatdrawer .sandbox { padding: 16px 20px 20px; }
+.chatdrawer .sandbox-log { min-height: 0; }
+@media (prefers-reduced-motion: reduce) { .chatdrawer { transition: none; } }
+@media (max-width: 760px) { .chatdrawer { width: 100vw; } }
 
 /* ── Settings popup (Notion-style modal) ────────────────────────────────── */
 .modal-backdrop {
