@@ -144,9 +144,18 @@ function TestChatDrawer() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  // Lock page scroll while the drawer is open (scrollbar-gutter:stable keeps the layout
+  // from shifting when the page scrollbar disappears).
+  useEffect(() => {
+    if (!open) return
+    const root = document.documentElement
+    const prev = root.style.overflow
+    root.style.overflow = 'hidden'
+    return () => { root.style.overflow = prev }
+  }, [open])
   return (
     <>
-      <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat" data-tip="Test the saved persona">
+      <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat">
         <Icon.sandbox size={17} weight="Bold" /> Test chat
       </button>
       <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
