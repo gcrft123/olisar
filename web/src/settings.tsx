@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Toggle } from './ui'
@@ -7,10 +7,9 @@ import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'logs' | 'remote' | 'updates' | 'desktop'
+type SectionId = 'appearance' | 'remote' | 'updates' | 'desktop'
 const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'appearance', label: 'Appearance', ic: 'palette' },
-  { id: 'logs', label: 'Bot logs', ic: 'docs' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
@@ -47,7 +46,6 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
-          {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
@@ -99,31 +97,6 @@ function Appearance() {
   )
 }
 
-// ── Bot logs ────────────────────────────────────────────────────────────────
-function Logs() {
-  const [lines, setLines] = useState<string[] | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-  const preRef = useRef<HTMLPreElement>(null)
-  const load = (notify = false) => {
-    setErr(null)
-    api.getLogs(1000)
-      .then((r: { lines: string[] }) => { setLines(r.lines || []); if (notify) toast('Logs refreshed', 'success') })
-      .catch((e: any) => { const m = e?.message || 'failed to load logs'; setErr(m); if (notify) toast(m, 'danger') })
-  }
-  useEffect(() => { load() }, [])
-  useEffect(() => { if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight }, [lines])
-  return (
-    <>
-      <Head title="Bot logs" sub="Recent backend activity — the bot and the dashboard API, newest at the bottom." />
-      <div className="settings-row end">
-        <button className="ghost" onClick={() => load(true)}><Icon.refresh size={14} /> Refresh</button>
-      </div>
-      {err && <div className="settings-err">{err}</div>}
-      <pre className="logview fill" ref={preRef}>{lines === null ? 'Loading…' : (lines.length ? lines.join('\n') : 'No logs yet.')}</pre>
-    </>
-  )
-}
-
 // ── Remote access ─────────────────────────────────────────────────────────────
 function Remote() {
   const [data, setData] = useState<any>(null)
@@ -167,9 +140,6 @@ function Remote() {
               </div>
             ))}
           </div>
-
-          <div className="settings-subhead">Remote-access logs</div>
-          <pre className="logview short">{(data.logs || []).length ? data.logs.join('\n') : 'No remote-access activity logged.'}</pre>
         </>
       )}
     </>
