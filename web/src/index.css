@@ -70,6 +70,9 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
+/* Always reserve the scrollbar gutter so a page that scrolls isn't ~11px narrower (and
+   off-centre) than one that doesn't — every tab gets the same content width. */
+html { scrollbar-gutter: stable; }
 body {
   margin: 0;
   font-family: var(--font-sans);
@@ -301,7 +304,11 @@ body::after {
   .botpower.stopping .power-btn, .botpower.starting .power-ring { animation: none; }
 }
 
-.main { padding: 40px 44px 96px; max-width: 1180px; margin: 0 auto; }
+/* width:100% is load-bearing: .main is a grid item with `margin: 0 auto`, and auto
+   margins defeat the default justify-self:stretch — without an explicit width it would
+   shrink-wrap its content (so content-light pages render narrow, and pages widen once
+   their data loads). A definite width makes every page the same 1180px, centered. */
+.main { padding: 40px 44px 96px; width: 100%; max-width: 1180px; margin: 0 auto; }
 /* Monaco names some of its own internal nodes with generic classes that collide with our
    layout classes above — notably `.main`, which Monaco gives each autocomplete row's
    content box. Our page `.main` padding/width then leaked into the editor and pushed every
@@ -323,10 +330,24 @@ body::after {
 
 /* Page layouts for the wide content area. .cols2 = two explicit columns that each
    hug their own content; .grid2 = an auto-flow two-column card grid. */
-.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
 .cols2 > .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
-.cols2 .card, .grid2 > .card { margin: 0; }
+/* A column holding a single card (e.g. Knowledge's Index, API keys' Cloudflare) grows it
+   to match the taller neighbouring column, so both sides line up evenly. */
+.cols2 > .col > .card:only-child { flex: 1; }
+/* align-items:stretch makes cards in the same row equal height — the shorter card simply
+   gains empty space below so it matches the taller one beside it. */
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
+.cols2 .card, .grid2 > .card { margin: 0; min-width: 0; }
+/* A `.col.fill` (Knowledge's Index) lets the OTHER column define the row height and pins its
+   single card to fill that height, scrolling its own list — so a long list doesn't make the
+   right side taller than the two cards on the left; the columns end level. Only while the
+   grid is actually two columns (below, it collapses to one and the card goes back in flow). */
+@media (min-width: 901px) {
+  .cols2 > .col.fill { position: relative; }
+  .cols2 > .col.fill > .card { position: absolute; inset: 0; display: flex; flex-direction: column; }
+  .cols2 > .col.fill > .card .reindex-list { flex: 1 1 0; min-height: 0; max-height: none; }
+}
 @media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
@@ -483,7 +504,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 @media (max-width: 620px) { .member-grid { grid-template-columns: 1fr; } }
 .member-card {
   display: flex; flex-direction: column;
-  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
 }
 .member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); }
 .member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
@@ -679,7 +700,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .empty { color: var(--text-2); font-size: 13px; padding: 4px 0; }
 
 /* Docs — OpenClaw-style three-pane layout (left nav · content · on-this-page) */
-.main.docs-mode { max-width: none; padding: 0; }
+/* Docs keeps the page's centered 1180 width (matching every other page) but drops the
+   padding so its three-pane shell can run edge-to-edge inside that box. */
+.main.docs-mode { padding: 0; }
 .docs-shell {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr) 212px;

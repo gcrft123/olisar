@@ -623,7 +623,7 @@ export function Knowledge() {
         ))}
       </Card>
         </div>
-        <div className="col">
+        <div className="col fill">
           <SearchIndexCard />
         </div>
       </div>
