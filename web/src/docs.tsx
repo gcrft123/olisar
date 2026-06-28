@@ -334,12 +334,6 @@ Send **feedback, a bug report, or a question** straight to the Olisar team — i
 - Attach up to **8 files** (≤ 3 MB each), and/or click **Add bot logs** to include recent log lines — handy
   for bug reports.
 - Press **Send**; you'll get a confirmation and can send another.
-
-:::note Where it goes
-Feedback is delivered by email through the Olisar registry's mail service — your message, any email you give,
-and whatever you attached. Nothing is posted publicly. Skip the bot-logs attachment if you'd rather not share
-recent activity.
-:::
 `,
   },
   {
