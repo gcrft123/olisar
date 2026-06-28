@@ -130,8 +130,8 @@ function SandboxPanel() {
             disabled={busy}
           />
           <div className="sandbox-actions">
-            <button className="ghost" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0}>Clear</button>
-            <button className="primary" onClick={() => void send()} disabled={busy || !input.trim()}>Send</button>
+            <button className="ghost icon-btn" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0} data-tip="Clear chat" aria-label="Clear chat"><Icon.eraser size={16} /></button>
+            <button className="primary icon-btn" onClick={() => void send()} disabled={busy || !input.trim()} data-tip="Send" aria-label="Send"><Icon.send size={16} /></button>
           </div>
         </div>
       </div>
@@ -510,8 +510,8 @@ function SearchIndexCard() {
               <button className="primary" onClick={start} disabled={busy}>
                 <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
               </button>
-              <button className="danger" onClick={clear} disabled={busy || data.indexed_messages === 0}>
-                <Icon.trash size={14} /> Clear index
+              <button className="danger icon-btn" onClick={clear} disabled={busy || data.indexed_messages === 0} data-tip="Clear index" aria-label="Clear index">
+                <Icon.trash size={16} />
               </button>
             </div>
           </div>
@@ -827,10 +827,10 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button className="ghost" onClick={pushUpdate}>Re-publish</button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))}>Export</button>
+              <button className="ghost icon-btn" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))} data-tip="Export .olx" aria-label="Export extension"><Icon.download size={16} /></button>
             )}
             {props.isOperator && e.has_code && (
-              <button className="ghost" onClick={() => props.onEdit(e.key)}>Edit code</button>
+              <button className="ghost icon-btn" onClick={() => props.onEdit(e.key)} data-tip="Edit code" aria-label="Edit extension code"><Icon.edit size={16} /></button>
             )}
             {marketplace && ref && (
               <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
@@ -1457,9 +1457,9 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
               <div className="mkt-card-foot">
                 <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
-                  <button className="ghost" onClick={() => doYank(r)}>Yank</button>
+                  <button className="danger" onClick={() => doYank(r)}>Yank</button>
                 )}
-                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                <button className="primary" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
               </div>
             </div>
           ))}
@@ -1595,7 +1595,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         {props.isOperator && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
             <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
-            <button className="ghost" onClick={() => setImporting(true)}>Import .olx</button>
+            <button className="ghost icon-btn" onClick={() => setImporting(true)} data-tip="Import .olx" aria-label="Import .olx"><Icon.upload size={16} /></button>
             <button className="primary" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
           </div>
         )}
@@ -1936,8 +1936,8 @@ function KeyField(props: {
         {s.dashboard ? (
           <>
             <span className="badge ready">set in dashboard</span>
-            <button className="danger" onClick={props.onClear}>
-              <Icon.trash size={14} /> Clear
+            <button className="ghost icon-btn" onClick={props.onClear} data-tip="Clear key" aria-label="Clear key">
+              <Icon.trash size={16} />
             </button>
           </>
         ) : s.env ? (

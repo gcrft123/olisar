@@ -170,9 +170,9 @@ function DevExtensions() {
                 <td className="dev-perms">{(r.permissions || []).map((p: string) => <span key={p} className="tag">{p}</span>)}</td>
                 <td className="dev-row-actions">
                   <button className="ghost icon-btn sm" onClick={() => viewCode(r)} title="View code"><Icon.code size={15} /></button>
-                  <button className="ghost icon-btn sm" onClick={() => yank(r)} title="Yank"><Icon.trash size={15} /></button>
-                  <button className="ghost icon-btn sm" onClick={() => moderate(r, 'warn')} title="Warn publisher"><Icon.warn size={15} /></button>
-                  <button className="ghost icon-btn sm" onClick={() => moderate(r, 'ban')} title="Ban publisher"><Icon.ban size={15} /></button>
+                  <button className="danger icon-btn sm" onClick={() => yank(r)} title="Yank" aria-label="Yank"><Icon.trash size={15} /></button>
+                  <button className="caution icon-btn sm" onClick={() => moderate(r, 'warn')} title="Warn publisher" aria-label="Warn publisher"><Icon.warn size={15} /></button>
+                  <button className="danger icon-btn sm" onClick={() => moderate(r, 'ban')} title="Ban publisher" aria-label="Ban publisher"><Icon.ban size={15} /></button>
                 </td>
               </tr>
             ))}
