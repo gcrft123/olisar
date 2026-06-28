@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Icon } from './icons'
 
-export function Card(props: { title?: string; hint?: string; children: React.ReactNode }) {
+export function Card(props: { title?: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card">
       {props.title && <h3>{props.title}</h3>}

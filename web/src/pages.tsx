@@ -27,44 +27,41 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" sub="Olisar's Persona dictates who it is and how it will behave in your server. Try it out in the test chat panel alongside." />
+      <PageHead icon="persona" title="Persona" sub="Olisar's Persona dictates who it is and how it behaves in your server. Try changes live in the Test chat — open it from the button in the corner." />
       <Card title="Identity">
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
         <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
           <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
         </Field>
       </Card>
-      <div className="persona-grid">
-        <Card title="Style & profile">
-          <Field label="Style notes" desc="Tone and formatting guidance.">
-            <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
-          </Field>
-          <Field
-            label="Profile bio (About Me)"
-            desc={
-              <>
-                Olisar's public Discord bio — <strong>bot-wide</strong>, not per-server. To keep Olisar free for everyone, the line <em>"Powered by Olisar AI — try it free on your server:
-                https://gcrft.s.gy/olisar"</em> is added automatically on its own line below your text (and stays
-                even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
-              </>
-            }
-          >
-            <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={3} maxLength={300} />
-          </Field>
+      <div className="grid2">
+        <Card title="Style notes" hint="How Olisar writes — its voice, tone, and formatting, separate from what it knows.">
+          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
         </Card>
-        <SandboxPanel />
+        <Card
+          title="About Me"
+          hint={
+            <>
+              Olisar's public Discord bio — <strong>bot-wide</strong>, not per-server. To keep Olisar free for everyone, the line <em>“Powered by Olisar AI — try it free on your server: https://gcrft.s.gy/olisar”</em> is added automatically on its own line below your text (and stays even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
+            </>
+          }
+        >
+          <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} />
+        </Card>
       </div>
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
+      <TestChatDrawer />
     </>
   )
 }
 
-// ── Test-chat panel (enclosed sandbox: persona + KB + tools, but no memory) ──
-// Lives beside Identity on the Persona tab so persona edits can be tried live.
-// Save the persona first — the sandbox reads the saved persona, not the draft.
+// ── Test chat (enclosed sandbox: persona + KB + tools, but no memory) ──
+// A slide-over drawer launched from the Persona page so persona edits can be tried
+// live. Save the persona first — the sandbox reads the saved persona, not the draft.
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
-function SandboxPanel() {
+// The chat itself (transcript + composer); the drawer below provides the shell.
+function SandboxChat() {
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -95,47 +92,75 @@ function SandboxPanel() {
   }
 
   return (
-    <Card title="Test chat" hint="An enclosed sandbox with Olisar's full persona, knowledge base, and tools, but no memory. Nothing here is saved, and it never touches the server's glossary or chat history.">
-      <div className="sandbox">
-        <div className="sandbox-log" ref={logRef}>
-          {messages.length === 0 && !busy && (
-            <div className="sandbox-empty">
-              Try out Olisar's persona without affecting server context.
-              Nothing here is saved.
-            </div>
-          )}
-          {messages.map((m, i) => (
-            <div key={i} className={'sb-msg ' + m.role}>
-              <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
-              <div className="sb-bubble">
-                {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
-              </div>
-            </div>
-          ))}
-          {busy && (
-            <div className="sb-msg assistant">
-              <div className="sb-who">Olisar</div>
-              <div className="sb-bubble sb-typing"><span /><span /><span /></div>
-            </div>
-          )}
-        </div>
-        {err && <div className="sandbox-err">{err}</div>}
-        <div className="sandbox-input">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-            placeholder="Message Olisar…"
-            rows={2}
-            disabled={busy}
-          />
-          <div className="sandbox-actions">
-            <button className="ghost icon-btn" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0} data-tip="Clear chat" aria-label="Clear chat"><Icon.eraser size={16} /></button>
-            <button className="primary icon-btn" onClick={() => void send()} disabled={busy || !input.trim()} data-tip="Send" aria-label="Send"><Icon.send size={16} /></button>
+    <div className="sandbox">
+      <div className="sandbox-log" ref={logRef}>
+        {messages.length === 0 && !busy && (
+          <div className="sandbox-empty">
+            Try out Olisar's persona without affecting server context.
+            Nothing here is saved.
           </div>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={'sb-msg ' + m.role}>
+            <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
+            <div className="sb-bubble">
+              {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
+            </div>
+          </div>
+        ))}
+        {busy && (
+          <div className="sb-msg assistant">
+            <div className="sb-who">Olisar</div>
+            <div className="sb-bubble sb-typing"><span /><span /><span /></div>
+          </div>
+        )}
+      </div>
+      {err && <div className="sandbox-err">{err}</div>}
+      <div className="sandbox-input">
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
+          placeholder="Message Olisar…"
+          rows={2}
+          disabled={busy}
+        />
+        <div className="sandbox-actions">
+          <button className="ghost icon-btn" onClick={() => { setMessages([]); setErr(null) }} disabled={busy || messages.length === 0} data-tip="Clear chat" aria-label="Clear chat"><Icon.eraser size={16} /></button>
+          <button className="primary icon-btn" onClick={() => void send()} disabled={busy || !input.trim()} data-tip="Send" aria-label="Send"><Icon.send size={16} /></button>
         </div>
       </div>
-    </Card>
+    </div>
+  )
+}
+
+// Slide-over Test chat: a corner launcher opens a right-docked drawer with a dimmed
+// backdrop (closes on the backdrop, the close button, or Escape). Always mounted so it
+// slides rather than pops and the transcript survives close/reopen.
+function TestChatDrawer() {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  return (
+    <>
+      <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat" data-tip="Test the saved persona">
+        <Icon.sandbox size={17} weight="Bold" /> Test chat
+      </button>
+      <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
+      <aside className={'chatdrawer' + (open ? ' open' : '')} role="dialog" aria-label="Test chat" aria-hidden={!open}>
+        <div className="chatdrawer-head">
+          <div className="chatdrawer-titles">
+            <div className="chatdrawer-title">Test chat</div>
+            <div className="chatdrawer-sub">An enclosed sandbox with the full persona, knowledge base, and tools — but no memory. Nothing here is saved.</div>
+          </div>
+          <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
+        </div>
+        <SandboxChat />
+      </aside>
+    </>
   )
 }
 

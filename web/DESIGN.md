@@ -357,6 +357,7 @@ Every **icon-only button** (close ×, copy, report flag, row actions, the server
 - **Dialog** (centered info+action): blurred backdrop `rgba(0,0,0,.55)` + `backdrop-filter: blur(3px)` fading in; the card (`--panel`, `--border-strong`, `--shadow-modal`) scales-and-lifts from `translateY(12px) scale(.96)` → `0/1` over `.22s var(--ease-out)`. Optional tinted icon tile (46px, `--radius` 15px) + footer actions. Close on backdrop click / Escape.
 - **Modal** (full-UI sheet): same backdrop; a `min(900px,94vw) × min(620px,90vh)` sheet with a header (title + close ×), a scrollable body (put a two-pane nav+content inside), and an optional footer.
 - **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. A `--panel` pill, message + Reset/Save.
+- **Slide-over drawer** (a side-docked panel, e.g. the Persona Test chat): a fixed `--panel` panel pinned to the right edge — `width: min(440px, 94vw)`, full height, `--border-strong` left edge, `--shadow-modal` — that slides in from `translateX(100%)` → `0` over `var(--dur-slow) var(--ease-out)`, behind a fading `rgba(0,0,0,.5)` + `blur(2px)` backdrop. Opened by a fixed corner **launcher** (a `--radius-pill` `--panel` button with an accent icon + `--shadow-pop`, `right/bottom: 24px`); closes on the backdrop, its close ×, or Escape. Stays mounted so it slides (not pops) and its contents survive close/reopen.
 
 ### Tabs
 
