@@ -581,7 +581,9 @@ so it doesn't spam or burn quota.
 
 Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message **without replying**.
 It has its own, looser gate — no expensive classifier, just a light heuristic plus a **cooldown** and an
-**hourly cap** — so it stays sparse. Toggle it and tune the cooldown/cap on the [Behavior](#behavior--proactivity) tab.
+**hourly cap** — so it stays sparse. Toggle it, set its **confidence threshold** — the 0–1 bar a message
+must clear before a reaction is weighed (lower reacts more freely) — and set the cooldown/cap on the
+[Behavior](#behavior--proactivity) tab.
 
 #### Situational awareness
 
