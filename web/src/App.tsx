@@ -220,7 +220,7 @@ export default function App() {
         />
       )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '') + (tab === 'persona' || tab === 'extensions' || tab === 'developer' ? ' wide' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>{pages[tab]}</main>
     </div>
   )
 }

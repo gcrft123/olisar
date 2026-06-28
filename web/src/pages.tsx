@@ -28,12 +28,14 @@ export function Persona() {
   return (
     <>
       <PageHead icon="persona" title="Persona" sub="Olisar's Persona dictates who it is and how it will behave in your server. Try it out in the test chat panel alongside." />
+      <Card title="Identity">
+        <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
+        <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
+          <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
+        </Field>
+      </Card>
       <div className="persona-grid">
-        <Card title="Identity">
-          <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
-          <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
-            <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
-          </Field>
+        <Card title="Style & profile">
           <Field label="Style notes" desc="Tone and formatting guidance.">
             <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={5} />
           </Field>
@@ -167,6 +169,8 @@ export function Behavior() {
   return (
     <>
       <PageHead icon="behavior" title="Behavior" sub="Control how and when Olisar participates in your server. Fallback message customization lives in Command replies." />
+      <div className="cols2">
+        <div className="col">
       <Card title="Triggers">
         <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
           <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
@@ -191,6 +195,8 @@ export function Behavior() {
           <Field label="Persona rebuild (msgs)"><Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} /></Field>
         </div>
       </Card>
+        </div>
+        <div className="col">
       <Card title="Proactivity" hint="Adjust when/if Olisar chimes in unprompted.">
         <Field label="Enabled"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} label="Let Olisar speak up on its own" /></Field>
         <Field label="Eagerness">
@@ -231,6 +237,8 @@ export function Behavior() {
           <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} /></Field>
         </div>
       </Card>
+        </div>
+      </div>
       <SaveDock dirty={configEd.dirty || proEd.dirty} saver={saver} onReset={() => { configEd.reset(); proEd.reset() }} />
     </>
   )
@@ -266,6 +274,7 @@ export function Messages() {
   return (
     <>
       <PageHead icon="messages" title="Command replies" sub="Customize the text Olisar sends when slash commands are run or it can't respond. Leave blank to use the default. Use {placeholders} where shown." />
+      <div className="grid2">
       {Object.keys(data).filter((key) => key !== 'privacy').map((key) => (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
           <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={2} placeholder={data[key].default} />
@@ -275,6 +284,7 @@ export function Messages() {
           )}
         </Card>
       ))}
+      </div>
       <SaveDock dirty={dirty} saver={saver} onReset={() => base.current && setEdits(JSON.parse(base.current))} />
     </>
   )
@@ -555,7 +565,9 @@ export function Knowledge() {
   return (
     <>
       <PageHead icon="knowledge" title="Knowledge" sub="What Olisar knows about your world. The knowledge base holds webpages and documents it can reference at any time and the glossary stores bits of server-specific info which is updated regularly by Olisar." />
-      <Card title="Add a source" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
+      <div className="cols2">
+        <div className="col">
+      <Card title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
         <div className="row">
           <Field label="Type"><Select value={type} onChange={setType} options={[{ value: 'url', label: 'single page' }, { value: 'website', label: 'crawl a website' }]} /></Field>
           <Field label="URL"><Text value={uri} onChange={setUri} placeholder="https://…" /></Field>
@@ -567,8 +579,7 @@ export function Knowledge() {
           </div>
         )}
         <SaveBar saver={adder} label="Add & ingest" />
-      </Card>
-      <Card title={`Sources (${rows.length})`}>
+        <div className="settings-subhead">Sources ({rows.length})</div>
         {rows.length === 0 && <div className="empty">Nothing yet.</div>}
         {rows.map((s) => (
           <div className="list-row" key={s.id}>
@@ -586,8 +597,7 @@ export function Knowledge() {
           </div>
         ))}
       </Card>
-      <SearchIndexCard />
-      <Card title="Add a glossary fact" hint="Durable server lore and bits of info. Olisar carries these into every reply and also mines them automatically when it summarizes a channel. Subject is the term (optional) and the fact is one short, standalone statement.">
+      <Card title="Glossary" hint="Durable server lore and bits of info. Olisar carries these into every reply and also mines them automatically when it summarizes a channel. Subject is the term (optional) and the fact is one short, standalone statement.">
         <div className="row">
           <Field label="Subject"><Text value={subject} onChange={setSubject} placeholder="MN" /></Field>
           <div style={{ flex: 3 }}>
@@ -595,8 +605,7 @@ export function Knowledge() {
           </div>
         </div>
         <SaveBar saver={factAdder} label="Add fact" />
-      </Card>
-      <Card title={`Glossary (${factRows.length})`}>
+        <div className="settings-subhead">Glossary ({factRows.length})</div>
         {factRows.length === 0 && <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>}
         {factRows.map((f) => (
           <div className="list-row" key={f.id}>
@@ -613,6 +622,11 @@ export function Knowledge() {
           </div>
         ))}
       </Card>
+        </div>
+        <div className="col">
+          <SearchIndexCard />
+        </div>
+      </div>
     </>
   )
 }
@@ -1933,6 +1947,8 @@ export function ApiKeys() {
         sub="Bring your own keys. A key entered here is stored for this server and values are write-only meaning they never come back to a remote browser."
       />
 
+      <div className="cols2">
+        <div className="col">
       <Card
         title="Google Gemini"
         hint="Powers everything Olisar says — chat, memory, summaries, and image understanding. Required. The free tier is enough to run the bot (it just rate-limits under load)."
@@ -1948,7 +1964,23 @@ export function ApiKeys() {
           onClear={() => clear('gemini_api_key')}
         />
       </Card>
-
+      <Card
+        title="UEX (Star Citizen)"
+        hint="Optional — only used by the Star Citizen extension. The UEX tools already work on public endpoints; a token just raises the rate limits."
+      >
+        <KeyField
+          fieldKey="uex_api_key"
+          label="UEX API token"
+          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a bearer token. Leave blank to use UEX's public access.</>}
+          status={st('uex_api_key')}
+          value={val('uex_api_key')}
+          example="uex token"
+          onChange={(v) => set('uex_api_key', v)}
+          onClear={() => clear('uex_api_key')}
+        />
+      </Card>
+        </div>
+        <div className="col">
       <Card
         title="Cloudflare Workers AI"
         hint="Optional — enables image generation (FLUX). Without it, Olisar simply says it can't make images. Needs your account ID and an API token with the Workers AI permission."
@@ -1974,22 +2006,8 @@ export function ApiKeys() {
           onClear={() => clear('cloudflare_api_token')}
         />
       </Card>
-
-      <Card
-        title="UEX (Star Citizen)"
-        hint="Optional — only used by the Star Citizen extension. The UEX tools already work on public endpoints; a token just raises the rate limits."
-      >
-        <KeyField
-          fieldKey="uex_api_key"
-          label="UEX API token"
-          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a bearer token. Leave blank to use UEX's public access.</>}
-          status={st('uex_api_key')}
-          value={val('uex_api_key')}
-          example="uex token"
-          onChange={(v) => set('uex_api_key', v)}
-          onClear={() => clear('uex_api_key')}
-        />
-      </Card>
+        </div>
+      </div>
 
       <SaveDock dirty={dirty} saver={saver} onReset={() => setEdits({})} label="Save keys" />
     </>
