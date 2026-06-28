@@ -106,6 +106,12 @@ function startBackend(port) {
     cwd: repoRoot || undefined,
     env: {
       ...process.env,
+      // Force the bundled Python onto UTF-8 I/O — Windows' legacy cp1252 console
+      // can't encode the symbols we log (⚠ ✓ …) and would crash the backend at
+      // startup. The backend also reconfigures its own streams; this covers output
+      // from before our code runs (bootloader / argparse).
+      PYTHONUTF8: '1',
+      PYTHONIOENCODING: 'utf-8',
       OLISAR_DATA_DIR: app.getPath('userData'),
       OLISAR_PORT: String(port),
       ...(funnelPath() ? { OLISAR_FUNNEL: funnelPath() } : {}),
