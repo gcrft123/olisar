@@ -103,6 +103,14 @@ class MarketplaceReportIn(BaseModel):
     attachments: list[ReportAttachmentIn] = []
 
 
+class FeedbackIn(BaseModel):
+    category: str = "Feedback"  # Feedback | Bug report | Question
+    message: str
+    email: str = ""             # optional reply-to address
+    logs: str = ""              # optional bot logs
+    attachments: list[ReportAttachmentIn] = []
+
+
 class DevModerationIn(BaseModel):
     discord_id: str
     status: str  # warn | ban | clear

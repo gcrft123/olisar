@@ -10,7 +10,8 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
 from api.auth.deps import require_admin
-from api.schemas import DesktopSettingsIn
+from api.routers.marketplace import _registry_error, _registry_post
+from api.schemas import DesktopSettingsIn, FeedbackIn
 from olisar import logbuffer, runtime_config
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, AppConfig
@@ -31,6 +32,23 @@ async def get_logs(lines: int = 500, _: AdminUser = Depends(require_admin)) -> d
 async def get_updates(_: AdminUser = Depends(require_admin)) -> dict:
     """Whether a newer Olisar release is on GitHub."""
     return await check_latest()
+
+
+@router.post("/feedback")
+async def send_feedback(body: FeedbackIn, _: AdminUser = Depends(require_admin)) -> dict:
+    """Email operator feedback (feedback / bug report / question) to the platform owner via
+    the registry's Resend integration. Optional bot logs + attachments ride along."""
+    payload = {
+        "category": body.category,
+        "message": body.message,
+        "email": body.email,
+        "logs": body.logs,
+        "attachments": [a.model_dump() for a in body.attachments],
+    }
+    r = await _registry_post("/v1/feedback", payload)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't send feedback")
+    return r.json()
 
 
 @router.get("/remote")

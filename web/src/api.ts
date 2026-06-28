@@ -194,6 +194,8 @@ export const api = {
 
   // Settings popup.
   getLogs: (lines = 500) => req(`/api/settings/logs?lines=${lines}`),
+  sendFeedback: (b: { category: string; message: string; email?: string; logs?: string; attachments?: { name: string; type: string; content_b64: string }[] }) =>
+    req('/api/settings/feedback', { method: 'POST', body: JSON.stringify(b) }),
   getUpdates: () => req('/api/settings/updates'),
   getRemote: () => req('/api/settings/remote'),
   getDesktop: () => req('/api/settings/desktop'),
