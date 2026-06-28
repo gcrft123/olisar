@@ -183,8 +183,9 @@ export const api = {
     req('/api/setup/validate-token', { method: 'POST', body: JSON.stringify({ token }) }),
   saveSetupKeys: (b: any) => req('/api/setup/keys', { method: 'POST', body: JSON.stringify(b) }),
   saveSetup: (b: any) => req('/api/setup/save', { method: 'POST', body: JSON.stringify(b) }),
-  enableTunnel: (b: { auth_key: string; hostname: string }) =>
+  enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
+  disableTunnel: () => req('/api/tunnel/disable', { method: 'POST' }),
   // Remote-access status (loopback-readable): { available, running, helper, hostname, public_url }.
   tunnelStatus: () => req('/api/tunnel/status'),
 
