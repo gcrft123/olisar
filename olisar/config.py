@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     # ``app_config.tunnel_token`` field, so a dev can put a key in .env and skip the
     # wizard's tunnel step.
     tunnel_token: str = Field(default="", alias="TAILSCALE_AUTH")
+    # Device name for the Funnel node (the ``…ts.net`` host; defaults to "olisar").
+    # Also the ``.env`` fallback for ``app_config.tunnel_node``.
+    tunnel_node: str = Field(default="", alias="OLISAR_FUNNEL_HOSTNAME")
+
+    # ── Headless server deployment (the Docker image on a cloud VM) ───────
+    # When set, env-supplied Discord credentials count as a completed setup (so a
+    # server instance serves the dashboard instead of the loopback-only wizard), and
+    # the Funnel auto-starts when ``TAILSCALE_AUTH`` is present. Off for the desktop app.
+    headless: bool = Field(default=False, alias="OLISAR_HEADLESS")
 
     # ── Admin dashboard / auth ───────────────────────────────────────────
     # NoDecode stops pydantic-settings from JSON-decoding the env value, so the

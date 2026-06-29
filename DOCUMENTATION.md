@@ -33,6 +33,7 @@ guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#s
 **Hosting & access**
 
 - [Hosting & your data](#hosting--your-data)
+- [Host on a server](#host-on-a-server)
 - [Remote access](#remote-access)
 - [Console settings](#console-settings)
 
@@ -395,6 +396,53 @@ profiles, memory, knowledge base, your settings, and your API keys. Nothing is s
 > Because the data is local, the console only works while the operator's machine is running. Admins who sign
 > in — on that machine or over [remote access](#remote-access) — are reading and writing **that** database live;
 > there's no copy in the cloud. See [Privacy](#privacy--data) for exactly what's stored.
+
+### Host on a server
+
+By default Olisar runs inside the desktop app on your own machine, so the bot is online only while
+that machine is awake. To keep it running **24/7**, run the exact same backend on an always-on Linux
+server — no need to leave your computer on.
+
+> [!TIP]
+> **Free, always-on**
+> [Oracle Cloud's Free Tier](https://www.oracle.com/cloud/free/) includes an Always-Free Arm VM that's
+> plenty for Olisar. Paired with the free Gemini and Tailscale tiers, hosting it costs nothing.
+
+**What you'll need**
+
+- A Linux VM — an Oracle Cloud Free Arm instance (`VM.Standard.A1.Flex`, Ubuntu) is the tested target, but any VM with Docker works.
+- Your Discord app credentials (bot token + OAuth client id/secret) and your Discord user ID.
+- A free Gemini API key.
+- A free Tailscale account and a reusable auth key — this gives the server a public `https://…ts.net` address with no domain or open ports.
+
+**Set it up — one line**
+
+SSH into the VM and run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/gcrft123/olisar/main/deploy/bootstrap.sh | bash
+```
+
+It installs Docker, asks for your tokens, starts Olisar in a container, and prints your public
+`https://…ts.net` URL and the OAuth redirect to register.
+
+**After it's running**
+
+1. In the Discord Developer Portal → your app → **OAuth2 → Redirects**, add the printed `…/auth/callback`.
+2. Open the `…ts.net` URL in a browser and sign in with Discord (the account whose ID you allowlisted).
+
+The bot is live and you manage everything from the browser — the desktop app is now optional.
+
+> [!WARNING]
+> **Run it in one place**
+> A Discord bot token allows only one live connection. Run Olisar on the server **or** the desktop app —
+> not both at once on the same token, or the two instances will fight over the gateway.
+
+> [!NOTE]
+> **Your data, on your VM**
+> Everything Olisar learns lives in a Docker volume on the VM, not in any cloud. Update with
+> `docker compose pull && docker compose up -d`; the full reference is in
+> [deploy/README.md](https://github.com/gcrft123/olisar/blob/main/deploy/README.md).
 
 ### Remote access
 
