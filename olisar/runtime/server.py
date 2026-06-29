@@ -169,15 +169,20 @@ async def run(host: str, port: int) -> None:
     supervisor = BotSupervisor()
     app.state.bot_supervisor = supervisor  # setup wizard (Phase 2) restarts via this
 
+    from olisar.config import settings
     from olisar.runtime.paths import tailscale_state_dir
     from olisar.runtime.tunnel import FunnelManager
 
     tunnel = FunnelManager()
     app.state.tunnel = tunnel  # /api/tunnel control + tray toggle
-    if await runtime_config.tunnel_enabled():
+    # Auto-start the Funnel when the operator enabled it, or in a headless server
+    # deployment given a Tailscale auth key — so a cloud VM publishes its …ts.net URL
+    # without the loopback-only /api/tunnel/enable call.
+    token = await runtime_config.tunnel_token()
+    if await runtime_config.tunnel_enabled() or (settings.headless and token):
         ok, msg = await tunnel.start(
-            await runtime_config.tunnel_token(),
-            await runtime_config.tunnel_node(),
+            token,
+            await runtime_config.tunnel_node() or "olisar",
             runtime_config.local_base_url(),
             str(tailscale_state_dir()),
         )

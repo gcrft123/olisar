@@ -166,10 +166,22 @@ async def extension_risk_threshold() -> int:
 
 
 async def is_configured() -> bool:
-    """Whether first-run setup is complete. Only the DB ``configured`` flag counts —
+    """Whether first-run setup is complete. The DB ``configured`` flag normally counts —
     a populated ``.env`` no longer auto-skips the wizard, so the operator/dev confirms
-    each install once (with the wizard pre-filled from ``.env`` if available)."""
-    return bool((await _load()).get("configured"))
+    each desktop install once (pre-filled from ``.env`` if available).
+
+    Exception: a **headless server deployment** (``OLISAR_HEADLESS=1``, e.g. the Docker
+    image on a cloud VM) with the essential Discord credentials supplied via env is
+    treated as configured, so it serves the dashboard rather than the loopback-only
+    wizard (which can't be reached over the public Funnel)."""
+    if bool((await _load()).get("configured")):
+        return True
+    return bool(
+        settings.headless
+        and settings.discord_token
+        and settings.discord_client_id
+        and settings.discord_client_secret
+    )
 
 
 async def save(**fields: object) -> None:
