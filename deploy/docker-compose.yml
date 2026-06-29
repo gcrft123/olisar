@@ -1,0 +1,24 @@
+# Olisar server — run the bot's backend 24/7 on a Linux VM.
+#
+#   1. cp .env.example .env   and fill it in
+#   2. docker compose up -d
+#   3. docker compose logs -f   → copy the printed https://…ts.net URL
+#
+# By default this pulls the prebuilt multi-arch image from GHCR. To build locally
+# instead (e.g. from a clone, no GHCR access), run: docker compose up -d --build
+services:
+  olisar:
+    image: ghcr.io/gcrft123/olisar:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file: .env
+    volumes:
+      - olisar-data:/var/lib/olisar   # SQLite DB, knowledge uploads, Tailscale node state
+    restart: unless-stopped
+    # No published ports — Tailscale Funnel handles public ingress. Uncomment to reach
+    # the dashboard locally on the VM (e.g. over an SSH tunnel) for debugging:
+    # ports: ["127.0.0.1:8000:8000"]
+
+volumes:
+  olisar-data:
