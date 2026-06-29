@@ -45,3 +45,6 @@ desktop/funnel-sidecar/olisar-funnel.exe
 
 # Local dev helper (frontend hot-swap into the installed app bundle)
 web/swap.sh
+
+# Local-only Claude Code project guide (kept on disk, not tracked)
+CLAUDE.md
