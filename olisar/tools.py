@@ -38,6 +38,10 @@ class DiscordActions(Protocol):
     async def send_image(self, data: bytes, *, filename: str = ..., caption: str = ...) -> str: ...
     async def user_status(self, query: str, guild_id: int) -> str: ...
     async def who_in_voice(self, guild_id: int) -> str: ...
+    async def is_admin(self, user_id: int, guild_id: int) -> bool: ...
+    async def channel_directory(
+        self, guild_id: int, *, requester_id: int = ..., limit: int = ...
+    ) -> str: ...
     # Post a message (optionally with an embed + interactive components) to a channel —
     # backs host.discord.send for trusted extension tools. `channel` is None for the current
     # channel, or a name/id/#mention resolved within `home_guild_id`. Returns a status string.
@@ -54,6 +58,9 @@ class ToolContext:
     channel_id: int
     user_id: int
     display_name: str
+    # True when this exchange is a DM (raw guild_id 0). Lets tools offer own-DM recall
+    # without mistaking it for a guild channel. cfg_guild is still the DM's home guild.
+    is_dm: bool = False
     actions: DiscordActions | None = None
     # tool name -> async handler(args, ctx), supplied per-reply for enabled
     # extensions (olisar/extensions). execute_tool dispatches to these first.
@@ -215,8 +222,12 @@ _DECLARATIONS = [
             "Post a message to a specific server channel on the user's behalf — use when "
             "they ask you to send, relay, announce, or drop something in a named channel "
             "(e.g. 'tell #general the event is live', even from a DM). Identify the channel "
-            "by name (fuzzy — 'general' matches '💬│general-chat'), a <#id> mention, or its "
-            "numeric id. It only works if the person asking can post there themselves. You "
+            "by name (fuzzy — 'general' matches '💬│general-chat', 'moderator' matches "
+            "'🔨┃moderator'), a <#id> mention, or its numeric id. You do NOT need the exact "
+            "name or emoji — pass the distinctive word and let it resolve; don't ask the user "
+            "to spell out the channel, just call this and relay what it says (it tells you if "
+            "a name is ambiguous or missing). It only works if the person asking can post "
+            "there themselves. You "
             "may include @everyone/@here or role pings if they ask, but those only actually "
             "notify people when the requester is a server admin and the server permits it — "
             "otherwise they're shown without pinging. Don't use this to reply to the channel "
@@ -447,8 +458,25 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return block or "Nothing found in the knowledge base."
 
         if name == "search_messages":
+            # DMs live in the guild-0 bucket, separate from the server index. DM content is
+            # only ever recalled inside a DM (never surfaced into a public channel): there, a
+            # server admin may recall across ALL DMs, and anyone else only their own DM
+            # history — never another member's private DMs. In a normal channel, no DM access.
+            extra_guilds: list[int] = []
+            dm_channel: int | None = None
+            if ctx.is_dm:
+                if ctx.actions is not None and await ctx.actions.is_admin(
+                    ctx.user_id, ctx.cfg_guild
+                ):
+                    extra_guilds = [0]
+                else:
+                    dm_channel = ctx.channel_id
             block = await search_messages(
-                ctx.session, guild_id=ctx.cfg_guild, query=args.get("query", "")
+                ctx.session,
+                guild_id=ctx.cfg_guild,
+                query=args.get("query", ""),
+                extra_guild_ids=extra_guilds,
+                dm_channel_id=dm_channel,
             )
             return block or "No matching messages found in the server's history."
 

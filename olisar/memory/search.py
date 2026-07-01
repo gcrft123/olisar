@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.context import name_map
@@ -62,6 +62,7 @@ class _Cand:
     bm25: float | None = None
     vec_distance: float | None = None
     keyword: bool = False     # matched via FTS or context LIKE
+    is_dm: bool = False        # from the guild-0 DM bucket — rendered as "DM", no jump link
     score: float = field(default=0.0)
 
     @property
@@ -87,22 +88,51 @@ def sanitize_fts_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in tokens)
 
 
-async def _fts_pass(session: AsyncSession, guild_id: int, fts_query: str) -> list[_Cand]:
+def _scope_orm(model, guilds: list[int], dm_channels: list[int]):
+    """ORM predicate: rows in one of ``guilds`` OR (for own-DM recall) in a specific
+    DM ``channel``. Channel ids are globally unique snowflakes, so the channel arm can't
+    pull in the wrong guild's messages."""
+    cond = model.guild_id.in_(guilds)
+    return or_(cond, model.channel_id.in_(dm_channels)) if dm_channels else cond
+
+
+def _scope_sql(guilds: list[int], dm_channels: list[int], table: str = "search_message"):
+    """The same scope for a raw SQL pass — a ``(guild_id IN (…) OR channel_id IN (…))``
+    fragment plus its bound params (named so they can't collide with :q/:k)."""
+    params: dict = {}
+    gph = []
+    for i, g in enumerate(guilds):
+        params[f"sg{i}"] = g
+        gph.append(f":sg{i}")
+    frag = f"{table}.guild_id IN ({','.join(gph)})"
+    if dm_channels:
+        cph = []
+        for i, c in enumerate(dm_channels):
+            params[f"sc{i}"] = c
+            cph.append(f":sc{i}")
+        frag = f"({frag} OR {table}.channel_id IN ({','.join(cph)}))"
+    return frag, params
+
+
+async def _fts_pass(
+    session: AsyncSession, guilds: list[int], dm_channels: list[int], fts_query: str
+) -> list[_Cand]:
     if not fts_query:
         return []
+    scope, scope_params = _scope_sql(guilds, dm_channels)
     rows = (
         await session.execute(
             text(
                 "SELECT search_message.channel_id, search_message.channel_name, "
                 "search_message.author_name, search_message.content, "
                 "search_message.created_at, search_message.message_id, "
-                "bm25(search_message_fts) AS score "
+                "search_message.guild_id, bm25(search_message_fts) AS score "
                 "FROM search_message_fts "
                 "JOIN search_message ON search_message.id = search_message_fts.rowid "
-                "WHERE search_message_fts MATCH :q AND search_message.guild_id = :g "
+                "WHERE search_message_fts MATCH :q AND " + scope + " "
                 "ORDER BY score LIMIT :k"
             ),
-            {"q": fts_query, "g": guild_id, "k": FTS_K},
+            {"q": fts_query, "k": FTS_K, **scope_params},
         )
     ).all()
     out: list[_Cand] = []
@@ -115,14 +145,17 @@ async def _fts_pass(session: AsyncSession, guild_id: int, fts_query: str) -> lis
                 content=r[3] or "",
                 created_at=_msg_time(r[5], r[4]),
                 message_id=int(r[5]) if r[5] is not None else None,
-                bm25=float(r[6]),
+                bm25=float(r[7]),
+                is_dm=(int(r[6]) == 0),
                 keyword=True,
             )
         )
     return out
 
 
-async def _vec_pass(session: AsyncSession, guild_id: int, query: str) -> list[_Cand]:
+async def _vec_pass(
+    session: AsyncSession, guilds: list[int], dm_channels: list[int], query: str
+) -> list[_Cand]:
     qvec = await embed_query(query) if query.strip() else []
     if not qvec:
         return []
@@ -134,7 +167,7 @@ async def _vec_pass(session: AsyncSession, guild_id: int, query: str) -> list[_C
         await session.scalars(
             select(Message).where(
                 Message.id.in_(list(dist.keys())),
-                Message.guild_id == guild_id,
+                _scope_orm(Message, guilds, dm_channels),
                 Message.author_is_bot == False,  # noqa: E712
             )
         )
@@ -151,6 +184,7 @@ async def _vec_pass(session: AsyncSession, guild_id: int, query: str) -> list[_C
             created_at=_msg_time(m.message_id, m.created_at),
             message_id=m.message_id,
             vec_distance=dist.get(m.id),
+            is_dm=(m.guild_id == 0),
         )
         for m in rows
         if (m.content or "").strip()
@@ -158,14 +192,14 @@ async def _vec_pass(session: AsyncSession, guild_id: int, query: str) -> list[_C
 
 
 async def _context_pass(
-    session: AsyncSession, guild_id: int, tokens: list[str]
+    session: AsyncSession, guilds: list[int], dm_channels: list[int], tokens: list[str]
 ) -> list[_Cand]:
     if not tokens:
         return []
     rows = (
         await session.scalars(
             select(ChannelContextItem)
-            .where(ChannelContextItem.guild_id == guild_id)
+            .where(_scope_orm(ChannelContextItem, guilds, dm_channels))
             .order_by(ChannelContextItem.id.desc())
             .limit(400)
         )
@@ -182,6 +216,7 @@ async def _context_pass(
                     content=it.content or "",
                     created_at=_msg_time(it.message_id, it.created_at),
                     message_id=it.message_id,
+                    is_dm=(it.guild_id == 0),
                     keyword=True,
                 )
             )
@@ -275,18 +310,31 @@ def _snippet(content: str) -> str:
 
 
 async def search_messages(
-    session: AsyncSession, *, guild_id: int, query: str, k: int = FINAL_K
+    session: AsyncSession,
+    *,
+    guild_id: int,
+    query: str,
+    k: int = FINAL_K,
+    extra_guild_ids: list[int] | None = None,
+    dm_channel_id: int | None = None,
 ) -> str:
-    """Search the whole server's message history. Returns a rendered candidate
-    block (with Discord jump-links) for the model to read and synthesize, or ''."""
+    """Search the server's message history. Returns a rendered candidate block (with
+    Discord jump-links) for the model to read and synthesize, or ''.
+
+    ``extra_guild_ids`` widens the search to more buckets — pass ``[0]`` (the DM bucket)
+    for a server admin, so they can recall across every DM. ``dm_channel_id`` adds one
+    specific DM channel regardless of guild, for own-DM recall by a non-admin in their DM.
+    DM hits render as "DM · <author>" without a jump-link (they're private 1:1s)."""
+    guilds = [guild_id, *(extra_guild_ids or [])]
+    dm_channels = [dm_channel_id] if dm_channel_id else []
     fts_query = sanitize_fts_query(query)
     tokens = [t.strip('"') for t in fts_query.split(" OR ") if t]
 
     passes: list[list[_Cand]] = []
     for runner in (
-        _fts_pass(session, guild_id, fts_query),
-        _vec_pass(session, guild_id, query),
-        _context_pass(session, guild_id, tokens),
+        _fts_pass(session, guilds, dm_channels, fts_query),
+        _vec_pass(session, guilds, dm_channels, query),
+        _context_pass(session, guilds, dm_channels, tokens),
     ):
         try:
             passes.append(await runner)
@@ -298,14 +346,18 @@ async def search_messages(
         return ""
 
     labels = await _channel_labels(
-        session, guild_id, {c.channel_id for c in cands if not c.channel_name}
+        session, guild_id, {c.channel_id for c in cands if not c.channel_name and not c.is_dm}
     )
 
     lines: list[str] = []
     for c in cands:
-        ch = c.channel_name or labels.get(c.channel_id) or str(c.channel_id)
         who = c.author_name or "someone"
         date = c.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        if c.is_dm:
+            # Private 1:1 DM — no jump-link (only the participant could open it anyway).
+            lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"')
+            continue
+        ch = c.channel_name or labels.get(c.channel_id) or str(c.channel_id)
         link = (
             f" · https://discord.com/channels/{guild_id}/{c.channel_id}/{c.message_id}"
             if c.message_id
