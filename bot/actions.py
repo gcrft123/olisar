@@ -8,6 +8,7 @@ message to react to.
 from __future__ import annotations
 
 import io
+import re
 
 import discord
 
@@ -43,17 +44,44 @@ def _resolve_member(guild: discord.Guild, query: str) -> discord.Member | None:
     return None
 
 
+# Structural words people wrap a channel reference in ("the moderator channel", "send to
+# X", "#moderator with an emoji"). Dropped when forming the "core" query so the meaningful
+# words survive. Safe to be generous: the un-stripped form is always tried too.
+_CHANNEL_FILLER = {
+    "the", "a", "an", "this", "that", "my", "our", "your", "please", "send", "sends",
+    "post", "posts", "message", "msg", "in", "into", "to", "named", "name", "called",
+    "with", "emoji", "server", "channel", "channels", "chan",
+}
+
+
 def _norm(s: str) -> str:
     """Lowercase, keep only alphanumerics — so '💬│general-chat' normalizes to
     'generalchat', letting a loose reference like 'general' match a decorated name."""
     return "".join(c for c in (s or "").lower() if c.isalnum())
 
 
+def _significant_tokens(s: str) -> list[str]:
+    """The meaningful words of a loose reference — alphanumeric tokens minus filler."""
+    return [t for t in re.findall(r"[0-9a-z]+", (s or "").lower()) if t not in _CHANNEL_FILLER]
+
+
+def _query_forms(raw: str) -> list[str]:
+    """Normalized query forms to match against, deduped: the whole thing, and just the
+    meaningful words. 'moderator channel' / 'moderator with an emoji' both yield
+    'moderator', so a decorated '🔨┃moderator' matches even with extra words around it."""
+    forms: list[str] = []
+    for f in (_norm(raw), "".join(_significant_tokens(raw))):
+        if f and f not in forms:
+            forms.append(f)
+    return forms
+
+
 def _match_text_channels(guild: discord.Guild, raw: str) -> list:
     """Rank a guild's postable text channels against a loose reference — a numeric id, a
-    <#id> mention, or a (possibly partial, emoji/prefix-decorated) name. Exact name wins,
-    then normalized-equal, then normalized-substring ranked by prefix and brevity. Empty
-    if nothing matches."""
+    <#id> mention, or a (possibly partial, emoji/prefix/filler-decorated) name. Order:
+    exact name, normalized-equal (either query form), then bidirectional normalized-
+    substring (query inside a name beats a name inside the query), then a last-resort
+    word-prefix pass ('mods' → moderator). Empty if nothing matches."""
     raw = (raw or "").strip().strip("<#>").lstrip("#").strip()
     if not raw:
         return []
@@ -65,15 +93,44 @@ def _match_text_channels(guild: discord.Guild, raw: str) -> list:
     exact = [c for c in chans if c.name.lower() == low]
     if exact:
         return exact
-    nq = _norm(raw)
-    if not nq:
+    forms = _query_forms(raw)
+    if not forms:
         return []
-    normeq = [c for c in chans if _norm(c.name) == nq]
+    normeq = [c for c in chans if _norm(c.name) in forms]
     if normeq:
         return normeq
-    contains = [c for c in chans if nq in _norm(c.name)]
-    contains.sort(key=lambda c: (not _norm(c.name).startswith(nq), len(c.name)))
-    return contains
+    scored = []
+    for c in chans:
+        cn = _norm(c.name)
+        if not cn:
+            continue
+        best = None
+        for f in forms:
+            if f in cn:                       # the query sits inside the channel name
+                cand = (0, abs(len(cn) - len(f)))
+            elif len(cn) >= 3 and cn in f:    # the channel name sits inside the query
+                cand = (1, abs(len(cn) - len(f)))
+            else:
+                continue
+            if best is None or cand < best:
+                best = cand
+        if best is not None:
+            scored.append((best[0], best[1], len(c.name), c))
+    if scored:
+        scored.sort(key=lambda x: (x[0], x[1], x[2]))
+        return [c for *_, c in scored]
+    toks = [t for t in _significant_tokens(raw) if len(t) >= 3]
+    if toks:
+        hits = []
+        for c in chans:
+            cn = _norm(c.name)
+            n = sum(1 for t in toks if cn.startswith(t))
+            if n:
+                hits.append((-n, len(c.name), c))
+        if hits:
+            hits.sort(key=lambda x: (x[0], x[1]))
+            return [c for *_, c in hits]
+    return []
 
 
 def _format_activities(member: discord.Member) -> str:
@@ -167,15 +224,13 @@ class BotActions:
         matches = _match_text_channels(guild, ref)
         if not matches:
             return f"I couldn't find a channel matching {ref or channel!r} in {guild.name}."
-        # Pick a confident winner, or ask when several partial matches are equally plausible.
-        low, nq = ref.lower(), _norm(ref)
-        exacts = [m for m in matches if m.name.lower() == low or _norm(m.name) == nq]
-        prefixes = [m for m in matches if _norm(m.name).startswith(nq)]
-        if len(exacts) == 1:
-            target = exacts[0]
-        elif not exacts and len(prefixes) == 1:
-            target = prefixes[0]
-        elif not exacts and len(matches) == 1:
+        # _match_text_channels ranks best-first. Post to it when there's a single hit or one
+        # clear normalized-name winner; otherwise ask which, so we never post to the wrong one.
+        forms = _query_forms(ref)
+        normeq = [m for m in matches if _norm(m.name) in forms]
+        if len(normeq) == 1:
+            target = normeq[0]
+        elif len(matches) == 1:
             target = matches[0]
         else:
             names = ", ".join("#" + m.name for m in matches[:6])
@@ -246,6 +301,55 @@ class BotActions:
         if not lines:
             return "Nobody's in a voice channel right now."
         return "In voice right now —\n" + "\n".join(lines)
+
+    async def is_admin(self, user_id: int, guild_id: int) -> bool:
+        """Whether ``user_id`` is a server admin (Manage Server) in ``guild_id`` — the same
+        bar the access layer uses (bot/access.py). False when the guild or member can't be
+        resolved (e.g. a DM from a non-member)."""
+        guild = self.bot.get_guild(int(guild_id)) if guild_id else None
+        if guild is None:
+            return False
+        member = guild.get_member(int(user_id))
+        if member is None:
+            try:
+                member = await guild.fetch_member(int(user_id))
+            except Exception:  # noqa: BLE001
+                return False
+        perms = getattr(member, "guild_permissions", None)
+        return bool(perms and perms.manage_guild)
+
+    async def channel_directory(
+        self, guild_id: int, *, requester_id: int = 0, limit: int = 80
+    ) -> str:
+        """A compact 'name (id …)' listing of the guild's text channels, injected into
+        context so the model can map a loose reference to the real channel + id itself —
+        the same trick people_directory uses for users, and far more robust than string
+        matching. Scoped to channels both the bot and (when resolvable) the requester can
+        see, so it never reveals a private channel the asker can't access. '' if none."""
+        guild = self.bot.get_guild(int(guild_id)) if guild_id else None
+        if guild is None:
+            return ""
+        me = guild.me
+        member = guild.get_member(int(requester_id)) if requester_id else None
+
+        def _visible(c) -> bool:
+            if me is not None and not c.permissions_for(me).view_channel:
+                return False
+            if member is not None and not c.permissions_for(member).view_channel:
+                return False
+            return True
+
+        chans = [c for c in guild.text_channels if _visible(c)]
+        if not chans:
+            return ""
+        shown = chans[:limit]
+        entries = ", ".join(f"#{c.name} (id {c.id})" for c in shown)
+        more = "" if len(chans) <= limit else f", and {len(chans) - limit} more"
+        return (
+            "Channels in this server (name -> id) — to post somewhere with send_to_channel, "
+            "match the user's wording to one of these and pass its id: "
+            + entries + more + "."
+        )
 
     def _resolve_channel(self, channel: object, home_guild_id: int):
         """The target channel for post_components: the current channel when ``channel`` is

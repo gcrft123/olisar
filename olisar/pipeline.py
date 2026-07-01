@@ -402,6 +402,16 @@ async def generate_reply(
     except Exception:
         log.exception("people directory build failed; continuing without it")
 
+    # A channel directory (name -> id) so Olisar maps a loose channel reference to the real
+    # channel itself and posts by id via send_to_channel — instead of guessing at a name.
+    if actions is not None:
+        try:
+            channels = await actions.channel_directory(cfg_guild, requester_id=user_id)
+            if channels:
+                system_instruction += "\n\n" + channels
+        except Exception:
+            log.exception("channel directory build failed; continuing without it")
+
     # Semantic recall — best-effort; a failure here must not block the reply.
     try:
         recalled = await recall(
@@ -441,6 +451,7 @@ async def generate_reply(
         channel_id=channel_id,
         user_id=user_id,
         display_name=display_name,
+        is_dm=guild_id == 0,
         actions=actions,
         extension_tools=ext.handlers,
     )
