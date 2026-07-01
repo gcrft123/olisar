@@ -187,6 +187,7 @@ export default function App() {
               className={'nav-item' + (active ? ' active' : '')}
               role="button"
               tabIndex={0}
+              data-tab={n.id}
               aria-current={active ? 'page' : undefined}
               onClick={() => setTab(n.id)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id) } }}
