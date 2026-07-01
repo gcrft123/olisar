@@ -168,6 +168,7 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "summary_token_threshold": c.summary_token_threshold,
             "glossary_mine_token_threshold": c.glossary_mine_token_threshold,
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
+            "context_message_limit": c.context_message_limit,
             "presence_tools_enabled": c.presence_tools_enabled,
             "blocked_mentions": list(c.blocked_mentions or []),
             "allowed_role_ids": [str(r) for r in (c.allowed_role_ids or [])],
@@ -725,6 +726,36 @@ async def delete_fact(fact_id: int, gctx: GuildContext = Depends(require_guild_a
             target_type="guild_fact", target_id=fact_id,
         )
     return {"ok": True}
+
+
+@router.post("/facts/mine")
+async def mine_facts(gctx: GuildContext = Depends(require_guild_admin)) -> dict:
+    """Mine new glossary facts from recent conversational memory on demand — the same
+    extraction the background worker runs, but triggered now and threshold-free."""
+    from olisar.memory.maintenance import mine_glossary_now
+
+    result = await mine_glossary_now(gctx.guild_id)
+    async with session_scope() as session:
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="mine_glossary",
+            target_type="guild", target_id=gctx.guild_id, after=result,
+        )
+    return result
+
+
+@router.post("/facts/mine-index")
+async def deep_mine_facts(gctx: GuildContext = Depends(require_guild_admin)) -> dict:
+    """Deep-mine glossary facts from the full message search index (every channel) — a
+    broader sweep than conversational memory alone, useful for a one-off backfill."""
+    from olisar.memory.maintenance import deep_mine_glossary_now
+
+    result = await deep_mine_glossary_now(gctx.guild_id)
+    async with session_scope() as session:
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="deep_mine_glossary",
+            target_type="guild", target_id=gctx.guild_id, after=result,
+        )
+    return result
 
 
 @router.get("/stats")

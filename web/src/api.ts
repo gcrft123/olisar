@@ -167,6 +167,8 @@ export const api = {
   getFacts: () => req('/api/facts'),
   addFact: (b: any) => req('/api/facts', { method: 'POST', body: JSON.stringify(b) }),
   deleteFact: (id: number) => req(`/api/facts/${id}`, { method: 'DELETE' }),
+  mineFacts: () => req('/api/facts/mine', { method: 'POST' }),
+  deepMineFacts: () => req('/api/facts/mine-index', { method: 'POST' }),
 
   // Enclosed test chat: persona + KB + tools, no memory. Send the full transcript.
   sandboxChat: (messages: { role: string; content: string }[]) =>

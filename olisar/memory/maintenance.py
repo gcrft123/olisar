@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
@@ -26,6 +26,7 @@ from olisar.db.models import (
     GuildConfig,
     KBChunk,
     Message,
+    SearchMessage,
     UserMemory,
     UserProfile,
 )
@@ -42,6 +43,10 @@ log = logging.getLogger("olisar.maintenance")
 EMBED_BATCH = 50
 GLOSSARY_MINE_MIN_MESSAGES = 6
 GLOSSARY_MINE_BATCH = 200
+# Bounds for the operator-triggered (manual) glossary mines, so one console click stays
+# a snappy, finite pass rather than churning the whole history at once.
+GLOSSARY_MANUAL_MEMORY_CAP = 400   # un-mined conversational messages per "mine from memory"
+GLOSSARY_MANUAL_INDEX_CAP = 600    # indexed messages sampled per "deep mine from index"
 
 
 def _text_of(row) -> str:
@@ -177,6 +182,119 @@ async def run_glossary() -> None:
                     m.fact_mined = True
         except Exception:
             log.exception("glossary mining failed for channel %s", channel_id)
+
+
+async def mine_glossary_now(guild_id: int) -> dict:
+    """Operator-triggered glossary mine over un-mined conversational memory (the
+    ``message`` table) for one guild — the same extraction the background worker runs,
+    but on demand and threshold-free. Bounded to ``GLOSSARY_MANUAL_MEMORY_CAP`` messages
+    per call; returns how many facts were added, how many messages were mined, and how
+    many un-mined remain (so the console can invite another pass)."""
+    # 1) Read the batch in one short transaction. Only memory/both channels — the same
+    #    scope the auto pass respects, so channels set to "don't remember" stay excluded.
+    async with session_scope() as session:
+        channel_ids = (
+            await session.scalars(
+                select(ChannelAllowlist.channel_id).where(
+                    ChannelAllowlist.guild_id == guild_id,
+                    ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+                )
+            )
+        ).all()
+        if not channel_ids:
+            return {"ok": True, "added": 0, "mined": 0, "remaining": 0}
+        rows = [
+            m
+            for m in (
+                await session.scalars(
+                    select(Message)
+                    .where(
+                        Message.channel_id.in_(channel_ids),
+                        Message.fact_mined == False,  # noqa: E712
+                        Message.author_is_bot == False,  # noqa: E712
+                    )
+                    .order_by(Message.created_at.asc())
+                    .limit(GLOSSARY_MANUAL_MEMORY_CAP)
+                )
+            ).all()
+            if (m.content or "").strip()
+        ]
+        if not rows:
+            return {"ok": True, "added": 0, "mined": 0, "remaining": 0}
+        names = await name_map(session, {m.author_id for m in rows})
+        items = [(m.id, m.author_id, m.content) for m in rows]
+
+    # 2) Mine in batches, each its own short transaction (model call + writes) — mirrors
+    #    the per-channel auto pass so no write lock is held across many network calls.
+    added_total = mined_total = 0
+    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
+        batch = items[i : i + GLOSSARY_MINE_BATCH]
+        transcript = "\n".join(
+            f"{names.get(aid, str(aid))}: {content}" for (_id, aid, content) in batch
+        )
+        async with session_scope() as session:
+            added_total += await extract_and_store_facts(
+                session, guild_id=guild_id, channel_id=None, transcript=transcript
+            )
+            await session.execute(
+                update(Message)
+                .where(Message.id.in_([mid for (mid, _a, _c) in batch]))
+                .values(fact_mined=True)
+            )
+        mined_total += len(batch)
+
+    # 3) Report how much un-mined memory is left.
+    async with session_scope() as session:
+        remaining = await session.scalar(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.channel_id.in_(channel_ids),
+                Message.fact_mined == False,  # noqa: E712
+                Message.author_is_bot == False,  # noqa: E712
+            )
+        )
+    return {
+        "ok": True,
+        "added": added_total,
+        "mined": mined_total,
+        "remaining": int(remaining or 0),
+    }
+
+
+async def deep_mine_glossary_now(guild_id: int) -> dict:
+    """Operator-triggered DEEP glossary mine over the full message search index (the
+    ``search_message`` table, which spans EVERY channel — including ones excluded from
+    conversational memory). Samples the most recent ``GLOSSARY_MANUAL_INDEX_CAP`` messages
+    and mines them in batches. Nothing is flagged (the index has no mined marker), and
+    re-running is safe: upsert dedups and merely reinforces facts already known."""
+    async with session_scope() as session:
+        rows = (
+            await session.scalars(
+                select(SearchMessage)
+                .where(SearchMessage.guild_id == guild_id)
+                .order_by(SearchMessage.created_at.desc())
+                .limit(GLOSSARY_MANUAL_INDEX_CAP)
+            )
+        ).all()
+        items = [
+            (s.author_name or str(s.author_id), s.content)
+            for s in rows
+            if (s.content or "").strip()
+        ]
+    if not items:
+        return {"ok": True, "added": 0, "sampled": 0}
+    items.reverse()  # oldest-first, so the model reads the sample chronologically
+
+    added_total = 0
+    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
+        batch = items[i : i + GLOSSARY_MINE_BATCH]
+        transcript = "\n".join(f"{name}: {content}" for (name, content) in batch)
+        async with session_scope() as session:
+            added_total += await extract_and_store_facts(
+                session, guild_id=guild_id, channel_id=None, transcript=transcript
+            )
+    return {"ok": True, "added": added_total, "sampled": len(items)}
 
 
 async def run_personas() -> None:
