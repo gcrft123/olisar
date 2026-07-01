@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from api.schemas import TunnelEnableIn
 from api.trust import is_local_request
 from olisar import runtime_config
+from olisar.config import settings
 from olisar.runtime.paths import tailscale_state_dir
 
 log = logging.getLogger("olisar.api.tunnel")
@@ -41,6 +42,9 @@ async def status(request: Request) -> dict:
         "available": mgr is not None,
         "running": bool(mgr and mgr.running),
         "helper": bool(funnel_helper_path()),  # is the Funnel binary bundled?
+        # Headless (server) deployments manage the funnel from env, so the console hides
+        # the on/off toggle and treats remote access as always-on.
+        "headless": settings.headless,
         "hostname": await runtime_config.tunnel_hostname(),
         "public_url": await runtime_config.public_base_url(),
     }

@@ -257,9 +257,12 @@ function Remote() {
   const st = data?.status
   const url = (st?.public_url || '').replace(/\/$/, '')
   const isWeb = /^https:\/\//.test(url)
+  // A headless server deployment (Docker / cloud VM) starts the funnel automatically from
+  // its env-configured Tailscale key — it's always on and can't be driven from the console.
+  const headless = !!st?.headless
   // The funnel can only be toggled when the bundled helper is present; flipping it on
   // re-uses the auth key saved during first-run setup (no key → the backend tells us).
-  const canToggle = !!st?.available && !!st?.helper
+  const canToggle = !!st?.available && !!st?.helper && !headless
   const toggle = async (on: boolean) => {
     setBusy(true)
     try {
@@ -293,7 +296,11 @@ function Remote() {
               {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} />}
             </div>
           </div>
-          {canToggle && (
+          {headless ? (
+            <p className="settings-foot">
+              Remote access is managed by the server — the Tailscale Funnel starts automatically from its configured key, so it’s always on and can’t be toggled from here.
+            </p>
+          ) : canToggle && (
             <p className="settings-foot">
               {st?.running
                 ? 'The funnel is live. Turning it off closes the public link; you can still reach the console locally.'

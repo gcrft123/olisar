@@ -186,7 +186,14 @@ async def run(host: str, port: int) -> None:
             runtime_config.local_base_url(),
             str(tailscale_state_dir()),
         )
-        if not ok:
+        if ok and msg.startswith("http"):
+            # Persist so public_base_url() / the OAuth redirect resolve to the public
+            # …ts.net host. The headless auto-start never goes through /api/tunnel/enable
+            # (which is what normally records this), so the console would otherwise keep
+            # seeing the loopback URL — Remote access stuck on "Starting…", sidebar "off".
+            host = msg.replace("https://", "").replace("http://", "").rstrip("/")
+            await runtime_config.save(tunnel_enabled=True, tunnel_hostname=host)
+        elif not ok:
             log.warning("Funnel auto-start skipped: %s", msg)
 
     # Trust X-Forwarded-* from the Tailscale Funnel sidecar (a local-only reverse proxy
