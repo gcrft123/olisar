@@ -2166,7 +2166,11 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
   const W = 940, H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
   const n = labels.length
   const dataMax = Math.max(1, ...series.flatMap((s) => s.values))
-  const yMax = Math.max(limit * 1.06, dataMax * 1.18)
+  // Zoom to the data with headroom above the top point; only let the limit lift the scale
+  // when it sits just above the data, so a far-off cap doesn't squash the lines.
+  let yMax = dataMax * 1.18
+  if (limit > 0 && limit <= dataMax * 1.25) yMax = Math.max(yMax, limit * 1.06)
+  const limitInRange = limit > 0 && limit <= yMax
   const xAt = (i: number) => (n <= 1 ? x0 : x0 + ((x1 - x0) * i) / (n - 1))
   const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
   const primary = series[0]
@@ -2182,8 +2186,14 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
         </g>
       ))}
       <text className="u-axis" x={x0 - 8} y={y0 + 3} textAnchor="end">0</text>
-      <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
-      <text className="u-limit-txt" x={x0 + 4} y={yAt(limit) - 5}>RPD limit · {limit.toLocaleString()} / model</text>
+      {limitInRange ? (
+        <>
+          <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
+          <text className="u-limit-txt" x={x0 + 4} y={yAt(limit) - 5}>RPD limit · {limit.toLocaleString()} / model</text>
+        </>
+      ) : (
+        <text className="u-limit-txt" x={x1} y={y1 + 9} textAnchor="end">RPD limit · {limit.toLocaleString()} / model</text>
+      )}
       {primary && <path className={'u-area ' + primary.cls} d={`${uSmooth(primary.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} L${x1} ${y0} L${x0} ${y0} Z`} />}
       {series.slice().reverse().map((s) => (
         <path key={s.key} className={'u-line ' + s.cls + (s === primary ? ' primary' : '')} d={uSmooth(s.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} />
@@ -2205,15 +2215,24 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
 function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit: number; limitLabel: string; cls: string }) {
   const W = 440, H = 138, x0 = 8, x1 = W - 8, y0 = H - 16, y1 = 22
   const n = values.length
-  const yMax = Math.max(limit * 1.08, Math.max(1, ...values) * 1.2)
+  const dataMax = Math.max(1, ...values)
+  let yMax = dataMax * 1.2
+  if (limit > 0 && limit <= dataMax * 1.25) yMax = Math.max(yMax, limit * 1.06)
+  const limitInRange = limit > 0 && limit <= yMax
   const xAt = (i: number) => (n <= 1 ? x1 : x0 + ((x1 - x0) * i) / (n - 1))
   const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
   const pts = values.map((v, i) => ({ x: xAt(i), y: yAt(v) }))
   return (
     <svg className={'u-chart ' + cls} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: H }}>
       <line className="u-grid" x1={x0} y1={y0} x2={x1} y2={y0} />
-      <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
-      <text className="u-limit-txt" x={x1} y={yAt(limit) - 5} textAnchor="end">{limitLabel}</text>
+      {limitInRange ? (
+        <>
+          <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
+          <text className="u-limit-txt" x={x1} y={yAt(limit) - 5} textAnchor="end">{limitLabel}</text>
+        </>
+      ) : (
+        <text className="u-limit-txt" x={x1} y={y1 + 9} textAnchor="end">{limitLabel}</text>
+      )}
       <path className="u-area" d={`${uSmooth(pts)} L${x1} ${y0} L${x0} ${y0} Z`} />
       <path className="u-line" d={uSmooth(pts)} />
     </svg>
@@ -2221,7 +2240,7 @@ function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit:
 }
 
 function DonutChart({ items, total, unit }: { items: { label: string; value: number; tip?: string }[]; total: number; unit: string }) {
-  const size = 190, c = size / 2, r = 74, sw = 16, gap = 20
+  const size = 190, c = size / 2, r = 74, sw = 16, gapPx = 8
   const C = 2 * Math.PI * r
   const priced = items.filter((it) => it.value > 0).map((it) => ({ ...it, frac: it.value / (total || 1) }))
   // Fold negligible (<5%) slices into one "Other" so tiny arcs don't overlap. The
@@ -2237,19 +2256,31 @@ function DonutChart({ items, total, unit }: { items: { label: string; value: num
   } else {
     base = priced
   }
-  let acc = 0
-  const segs = base.map((s, i) => {
-    const start = acc
-    acc += s.frac
-    return { ...s, start, cls: s.label === 'Other' ? 'us-mut' : U_SERIES[i % U_SERIES.length] }
+  // Give every slice a minimum rendered arc so tiny ones don't collapse under the round
+  // caps and overlap; pay for that surplus by shrinking the largest slice, so the ring
+  // stays 360° and roughly in proportion (the legend keeps the true percentages).
+  const drawable = C - base.length * gapPx
+  const minArc = sw + 3
+  const arcs = base.map((s) => ({ ...s, arc: s.frac * drawable }))
+  let deficit = 0
+  for (const a of arcs) if (a.arc < minArc) { deficit += minArc - a.arc; a.arc = minArc }
+  if (deficit > 0) {
+    const big = arcs.reduce((x, y) => (y.arc > x.arc ? y : x))
+    big.arc = Math.max(minArc, big.arc - deficit)
+  }
+  let cursor = 0
+  const segs = arcs.map((s, i) => {
+    const startPx = cursor
+    cursor += s.arc + gapPx
+    return { ...s, startPx, cls: s.label === 'Other' ? 'us-mut' : U_SERIES[i % U_SERIES.length] }
   })
   return (
     <div className="u-donut-wrap">
       <svg className="u-donut" viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
         <circle cx={c} cy={c} r={r} fill="none" className="u-donut-track" strokeWidth={sw} />
         {segs.map((s) => {
-          const dash = Math.max(2, s.frac * C - gap)
-          const rot = s.start * 360 - 90 + (gap / 2 / C) * 360
+          const dash = Math.max(0.5, s.arc - sw)
+          const rot = ((s.startPx + sw / 2) / C) * 360 - 90
           return (
             <circle key={s.label} cx={c} cy={c} r={r} fill="none" className={'u-donut-seg ' + s.cls}
               strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${dash} ${C - dash}`}
