@@ -102,53 +102,60 @@ async def embed_pending() -> int:
     return total
 
 
-async def run_summaries() -> None:
-    guild_id = settings.target_guild_id
-    try:
-        async with session_scope() as session:
-            config = await session.get(GuildConfig, guild_id)
-            threshold = config.summary_token_threshold if config else 4000
-            channel_ids = (
-                await session.scalars(
-                    select(ChannelAllowlist.channel_id).where(
-                        ChannelAllowlist.guild_id == guild_id,
-                        ChannelAllowlist.unsummarized_tokens >= threshold,
-                    )
-                )
-            ).all()
-    except Exception:
-        log.exception("failed to scan channels for summarization")
-        return
+def _memory_guilds() -> list[int]:
+    """Guilds the background passes cover: the configured target guild, plus DMs (guild 0),
+    which are stored as their own channels. Deduped, target first."""
+    return list(dict.fromkeys([settings.target_guild_id, 0]))
 
-    for channel_id in channel_ids:
-        async with session_scope() as session:
-            await maybe_summarize_channel(
-                session, guild_id=guild_id, channel_id=channel_id, threshold=threshold
-            )
+
+async def run_summaries() -> None:
+    for guild_id in _memory_guilds():
+        try:
+            async with session_scope() as session:
+                config = await session.get(GuildConfig, guild_id)
+                threshold = config.summary_token_threshold if config else 4000
+                channel_ids = (
+                    await session.scalars(
+                        select(ChannelAllowlist.channel_id).where(
+                            ChannelAllowlist.guild_id == guild_id,
+                            ChannelAllowlist.unsummarized_tokens >= threshold,
+                        )
+                    )
+                ).all()
+        except Exception:
+            log.exception("failed to scan channels for summarization (guild %s)", guild_id)
+            continue
+
+        for channel_id in channel_ids:
+            async with session_scope() as session:
+                await maybe_summarize_channel(
+                    session, guild_id=guild_id, channel_id=channel_id, threshold=threshold
+                )
 
 
 async def run_glossary() -> None:
     """Mine un-mined messages in memory/both channels for durable guild facts once a
     channel has accumulated enough un-mined text. Independent of summarization and on
     a much lower threshold, so the glossary grows actively."""
-    guild_id = settings.target_guild_id
-    try:
-        async with session_scope() as session:
-            config = await session.get(GuildConfig, guild_id)
-            threshold = config.glossary_mine_token_threshold if config else 1500
-            channel_ids = (
-                await session.scalars(
-                    select(ChannelAllowlist.channel_id).where(
-                        ChannelAllowlist.guild_id == guild_id,
-                        ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+    targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
+    for guild_id in _memory_guilds():
+        try:
+            async with session_scope() as session:
+                config = await session.get(GuildConfig, guild_id)
+                threshold = config.glossary_mine_token_threshold if config else 1500
+                channel_ids = (
+                    await session.scalars(
+                        select(ChannelAllowlist.channel_id).where(
+                            ChannelAllowlist.guild_id == guild_id,
+                            ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+                        )
                     )
-                )
-            ).all()
-    except Exception:
-        log.exception("failed to scan channels for glossary mining")
-        return
+                ).all()
+            targets.extend((guild_id, cid, threshold) for cid in channel_ids)
+        except Exception:
+            log.exception("failed to scan channels for glossary mining (guild %s)", guild_id)
 
-    for channel_id in channel_ids:
+    for guild_id, channel_id, threshold in targets:
         try:
             async with session_scope() as session:
                 msgs = [
@@ -298,25 +305,27 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
 
 
 async def run_personas() -> None:
-    guild_id = settings.target_guild_id
-    try:
-        async with session_scope() as session:
-            config = await session.get(GuildConfig, guild_id)
-            threshold = config.user_persona_msg_threshold if config else 15
-            user_ids = (
-                await session.scalars(
-                    select(UserProfile.user_id).where(
-                        UserProfile.guild_id == guild_id,
-                        UserProfile.memory_opt_out == False,  # noqa: E712
-                        UserProfile.messages_since_persona >= threshold,
+    targets: list[tuple[int, int, int]] = []  # (guild_id, user_id, threshold)
+    for guild_id in _memory_guilds():
+        try:
+            async with session_scope() as session:
+                config = await session.get(GuildConfig, guild_id)
+                threshold = config.user_persona_msg_threshold if config else 15
+                user_ids = (
+                    await session.scalars(
+                        select(UserProfile.user_id).where(
+                            UserProfile.guild_id == guild_id,
+                            UserProfile.memory_opt_out == False,  # noqa: E712
+                            UserProfile.dm_opt_out == False,  # noqa: E712
+                            UserProfile.messages_since_persona >= threshold,
+                        )
                     )
-                )
-            ).all()
-    except Exception:
-        log.exception("failed to scan users for persona synthesis")
-        return
+                ).all()
+            targets.extend((guild_id, uid, threshold) for uid in user_ids)
+        except Exception:
+            log.exception("failed to scan users for persona synthesis (guild %s)", guild_id)
 
-    for user_id in user_ids:
+    for guild_id, user_id, threshold in targets:
         async with session_scope() as session:
             await maybe_build_user_persona(
                 session, guild_id=guild_id, user_id=user_id, threshold=threshold

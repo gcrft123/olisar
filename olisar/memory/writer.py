@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar.db.models import (
     ChannelAllowlist,
     ChannelMode,
+    Guild,
     GuildChannelInfo,
     Message,
     SearchMessage,
@@ -162,6 +163,26 @@ async def upsert_profile(
     return profile
 
 
+async def _ensure_dm_channel(session: AsyncSession, channel_id: int) -> None:
+    """Give a DM channel a ChannelAllowlist row (guild 0, mode=both) so the per-channel
+    summary + glossary passes treat it like any other channel. No-op if it already exists.
+
+    ChannelAllowlist.guild_id is a FK to guild.id and foreign_keys=ON, so the synthetic
+    guild-0 parent must exist first. It's marked inactive so it never shows in the console
+    server switcher or OAuth guild checks (both filter active=True); the guilds cog's
+    on_ready reconciliation leaves it inactive (id 0 is never a live Discord guild)."""
+    if await session.get(Guild, 0) is None:
+        session.add(Guild(id=0, name="Direct messages", active=False))
+        await session.flush()  # satisfy the FK before the channel_allowlist insert flushes
+    exists = await session.scalar(
+        select(ChannelAllowlist.id).where(
+            ChannelAllowlist.guild_id == 0, ChannelAllowlist.channel_id == channel_id
+        )
+    )
+    if exists is None:
+        session.add(ChannelAllowlist(guild_id=0, channel_id=channel_id, mode=ChannelMode.both))
+
+
 async def record_message(
     session: AsyncSession,
     *,
@@ -188,6 +209,8 @@ async def record_message(
         profile = await upsert_profile(session, guild_id, author_id, display_name, roles)
         if profile.memory_opt_out:
             return None  # respect opt-out: don't store their content
+        if guild_id == 0 and profile.dm_opt_out:
+            return None  # user opted their DMs out of storage + indexing
 
     # Guard against re-delivery (gateway reconnects can replay events).
     exists = await session.scalar(
@@ -206,6 +229,12 @@ async def record_message(
         reply_to_message_id=reply_to,
     )
     session.add(msg)
+
+    # Treat each DM as its own channel so the per-channel summary/glossary passes cover
+    # it — ensure its allowlist row exists (guild 0, mode=both) from the first stored
+    # (non-bot) message. "Accounted for only once a message is sent" is met by this path.
+    if guild_id == 0 and not author_is_bot:
+        await _ensure_dm_channel(session, channel_id)
 
     # Count toward this user's next persona regeneration (Phase 2 acts on it).
     if profile is not None:
@@ -256,6 +285,15 @@ async def record_search_message(
     )
     if opted_out:
         return False
+    # DMs: also honour the per-user DM opt-out (kept on the guild-0 profile).
+    if guild_id == 0:
+        dm_opted = await session.scalar(
+            select(UserProfile.dm_opt_out).where(
+                UserProfile.user_id == author_id, UserProfile.guild_id == 0
+            )
+        )
+        if dm_opted:
+            return False
     # Dedup on the Discord id (gateway re-delivery, or backfill overlapping live).
     exists = await session.scalar(
         select(SearchMessage.id).where(SearchMessage.message_id == message_id)

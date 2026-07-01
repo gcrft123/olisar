@@ -27,6 +27,11 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
         "and cleared your profile."
     ),
     "forget_me_optout": "i'll stop recording your messages from now on.",
+    "dm_indexing": (
+        "DM saving & indexing is now **{state}**. When on, I remember and search our DMs "
+        "like a channel; when off, I don't store or index them (use `/forget-me` to also "
+        "delete what's already saved)."
+    ),
     "proactive": (
         "proactive chiming is now **{state}** (level: **{level}**). i'll only "
         "speak up in channels i can talk in, with cooldowns so i don't flood."
@@ -47,11 +52,13 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
         "like 'what's the server's X account?'. If this server has turned on status "
         "& voice awareness, I can also check your current Discord status, activity, or "
         "which voice channel you're in when someone asks — but I read that live in the "
-        "moment and never store it. I never share your DMs or private content "
-        "publicly.\n\n"
-        "• `/forget-me` — delete everything I've stored about you (including the "
-        "search index).\n"
-        "• `/forget-me stop_remembering:true` — delete it **and** stop recording you."
+        "moment and never store it. I also **store and index our DMs** — so I can hold "
+        "context with you across conversations — unless you turn that off. I never share "
+        "your DMs or private content publicly.\n\n"
+        "• `/forget-me` — delete everything I've stored about you (including the search "
+        "index and DMs).\n"
+        "• `/forget-me stop_remembering:true` — delete it **and** stop recording you.\n"
+        "• `/dm-indexing enabled:false` — stop saving & indexing your DMs specifically."
     ),
 }
 
@@ -63,6 +70,7 @@ PLACEHOLDERS: dict[str, list[str]] = {
     "learn_site": ["url", "depth", "max_pages"],
     "learn_doc": ["filename"],
     "forget_me": ["messages", "facts"],
+    "dm_indexing": ["state"],
 }
 
 
