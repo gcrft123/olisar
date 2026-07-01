@@ -182,6 +182,7 @@ async def extract_and_store_facts(
             model=settings.gemini_lite_model,
             temperature=0.2,
             max_output_tokens=600,
+            source="glossary",
         )
     except RateLimitExceeded:
         return 0

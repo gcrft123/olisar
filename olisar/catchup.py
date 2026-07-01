@@ -107,6 +107,7 @@ async def generate_catchup(
             model=settings.gemini_lite_model,
             temperature=0.3,
             max_output_tokens=600,
+            source="catchup",
         )
     except RateLimitExceeded:
         return "I'm rate-limited right now — try the catch-up again in a minute."
