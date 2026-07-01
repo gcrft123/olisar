@@ -345,7 +345,7 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
   return (
     <div className={'server-switch' + (open ? ' open' : '')} ref={ref}>
       {icon(current)}
-      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open} title="Switch server">
+      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
         <span className="server-name">{current.name}</span>
         <Icon.chevron size={14} className="server-chev" />
       </button>
