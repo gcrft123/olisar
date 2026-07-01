@@ -22,6 +22,7 @@ from api.routers.marketplace import router as marketplace_router
 from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
 from api.routers.tunnel import router as tunnel_router
+from api.routers.usage import router as usage_router
 from olisar.runtime.paths import web_dist_dir
 
 
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(setup_router)
     app.include_router(tunnel_router)
     app.include_router(settings_router)
+    app.include_router(usage_router)
 
     @app.get("/api/health")
     async def health(request: Request):

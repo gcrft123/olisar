@@ -64,6 +64,7 @@ class Presence(commands.Cog):
                 system_instruction=si,
                 temperature=1.0,
                 max_output_tokens=30,
+                source="status",
             )
             # Collapse any whitespace/newlines into one line, drop wrapping quotes.
             text = " ".join((result.text or "").split()).strip('"').strip()[:128]

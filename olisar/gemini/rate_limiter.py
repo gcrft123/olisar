@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from olisar.db.engine import session_scope
-from olisar.db.models import GeminiUsage
+from olisar.db.models import GeminiUsage, UsageMinutePeak, UsageSource
 from olisar.gemini.models import rpm_for
 
 log = logging.getLogger("olisar.gemini.ratelimit")
@@ -45,6 +45,8 @@ class RateLimiter:
     def __init__(self) -> None:
         self._calls: dict[str, deque[float]] = defaultdict(deque)
         self._cooldown_until: dict[str, float] = {}
+        # Global (all-model) rolling 60s window of (timestamp, tokens), for peak TPM.
+        self._tokens: deque[tuple[float, int]] = deque()
 
     def _clean(self, model: str, now: float) -> None:
         dq = self._calls[model]
@@ -60,6 +62,38 @@ class RateLimiter:
         if len(self._calls[model]) >= rpm_for(model):
             return "rpm_full"
         return "ok"
+
+    def current(self, model: str) -> int:
+        """Requests made against ``model`` in the last 60s — its instantaneous RPM."""
+        now = time.monotonic()
+        self._clean(model, now)
+        return len(self._calls[model])
+
+    def record_tokens(self, tokens: int) -> int:
+        """Add a call's tokens to the global 60s window and return the current sum
+        (tokens-per-minute right now), for peak-TPM accounting."""
+        now = time.monotonic()
+        self._tokens.append((now, tokens))
+        while self._tokens and now - self._tokens[0][0] >= 60.0:
+            self._tokens.popleft()
+        return sum(t for _, t in self._tokens)
+
+    def snapshot(self) -> list[dict]:
+        """Live per-model RPM for the dashboard — only models that are active or cooling
+        down. Read directly by the API (bot + API share this process, so this singleton is
+        the live source of truth)."""
+        now = time.monotonic()
+        out: list[dict] = []
+        for model in list(self._calls.keys()):
+            self._clean(model, now)
+            used = len(self._calls[model])
+            cooling = self._cooldown_until.get(model, 0.0) > now
+            if used or cooling:
+                out.append(
+                    {"model": model, "rpm": used, "cap": rpm_for(model), "cooldown": cooling}
+                )
+        out.sort(key=lambda r: r["rpm"] / max(r["cap"], 1), reverse=True)
+        return out
 
     def reserve(self, model: str) -> None:
         self._calls[model].append(time.monotonic())
@@ -88,9 +122,17 @@ class RateLimiter:
             return
 
 
-async def record_usage(model: str, tokens: int, grounding: int = 0) -> None:
-    """Persist per-day usage for the dashboard. Best-effort — never blocks a reply."""
+async def record_usage(
+    model: str, tokens: int, grounding: int = 0, source: str = "other"
+) -> None:
+    """Persist per-day usage for the dashboard. Best-effort — never blocks a reply.
+
+    Records three things off the same call: the per-model daily rollup (with the day's
+    peak RPM), the per-process request tally (``source``), and the day's peak TPM."""
     try:
+        limiter = get_rate_limiter()
+        rpm = limiter.current(model)          # this model's instantaneous RPM
+        tpm = limiter.record_tokens(tokens)   # global tokens-in-60s after this call
         async with session_scope() as session:
             day = datetime.now(timezone.utc).date()
             row = await session.scalar(
@@ -106,12 +148,31 @@ async def record_usage(model: str, tokens: int, grounding: int = 0) -> None:
                         request_count=1,
                         token_count=tokens,
                         grounding_count=grounding,
+                        peak_rpm=rpm,
                     )
                 )
             else:
                 row.request_count += 1
                 row.token_count += tokens
                 row.grounding_count += grounding
+                if rpm > row.peak_rpm:
+                    row.peak_rpm = rpm
+
+            srow = await session.scalar(
+                select(UsageSource).where(
+                    UsageSource.day == day, UsageSource.source == source
+                )
+            )
+            if srow is None:
+                session.add(UsageSource(day=day, source=source, request_count=1))
+            else:
+                srow.request_count += 1
+
+            peak = await session.get(UsageMinutePeak, day)
+            if peak is None:
+                session.add(UsageMinutePeak(day=day, peak_tpm=tpm))
+            elif tpm > peak.peak_tpm:
+                peak.peak_tpm = tpm
     except Exception:
         log.exception("failed to record gemini usage")
 

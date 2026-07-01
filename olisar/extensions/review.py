@@ -100,6 +100,7 @@ async def review_source(
             system_instruction=_SYSTEM,
             max_output_tokens=700,
             temperature=0.2,
+            source="review",
         )
     except Exception:  # noqa: BLE001 - never brick publish/install on a model hiccup
         log.warning("extension review call failed", exc_info=True)

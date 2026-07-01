@@ -96,6 +96,7 @@ async def classify(transcript: str) -> tuple[bool, float, str]:
         model=settings.gemini_lite_model,
         temperature=0.1,
         max_output_tokens=120,
+        source="proactivity",
     )
     data = _parse_json(result.text)
     return (
@@ -148,6 +149,7 @@ async def pick_reaction_emoji(transcript: str) -> str | None:
         model=settings.gemini_lite_model,
         temperature=0.4,
         max_output_tokens=12,
+        source="proactivity",
     )
     text = (result.text or "").strip()
     if not text or text.lower().startswith("none"):

@@ -88,7 +88,7 @@ class GeminiClient:
 
     async def _raw_generate(
         self, *, contents, config, model: str, chain: list[str] | None = None,
-        thinking_budget: int | None = None,
+        thinking_budget: int | None = None, source: str = "other",
     ):
         """Generate, walking the model fallback chain. The first immediately
         available model is used; if it errors transiently — a 429 (rate limit) or a
@@ -141,7 +141,7 @@ class GeminiClient:
                 if resp.usage_metadata is not None
                 else 0
             ) or 0
-            await record_usage(candidate, tokens)
+            await record_usage(candidate, tokens, source=source)
             if candidate != chain[0]:
                 log.info(
                     "used fallback model %s (preferred %s unavailable)",
@@ -163,6 +163,7 @@ class GeminiClient:
         temperature: float = 0.9,
         max_output_tokens: int = 1024,
         thinking_budget: int | None = 0,
+        source: str = "other",
     ) -> GenResult:
         model = model or settings.gemini_chat_model
         config = types.GenerateContentConfig(
@@ -171,7 +172,8 @@ class GeminiClient:
             max_output_tokens=max_output_tokens,
         )
         resp = await self._raw_generate(
-            contents=contents, config=config, model=model, thinking_budget=thinking_budget
+            contents=contents, config=config, model=model,
+            thinking_budget=thinking_budget, source=source,
         )
         tokens = (
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
@@ -189,6 +191,7 @@ class GeminiClient:
         max_output_tokens: int = 2048,
         force_text: bool = False,
         thinking_budget: int | None = 1024,
+        source: str = "other",
     ):
         """One tool-enabled turn. Returns the raw response so the caller can read
         `.function_calls`. Automatic function calling is disabled — we run the
@@ -218,7 +221,8 @@ class GeminiClient:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
         return await self._raw_generate(
-            contents=contents, config=config, model=model, thinking_budget=thinking_budget
+            contents=contents, config=config, model=model,
+            thinking_budget=thinking_budget, source=source,
         )
 
     async def caption_images(
@@ -247,6 +251,7 @@ class GeminiClient:
             config=config,
             model=chain[0],
             chain=chain,
+            source="vision",
         )
         return safe_text(resp)
 
@@ -271,7 +276,7 @@ class GeminiClient:
         tokens = (
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
         ) or 0
-        await record_usage(model, tokens, grounding=1)
+        await record_usage(model, tokens, grounding=1, source="grounding")
 
         sources: list[str] = []
         try:

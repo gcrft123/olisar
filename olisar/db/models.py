@@ -782,3 +782,31 @@ class GeminiUsage(Base):
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     grounding_count: Mapped[int] = mapped_column(Integer, default=0)
+    # The highest requests-in-any-60s window this model reached on this day — the day's
+    # peak RPM, compared against the model's cap on the Usage dashboard.
+    peak_rpm: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class UsageSource(Base):
+    """Per-day request counts attributed to the *process* that made the call
+    (conversation, summary, persona, glossary, embed, vision, grounding, …). Powers the
+    Usage dashboard's "by process" breakdown — where the model quota is actually going."""
+
+    __tablename__ = "usage_source"
+    __table_args__ = (UniqueConstraint("day", "source", name="uq_usage_day_source"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[datetime] = mapped_column(Date, index=True)
+    source: Mapped[str] = mapped_column(String(32))
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class UsageMinutePeak(Base):
+    """Per-day peak of the global tokens-in-any-60s window (peak TPM). Requests-per-minute
+    is shown live from the in-memory limiter; tokens-per-minute isn't tracked there, so its
+    daily peak is persisted here for the dashboard's TPM view."""
+
+    __tablename__ = "usage_minute_peak"
+
+    day: Mapped[datetime] = mapped_column(Date, primary_key=True)
+    peak_tpm: Mapped[int] = mapped_column(Integer, default=0)

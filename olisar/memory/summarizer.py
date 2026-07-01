@@ -70,6 +70,7 @@ async def maybe_summarize_channel(
             model=settings.gemini_lite_model,
             temperature=0.3,
             max_output_tokens=400,
+            source="summary",
         )
     except RateLimitExceeded:
         return False  # try again next tick

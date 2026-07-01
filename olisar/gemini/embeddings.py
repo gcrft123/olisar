@@ -42,7 +42,7 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
                 task_type=task_type, output_dimensionality=settings.embed_dim
             ),
         )
-        await record_usage(model, 0)  # embeddings don't report token counts
+        await record_usage(model, 0, source="embed")  # embeddings don't report token counts
         out.extend(_normalize(e.values) for e in resp.embeddings)
     return out
 

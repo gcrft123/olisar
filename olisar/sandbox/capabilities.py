@@ -360,5 +360,6 @@ async def _generate(inv: Invocation, opts: dict) -> str:
     result = await get_gemini().generate(
         contents=[types.Content(role="user", parts=[types.Part(text=task)])],
         system_instruction=system, max_output_tokens=max_tokens,
+        source="extension",
     )
     return (result.text or "").strip()
