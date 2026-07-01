@@ -700,7 +700,7 @@ export function Knowledge() {
         {factRows.map((f) => (
           <div className="list-row" key={f.id}>
             <div className="grow">
-              <div className="title">{f.fact}</div>
+              <div className="title" data-tip={f.fact}>{f.fact}</div>
               <div className="meta">
                 {f.subject && <span className="tag">{f.subject}</span>}
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}
