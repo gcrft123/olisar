@@ -421,7 +421,10 @@ to them — that's separate from this persona, and it's wiped by \`/forget-me\` 
     id: 'behavior',
     title: 'Behavior & proactivity',
     body: `
-The [Behavior](tab:behavior) tab controls engagement and which model Olisar uses.
+The [Behavior](tab:behavior) tab is where you shape how Olisar engages: when it decides a message is
+meant for it, which model it thinks with, how much of the conversation it holds in mind, and whether it
+ever speaks up on its own. Everything here is **per server** and takes effect on the **next reply** — no
+restart.
 
 ## Triggers
 
@@ -457,18 +460,28 @@ lighting up the whole server. **All roles** additionally stops it from pinging a
   **daily cap** because the free tier's grounding quota is small.
 - **Grounding daily cap** — how many grounded lookups per day before it stops and answers from what it
   knows.
+
+## Memory & summaries
+
+How much Olisar keeps in the moment, and how it distills conversation into durable, long-term memory.
+- **Context window (messages)** — how many of the most recent messages in a channel Olisar pulls into
+  view when it replies. This is its **short-term** memory of the conversation in front of it: a higher
+  number lets it follow longer back-and-forths, but every message rides along on each reply, so it costs
+  more tokens. Anything older than the window isn't forgotten — it comes back through summaries and
+  semantic memory. Defaults to 12.
 - **Summary token threshold** — once a channel accumulates this much unsummarized conversation, Olisar
   rolls it into a durable summary it can recall later. Lower = summarizes more often (more quota); higher
   = summarizes less.
-- **Glossary mining threshold** — how much fresh conversation a channel needs before Olisar mines new
-  glossary facts from it. Lower = a faster-growing glossary (more quota).
-- **Persona rebuild (msgs)** — after this many new messages from a person, Olisar refreshes the private
-  profile it keeps of them.
+- **Glossary mine threshold** — how much fresh conversation a channel needs before Olisar mines new
+  glossary facts from it. Lower = a faster-growing glossary (more quota). You can also trigger a mine by
+  hand from [Knowledge → Glossary](tab:knowledge).
+- **Persona rebuild (messages)** — after this many new messages from a person, Olisar refreshes the
+  private profile it keeps of them.
 
 :::tip Tuning for the free tier
-If you're hitting rate limits, raise the summary threshold (fewer background summary calls), keep the
-grounding cap modest, and consider starting the model chain lower (e.g. a Flash-Lite) so the busy
-top-tier models aren't your first hop.
+If you're hitting rate limits, trim the context window a little, raise the summary threshold (fewer
+background summary calls), keep the grounding cap modest, and consider starting the model chain lower
+(e.g. a Flash-Lite) so the busy top-tier models aren't your first hop.
 :::
 
 ## Proactivity
