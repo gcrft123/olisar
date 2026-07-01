@@ -116,6 +116,7 @@ async def _synthesize(
             model=settings.gemini_lite_model,
             temperature=0.3,
             max_output_tokens=320,
+            source="persona",
         )
     except RateLimitExceeded:
         return None

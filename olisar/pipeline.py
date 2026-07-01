@@ -207,6 +207,7 @@ async def _complete_truncated(
                 tools=tools,
                 model=model,
                 force_text=True,
+                source="conversation",
             )
         except Exception:
             log.exception("continuation %d after truncation failed; sending the partial", n + 1)
@@ -241,6 +242,7 @@ async def _force_final_answer(
             tools=tools,
             model=model,
             force_text=True,
+            source="conversation",
         )
         text = _response_text(resp)
         if text:
@@ -258,6 +260,7 @@ async def _force_final_answer(
                 system_instruction=nudged,
                 model=model,
                 max_output_tokens=1024,  # match the other chat paths so this fallback isn't the one that cuts off
+                source="conversation",
             )
             if result.text:
                 return result.text
@@ -286,6 +289,7 @@ async def _run_tool_loop(
             system_instruction=system_instruction,
             tools=tools,
             model=model,
+            source="conversation",
         )
         calls = _function_calls(resp)
         if not calls:
