@@ -224,6 +224,8 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 
 **IconButton** — a 34×34 square (default ghost) for toolbar/row actions. On hover/focus it shows an instant dark tooltip pill (with a small downward arrow). Set a **confirm** behavior so that on click of a copy/confirm action the glyph swaps to a green `check-circle` briefly (pop animation), then reverts.
 
+**Tooltips are for icon-only controls only.** The hover tooltip (`data-tip`, or a `title` the host migrates to one) exists to name a control that has no visible text label — i.e. an **IconButton**. Do **not** put `data-tip`/`title` on text buttons, selectors, tabs, or other labelled controls: their label already says what they do, so a tooltip is redundant noise. Add one to a labelled control only when explicitly asked.
+
 ### TextField, TextArea & Select
 
 `.input` = **TextField**, `.textarea` = **TextArea**, `.select` = **Select** (add a custom chevron via a background SVG; `appearance: none`).

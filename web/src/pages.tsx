@@ -688,10 +688,10 @@ export function Knowledge() {
         <SaveBar saver={factAdder} label="Add fact" />
         <div className="settings-subhead">Mine for facts</div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          <button onClick={() => mine('memory')} disabled={!!mining} data-tip="Extract facts from what Olisar already remembers" aria-label="Mine glossary from memory">
+          <button onClick={() => mine('memory')} disabled={!!mining}>
             <Icon.bolt size={15} /> {mining === 'memory' ? 'Mining…' : 'Mine from memory'}
           </button>
-          <button onClick={() => mine('index')} disabled={!!mining} data-tip="Deeper sweep across the whole message search index" aria-label="Deep mine glossary from index">
+          <button onClick={() => mine('index')} disabled={!!mining}>
             <Icon.search size={15} /> {mining === 'index' ? 'Mining…' : 'Deep mine from index'}
           </button>
         </div>
