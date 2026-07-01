@@ -31,6 +31,10 @@ class DiscordActions(Protocol):
     async def set_status(self, text: str) -> str: ...
     async def react(self, emoji: str) -> str: ...
     async def send_dm(self, user_id: int, text: str) -> str: ...
+    async def send_channel(
+        self, channel: object, text: str, *, home_guild_id: int, requester_id: int,
+        blocked_mentions: list | None = None,
+    ) -> str: ...
     async def send_image(self, data: bytes, *, filename: str = ..., caption: str = ...) -> str: ...
     async def user_status(self, query: str, guild_id: int) -> str: ...
     async def who_in_voice(self, guild_id: int) -> str: ...
@@ -203,6 +207,30 @@ _DECLARATIONS = [
                 "message": _str("the message to send privately"),
             },
             required=["message"],
+        ),
+    ),
+    types.FunctionDeclaration(
+        name="send_to_channel",
+        description=(
+            "Post a message to a specific server channel on the user's behalf — use when "
+            "they ask you to send, relay, announce, or drop something in a named channel "
+            "(e.g. 'tell #general the event is live', even from a DM). Identify the channel "
+            "by name (fuzzy — 'general' matches '💬│general-chat'), a <#id> mention, or its "
+            "numeric id. It only works if the person asking can post there themselves. You "
+            "may include @everyone/@here or role pings if they ask, but those only actually "
+            "notify people when the requester is a server admin and the server permits it — "
+            "otherwise they're shown without pinging. Don't use this to reply to the channel "
+            "you're already in — just answer normally there."
+        ),
+        parameters=_obj(
+            {
+                "channel": _str(
+                    "the target channel: a name (partial/fuzzy is fine), a <#id> mention, "
+                    "or a numeric channel id"
+                ),
+                "message": _str("the exact message text to post in that channel"),
+            },
+            ["channel", "message"],
         ),
     ),
     types.FunctionDeclaration(
@@ -488,6 +516,19 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "Can't send DMs from here."
             target = args.get("user_id") or ctx.user_id
             return await ctx.actions.send_dm(target, args.get("message") or "")
+
+        if name == "send_to_channel":
+            if ctx.actions is None:
+                return "Can't post to channels from here."
+            cfg = await ctx.session.get(GuildConfig, ctx.cfg_guild)
+            blocked = list(cfg.blocked_mentions or []) if cfg else []
+            return await ctx.actions.send_channel(
+                args.get("channel") or "",
+                args.get("message") or "",
+                home_guild_id=ctx.cfg_guild,
+                requester_id=ctx.user_id,
+                blocked_mentions=blocked,
+            )
 
         if name == "get_user_status":
             if ctx.actions is None:

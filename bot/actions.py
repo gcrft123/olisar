@@ -11,7 +11,7 @@ import io
 
 import discord
 
-from bot.replies import chunk_text
+from bot.replies import chunk_text, mention_policy, sanitize_mentions
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -41,6 +41,39 @@ def _resolve_member(guild: discord.Guild, query: str) -> discord.Member | None:
         if m.display_name.lower().startswith(low) or m.name.lower().startswith(low):
             return m
     return None
+
+
+def _norm(s: str) -> str:
+    """Lowercase, keep only alphanumerics — so '💬│general-chat' normalizes to
+    'generalchat', letting a loose reference like 'general' match a decorated name."""
+    return "".join(c for c in (s or "").lower() if c.isalnum())
+
+
+def _match_text_channels(guild: discord.Guild, raw: str) -> list:
+    """Rank a guild's postable text channels against a loose reference — a numeric id, a
+    <#id> mention, or a (possibly partial, emoji/prefix-decorated) name. Exact name wins,
+    then normalized-equal, then normalized-substring ranked by prefix and brevity. Empty
+    if nothing matches."""
+    raw = (raw or "").strip().strip("<#>").lstrip("#").strip()
+    if not raw:
+        return []
+    if raw.isdigit():
+        ch = guild.get_channel(int(raw))
+        return [ch] if ch is not None and hasattr(ch, "send") else []
+    chans = list(guild.text_channels)
+    low = raw.lower()
+    exact = [c for c in chans if c.name.lower() == low]
+    if exact:
+        return exact
+    nq = _norm(raw)
+    if not nq:
+        return []
+    normeq = [c for c in chans if _norm(c.name) == nq]
+    if normeq:
+        return normeq
+    contains = [c for c in chans if nq in _norm(c.name)]
+    contains.sort(key=lambda c: (not _norm(c.name).startswith(nq), len(c.name)))
+    return contains
 
 
 def _format_activities(member: discord.Member) -> str:
@@ -111,6 +144,81 @@ class BotActions:
         except Exception as exc:  # noqa: BLE001
             return f"couldn't DM {user.display_name}: {exc}"
 
+    async def send_channel(
+        self, channel: object, text: str, *, home_guild_id: int, requester_id: int,
+        blocked_mentions: list | None = None,
+    ) -> str:
+        """Post plain text to a named channel on a user's behalf — the backing action for
+        the send_to_channel tool. Resolves the channel loosely (name/id/#mention) within
+        the home guild, and only posts when the *requester* may post there themselves, so
+        nobody can use Olisar to reach a channel they're locked out of.
+
+        @everyone/@here/role pings only fire when the requester is a server admin (Manage
+        Server) AND the server's mention policy (``blocked_mentions``) allows that type —
+        otherwise those mentions are neutralised (shown, but they don't ping). Non-admins
+        never mass-ping through Olisar. Ordinary user mentions always pass through."""
+        text = (text or "").strip()
+        if not text:
+            return "there's no message to send"
+        guild = self.bot.get_guild(int(home_guild_id)) if home_guild_id else None
+        if guild is None:
+            return "I can't tell which server to post in from here."
+        ref = str(channel or "").strip().strip("<#>").lstrip("#").strip()
+        matches = _match_text_channels(guild, ref)
+        if not matches:
+            return f"I couldn't find a channel matching {ref or channel!r} in {guild.name}."
+        # Pick a confident winner, or ask when several partial matches are equally plausible.
+        low, nq = ref.lower(), _norm(ref)
+        exacts = [m for m in matches if m.name.lower() == low or _norm(m.name) == nq]
+        prefixes = [m for m in matches if _norm(m.name).startswith(nq)]
+        if len(exacts) == 1:
+            target = exacts[0]
+        elif not exacts and len(prefixes) == 1:
+            target = prefixes[0]
+        elif not exacts and len(matches) == 1:
+            target = matches[0]
+        else:
+            names = ", ".join("#" + m.name for m in matches[:6])
+            return f"a few channels could match {ref!r} — which did you mean? {names}"
+        try:
+            member = guild.get_member(int(requester_id)) if requester_id else None
+        except (TypeError, ValueError):
+            member = None
+        if member is None and requester_id:
+            try:
+                member = await guild.fetch_member(int(requester_id))
+            except Exception:  # noqa: BLE001
+                member = None
+        if member is None:
+            return "I can only post on behalf of someone who's a member of that server."
+        uperms = target.permissions_for(member)
+        if not (uperms.view_channel and uperms.send_messages):
+            return (
+                f"you don't have permission to post in #{target.name}, "
+                "so I won't do it for you."
+            )
+        bperms = target.permissions_for(guild.me)
+        if not (bperms.view_channel and bperms.send_messages):
+            return f"I don't have permission to post in #{target.name}."
+        # Mass mentions are admin-only, and then only for types the server allows. For a
+        # non-admin we block every type; for an admin we honour the guild's blocked_mentions
+        # exactly as Olisar's own replies do (sanitize neutralises @everyone/@here text,
+        # mention_policy gates roles). Ordinary user pings always pass.
+        is_admin = bool(getattr(getattr(member, "guild_permissions", None), "manage_guild", False))
+        effective_blocked = (
+            list(blocked_mentions or []) if is_admin else ["everyone", "here", "roles"]
+        )
+        body = sanitize_mentions(text, effective_blocked)
+        mentions = mention_policy(effective_blocked)
+        try:
+            for chunk in chunk_text(body):
+                await target.send(chunk, allowed_mentions=mentions)
+        except discord.Forbidden:
+            return f"I don't have permission to post in #{target.name}."
+        except Exception as exc:  # noqa: BLE001
+            return f"couldn't post in #{target.name}: {exc}"
+        return f"Posted your message in #{target.name}."
+
     async def user_status(self, query: str, guild_id: int) -> str:
         """A member's live presence (status + current game/app), for the
         situational-awareness tool. Read on demand, never stored."""
@@ -150,11 +258,8 @@ class BotActions:
         guild = self.bot.get_guild(int(home_guild_id)) if home_guild_id else None
         if guild is None:
             return None
-        name = raw.lower()
-        for ch in guild.text_channels:
-            if ch.name.lower() == name:
-                return ch
-        return None
+        matches = _match_text_channels(guild, raw)
+        return matches[0] if matches else None
 
     async def post_components(
         self, *, channel: object = None, content: object = None, embed: object = None,
