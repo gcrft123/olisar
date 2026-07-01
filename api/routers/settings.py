@@ -13,6 +13,7 @@ from api.auth.deps import require_admin
 from api.routers.marketplace import _registry_error, _registry_post
 from api.schemas import DesktopSettingsIn, FeedbackIn
 from olisar import logbuffer, runtime_config
+from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, AppConfig
 from olisar.updates import check_latest
@@ -62,6 +63,9 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
         "available": mgr is not None,
         "running": bool(mgr and mgr.running),
         "helper": bool(funnel_helper_path()),
+        # In a headless server deployment the funnel is env-managed (always on); the
+        # console uses this to hide the on/off toggle it can't drive here.
+        "headless": settings.headless,
         "hostname": await runtime_config.tunnel_hostname(),
         "public_url": await runtime_config.public_base_url(),
     }
