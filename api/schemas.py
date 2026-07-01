@@ -151,6 +151,7 @@ class ConfigIn(BaseModel):
     summary_token_threshold: int | None = None
     glossary_mine_token_threshold: int | None = None
     user_persona_msg_threshold: int | None = None
+    context_message_limit: int | None = None
     presence_tools_enabled: bool | None = None
     # Mention types the bot may not ping: any of "everyone", "here", "roles".
     blocked_mentions: list[str] | None = None

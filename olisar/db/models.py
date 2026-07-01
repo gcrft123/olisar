@@ -153,6 +153,10 @@ class GuildConfig(Base):
     glossary_mine_token_threshold: Mapped[int] = mapped_column(Integer, default=1500)
     # Regenerate a user's persona after this many new messages from them.
     user_persona_msg_threshold: Mapped[int] = mapped_column(Integer, default=15)
+    # How many recent channel messages Olisar pulls into each reply's working context
+    # (the short-term recall window). Higher = more immediate context but more tokens
+    # per reply. Defaults to 12, the pipeline's historical hard-coded window.
+    context_message_limit: Mapped[int] = mapped_column(Integer, default=12)
     # Situational-awareness tools (get_user_status / who_is_in_voice) read members'
     # live Discord presence — privileged + sensitive, so opt-in per server and
     # disclosed in /privacy. Off by default.
