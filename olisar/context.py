@@ -107,6 +107,7 @@ async def build_contents(
     current_text: str,
     current_images: list[tuple[bytes, str]] | None = None,
     reply_to: tuple[str, str] | None = None,
+    recent_window: int | None = None,
 ) -> tuple[list, set[int]]:
     """Return Gemini `contents` (recent history + new message) and the set of
     Discord message ids included, so semantic recall can skip duplicates.
@@ -116,7 +117,12 @@ async def build_contents(
 
     ``reply_to`` is ``(author, text)`` of the message the new one replies to; it's
     folded into the new turn as a quoted prefix so the model is *aware* of the reply
-    target. The judgement of whether it matters is left to the model (CONTEXT_NOTE)."""
+    target. The judgement of whether it matters is left to the model (CONTEXT_NOTE).
+
+    ``recent_window`` overrides how many recent messages to include (the per-guild
+    ``context_message_limit``); ``None`` falls back to the default. Clamped to a sane
+    range so a bad config value can't blow up (or empty) the context."""
+    window = max(1, min(recent_window or RECENT_WINDOW, 100))
     rows = (
         await session.scalars(
             select(Message)
@@ -125,7 +131,7 @@ async def build_contents(
                 Message.message_id != current_message_id,
             )
             .order_by(Message.created_at.desc())
-            .limit(RECENT_WINDOW)
+            .limit(window)
         )
     ).all()
     rows = list(reversed(rows))

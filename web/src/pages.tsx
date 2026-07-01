@@ -247,6 +247,9 @@ export function Behavior() {
         </Field>
       </Card>
       <Card title="Memory & summaries" hint="How often Olisar condenses activity into long-term memory and refreshes what it knows.">
+        <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher remembers more of the immediate conversation but costs more tokens per reply.">
+          <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} />
+        </Field>
         <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens.">
           <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} />
         </Field>
@@ -619,6 +622,23 @@ export function Knowledge() {
     setSubject(''); setFact('')
     reloadFacts()
   })
+  const [mining, setMining] = useState('')
+  const mine = async (mode: 'memory' | 'index') => {
+    setMining(mode)
+    try {
+      const r: any = mode === 'memory' ? await api.mineFacts() : await api.deepMineFacts()
+      const where = mode === 'memory' ? 'memory' : 'the search index'
+      const n = r.added || 0
+      let msg = n ? `Learned ${n} new fact${n === 1 ? '' : 's'} from ${where}.` : `No new facts found in ${where}.`
+      if (mode === 'memory' && r.remaining) msg += ` ${r.remaining} message${r.remaining === 1 ? '' : 's'} left — mine again to continue.`
+      toast(msg, n ? 'success' : 'neutral')
+      reloadFacts()
+    } catch (e: any) {
+      toast(e?.message || 'Mining failed', 'danger')
+    } finally {
+      setMining('')
+    }
+  }
 
   if (loading || lf) return <Spinner />
   const rows = data ?? []
@@ -666,6 +686,15 @@ export function Knowledge() {
           </div>
         </div>
         <SaveBar saver={factAdder} label="Add fact" />
+        <div className="settings-subhead">Mine for facts</div>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button onClick={() => mine('memory')} disabled={!!mining} data-tip="Extract facts from what Olisar already remembers" aria-label="Mine glossary from memory">
+            <Icon.bolt size={15} /> {mining === 'memory' ? 'Mining…' : 'Mine from memory'}
+          </button>
+          <button onClick={() => mine('index')} disabled={!!mining} data-tip="Deeper sweep across the whole message search index" aria-label="Deep mine glossary from index">
+            <Icon.search size={15} /> {mining === 'index' ? 'Mining…' : 'Deep mine from index'}
+          </button>
+        </div>
         <div className="settings-subhead">Glossary ({factRows.length})</div>
         {factRows.length === 0 && <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>}
         {factRows.map((f) => (
