@@ -1,7 +1,7 @@
 {
   "name": "olisar-desktop",
   "productName": "Olisar",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Olisar — a self-hosted AI Discord bot you run on your own machine.",
   "main": "main.js",
   "author": "Olisar",
