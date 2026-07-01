@@ -14,7 +14,6 @@ from pathlib import Path
 
 from sqlalchemy import delete, select
 
-from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import KBChunk, KBSource, KBSourceType, KBStatus, utcnow
 from olisar.knowledge.chunker import chunk_document
@@ -55,14 +54,15 @@ async def _replace_chunks(session, source_id: int) -> None:
 
 
 async def process_pending_sources() -> bool:
-    """Process one pending source. Returns True if a source was handled."""
-    guild_id = settings.target_guild_id
-
-    # Claim a pending source in a short transaction.
+    """Process one pending source from any guild. Returns True if a source was handled."""
+    # Claim the oldest pending source in a short transaction. Deliberately NOT guild-scoped:
+    # the console adds sources under whichever server the operator is viewing, and Discord
+    # adds them under the server the command ran in — so filtering to one target guild would
+    # strand every other server's sources on "pending" forever.
     async with session_scope() as session:
         src = await session.scalar(
             select(KBSource)
-            .where(KBSource.guild_id == guild_id, KBSource.status == KBStatus.pending)
+            .where(KBSource.status == KBStatus.pending)
             .order_by(KBSource.id)
             .limit(1)
         )
