@@ -2136,28 +2136,253 @@ export function ApiKeys() {
 }
 
 // ── Usage ───────────────────────────────────────────────────────────────────
-export function Usage() {
-  const { data, loading } = useAsync<any>(api.getStats)
-  if (loading || !data) return <Spinner />
-  const byModel = data.by_model ?? {}
+// ── Usage & rate limits ─────────────────────────────────────────────────────
+const U_SERIES = ['us0', 'us1', 'us2', 'us3', 'us4', 'us5']
+const U_RPD_LIMIT = 1500 // free-tier requests-per-day, per model — the daily limit line
+const U_SOURCE_LABEL: Record<string, string> = {
+  conversation: 'Conversation', summary: 'Summaries', persona: 'Personas', glossary: 'Glossary',
+  embed: 'Embeddings', vision: 'Vision', grounding: 'Grounding', proactivity: 'Proactivity',
+  catchup: 'Catch-up', review: 'Extension review', extension: 'Extensions', status: 'Status', other: 'Other',
+}
+// Plain-language explanations for the more technical process labels — shown as a hover
+// tooltip on that legend row (data-tip). Add entries here to explain more of them.
+const U_SOURCE_TIP: Record<string, string> = {
+  embed: 'Turning text into numeric vectors so Olisar can search its memory and knowledge base by meaning, not just exact words.',
+}
+const uShort = (m: string) => m.replace('gemini-', '').replace(/-latest$/, '').replace(/-0*(\d)/, '-$1')
+const uReq = (n: number) => (n >= 1000 ? n.toLocaleString() : String(n))
+const uTok = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n))
+function uSmooth(pts: { x: number; y: number }[]) {
+  if (!pts.length) return ''
+  let d = `M${pts[0].x} ${pts[0].y}`
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], mx = (a.x + b.x) / 2
+    d += ` C${mx} ${a.y} ${mx} ${b.y} ${b.x} ${b.y}`
+  }
+  return d
+}
+
+function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: string; values: number[] }[]; labels: string[]; limit: number }) {
+  const W = 940, H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
+  const n = labels.length
+  const dataMax = Math.max(1, ...series.flatMap((s) => s.values))
+  const yMax = Math.max(limit * 1.06, dataMax * 1.18)
+  const xAt = (i: number) => (n <= 1 ? x0 : x0 + ((x1 - x0) * i) / (n - 1))
+  const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
+  const primary = series[0]
+  const ticks = [yMax * 0.33, yMax * 0.66].map((v) => Math.round(v / 100) * 100)
+  const stride = Math.max(1, Math.ceil(n / 8))
   return (
-    <>
-      <PageHead icon="usage" title="Usage" sub="Gemini free-tier usage. Today's counts and lifetime totals per model." />
-      <Card title="Today">
-        <div className="stat-grid">
-          <div className="stat"><div className="n">{data.today.requests}</div><div className="k">requests</div></div>
-          <div className="stat"><div className="n">{data.today.grounding}</div><div className="k">web searches</div></div>
-        </div>
-      </Card>
-      <Card title="By model (lifetime)">
-        {Object.keys(byModel).length === 0 && <div className="empty">No usage recorded yet.</div>}
-        {Object.entries(byModel).map(([model, agg]: any) => (
-          <div className="list-row" key={model}>
-            <div className="grow"><div className="title mono">{model}</div></div>
-            <div className="meta">{agg.requests} reqs · {agg.tokens.toLocaleString()} tokens · {agg.grounding} searches</div>
+    <svg className="u-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: H }}>
+      <line className="u-grid" x1={x0} y1={y0} x2={x1} y2={y0} />
+      {ticks.map((v, i) => (
+        <g key={i}>
+          <line className="u-grid" x1={x0} y1={yAt(v)} x2={x1} y2={yAt(v)} strokeDasharray="2 6" />
+          <text className="u-axis" x={x0 - 8} y={yAt(v) + 3} textAnchor="end">{v >= 1000 ? v / 1000 + 'k' : v}</text>
+        </g>
+      ))}
+      <text className="u-axis" x={x0 - 8} y={y0 + 3} textAnchor="end">0</text>
+      <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
+      <text className="u-limit-txt" x={x0 + 4} y={yAt(limit) - 5}>RPD limit · {limit.toLocaleString()} / model</text>
+      {primary && <path className={'u-area ' + primary.cls} d={`${uSmooth(primary.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} L${x1} ${y0} L${x0} ${y0} Z`} />}
+      {series.slice().reverse().map((s) => (
+        <path key={s.key} className={'u-line ' + s.cls + (s === primary ? ' primary' : '')} d={uSmooth(s.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} />
+      ))}
+      {series.map((s) => {
+        const v = s.values[n - 1] || 0
+        return (
+          <g key={s.key} className={s.cls}>
+            <circle className="u-dot" cx={x1} cy={yAt(v)} r={s === primary ? 4.5 : 4} />
+            <text className="u-tag" x={x1 + 8} y={yAt(v) + 3}>{uReq(v)}</text>
+          </g>
+        )
+      })}
+      {labels.map((l, i) => (i % stride === 0 || i === n - 1 ? <text key={i} className="u-axis" x={xAt(i)} y={y0 + 18} textAnchor="middle">{l}</text> : null))}
+    </svg>
+  )
+}
+
+function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit: number; limitLabel: string; cls: string }) {
+  const W = 440, H = 138, x0 = 8, x1 = W - 8, y0 = H - 16, y1 = 22
+  const n = values.length
+  const yMax = Math.max(limit * 1.08, Math.max(1, ...values) * 1.2)
+  const xAt = (i: number) => (n <= 1 ? x1 : x0 + ((x1 - x0) * i) / (n - 1))
+  const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
+  const pts = values.map((v, i) => ({ x: xAt(i), y: yAt(v) }))
+  return (
+    <svg className={'u-chart ' + cls} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: H }}>
+      <line className="u-grid" x1={x0} y1={y0} x2={x1} y2={y0} />
+      <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
+      <text className="u-limit-txt" x={x1} y={yAt(limit) - 5} textAnchor="end">{limitLabel}</text>
+      <path className="u-area" d={`${uSmooth(pts)} L${x1} ${y0} L${x0} ${y0} Z`} />
+      <path className="u-line" d={uSmooth(pts)} />
+    </svg>
+  )
+}
+
+function DonutChart({ items, total, unit }: { items: { label: string; value: number; tip?: string }[]; total: number; unit: string }) {
+  const size = 190, c = size / 2, r = 74, sw = 16, gap = 20
+  const C = 2 * Math.PI * r
+  const priced = items.filter((it) => it.value > 0).map((it) => ({ ...it, frac: it.value / (total || 1) }))
+  // Fold negligible (<5%) slices into one "Other" so tiny arcs don't overlap. The
+  // Other legend row lists what's inside (name + share) on hover via data-tip.
+  const small = priced.filter((it) => it.frac < 0.05)
+  let base: { label: string; value: number; frac: number; tip?: string }[]
+  if (small.length >= 2) {
+    const val = small.reduce((s, x) => s + x.value, 0)
+    base = [
+      ...priced.filter((it) => it.frac >= 0.05),
+      { label: 'Other', value: val, frac: val / (total || 1), tip: small.map((x) => `${x.label} ${Math.round(x.frac * 100)}%`).join(' · ') },
+    ]
+  } else {
+    base = priced
+  }
+  let acc = 0
+  const segs = base.map((s, i) => {
+    const start = acc
+    acc += s.frac
+    return { ...s, start, cls: s.label === 'Other' ? 'us-mut' : U_SERIES[i % U_SERIES.length] }
+  })
+  return (
+    <div className="u-donut-wrap">
+      <svg className="u-donut" viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+        <circle cx={c} cy={c} r={r} fill="none" className="u-donut-track" strokeWidth={sw} />
+        {segs.map((s) => {
+          const dash = Math.max(2, s.frac * C - gap)
+          const rot = s.start * 360 - 90 + (gap / 2 / C) * 360
+          return (
+            <circle key={s.label} cx={c} cy={c} r={r} fill="none" className={'u-donut-seg ' + s.cls}
+              strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${dash} ${C - dash}`}
+              transform={`rotate(${rot} ${c} ${c})`} />
+          )
+        })}
+        <text x={c} y={c - 2} textAnchor="middle" className="u-donut-total">{uReq(total)}</text>
+        <text x={c} y={c + 15} textAnchor="middle" className="u-donut-sub">{unit}</text>
+      </svg>
+      <div className="u-donut-legend">
+        {segs.map((s) => (
+          <div className={'u-dl ' + s.cls} key={s.label} data-tip={s.tip} aria-label={s.tip ? `${s.label}: ${s.tip}` : undefined}>
+            <span className="d" /><span className="nm">{s.label}</span>
+            <span className="v">{uReq(s.value)}</span>
+            <span className="pc">{Math.round(s.frac * 100)}%</span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+export function Usage() {
+  const [days, setDays] = useState(7)
+  const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
+  const [live, setLive] = useState<any>(null)
+  useEffect(() => {
+    let on = true
+    const pull = () => api.getUsageLive().then((d: any) => { if (on) setLive(d) }).catch(() => {})
+    pull()
+    const id = setInterval(pull, 4000)
+    return () => { on = false; clearInterval(id) }
+  }, [])
+  if (loading || !data) return <Spinner />
+
+  const models: any[] = data.by_model || []
+  const clsFor: Record<string, string> = {}
+  models.forEach((m, i) => { clsFor[m.model] = U_SERIES[i % U_SERIES.length] })
+  const daily: any[] = data.daily || []
+  const labels = daily.map((d) => new Date(d.day + 'T00:00:00Z').toLocaleDateString(undefined, { weekday: 'short' }))
+  const chartSeries = models.filter((m) => m.requests > 0).slice(0, 6).map((m) => ({ key: m.model, cls: clsFor[m.model], values: daily.map((d) => d.by_model[m.model] || 0) }))
+  const last = daily[daily.length - 1] || { requests: 0, tokens: 0 }
+  const prev = daily[daily.length - 2] || { requests: 0, tokens: 0 }
+  const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : 0)
+  const peak = data.peak || { rpm: {}, tpm: 0, tpm_limit: 1000000 }
+  const tpmLimit = peak.tpm_limit || 1000000
+  const tpmSeries = daily.map((d) => d.peak_tpm || 0)
+  const bySource: any[] = data.by_source || []
+  const srcTotal = bySource.reduce((s, x) => s + x.requests, 0) || 1
+  const liveModels: any[] = (live && live.models) || []
+  const delta = (p: number) => (<span className={p >= 0 ? 'up' : 'dn'}>{p >= 0 ? '+' : ''}{p}%</span>)
+  const tf: [string, number][] = [['Today', 1], ['7 days', 7], ['30 days', 30]]
+  const rpmHot = !!(peak.rpm && peak.rpm.cap && peak.rpm.value / peak.rpm.cap > 0.75)
+
+  return (
+    <>
+      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call Olisar makes — by model, by day, and what's driving it." />
+      <div className="u-tfrow">
+        <div className="useg">{tf.map(([l, d]) => (<button key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>))}</div>
+      </div>
+
+      <div className="u-kpis">
+        <Card>
+          <div className="u-eyebrow">Requests · today</div>
+          <div className="u-big">{uReq(last.requests)}</div>
+          <div className="u-delta">{delta(pct(last.requests, prev.requests))} vs yesterday</div>
+        </Card>
+        <Card>
+          <div className="u-eyebrow">Tokens · today</div>
+          <div className="u-big">{uTok(last.tokens)}</div>
+          <div className="u-delta">{delta(pct(last.tokens, prev.tokens))} vs yesterday</div>
+        </Card>
+        <Card>
+          <div className="u-eyebrow">Peak · requests / min</div>
+          <div className="u-big">{peak.rpm?.value || 0} <s>/ {peak.rpm?.cap || '—'}</s></div>
+          <div className="u-track"><i className={rpmHot ? 'warn' : ''} style={{ width: `${Math.min(100, peak.rpm?.cap ? (peak.rpm.value / peak.rpm.cap) * 100 : 0)}%` }} /></div>
+          <div className="u-delta">{peak.rpm?.model ? uShort(peak.rpm.model) : 'no calls yet today'}</div>
+        </Card>
+        <Card>
+          <div className="u-eyebrow">Peak · tokens / min</div>
+          <div className="u-big">{uTok(peak.tpm || 0)} <s>/ {uTok(tpmLimit)}</s></div>
+          <div className="u-track"><i style={{ width: `${Math.min(100, ((peak.tpm || 0) / tpmLimit) * 100)}%` }} /></div>
+          <div className="u-delta">today's peak per-minute tokens</div>
+        </Card>
+      </div>
+
+      <Card>
+        <div className="u-cardhead"><div><div className="u-ttl">Daily requests</div><div className="u-hint">per model · last {data.window_days} days · dashed line = daily request limit</div></div></div>
+        <div className="u-legend">{chartSeries.map((s) => (<span key={s.key} className={'lg ' + s.cls}><span className="d" />{uShort(s.key)}</span>))}</div>
+        {daily.length ? <DailyReqChart series={chartSeries} labels={labels} limit={U_RPD_LIMIT} /> : <div className="empty">No usage recorded yet.</div>}
       </Card>
+
+      <div className="u-mins">
+        <Card>
+          <div className="u-cardhead"><div><div className="u-ttl">Requests / min</div><div className="u-hint">live · per model against its cap</div></div>
+            <div className="u-livehead" style={{ marginLeft: 'auto' }}><span className="u-livedot" /><span className="u-hint">live</span></div></div>
+          <div style={{ marginTop: 14 }}>
+            {liveModels.length === 0 && <div className="u-hint">No calls in the last minute — all models idle.</div>}
+            {liveModels.map((m) => (
+              <div className={'u-meter ' + (clsFor[m.model] || 'us0')} key={m.model}><b>{uShort(m.model)}</b>
+                <div className="bar"><i className={m.rpm / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.rpm / Math.max(m.cap, 1)) * 100)}%` }} /></div>
+                <span className="v">{m.rpm}/{m.cap}{m.cooldown ? ' · cd' : ''}</span></div>
+            ))}
+          </div>
+        </Card>
+        <Card>
+          <div className="u-cardhead"><div><div className="u-ttl">Tokens / min</div><div className="u-hint">daily peak · last {data.window_days} days</div></div></div>
+          {daily.length ? <MiniArea values={tpmSeries} limit={tpmLimit} limitLabel={`cap ${uTok(tpmLimit)}/min`} cls="us1" /> : <div className="empty">No usage yet.</div>}
+        </Card>
+      </div>
+
+      <div className="u-cols">
+        <Card>
+          <div className="u-cardhead"><div><div className="u-ttl">By model</div><div className="u-hint">today · each against its own free-tier caps</div></div></div>
+          <div className="u-colh"><span>Model</span><span>Peak rpm vs cap</span><span style={{ textAlign: 'right' }}>Requests</span><span style={{ textAlign: 'right' }}>Tokens</span></div>
+          {models.length === 0 && <div className="empty">No usage recorded yet.</div>}
+          {models.map((m) => (
+            <div className="u-mrow" key={m.model}>
+              <div className={'u-mname ' + clsFor[m.model]}><span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span></div>
+              <div className={'u-rpm ' + clsFor[m.model]}>{m.peak_rpm_today}<div className="bar"><i className={m.peak_rpm_today / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.peak_rpm_today / Math.max(m.cap, 1)) * 100)}%` }} /></div><span>{m.cap}</span></div>
+              <div className="u-num">{uReq(m.requests_today)}</div>
+              <div className="u-num">{uTok(m.tokens)}</div>
+            </div>
+          ))}
+        </Card>
+        <Card>
+          <div className="u-cardhead"><div><div className="u-ttl">By process</div><div className="u-hint">requests · last {data.window_days} days</div></div></div>
+          {bySource.length === 0 ? <div className="empty">Nothing recorded yet.</div>
+            : <DonutChart total={srcTotal} unit="requests" items={bySource.map((s) => ({ label: U_SOURCE_LABEL[s.source] || s.source, value: s.requests, tip: U_SOURCE_TIP[s.source] }))} />}
+        </Card>
+      </div>
+
+      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its RPM cap or returns a 429, Olisar parks it for 120s and falls back to the next model in its chain.</div></div>
     </>
   )
 }

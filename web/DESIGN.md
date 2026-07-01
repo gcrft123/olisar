@@ -364,6 +364,17 @@ Three idioms: **underline** (hairline `border-bottom`, active item bold `--text`
 - **DocTable** (minimal): `border-collapse`, hairline `border-bottom` row rules, header in `--text` with a `--border-strong` underline, first column emphasized (`--text`), body `--text-2`. Generous 12px cell padding.
 - **DataTable** (functional): a rounded `--panel` container; a toolbar with a search input (`magnifer` icon) and a row count; uppercase header cells on `--bg-sidebar`, click-to-sort with an accent arrow; rows hover to `--bg-inset`; right-aligned tabular-nums numerics; status pills via the Badge; per-row icon actions. Add a checkbox column (`accent-color: var(--accent)`) with select-all and a bulk-action toolbar (tinted `--accent-soft`) that replaces the search row while rows are selected.
 
+### LineChart (usage/metrics)
+
+Data-driven inline `<svg>` (no chart lib), used on the **Usage** page. Recipe:
+- **Series colours** come from the selectable accent hues, applied as a `color:` class (`.us0`=blue, `.us1`=teal, `.us2`=violet, `.us3`=amber, `.us4`=green, `.us5`=rose) so SVG shapes pick them up via `stroke="currentColor"` / `fill="currentColor"` — never hardcode chart hex (the design linter forbids it). One **primary** series draws heavier (`stroke-width 2.6`) with a flat translucent area fill (`fill-opacity .12`, no gradient — the system is flat).
+- **Smooth lines** via a horizontal-midpoint cubic path (control x at the midpoint of each pair, y at the endpoints).
+- **Grid + axes**: hairline baseline (`--border`), 1–2 dashed gridlines (`stroke-dasharray 2 6`), mono `--text-3` tick + day labels (strided when dense).
+- **Limit line**: a dashed `--danger` rule (`stroke-opacity .55`, `stroke-dasharray 5 4`) with a small mono `--danger` caption — the rate-limit ceiling. Include one on any chart with a cap.
+- **Endpoint tags**: a filled series-colour dot (`stroke: --panel`) at the last point with the value in mono beside it.
+- **Meters/bars** (RPM, quota): an inset track (`--bg-inset`) with a `currentColor` fill; the fill turns `--warn` past ~75% of cap.
+- **DonutChart** (composition, e.g. by-process share): a `--bg-inset` track ring with per-segment arcs drawn as `<circle>` strokes (`stroke-linecap: round`, a small angular gap between segments), coloured **distinctly** by rank via the `.us*` hue classes (`currentColor`). A mono total sits in the centre; a legend below pairs a rounded-square colour chip with the label, value, and percent. Segment order matches the legend order.
+
 ### Content — InlineCode, CodeBlock, CopyField, Link
 
 **InlineCode** — a monospaced chip for tokens/paths in running text; tone it to a semantic state when used inside a matching callout. **CodeBlock** — a titled preview with a filename header, a copy button, and light JS/TS syntax highlighting. **CopyField** — a value in a `--bg-inset` box with a trailing copy button (divider `border-left`) that flips to a green `check-circle` on click (`boxed` for domains/keys, `bare`+`lg` for an editable-title look). **Link** — `default` (accent), `prose` (muted underline → white on hover), `subtle` (quiet foreground), `inherit` (takes the surrounding text colour — use inside callouts/toasts); `external` opens a new tab + appends a ↗ arrow.

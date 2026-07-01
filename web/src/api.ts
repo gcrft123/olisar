@@ -164,6 +164,9 @@ export const api = {
   clearIndex: () => req('/api/knowledge/reindex/clear', { method: 'POST' }),
   reindexStatus: () => req('/api/knowledge/reindex/status'),
 
+  getUsage: (days: number) => req(`/api/usage/summary?days=${days}`),
+  getUsageLive: () => req('/api/usage/live'),
+
   getFacts: () => req('/api/facts'),
   addFact: (b: any) => req('/api/facts', { method: 'POST', body: JSON.stringify(b) }),
   deleteFact: (id: number) => req(`/api/facts/${id}`, { method: 'DELETE' }),
