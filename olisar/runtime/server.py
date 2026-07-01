@@ -191,8 +191,9 @@ async def run(host: str, port: int) -> None:
             # …ts.net host. The headless auto-start never goes through /api/tunnel/enable
             # (which is what normally records this), so the console would otherwise keep
             # seeing the loopback URL — Remote access stuck on "Starting…", sidebar "off".
-            host = msg.replace("https://", "").replace("http://", "").rstrip("/")
-            await runtime_config.save(tunnel_enabled=True, tunnel_hostname=host)
+            # NB: a distinct name — must NOT shadow the `host` bind address passed to uvicorn.
+            funnel_host = msg.replace("https://", "").replace("http://", "").rstrip("/")
+            await runtime_config.save(tunnel_enabled=True, tunnel_hostname=funnel_host)
         elif not ok:
             log.warning("Funnel auto-start skipped: %s", msg)
 
