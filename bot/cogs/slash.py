@@ -229,13 +229,16 @@ class Slash(commands.Cog):
     @app_commands.describe(url="The page URL to ingest.")
     async def learn_url(self, interaction: discord.Interaction, url: str) -> None:
         await interaction.response.defer(ephemeral=True)
+        if interaction.guild_id is None:
+            await interaction.followup.send("run this in a server, not a DM.", ephemeral=True)
+            return
         if not url.lower().startswith(("http://", "https://")):
             await interaction.followup.send("please give a full http(s) URL.", ephemeral=True)
             return
         async with session_scope() as session:
             session.add(
                 KBSource(
-                    guild_id=settings.target_guild_id,
+                    guild_id=interaction.guild_id,
                     type=KBSourceType.url,
                     uri=url,
                     title=url,
@@ -255,6 +258,9 @@ class Slash(commands.Cog):
         self, interaction: discord.Interaction, url: str, depth: int = 1, max_pages: int = 25
     ) -> None:
         await interaction.response.defer(ephemeral=True)
+        if interaction.guild_id is None:
+            await interaction.followup.send("run this in a server, not a DM.", ephemeral=True)
+            return
         if not url.lower().startswith(("http://", "https://")):
             await interaction.followup.send("please give a full http(s) URL.", ephemeral=True)
             return
@@ -263,7 +269,7 @@ class Slash(commands.Cog):
         async with session_scope() as session:
             session.add(
                 KBSource(
-                    guild_id=settings.target_guild_id,
+                    guild_id=interaction.guild_id,
                     type=KBSourceType.website,
                     uri=url,
                     title=url,
@@ -282,6 +288,9 @@ class Slash(commands.Cog):
     @app_commands.describe(file="The document to ingest.")
     async def learn_doc(self, interaction: discord.Interaction, file: discord.Attachment) -> None:
         await interaction.response.defer(ephemeral=True)
+        if interaction.guild_id is None:
+            await interaction.followup.send("run this in a server, not a DM.", ephemeral=True)
+            return
         suffix = Path(file.filename).suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
             await interaction.followup.send(
@@ -298,7 +307,7 @@ class Slash(commands.Cog):
         async with session_scope() as session:
             session.add(
                 KBSource(
-                    guild_id=settings.target_guild_id,
+                    guild_id=interaction.guild_id,
                     type=KBSourceType.doc,
                     uri=str(dest),
                     title=file.filename,
@@ -316,7 +325,7 @@ class Slash(commands.Cog):
             rows = (
                 await session.scalars(
                     select(KBSource)
-                    .where(KBSource.guild_id == settings.target_guild_id)
+                    .where(KBSource.guild_id == interaction.guild_id)
                     .order_by(KBSource.id)
                 )
             ).all()
@@ -341,7 +350,7 @@ class Slash(commands.Cog):
         await interaction.response.defer(ephemeral=True)
         async with session_scope() as session:
             src = await session.get(KBSource, source_id)
-            if src is None or src.guild_id != settings.target_guild_id:
+            if src is None or src.guild_id != interaction.guild_id:
                 await interaction.followup.send("no source with that id.", ephemeral=True)
                 return
             chunk_ids = (
