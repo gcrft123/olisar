@@ -167,6 +167,25 @@ class Slash(commands.Cog):
             msg += " " + await self._msg("forget_me_optout")
         await interaction.followup.send(msg, ephemeral=True)
 
+    @app_commands.command(
+        name="dm-indexing", description="Control whether Olisar saves & indexes your DMs."
+    )
+    @app_commands.describe(enabled="On (default) saves & indexes your DMs; off stops it.")
+    async def dm_indexing(
+        self, interaction: discord.Interaction, enabled: bool = True
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        from olisar.memory.writer import upsert_profile
+
+        async with session_scope() as session:
+            profile = await upsert_profile(
+                session, 0, interaction.user.id, interaction.user.display_name
+            )
+            profile.dm_opt_out = not enabled
+        await interaction.followup.send(
+            await self._msg("dm_indexing", state=("on" if enabled else "off")), ephemeral=True
+        )
+
     # Admin-only group (only visible to members with Manage Server).
     olisar = app_commands.Group(
         name="olisar",

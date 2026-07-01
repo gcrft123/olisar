@@ -60,27 +60,31 @@ class Conversation(commands.Cog):
         # just plain chat text.
         text_body = message_text(message)
 
-        # Server-wide search index: capture EVERY guild message (any channel/mode,
-        # including bots/webhooks like #announcements). Kept separate from
-        # conversational memory — used only by the search_messages tool — so the
-        # channel-mode opt-in still governs what Olisar reads and remembers.
-        if not is_dm:
-            async with session_scope() as session:
-                indexed = await record_search_message(
-                    session,
-                    guild_id=guild_id,
-                    channel_id=message.channel.id,
-                    channel_name=getattr(message.channel, "name", "") or "",
-                    message_id=message.id,
-                    author_id=message.author.id,
-                    author_name=message.author.display_name,
-                    content=text_body,
-                )
-            # One-time, best-effort image description for the index (detached so it
-            # never delays the reply). Only when we actually indexed the row — so
-            # opt-out users and duplicates are skipped — and not for bot posts.
-            if indexed and not message.author.bot and image_attachments(message):
-                self._spawn_caption(message)
+        # Server-wide search index: capture EVERY message (guild channels + DMs, per the
+        # all-channel opt-in). DMs are indexed under guild 0 (channel = the DM channel)
+        # and honour the per-user DM opt-out inside record_search_message; kept separate
+        # from conversational memory — used only by the search_messages tool.
+        channel_name = (
+            f"DM · {message.author.display_name}"
+            if is_dm
+            else (getattr(message.channel, "name", "") or "")
+        )
+        async with session_scope() as session:
+            indexed = await record_search_message(
+                session,
+                guild_id=guild_id,
+                channel_id=message.channel.id,
+                channel_name=channel_name,
+                message_id=message.id,
+                author_id=message.author.id,
+                author_name=message.author.display_name,
+                content=text_body,
+            )
+        # One-time, best-effort image description for the index (detached so it
+        # never delays the reply). Only when we actually indexed the row — so
+        # opt-out users and duplicates are skipped — and not for bot posts.
+        if indexed and not message.author.bot and image_attachments(message):
+            self._spawn_caption(message)
 
         if message.author.bot:
             return  # conversational memory + replies ignore other bots

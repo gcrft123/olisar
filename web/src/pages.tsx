@@ -585,7 +585,7 @@ function SearchIndexCard() {
             <div className="reindex-list">
               {channels.map((c: any) => (
                 <div className="reindex-row" key={c.channel_id}>
-                  <span className="rx-name">#{c.name}</span>
+                  <span className="rx-name">{c.kind === 'dm' ? c.name : '#' + c.name}</span>
                   <span className="rx-count">{c.indexed.toLocaleString()}<span className="rx-dim"> msgs</span></span>
                   <span className={'rx-chip ' + c.status}>
                     {c.status === 'done'

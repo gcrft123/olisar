@@ -343,6 +343,10 @@ class UserProfile(Base):
     # consumers (the dashboard) don't lose precision on 64-bit ids.
     roles: Mapped[list] = mapped_column(JSON, default=list)
     memory_opt_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Per-user opt-out of DM storage + indexing, separate from memory_opt_out. Lives on
+    # the guild-0 (DM) profile since DMs aren't tied to a guild; when set, the user's DMs
+    # aren't stored, indexed, summarized, or mined. Toggled via /dm-indexing or the tool.
+    dm_opt_out: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[dict] = mapped_column(JSON, default=dict)
     # A generated characterization of this user, synthesized from their message
     # history (Phase 2). Distinct from Olisar's own persona; lets Olisar tailor
