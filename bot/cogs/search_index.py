@@ -22,8 +22,9 @@ from discord.ext import commands, tasks
 from sqlalchemy import func, select
 
 from bot.content import download_images, image_attachments, message_text
+from olisar.context import name_map
 from olisar.db.engine import session_scope
-from olisar.db.models import GuildChannelInfo, SearchMessage
+from olisar.db.models import GuildChannelInfo, Message, SearchMessage
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import description_marker
 from olisar.memory.writer import record_search_message
@@ -41,6 +42,7 @@ PAGES_PER_TICK = 1      # history pages per channel per tick (was 3)
 CHANNELS_PER_TICK = 4   # channels advanced per tick
 CAPTIONS_PER_TICK = 1   # historical images described per tick (was 4 — keeps captions/min ~constant)
 ARCHIVE_LIMIT = 100     # archived threads/posts discovered per parent channel
+DM_INDEX_PER_TICK = 150 # DM messages copied from the message table into the index per tick
 
 
 class SearchIndex(commands.Cog):
@@ -205,6 +207,51 @@ class SearchIndex(commands.Cog):
         elif added:
             log.info("search-index: #%s +%d this pass — %d indexed so far", name, added, indexed)
 
+    async def _backfill_dm_index(self) -> None:
+        """Index DM conversations into the search corpus from the message table (guild 0).
+        Discord can't page DM history, but every DM is already stored in ``message``, so
+        the DM index is built from there — oldest-first, bounded per tick. Honours the
+        per-user DM opt-out and dedup inside record_search_message."""
+        try:
+            async with session_scope() as session:
+                already = select(SearchMessage.message_id).where(SearchMessage.guild_id == 0)
+                todo = [
+                    m
+                    for m in (
+                        await session.scalars(
+                            select(Message)
+                            .where(
+                                Message.guild_id == 0,
+                                Message.author_is_bot == False,  # noqa: E712
+                                Message.message_id.notin_(already),
+                            )
+                            .order_by(Message.created_at.asc())
+                            .limit(DM_INDEX_PER_TICK)
+                        )
+                    ).all()
+                    if (m.content or "").strip()
+                ]
+                if not todo:
+                    return
+                names = await name_map(session, {m.author_id for m in todo})
+                added = 0
+                for m in todo:
+                    if await record_search_message(
+                        session,
+                        guild_id=0,
+                        channel_id=m.channel_id,
+                        channel_name="Direct messages",
+                        message_id=m.message_id,
+                        author_id=m.author_id,
+                        author_name=names.get(m.author_id, str(m.author_id)),
+                        content=m.content,
+                    ):
+                        added += 1
+            if added:
+                log.info("search-index: DMs +%d this pass", added)
+        except Exception:
+            log.exception("DM search backfill failed")
+
     @tasks.loop(seconds=TICK_SECONDS)
     async def tick(self) -> None:
         # Scan pending channels across every guild the bot is in (capped per tick).
@@ -230,6 +277,9 @@ class SearchIndex(commands.Cog):
             if guild is None:
                 continue
             await self._backfill_channel(guild, channel_id, last_id, budget)
+        # DMs can't be paged from Discord, but they're already in the message table —
+        # copy any not-yet-indexed DM messages (guild 0) into the search index.
+        await self._backfill_dm_index()
 
     @tick.before_loop
     async def _before(self) -> None:

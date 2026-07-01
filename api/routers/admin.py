@@ -735,6 +735,9 @@ async def mine_facts(gctx: GuildContext = Depends(require_guild_admin)) -> dict:
     from olisar.memory.maintenance import mine_glossary_now
 
     result = await mine_glossary_now(gctx.guild_id)
+    dm = await mine_glossary_now(0)  # DMs are mined into the guild-0 glossary as well
+    for k in ("added", "mined", "remaining"):
+        result[k] = result.get(k, 0) + dm.get(k, 0)
     async with session_scope() as session:
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="mine_glossary",
@@ -750,6 +753,9 @@ async def deep_mine_facts(gctx: GuildContext = Depends(require_guild_admin)) -> 
     from olisar.memory.maintenance import deep_mine_glossary_now
 
     result = await deep_mine_glossary_now(gctx.guild_id)
+    dm = await deep_mine_glossary_now(0)  # DMs are deep-mined from the DM index too
+    for k in ("added", "sampled"):
+        result[k] = result.get(k, 0) + dm.get(k, 0)
     async with session_scope() as session:
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="deep_mine_glossary",

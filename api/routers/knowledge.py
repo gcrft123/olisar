@@ -6,7 +6,7 @@ multipart upload from the dashboard lands with the frontend (Phase 7)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from api.auth.deps import GuildContext, require_guild_admin
 from api.schemas import SourceIn
@@ -18,6 +18,7 @@ from olisar.db.models import (
     KBSource,
     KBSourceType,
     KBStatus,
+    Message,
     SearchMessage,
 )
 from olisar.memory.vectors import delete_embedding
@@ -99,6 +100,10 @@ async def reindex(gctx: GuildContext = Depends(require_guild_admin)):
             )
             .values(backfill_done=False, last_indexed_message_id=None)
         )
+        # DMs are their own category — re-index them by clearing the DM search rows; the
+        # DM backfill pass rebuilds the index from the message table (Discord can't page
+        # DM history). Idempotent and safe to run from any server's Re-index button.
+        await session.execute(delete(SearchMessage).where(SearchMessage.guild_id == 0))
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="reindex_search",
             target_type="guild", target_id=gctx.guild_id,
@@ -143,6 +148,22 @@ async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
                 )
             ).all()
         )
+        # DMs (guild 0) are surfaced as one aggregate category, regardless of the current
+        # server, since they're bot-wide.
+        dm_indexed = int(
+            await session.scalar(
+                select(func.count()).select_from(SearchMessage).where(SearchMessage.guild_id == 0)
+            )
+            or 0
+        )
+        dm_msgs = int(
+            await session.scalar(
+                select(func.count()).select_from(Message).where(
+                    Message.guild_id == 0, Message.author_is_bot == False  # noqa: E712
+                )
+            )
+            or 0
+        )
     channels = []
     done = indexing = queued = 0
     for c in chans:
@@ -162,13 +183,28 @@ async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
             "status": status,
             "indexed": int(counts.get(c.channel_id, 0)),
         })
+    # One aggregate "Direct messages" row for all DM channels (shown once there's DM
+    # activity). Its index is rebuilt from the message table by the DM backfill pass.
+    if dm_msgs > 0:
+        dm_status = "done" if dm_indexed >= dm_msgs else "indexing"
+        channels.append({
+            "channel_id": "dm",
+            "name": "Direct messages",
+            "kind": "dm",
+            "status": dm_status,
+            "indexed": dm_indexed,
+        })
+        if dm_status == "done":
+            done += 1
+        else:
+            indexing += 1
     return {
-        "total": len(chans),
+        "total": len(channels),
         "done": done,
         "indexing": indexing,
         "queued": queued,
         "running": (indexing + queued) > 0,
-        "indexed_messages": int(sum(counts.values())),
+        "indexed_messages": int(sum(counts.values())) + dm_indexed,
         "channels": channels,
     }
 

@@ -248,6 +248,19 @@ _DECLARATIONS = [
         description="Cancel one of the current user's pending reminders by its id number.",
         parameters=_obj({"id": _str("the reminder's id number")}, ["id"]),
     ),
+    types.FunctionDeclaration(
+        name="set_dm_indexing",
+        description=(
+            "Turn saving & search-indexing of THIS user's direct messages on or off, when "
+            "they ask (e.g. 'stop saving my DMs' / 'don't index my messages' / 'you can "
+            "remember my DMs again'). Pass enabled=false to stop storing and indexing their "
+            "DMs, enabled=true to resume. Only affects DMs, never server channels."
+        ),
+        parameters=_obj(
+            {"enabled": _str("'true' to allow DM storage + indexing, 'false' to disable")},
+            ["enabled"],
+        ),
+    ),
 ]
 
 TOOLS = [types.Tool(function_declarations=_DECLARATIONS)]
@@ -564,6 +577,18 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "I couldn't find that pending reminder of yours."
             r.fired = True
             return f"Cancelled reminder #{rid}."
+
+        if name == "set_dm_indexing":
+            from olisar.memory.writer import upsert_profile
+
+            raw = str(args.get("enabled", "")).strip().lower()
+            enabled = raw in ("true", "1", "yes", "on")
+            # The DM preference lives on the user's guild-0 profile (DMs aren't per-guild).
+            profile = await upsert_profile(ctx.session, 0, ctx.user_id, ctx.display_name)
+            profile.dm_opt_out = not enabled
+            if enabled:
+                return "Okay — I'll keep saving and indexing our DMs so I can remember our chats."
+            return "Done — I've stopped saving and indexing your DMs, and won't remember new ones."
 
         return f"Unknown tool: {name}"
     except Exception:
