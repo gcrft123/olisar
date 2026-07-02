@@ -23,6 +23,7 @@ dependencies = [
     "platformdirs>=4.0",        # per-user data dir for the packaged desktop app
     "quickjs>=1.19.4",          # sandboxed JS engine for SDK extensions + TS transpile
     "cryptography>=42",         # Ed25519 signing/verification of .olx extension bundles
+    "pillow>=12.3.0",
 ]
 
 [project.optional-dependencies]

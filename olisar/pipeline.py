@@ -340,7 +340,7 @@ async def generate_reply(
     user_text: str,
     actions: DiscordActions | None = None,
     runtime_note: str = "",
-    images: list[tuple[bytes, str]] | None = None,
+    images: list[tuple[bytes, str, str]] | None = None,
     home_guild_id: int | None = None,
     reply_to: tuple[str, str] | None = None,
 ) -> str:
