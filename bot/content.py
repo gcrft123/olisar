@@ -149,13 +149,53 @@ def image_attachments(message: discord.Message) -> list[discord.Attachment]:
     return out
 
 
-async def download_images(message: discord.Message) -> list[tuple[bytes, str]]:
-    """Read the bytes of a message's image attachments as ``(data, mime)`` pairs.
-    Best-effort — a failed read is skipped, never raised."""
-    out: list[tuple[bytes, str]] = []
+def _gif_first_frame(data: bytes) -> tuple[bytes, str] | None:
+    """Flatten a GIF to a PNG of its first frame, plus a note describing what the model
+    is actually seeing. Gemini vision doesn't accept ``image/gif`` (and couldn't see the
+    motion anyway), so a GIF is otherwise dropped; this lets the bot read it as a still
+    while staying honest that it's one frame of a GIF. ``None`` if it can't be decoded."""
+    try:
+        import io
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(data)) as im:
+            animated = bool(getattr(im, "is_animated", False)) and getattr(im, "n_frames", 1) > 1
+            im.seek(0)
+            frame = im.convert("RGBA")
+            buf = io.BytesIO()
+            frame.save(buf, format="PNG")
+    except Exception:
+        log.debug("couldn't extract GIF first frame")
+        return None
+    note = (
+        "the first frame of an animated GIF — you're seeing only this one still frame, "
+        "not the animation"
+        if animated
+        else "a GIF (a single still frame)"
+    )
+    return buf.getvalue(), note
+
+
+async def download_images(message: discord.Message) -> list[tuple[bytes, str, str]]:
+    """Read a message's image attachments as ``(data, mime, note)`` triples. ``note`` is
+    normally '' but describes the medium when it isn't a plain still (e.g. a GIF the bot
+    is reading a single frame of). GIFs are flattened to a first-frame PNG so vision can
+    actually see them. Best-effort — a failed read or undecodable GIF is skipped."""
+    out: list[tuple[bytes, str, str]] = []
     for att in image_attachments(message):
         try:
-            out.append((await att.read(), att.content_type or "image/png"))
+            data = await att.read()
         except Exception:
             log.debug("couldn't read attachment %s on message %s", att.filename, message.id)
+            continue
+        mime = att.content_type or "image/png"
+        note = ""
+        if mime == "image/gif" or (att.filename or "").lower().endswith(".gif"):
+            frame = _gif_first_frame(data)
+            if frame is None:
+                continue  # unreadable GIF; skip rather than send bytes vision will reject
+            data, note = frame
+            mime = "image/png"
+        out.append((data, mime, note))
     return out
