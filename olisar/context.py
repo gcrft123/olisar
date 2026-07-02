@@ -105,7 +105,7 @@ async def build_contents(
     bot_user_id: int,
     current_display_name: str,
     current_text: str,
-    current_images: list[tuple[bytes, str]] | None = None,
+    current_images: list[tuple[bytes, str, str]] | None = None,
     reply_to: tuple[str, str] | None = None,
     recent_window: int | None = None,
 ) -> tuple[list, set[int]]:
@@ -149,9 +149,13 @@ async def build_contents(
             _append(contents, "user", f"{speaker}: {m.content}")
 
     _append(contents, "user", f"{current_display_name}{_reply_tag(reply_to)}: {current_text}")
-    # Attach the new message's images to that same user turn (it's contents[-1]).
-    for data, mime in current_images or []:
+    # Attach the new message's images to that same user turn (it's contents[-1]). A note
+    # (e.g. for a GIF flattened to its first frame) rides just after its image so the model
+    # knows what it's actually looking at.
+    for data, mime, note in current_images or []:
         contents[-1].parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=data)))
+        if note:
+            contents[-1].parts.append(types.Part(text=f"(The image just above is {note}.)"))
 
     recent_ids = {m.message_id for m in rows}
     return contents, recent_ids

@@ -34,14 +34,21 @@ _PROMPT = (
 _semaphore = asyncio.Semaphore(2)
 
 
-async def describe_images(images: list[tuple[bytes, str]]) -> str:
-    """Best-effort one-shot description of ``(data, mime)`` images. Returns '' on
-    empty input, rate-limit exhaustion, or any failure — never raises."""
+async def describe_images(images: list[tuple[bytes, str, str]]) -> str:
+    """Best-effort one-shot description of ``(data, mime, note)`` images. ``note`` (e.g.
+    'first frame of an animated GIF') is folded into the instruction so the caption names
+    the medium. Returns '' on empty input, rate-limit exhaustion, or any failure — never
+    raises."""
     if not images:
         return ""
+    instruction = _PROMPT
+    notes = list(dict.fromkeys(n for *_, n in images if n))
+    if notes:
+        instruction += " Note that " + "; ".join(notes) + "."
+    pairs = [(data, mime) for data, mime, _ in images]
     async with _semaphore:
         try:
-            text = await get_gemini().caption_images(images, instruction=_PROMPT)
+            text = await get_gemini().caption_images(pairs, instruction=instruction)
         except RateLimitExceeded:
             return ""  # every vision model parked; filename stays searchable
         except Exception:
