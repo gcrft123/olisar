@@ -14,8 +14,11 @@ Discord-agnostic.
 from __future__ import annotations
 
 import logging
+import re
+from urllib.parse import urlparse
 
 import discord
+import httpx
 
 log = logging.getLogger("olisar.content")
 
@@ -177,11 +180,102 @@ def _gif_first_frame(data: bytes) -> tuple[bytes, str] | None:
     return buf.getvalue(), note
 
 
+# Discord's GIF picker (and pasted Giphy/Tenor links) arrive as a URL in the message —
+# no attachment — that renders as an embed. The embed attaches a beat after the message,
+# so we resolve the URL ourselves rather than depend on embed timing. Fetching is limited
+# to these known GIF hosts (+ Discord's media proxy) so message content can't point us at
+# an arbitrary server.
+_GIF_HOST_SUFFIXES = ("tenor.com", "giphy.com", "discordapp.net", "discordapp.com")
+_URL_RE = re.compile(r"https?://[^\s<>|]+", re.I)
+_OG_IMAGE_META_RE = re.compile(r"<meta[^>]+og:image[^>]*>", re.I)
+_CONTENT_ATTR_RE = re.compile(r'content=["\']([^"\']+)["\']', re.I)
+_IMG_EXTS = (".gif", ".png", ".jpg", ".jpeg", ".webp")
+_GIF_FETCH_TIMEOUT = 6.0
+
+
+def _host_allowed(url: str) -> bool:
+    host = (urlparse(url).hostname or "").lower()
+    return any(host == s or host.endswith("." + s) for s in _GIF_HOST_SUFFIXES)
+
+
+def _gif_urls_in(message: discord.Message) -> list[str]:
+    """Candidate Giphy/Tenor (or direct .gif) URLs for a message — from its content (the
+    GIF picker's link) and from any 'gifv'/gif embeds Discord has attached. Deduped."""
+    urls: list[str] = []
+    for raw in _URL_RE.findall(message.content or ""):
+        u = raw.rstrip(").,>\"'")
+        low = u.lower().split("?")[0]
+        if _host_allowed(u) and ("tenor.com" in low or "giphy.com" in low or low.endswith(".gif")):
+            urls.append(u)
+    for e in message.embeds:
+        if (e.type or "").lower() != "gifv" and not (e.url or "").lower().split("?")[0].endswith(".gif"):
+            continue
+        for src in (e.thumbnail, e.image):
+            su = getattr(src, "url", None)
+            if su:
+                urls.append(getattr(src, "proxy_url", None) or su)
+                break
+    seen: set[str] = set()
+    return [u for u in urls if not (u in seen or seen.add(u))]
+
+
+def _still_from_bytes(data: bytes, ctype: str) -> tuple[bytes, str, str] | None:
+    """Turn fetched media bytes into a readable ``(data, mime, note)`` still: a GIF is
+    flattened to its first frame; a static preview (png/jpeg/webp) is kept with a note that
+    it's a GIF still. ``None`` if it isn't image bytes we can use."""
+    if ctype == "image/gif" or data[:6] in (b"GIF87a", b"GIF89a"):
+        frame = _gif_first_frame(data)
+        if frame is None:
+            return None
+        png, note = frame
+        return png, "image/png", note
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return data, "image/png", "a still preview frame of a GIF (not the animation)"
+    if data[:3] == b"\xff\xd8\xff":
+        return data, "image/jpeg", "a still preview frame of a GIF (not the animation)"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return data, "image/webp", "a still preview frame of a GIF (not the animation)"
+    return None
+
+
+async def _fetch_gif_still(url: str) -> tuple[bytes, str, str] | None:
+    """Resolve a Giphy/Tenor/direct-.gif URL to a readable still the model can see, with a
+    note that it's a GIF. A page URL (e.g. tenor.com/view/…) is resolved via its og:image.
+    Restricted to known GIF hosts; None on any failure — never raises."""
+    if not _host_allowed(url):
+        return None
+    try:
+        async with httpx.AsyncClient(
+            timeout=_GIF_FETCH_TIMEOUT, follow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (Olisar)"},
+        ) as client:
+            media_url = url
+            if not url.lower().split("?")[0].endswith(_IMG_EXTS):  # a page, not direct media
+                page = await client.get(url)
+                page.raise_for_status()
+                meta = _OG_IMAGE_META_RE.search(page.text)
+                cont = _CONTENT_ATTR_RE.search(meta.group(0)) if meta else None
+                if not cont or not _host_allowed(cont.group(1)):
+                    return None
+                media_url = cont.group(1)
+            resp = await client.get(media_url)
+            resp.raise_for_status()
+            data = resp.content
+    except Exception:
+        log.debug("couldn't resolve/fetch GIF media from %s", url)
+        return None
+    if not data or len(data) > MAX_IMAGE_BYTES:
+        return None
+    ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    return _still_from_bytes(data, ctype)
+
+
 async def download_images(message: discord.Message) -> list[tuple[bytes, str, str]]:
-    """Read a message's image attachments as ``(data, mime, note)`` triples. ``note`` is
-    normally '' but describes the medium when it isn't a plain still (e.g. a GIF the bot
-    is reading a single frame of). GIFs are flattened to a first-frame PNG so vision can
-    actually see them. Best-effort — a failed read or undecodable GIF is skipped."""
+    """Read a message's images as ``(data, mime, note)`` triples. ``note`` is normally ''
+    but describes the medium when it isn't a plain still (e.g. a GIF the bot is reading a
+    single frame of). Covers uploaded images/GIFs AND Giphy/Tenor GIFs posted via Discord's
+    GIF picker or a link. GIFs are flattened to a first-frame PNG so vision can see them.
+    Best-effort — a failed read, unreachable link, or undecodable GIF is skipped."""
     out: list[tuple[bytes, str, str]] = []
     for att in image_attachments(message):
         try:
@@ -198,4 +292,13 @@ async def download_images(message: discord.Message) -> list[tuple[bytes, str, st
             data, note = frame
             mime = "image/png"
         out.append((data, mime, note))
+        if len(out) >= MAX_IMAGES:
+            return out
+    # Giphy/Tenor GIFs (picker or link): resolve + fetch a readable still.
+    for url in _gif_urls_in(message):
+        if len(out) >= MAX_IMAGES:
+            break
+        got = await _fetch_gif_still(url)
+        if got is not None:
+            out.append(got)
     return out
