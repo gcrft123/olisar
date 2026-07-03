@@ -66,6 +66,7 @@ async def _load() -> dict:
                     values[f] = getattr(row, f, "") or ""
                 values["target_guild_id"] = int(row.target_guild_id or 0)
                 values["tunnel_enabled"] = bool(row.tunnel_enabled)
+                values["hosting_mode"] = getattr(row, "hosting_mode", None) or "local"
                 values["configured"] = bool(row.configured)
                 values["extension_risk_threshold"] = int(
                     getattr(row, "extension_risk_threshold", None) or 70
@@ -107,6 +108,11 @@ async def target_guild_id() -> int:
 
 async def tunnel_enabled() -> bool:
     return bool((await _load()).get("tunnel_enabled"))
+
+
+async def hosting_mode() -> str:
+    """'local' (bot runs here) or 'server' (bot runs on the operator's cloud VM)."""
+    return (await _load()).get("hosting_mode") or "local"
 
 
 async def tunnel_hostname() -> str:

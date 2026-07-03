@@ -24,6 +24,7 @@ dependencies = [
     "quickjs>=1.19.4",          # sandboxed JS engine for SDK extensions + TS transpile
     "cryptography>=42",         # Ed25519 signing/verification of .olx extension bundles
     "pillow>=12.3.0",
+    "asyncssh>=2.24.0",
 ]
 
 [project.optional-dependencies]
