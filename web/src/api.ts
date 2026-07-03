@@ -191,6 +191,13 @@ export const api = {
     req('/api/setup/validate-token', { method: 'POST', body: JSON.stringify({ token }) }),
   saveSetupKeys: (b: any) => req('/api/setup/keys', { method: 'POST', body: JSON.stringify(b) }),
   saveSetup: (b: any) => req('/api/setup/save', { method: 'POST', body: JSON.stringify(b) }),
+  // Server hosting: the app drives the operator's cloud VM over SSH (no local bot).
+  serverPubkey: () => req('/api/server/pubkey'),
+  serverDeploy: (b: { host: string; user?: string; env: string }) =>
+    req('/api/server/deploy', { method: 'POST', body: JSON.stringify(b) }),
+  serverPower: (action: 'up' | 'stop') =>
+    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }) }),
+  serverStatus: () => req('/api/server/status'),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
   disableTunnel: () => req('/api/tunnel/disable', { method: 'POST' }),

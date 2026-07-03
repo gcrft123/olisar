@@ -7,6 +7,7 @@ import {
 } from './pages'
 import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
+import { ServerControlPanel } from './server'
 import { SettingsModal } from './settings'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
@@ -123,6 +124,9 @@ export default function App() {
   if (new URLSearchParams(window.location.search).has('denied')) return <AccessDenied />
   if (setup === 'checking') return <div className="loading">Loading…</div>
   if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} onDone={() => setSetup('done')} />
+  // Server hosting: the bot lives on the operator's VM. This local install is the loopback
+  // control panel (start/stop over SSH) — no Discord login, no local console.
+  if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />
   if (auth === 'loading') return <div className="loading">Loading…</div>
   if (auth === 'out') return <Login />
   if (guilds === null) return <div className="loading">Loading your servers…</div>
