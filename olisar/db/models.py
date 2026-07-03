@@ -602,6 +602,17 @@ class AppConfig(Base):
     # Marketplace policy: block publishing an extension whose AI risk score (0-100) is at
     # or above this. Operator-tunable; 70 is a balanced default.
     extension_risk_threshold: Mapped[int] = mapped_column(Integer, default=70)
+    # 'local' (bot runs here) or 'server' (bot runs on the operator's cloud VM; this
+    # install is just the deploy + control tool — no local bot is started, no Discord
+    # creds stored locally; they live in the VM's .env).
+    hosting_mode: Mapped[str] = mapped_column(Text, default="local")
+    # Server hosting: how to reach the operator's VM over SSH. The keypair is generated
+    # by the app (the operator pastes the public key when creating the VM); the private
+    # key never leaves this machine. Used to install/start/stop the container remotely.
+    server_host: Mapped[str] = mapped_column(Text, default="")
+    server_ssh_user: Mapped[str] = mapped_column(Text, default="ubuntu")
+    server_ssh_pubkey: Mapped[str] = mapped_column(Text, default="")
+    server_ssh_privkey: Mapped[str] = mapped_column(Text, default="")
     configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

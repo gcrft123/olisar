@@ -73,6 +73,7 @@ async def status(request: Request) -> dict:
         "local_url": await runtime_config.public_base_url(),
         "redirect_uri": await runtime_config.oauth_redirect_uri(),
         "tunnel_enabled": await runtime_config.tunnel_enabled(),
+        "hosting_mode": await runtime_config.hosting_mode(),
     }
     if not configured and is_local_request(request):
         body["prefill"] = _env_prefill()

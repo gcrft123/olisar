@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
 import { Field, Text } from './ui'
@@ -20,18 +20,39 @@ export type SetupStatus = {
   local_url: string
   redirect_uri: string
   tunnel_enabled: boolean
+  hosting_mode?: string
   prefill?: SetupPrefill
 }
 
-const STEPS = ['Bot token', 'Application', 'Access', 'API keys']
+type Mode = 'local' | 'tunnel' | 'server'
+
+// A code-preview box (DESIGN.md CodeBlock) with a copy button that flips to a check.
+function Cb({ file, code }: { file: string; code: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <div className="codeblock" style={{ marginBottom: 12 }}>
+      <div className="head">
+        <span className="file">{file}</span>
+        <button
+          className="cb-copy"
+          aria-label="Copy"
+          data-tip={done ? 'Copied' : 'Copy'}
+          onClick={() => { navigator.clipboard?.writeText(code); setDone(true); setTimeout(() => setDone(false), 1400) }}
+        >
+          {done ? <Icon.check size={15} weight="Bold" /> : <Icon.copy size={15} />}
+        </button>
+      </div>
+      <pre><code>{code}</code></pre>
+    </div>
+  )
+}
 
 /** First-run wizard, shown full-screen when the backend reports the app is
- *  unconfigured. Collects the operator's Discord credentials + tunnel choice,
- *  shows the exact OAuth redirect URI to register, then saves and hands off to
- *  the normal Discord login. */
+ *  unconfigured. Collects the operator's Discord credentials + hosting choice.
+ *  Local hosting saves + starts the bot here; server hosting instead hands the
+ *  operator a turnkey deploy package (env + commands) for a cloud VM. */
 export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: () => void }) {
   // Pre-fill from `.env` when the backend supplied it (loopback + not configured).
-  // Lets the operator skip retyping on every fresh install / data dir.
   const pf = status.prefill || {}
 
   const [step, setStep] = useState(0)
@@ -48,8 +69,8 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   const [clientSecret, setClientSecret] = useState(pf.discord_client_secret || '')
   const [guildId, setGuildId] = useState(pf.target_guild_id || '')
 
-  // Step 3 — access mode (remote = Tailscale Funnel)
-  const [mode, setMode] = useState<'local' | 'tunnel'>(pf.tunnel_token ? 'tunnel' : 'local')
+  // Step 3 — hosting mode
+  const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
   const [tunnelNode, setTunnelNode] = useState('olisar')
   const [tunnelAuthKey, setTunnelAuthKey] = useState(pf.tunnel_token || '')
   const [provisioning, setProvisioning] = useState(false)
@@ -57,12 +78,32 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   const [tunnelUrl, setTunnelUrl] = useState('')
   const [tunnelErr, setTunnelErr] = useState('')
 
+  // Server-hosting extras (collected on the Deploy step)
+  const [provider, setProvider] = useState<'oracle' | 'other'>('oracle')
+  const [adminUser, setAdminUser] = useState('')
+  const [serverHost, setServerHost] = useState('')
+  const [pubkey, setPubkey] = useState('')
+  const [deploying, setDeploying] = useState(false)
+  const [deployLog, setDeployLog] = useState('')
+  const [deployErr, setDeployErr] = useState('')
+
+  // Fetch the app's SSH public key (generated on first call) once we reach the Deploy step.
+  useEffect(() => {
+    if (step === 3 && mode === 'server' && !pubkey) {
+      api.serverPubkey().then((r: any) => setPubkey(r.public_key || '')).catch(() => {})
+    }
+  }, [step, mode, pubkey])
+
   // Step 4 — keys
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
   const [cfAccount, setCfAccount] = useState(pf.cloudflare_account_id || '')
   const [cfToken, setCfToken] = useState(pf.cloudflare_api_token || '')
   const [uex, setUex] = useState(pf.uex_api_key || '')
   const [saving, setSaving] = useState(false)
+
+  // The last step is "API keys" for local hosting, "Deploy" for server hosting.
+  const steps = ['Bot token', 'Application', 'Access', mode === 'server' ? 'Deploy' : 'API keys']
+  const last = steps.length - 1
 
   const redirectLocal = status.local_url.replace(/\/$/, '') + '/auth/callback'
   const redirectTunnel = tunnelUrl ? tunnelUrl.replace(/\/$/, '') + '/auth/callback' : ''
@@ -85,8 +126,8 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
     if (step === 1 && !(clientId.trim() && clientSecret.trim()))
       return setErr('Client ID and client secret are both required.')
     if (step === 2 && mode === 'tunnel' && !tunnelDone)
-      return setErr('Turn on remote access before continuing (or switch to local-only).')
-    setStep((s) => Math.min(s + 1, STEPS.length - 1))
+      return setErr('Turn on remote access before continuing (or pick another option).')
+    setStep((s) => Math.min(s + 1, last))
   }
 
   async function enableTunnel() {
@@ -111,7 +152,6 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
       if (cfToken.trim()) keys.cloudflare_api_token = cfToken.trim()
       if (uex.trim()) keys.uex_api_key = uex.trim()
       if (Object.keys(keys).length) await api.saveSetupKeys(keys)
-      // Tunnel config (if any) was already stored by createTunnel(); save just the rest.
       await api.saveSetup({
         discord_token: token.trim(),
         discord_client_id: clientId.trim(),
@@ -125,9 +165,46 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
     }
   }
 
+  // Server hosting: the app SSHes into the operator's VM, installs Docker + the config,
+  // and starts the container. On success the app is in server mode (no local bot) and
+  // flips to the remote control panel.
+  async function deployServer() {
+    setDeployErr('')
+    if (!serverHost.trim()) return setDeployErr('Enter the VM’s public IP address.')
+    if (!(gemini.trim() && tunnelAuthKey.trim()))
+      return setDeployErr('A Gemini key and a Tailscale auth key are both required.')
+    setDeploying(true); setDeployLog('')
+    try {
+      const r = await api.serverDeploy({ host: serverHost.trim(), user: 'ubuntu', env: envFile })
+      if (r?.ok) { onDone() }
+      else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
+    } catch (e: any) {
+      setDeployErr(e?.message || 'Couldn’t reach the server.')
+    } finally {
+      setDeploying(false)
+    }
+  }
+
   const A = (href: string, text: string) => (
     <a href={href} target="_blank" rel="noreferrer">{text}</a>
   )
+
+  // The turnkey deploy package the operator runs on their cloud VM.
+  const envFile = (() => {
+    const L = [
+      `DISCORD_TOKEN=${token.trim() || '…'}`,
+      `DISCORD_CLIENT_ID=${clientId.trim() || '…'}`,
+      `DISCORD_CLIENT_SECRET=${clientSecret.trim() || '…'}`,
+    ]
+    if (guildId.trim()) L.push(`TARGET_GUILD_ID=${guildId.trim()}`)
+    if (adminUser.trim()) L.push(`ADMIN_ALLOWLIST=${adminUser.trim()}`)
+    L.push(`GEMINI_API_KEY=${gemini.trim() || '…'}`)
+    L.push(`TAILSCALE_AUTH=${tunnelAuthKey.trim() || 'tskey-auth-…'}`)
+    L.push(`OLISAR_FUNNEL_HOSTNAME=${tunnelNode.trim() || 'olisar'}`)
+    if (cfAccount.trim()) L.push(`CLOUDFLARE_ACCOUNT_ID=${cfAccount.trim()}`)
+    if (cfToken.trim()) L.push(`CLOUDFLARE_API_TOKEN=${cfToken.trim()}`)
+    return L.join('\n')
+  })()
 
   return (
     <div className="setup">
@@ -135,10 +212,10 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         <h1>Set up Olisar</h1>
         <p className="step-sub">
-          A one-time setup to connect Olisar to your Discord server. Everything stays on this machine.
+          A one-time setup to connect Olisar to your Discord server.
         </p>
         <div className="steps">
-          {STEPS.map((_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
+          {steps.map((_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
         </div>
 
         {step === 0 && (
@@ -187,12 +264,16 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           <>
             <div className="mode-grid">
               <div className={'mode-card' + (mode === 'local' ? ' sel' : '')} onClick={() => setMode('local')}>
-                <b>This machine only</b>
-                <p>You manage Olisar from here. Simplest, nothing to expose.</p>
+                <b>Local unshared hosting</b>
+                <p>Runs on this machine, reachable only from here. Simplest — nothing exposed.</p>
               </div>
               <div className={'mode-card' + (mode === 'tunnel' ? ' sel' : '')} onClick={() => setMode('tunnel')}>
-                <b>Remote access</b>
-                <p>Other admins sign in over Tailscale. Free, no domain needed.</p>
+                <b>Local shared hosting</b>
+                <p>Runs on this machine, shared online over Tailscale so other admins can sign in. Free, no domain.</p>
+              </div>
+              <div className={'mode-card' + (mode === 'server' ? ' sel' : '')} onClick={() => setMode('server')}>
+                <b>Server shared hosting</b>
+                <p>Runs 24/7 on a free cloud server — this computer can be off. Best if you want it always online.</p>
               </div>
             </div>
 
@@ -233,29 +314,42 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
               </>
             )}
 
-            <Field
-              label="Add this redirect URL in the Developer Portal"
-              desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add. {mode === 'tunnel' ? 'Add both so login works locally and remotely.' : 'This loopback URL is what Discord redirects back to.'}</>}
-            >
-              <div className="redirect-box">
-                <span>{redirectLocal}</span>
-                <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
-                  {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
-                </button>
+            {mode === 'server' && (
+              <div className="callout note" style={{ marginBottom: 4 }}>
+                <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  Olisar will run on a free cloud server, always on, even with this computer off.
+                  You'll create the account and grant access once (guided on the next step); after
+                  that it's copy-paste. Continue to get your ready-to-deploy package.
+                </div>
               </div>
-              {mode === 'tunnel' && redirectTunnel && (
-                <div className="redirect-box" style={{ marginTop: 8 }}>
-                  <span>{redirectTunnel}</span>
-                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
-                    {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+            )}
+
+            {mode !== 'server' && (
+              <Field
+                label="Add this redirect URL in the Developer Portal"
+                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add. {mode === 'tunnel' ? 'Add both so login works locally and remotely.' : 'This loopback URL is what Discord redirects back to.'}</>}
+              >
+                <div className="redirect-box">
+                  <span>{redirectLocal}</span>
+                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
+                    {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
                   </button>
                 </div>
-              )}
-            </Field>
+                {mode === 'tunnel' && redirectTunnel && (
+                  <div className="redirect-box" style={{ marginTop: 8 }}>
+                    <span>{redirectTunnel}</span>
+                    <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
+                      {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+                    </button>
+                  </div>
+                )}
+              </Field>
+            )}
           </>
         )}
 
-        {step === 3 && (
+        {step === 3 && mode !== 'server' && (
           <>
             <Field
               label="Gemini API key"
@@ -275,6 +369,64 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           </>
         )}
 
+        {step === 3 && mode === 'server' && (
+          <>
+            <div className="deploy-seg">
+              <button className={provider === 'oracle' ? 'on' : ''} onClick={() => setProvider('oracle')}>Oracle Cloud · free</button>
+              <button className={provider === 'other' ? 'on' : ''} onClick={() => setProvider('other')}>Other cloud</button>
+            </div>
+
+            {provider === 'oracle' ? (
+              <div className="tunnel-help">
+                <b>Create a free Oracle Cloud VM — Olisar installs itself onto it</b>
+                <ol>
+                  <li>Create a free {A('https://www.oracle.com/cloud/free/', 'Oracle Cloud account')}. A card is needed to verify identity, but the Always Free ARM server costs nothing.</li>
+                  <li><strong>Menu → Compute → Instances → Create instance</strong>. Image <strong>Ubuntu 22.04</strong>, shape <strong>VM.Standard.A1.Flex</strong> (Ampere — Always Free). If you see <strong>"out of capacity"</strong>, switch Availability Domain / region and retry — free ARM frees up through the day.</li>
+                  <li>Under <strong>Add SSH keys</strong>, choose <strong>Paste public keys</strong> and paste the key below. Leave networking on defaults. Create it.</li>
+                  <li>Open the instance's details, copy its <strong>Public IP address</strong> into the field below, and press <strong>Deploy to server</strong>. Olisar SSHes in and sets everything up — no terminal needed.</li>
+                </ol>
+              </div>
+            ) : (
+              <div className="tunnel-help">
+                <b>Any Linux VM — Olisar installs itself over SSH</b>
+                <ol>
+                  <li>Create an <strong>Ubuntu 22.04</strong> VM (1 GB+ RAM) anywhere — DigitalOcean, Hetzner, AWS EC2, etc. — with user <code>ubuntu</code> and passwordless <code>sudo</code>.</li>
+                  <li>Add the SSH public key below to the VM (its "SSH keys" box, or <code>~/.ssh/authorized_keys</code>).</li>
+                  <li>Copy the VM's public IP into the field below and press <strong>Deploy to server</strong>.</li>
+                </ol>
+              </div>
+            )}
+
+            <div className="field">
+              <label>SSH public key — paste this when creating the VM</label>
+              <div className="desc">The app connects with the matching private key, which never leaves this machine.</div>
+              <Cb file="app SSH public key" code={pubkey || 'generating…'} />
+            </div>
+
+            <Field label="VM public IP address" desc="From the instance's details page.">
+              <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
+            </Field>
+            <Field label="Gemini API key" desc={<>Powers everything Olisar says. Free key from {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>}>
+              <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
+            </Field>
+            <Field label="Tailscale auth key" desc={<>Gives your server its dashboard URL — no domain needed. Reusable key from {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
+              <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
+            </Field>
+            <Field label="Your Discord username (admin)" desc="Only you (and anyone you list) can sign in to the console. Your Discord username or numeric ID.">
+              <Text value={adminUser} onChange={setAdminUser} placeholder="e.g. gcrft123" mono />
+            </Field>
+
+            {deploying && (
+              <div className="callout note" style={{ marginBottom: 4 }}>
+                <span className="ic"><span className="spinner" /></span>
+                <div className="callout-body">Installing Olisar on your VM — this takes a few minutes (Docker + image pull). Keep this window open.</div>
+              </div>
+            )}
+            {deployLog && <Cb file="install log" code={deployLog} />}
+            {deployErr && <div className="err">{deployErr}</div>}
+          </>
+        )}
+
         {err && <div className="err">{err}</div>}
 
         <div className="wiz-foot">
@@ -282,9 +434,11 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
             Back
           </button>
           <span className="grow" />
-          {step < STEPS.length - 1
+          {step < last
             ? <button className="primary" onClick={next}>Continue</button>
-            : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}
+            : mode === 'server'
+              ? <button className="primary" disabled={deploying} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
+              : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}
         </div>
       </div>
     </div>
