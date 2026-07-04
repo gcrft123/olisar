@@ -52,6 +52,11 @@ hiddenimports += ["quickjs"]
 binaries += collect_dynamic_libs("cryptography")
 hiddenimports += collect_submodules("cryptography")
 
+# asyncssh: drives the operator's remote VM over SSH (server hosting). Mostly pure Python
+# but with lazily-imported crypto backends — collect its submodules so a frozen build can
+# still generate the app keypair and connect.
+hiddenimports += collect_submodules("asyncssh")
+
 # The sandbox's JS bootstrap + the SDK type defs + the built-in extensions are data
 # files (collect_submodules only grabs .py), so ship them explicitly by path (see
 # _datafiles — collect_data_files silently skips these local packages). The vendored
