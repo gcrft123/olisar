@@ -38,6 +38,17 @@ async def deploy(body: DeployIn) -> dict:
     return await remote.deploy(body.host, body.user or "ubuntu", body.env)
 
 
+class ConnectIn(BaseModel):
+    host: str
+    user: str | None = "ubuntu"
+
+
+@router.post("/connect", dependencies=[Depends(require_setup_access)])
+async def connect(body: ConnectIn) -> dict:
+    """Adopt a VM that already runs Olisar (verify over SSH, persist — no reinstall)."""
+    return await remote.connect(body.host, body.user or "ubuntu")
+
+
 @router.post("/power", dependencies=[Depends(require_setup_access)])
 async def power(body: PowerIn) -> dict:
     """Start (`up`) or stop (`stop`) the remote container."""

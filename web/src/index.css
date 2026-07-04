@@ -710,6 +710,21 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   font: inherit; font-size: 12.5px; font-weight: 550; border-radius: var(--radius-sm); cursor: pointer;
 }
 .setup .deploy-seg button.on { background: var(--panel); color: var(--text); }
+/* Continue + a hover-revealed "Connect to existing" ghost. The whole group is the hover
+   hitbox (buttons + the gap between), so the cursor can cross from Continue to the ghost
+   without it collapsing mid-transfer. */
+.setup .cta-reveal { display: inline-flex; align-items: center; }
+.setup .cta-reveal .reveal-btn {
+  max-width: 0; opacity: 0; margin-right: 0; padding-left: 0; padding-right: 0;
+  overflow: hidden; white-space: nowrap; pointer-events: none;
+  transition: max-width .22s var(--ease-out), opacity .18s ease,
+    margin-right .22s var(--ease-out), padding .18s ease;
+}
+.setup .cta-reveal:hover .reveal-btn,
+.setup .cta-reveal:focus-within .reveal-btn {
+  max-width: 240px; opacity: 1; margin-right: 8px; padding-left: 14px; padding-right: 14px;
+  pointer-events: auto;
+}
 .setup .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
   background: var(--bg-inset); transition: border-color 0.12s;

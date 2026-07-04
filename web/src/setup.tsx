@@ -27,7 +27,7 @@ export type SetupStatus = {
 type Mode = 'local' | 'tunnel' | 'server'
 
 // A code-preview box (DESIGN.md CodeBlock) with a copy button that flips to a check.
-function Cb({ file, code }: { file: string; code: string }) {
+export function Cb({ file, code }: { file: string; code: string }) {
   const [done, setDone] = useState(false)
   return (
     <div className="codeblock" style={{ marginBottom: 12 }}>
@@ -81,18 +81,23 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   // Server-hosting extras (collected on the Deploy step)
   const [provider, setProvider] = useState<'oracle' | 'other'>('oracle')
   const [adminUser, setAdminUser] = useState('')
+  // A standalone shortcut (from the first page): adopt a VM that already runs Olisar,
+  // skipping the whole setup. Rendered as its own screen, not a wizard step.
+  const [connectMode, setConnectMode] = useState(false)
+  const [serverUser, setServerUser] = useState('ubuntu')
   const [serverHost, setServerHost] = useState('')
   const [pubkey, setPubkey] = useState('')
   const [deploying, setDeploying] = useState(false)
   const [deployLog, setDeployLog] = useState('')
   const [deployErr, setDeployErr] = useState('')
 
-  // Fetch the app's SSH public key (generated on first call) once we reach the Deploy step.
+  // Fetch the app's SSH public key (generated on first call) once it's needed — on the
+  // Deploy step or in the standalone connect flow.
   useEffect(() => {
-    if (step === 3 && mode === 'server' && !pubkey) {
+    if (((step === 3 && mode === 'server') || connectMode) && !pubkey) {
       api.serverPubkey().then((r: any) => setPubkey(r.public_key || '')).catch(() => {})
     }
-  }, [step, mode, pubkey])
+  }, [step, mode, connectMode, pubkey])
 
   // Step 4 — keys
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
@@ -175,9 +180,26 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
       return setDeployErr('A Gemini key and a Tailscale auth key are both required.')
     setDeploying(true); setDeployLog('')
     try {
-      const r = await api.serverDeploy({ host: serverHost.trim(), user: 'ubuntu', env: envFile })
+      const r = await api.serverDeploy({ host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', env: envFile })
       if (r?.ok) { onDone() }
       else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
+    } catch (e: any) {
+      setDeployErr(e?.message || 'Couldn’t reach the server.')
+    } finally {
+      setDeploying(false)
+    }
+  }
+
+  // Connect to a VM that already runs Olisar (no reinstall) — the app just verifies over
+  // SSH and adopts it, then flips to the control panel.
+  async function connectServer() {
+    setDeployErr('')
+    if (!serverHost.trim()) return setDeployErr('Enter the VM’s public IP address.')
+    setDeploying(true)
+    try {
+      const r = await api.serverConnect({ host: serverHost.trim(), user: serverUser.trim() || 'ubuntu' })
+      if (r?.ok) { onDone() }
+      else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
     } finally {
@@ -210,6 +232,45 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
     <div className="setup">
       <div className="box">
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
+        {connectMode ? (
+          <>
+            <h1>Connect to an existing server</h1>
+            <p className="step-sub">
+              Adopt a cloud VM that already runs Olisar — no setup needed here. It verifies over SSH and takes over start/stop + the dashboard, with no reinstall.
+            </p>
+            <div className="tunnel-help">
+              <b>Point at your existing Olisar VM</b>
+              <ol>
+                <li>Add the SSH key below to the VM — paste it into <code>~/.ssh/authorized_keys</code> (or the provider's SSH keys box).</li>
+                <li>Enter the VM's <strong>public IP</strong> and press <strong>Connect</strong>. The app verifies Olisar is installed there and takes over control.</li>
+              </ol>
+            </div>
+            <div className="field">
+              <label>SSH public key — add this to the VM</label>
+              <div className="desc">Into <code>~/.ssh/authorized_keys</code>. The app connects with the matching private key.</div>
+              <Cb file="app SSH public key" code={pubkey || 'generating…'} />
+            </div>
+            <Field label="VM public IP address" desc="The VM already running Olisar.">
+              <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
+            </Field>
+            <Field label="SSH user (optional)" desc="The VM's login user — Ubuntu images use ubuntu.">
+              <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
+            </Field>
+            {deploying && (
+              <div className="callout note" style={{ marginBottom: 4 }}>
+                <span className="ic"><span className="spinner" /></span>
+                <div className="callout-body">Connecting to your VM over SSH…</div>
+              </div>
+            )}
+            {deployErr && <div className="err">{deployErr}</div>}
+            <div className="wiz-foot">
+              <button disabled={deploying} onClick={() => { setConnectMode(false); setDeployErr('') }}>Back</button>
+              <span className="grow" />
+              <button className="primary" disabled={deploying} onClick={connectServer}>{deploying ? 'Connecting…' : 'Connect'}</button>
+            </div>
+          </>
+        ) : (
+          <>
         <h1>Set up Olisar</h1>
         <p className="step-sub">
           A one-time setup to connect Olisar to your Discord server.
@@ -369,7 +430,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           </>
         )}
 
-        {step === 3 && mode === 'server' && (
+        {step === 3 && mode === 'server' && !connectMode && (
           <>
             <div className="deploy-seg">
               <button className={provider === 'oracle' ? 'on' : ''} onClick={() => setProvider('oracle')}>Oracle Cloud · free</button>
@@ -435,11 +496,18 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           </button>
           <span className="grow" />
           {step < last
-            ? <button className="primary" onClick={next}>Continue</button>
+            ? (step === 0
+                ? <div className="cta-reveal">
+                    <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>
+                    <button className="primary" onClick={next}>Continue</button>
+                  </div>
+                : <button className="primary" onClick={next}>Continue</button>)
             : mode === 'server'
               ? <button className="primary" disabled={deploying} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
               : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}
         </div>
+          </>
+        )}
       </div>
     </div>
   )
