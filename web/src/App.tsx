@@ -237,6 +237,38 @@ export default function App() {
 
 function Login() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [waiting, setWaiting] = useState(false)
+  const pollRef = useRef<number | null>(null)
+  // In the desktop app, OAuth must run in the system browser — a chromeless app window can
+  // strand you on Discord's page with no way back, and embedded-webview OAuth is disallowed.
+  const isDesktop = !!(window as any).olisar?.desktop
+
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+
+  const startDesktopSignIn = () => {
+    if (pollRef.current) clearTimeout(pollRef.current)
+    const nonce = (crypto as any)?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    // Opens in the system browser (main.js routes window.open(http…) to shell.openExternal).
+    window.open(`${window.location.origin}/auth/login?desktop=${encodeURIComponent(nonce)}`, '_blank', 'noopener')
+    setWaiting(true)
+    const startedAt = Date.now()
+    const poll = async () => {
+      if (Date.now() - startedAt > 300_000) { setWaiting(false); return }  // give up after 5 min
+      try {
+        const r = await api.desktopClaim(nonce)
+        if (r?.ok) { window.location.reload(); return }
+        if (r?.denied) { window.location.href = `${window.location.origin}/?denied=role`; return }
+      } catch { /* backend blip — keep polling */ }
+      pollRef.current = window.setTimeout(poll, 1500)
+    }
+    pollRef.current = window.setTimeout(poll, 1500)
+  }
+
+  const cancel = () => {
+    if (pollRef.current) { clearTimeout(pollRef.current); pollRef.current = null }
+    setWaiting(false)
+  }
+
   return (
     <div className="login">
       <div className="box">
@@ -245,10 +277,28 @@ function Login() {
         </button>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         <h1>Olisar Secure Console</h1>
-        <p>Sign in with Discord. Only server admins can reach this console.</p>
-        <a className="btn-discord" href={api.loginUrl()}>
-          <Icon.login size={18} weight="Bold" /> Continue with Discord
-        </a>
+        {waiting ? (
+          <>
+            <p>Continue signing in with Discord in your browser, then come back here.</p>
+            <div className="login-actions">
+              <button className="primary" onClick={startDesktopSignIn}>Reopen browser</button>
+              <button className="ghost" onClick={cancel}>Cancel</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>Sign in with Discord. Only server admins can reach this console.</p>
+            {isDesktop ? (
+              <button className="btn-discord" onClick={startDesktopSignIn}>
+                <Icon.login size={18} weight="Bold" /> Continue with Discord
+              </button>
+            ) : (
+              <a className="btn-discord" href={api.loginUrl()}>
+                <Icon.login size={18} weight="Bold" /> Continue with Discord
+              </a>
+            )}
+          </>
+        )}
       </div>
       {settingsOpen && (
         <SettingsModal

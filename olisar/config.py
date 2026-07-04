@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     # the Funnel auto-starts when ``TAILSCALE_AUTH`` is present. Off for the desktop app.
     headless: bool = Field(default=False, alias="OLISAR_HEADLESS")
 
+    # ── Mock auth (local dev/testing only) ───────────────────────────────
+    # When set, the app counts as configured (skips onboarding) and Discord OAuth is
+    # replaced by a mock consent → callback that signs you in as a mock allowlisted
+    # operator on a seeded "Mock Server" — so the sign-in flow can be exercised from
+    # source with no real Discord app. Never set in a real deployment.
+    mock_auth: bool = Field(default=False, alias="OLISAR_MOCK_AUTH")
+
     # ── Admin dashboard / auth ───────────────────────────────────────────
     # NoDecode stops pydantic-settings from JSON-decoding the env value, so the
     # validator below receives the raw string and can split it on commas. Without

@@ -190,6 +190,8 @@ async def is_configured() -> bool:
     wizard (which can't be reached over the public Funnel)."""
     if bool((await _load()).get("configured")):
         return True
+    if settings.mock_auth:  # dev/testing: skip onboarding, go straight to the sign-in flow
+        return True
     return bool(
         settings.headless
         and settings.discord_token
