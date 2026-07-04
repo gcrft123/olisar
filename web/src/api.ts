@@ -195,6 +195,8 @@ export const api = {
   serverPubkey: () => req('/api/server/pubkey'),
   serverDeploy: (b: { host: string; user?: string; env: string }) =>
     req('/api/server/deploy', { method: 'POST', body: JSON.stringify(b) }),
+  serverConnect: (b: { host: string; user?: string }) =>
+    req('/api/server/connect', { method: 'POST', body: JSON.stringify(b) }),
   serverPower: (action: 'up' | 'stop') =>
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }) }),
   serverStatus: () => req('/api/server/status'),

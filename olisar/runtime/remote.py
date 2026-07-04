@@ -123,6 +123,39 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
     return {"ok": True, "log": "\n".join(log_lines)}
 
 
+async def connect(host: str, user: str) -> dict:
+    """Adopt a VM that's ALREADY running Olisar (deployed elsewhere, set up by hand, or
+    before a reinstall of this app): verify the compose file is present over SSH, then
+    persist the connection and switch to server-hosting mode — no install, no config
+    overwrite. The app's public key must already be in the VM's authorized_keys."""
+    host = (host or "").strip()
+    user = (user or "").strip() or "ubuntu"
+    if not host:
+        return {"ok": False, "error": "Enter the VM's public IP address."}
+    try:
+        conn = await _connect(host, user)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM over SSH: {exc}"}
+    try:
+        r = await conn.run(f"test -f ~/{APP_DIR}/docker-compose.yml && echo OK", check=False)
+        if "OK" not in (r.stdout or ""):
+            conn.close()
+            return {
+                "ok": False,
+                "error": f"No Olisar install found in ~/{APP_DIR} on this VM — deploy it "
+                "first, or check the IP and that the SSH key was added.",
+            }
+    except Exception as exc:  # noqa: BLE001
+        conn.close()
+        return {"ok": False, "error": str(exc)}
+    conn.close()
+    await runtime_config.save(
+        server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
+    )
+    await runtime_config.session_secret()
+    return {"ok": True}
+
+
 async def power(action: str) -> dict:
     """Start (`up`) or stop (`stop`) the container on the stored VM."""
     cfg = await _load()
