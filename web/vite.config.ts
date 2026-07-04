@@ -103,6 +103,7 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/tunnel/status')) return send({ available: false, running: false, helper: false, headless: false, hostname: '', public_url: '' })
         if (url.startsWith('/api/bots')) return send({
           active_id: 'default',
+          default_id: 'default',
           profiles: [
             { id: 'default', name: 'Red Nebula bot', created: true },
             { id: 'a1b2c3d4', name: 'Support bot', created: true },

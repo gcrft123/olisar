@@ -9,7 +9,7 @@ export type DocSection = { id: string; title: string; body: string }
 // linear prev/next order, so the buttons match the sidebar.
 export const DOC_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Start', ids: ['overview', 'servers', 'talking', 'commands'] },
-  { label: 'Hosting & access', ids: ['hosting', 'host-server', 'remote', 'settings'] },
+  { label: 'Hosting & access', ids: ['bots', 'hosting', 'host-server', 'remote', 'settings'] },
   { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'replies', 'keys'] },
   { label: 'Knowledge & memory', ids: ['knowledge', 'memory', 'members', 'images'] },
   { label: 'Extend', ids: ['extensions', 'ext-build', 'ext-sdk', 'ext-flows', 'ext-share', 'ext-marketplace', 'ext-security'] },
@@ -55,8 +55,8 @@ The tabs on the left:
 - [API keys](tab:keys) — bring your own Gemini, Cloudflare, and UEX keys.
 - [Usage](tab:usage) — how much of the free model quota you're using.
 
-The sidebar footer also has **[Settings](#settings)** — app-wide preferences (accent color, remote access,
-updates, and feedback) that aren't tied to any one server.
+The sidebar footer also has **[Settings](#settings)** — app-wide preferences (accent color, your
+[bots](#bots), remote access, updates, and feedback) that aren't tied to any one server.
 `,
   },
   {
@@ -350,17 +350,64 @@ Remote access** — takes the public address down immediately; local access keep
 `,
   },
   {
+    id: 'bots',
+    title: 'Running multiple bots',
+    body: `
+Olisar can run **several bots from one app** — each a completely separate Discord bot with its own token,
+persona, settings, memory, and database. This is different from one bot being in
+[multiple servers](#servers): a *server* is a Discord guild your bot is in; a *bot* is a distinct Discord
+application, with its own name, avatar, and login.
+
+Manage your bots in the [Settings](#settings) popup's **Bot** section, or from the **gear** in the corner of
+the sign-in and setup screens.
+
+## One bot runs at a time
+
+On this machine, **one local bot is active at a time**. Switching to another **stops the current bot** and
+starts the selected one, then reloads the console. Bots you host on a [cloud server](#host-server) run on
+their own machine, so they stay online independently — the way to keep several bots running at once.
+
+## The bot switcher
+
+Each bot is a row in **Settings → Bot**:
+- **Switch** — stop the current bot and load this one (the console reloads).
+- **Set as default** — pin which bot the app **opens on launch**. This is independent of the active bot: you
+  can switch to another for a session without changing what opens next time.
+- **Rename** — change a bot's display name (cosmetic; it doesn't touch Discord).
+- **Delete** — permanently remove a bot and everything it stores. You can't delete the **active** bot or the
+  **last** one.
+
+Two badges show each bot's state: **Active** (running right now) and **Default** (opens on launch).
+
+## Adding a bot
+
+**Create new bot** adds an empty bot and drops you into its [setup wizard](#overview) — connect its Discord
+token and credentials just like the first one. Each new bot needs its **own** bot application from the
+Discord Developer Portal.
+
+:::tip One account, many bots
+You don't need multiple Discord accounts — one account can create many bot applications, each with its own
+token. You *do* need a separate token per bot.
+:::
+`,
+  },
+  {
     id: 'settings',
     title: 'Console settings',
     body: `
 The **Settings** button in the sidebar footer (next to **Log out**) opens an app-wide settings popup. Unlike
-the tabs above it, nothing here is per-server — these are operator/device-level preferences. It has five
+the tabs above it, nothing here is per-server — these are operator/device-level preferences. It has six
 sections:
 
 ## Appearance
 The **accent color** used across the console — for selection, links, focus rings, and active state. Pick one
 of the swatches, dial in a **custom** color, or **Reset** to the default blue. It's saved **on this device**
 (per browser), so each person who signs in can have their own.
+
+## Bot
+The **bot switcher** — create, switch between, rename, set the launch default for, and delete the bots this
+app runs (see [Running multiple bots](#bots)). Below it, a **Clear memory** action wipes everything the
+active bot has learned about the current server (keeping its persona and settings).
 
 ## Remote access
 The status and **on/off switch** for the public web link, plus the list of who has signed in — covered in
