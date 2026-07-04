@@ -10,7 +10,6 @@ type Status = {
   reachable?: boolean
   running?: boolean
   url?: string
-  logs?: string
   host?: string
   error?: string
 }
@@ -150,7 +149,6 @@ export function ServerControlPanel() {
           <p className="srv-hint">Couldn’t reach your server{st?.error ? ` — ${st.error}` : ' — check the VM is running.'} Retrying, or use <b>Reconnect</b>.</p>
         )}
         {err && <div className="err">{err}</div>}
-        {st?.logs && <pre className="srv-logs">{st.logs}</pre>}
       </div>
       {settingsOpen && (
         <SettingsModal
