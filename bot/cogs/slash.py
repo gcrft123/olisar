@@ -35,7 +35,7 @@ from olisar.db.models import (
 )
 from olisar.catchup import generate_catchup
 from olisar.knowledge.extract import SUPPORTED_SUFFIXES
-from olisar.memory.purge import forget_user
+from olisar.memory.purge import active_memory_guild_ids, forget_user
 from olisar.memory.vectors import delete_embedding
 from olisar.memory.writer import clear_search_index
 from olisar.messages import get_command_messages, render_message
@@ -156,9 +156,11 @@ class Slash(commands.Cog):
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         async with session_scope() as session:
+            # Forget across every server the bot is in (+ DMs), not just the home guild — a
+            # bot in many servers should honour "delete what you remember about me" everywhere.
             result = await forget_user(
                 session,
-                guild_ids=[settings.target_guild_id, DM_GUILD_ID],
+                guild_ids=await active_memory_guild_ids(session),
                 user_id=interaction.user.id,
                 opt_out=stop_remembering,
             )

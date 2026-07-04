@@ -12,6 +12,7 @@ from olisar.db.models import (
     ChannelContextItem,
     ChannelSummary,
     GeminiUsage,
+    Guild,
     GuildChannelInfo,
     GuildFact,
     KBChunk,
@@ -25,6 +26,15 @@ from olisar.db.models import (
 from olisar.memory.vectors import delete_embedding
 
 log = logging.getLogger("olisar.purge")
+
+
+async def active_memory_guild_ids(session: AsyncSession) -> list[int]:
+    """The guild scopes the bot maintains and forgets across: every guild it is currently in
+    (``Guild.active``), plus the DM sentinel 0 (DMs are stored as their own channels). Deduped
+    with the DM bucket last. This is what makes "same bot, many servers" complete — background
+    upkeep and right-to-be-forgotten cover all active guilds, not just the home guild."""
+    ids = (await session.scalars(select(Guild.id).where(Guild.active.is_(True)))).all()
+    return list(dict.fromkeys([*ids, 0]))
 
 # vec0 virtual tables holding embeddings for the wiped "brain" tables — including
 # the knowledge base's kb_chunk_embedding (a self-destruct wipes the KB too).

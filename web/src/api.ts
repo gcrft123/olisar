@@ -200,6 +200,15 @@ export const api = {
   serverPower: (action: 'up' | 'stop') =>
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }) }),
   serverStatus: () => req('/api/server/status'),
+
+  // Bot profiles (loopback-only): each "bot" is an independent profile with its own token,
+  // config, and database. One local bot is active at a time; switching stops the current
+  // one and starts the selected profile's bot. Callers reload the app after switch/create,
+  // since auth, guilds, the X-Guild-Id header, and the active database all change.
+  botList: () => req('/api/bots'),
+  createBot: (name: string) => req('/api/bots', { method: 'POST', body: JSON.stringify({ name }) }),
+  switchBot: (id: string) => req('/api/bots/switch', { method: 'POST', body: JSON.stringify({ id }) }),
+  deleteBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
   disableTunnel: () => req('/api/tunnel/disable', { method: 'POST' }),

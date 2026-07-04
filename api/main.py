@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from api.auth.oauth import router as auth_router
 from api.routers.admin import router as admin_router
 from api.routers.bot import router as bot_router
+from api.routers.bots import router as bots_router
 from api.routers.extensions import router as extensions_router
 from api.routers.knowledge import router as knowledge_router
 from api.routers.dev import router as dev_router
@@ -30,6 +31,11 @@ from olisar.runtime.paths import web_dist_dir
 def create_app() -> FastAPI:
     app = FastAPI(title="Olisar Admin API")
 
+    # Per-profile bot supervisors (populated by the unified runtime's run(); defaulted here
+    # so the standalone dev API and the profile router never hit a missing attribute).
+    app.state.supervisors = {}
+    app.state.bot_supervisor = None
+
     # The dashboard is served same-origin in the desktop app/production (StaticFiles
     # below) and through the tunnel, so CORS only needs to admit the dev Vite server
     # on whatever loopback port it picked. A regex keeps that origin-agnostic.
@@ -44,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(admin_router)
     app.include_router(bot_router)
+    app.include_router(bots_router)
     app.include_router(extensions_router)
     app.include_router(marketplace_router)
     app.include_router(dev_router)
