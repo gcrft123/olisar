@@ -208,6 +208,8 @@ export const api = {
   botList: () => req('/api/bots'),
   createBot: (name: string) => req('/api/bots', { method: 'POST', body: JSON.stringify({ name }) }),
   switchBot: (id: string) => req('/api/bots/switch', { method: 'POST', body: JSON.stringify({ id }) }),
+  renameBot: (id: string, name: string) => req('/api/bots/rename', { method: 'POST', body: JSON.stringify({ id, name }) }),
+  setDefaultBot: (id: string) => req('/api/bots/default', { method: 'POST', body: JSON.stringify({ id }) }),
   deleteBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),

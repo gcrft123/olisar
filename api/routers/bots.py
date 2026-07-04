@@ -36,6 +36,11 @@ class SwitchIn(BaseModel):
     id: str
 
 
+class RenameIn(BaseModel):
+    id: str
+    name: str
+
+
 def _view(p: dict) -> dict:
     return {
         "id": p["id"],
@@ -47,7 +52,11 @@ def _view(p: dict) -> dict:
 
 @router.get("")
 async def list_bots() -> dict:
-    return {"profiles": [_view(p) for p in profiles.list()], "active_id": profiles.active_id()}
+    return {
+        "profiles": [_view(p) for p in profiles.list()],
+        "active_id": profiles.active_id(),
+        "default_id": profiles.default_id(),
+    }
 
 
 @router.get("/active")
@@ -82,6 +91,28 @@ async def switch_bot(body: SwitchIn, request: Request) -> dict:
         log.exception("bot switch to %s failed", body.id)
         raise HTTPException(status_code=500, detail="couldn't switch bots — see logs")
     return {"ok": True, **status}
+
+
+@router.post("/rename")
+async def rename_bot(body: RenameIn) -> dict:
+    """Change a bot's display name."""
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="a name is required")
+    if profiles.get(body.id) is None:
+        raise HTTPException(status_code=404, detail="unknown bot")
+    profiles.rename(body.id, name)
+    return {"ok": True}
+
+
+@router.post("/default")
+async def default_bot(body: SwitchIn) -> dict:
+    """Pin which bot the app opens on launch (independent of the active bot)."""
+    try:
+        profiles.set_default(body.id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True, "default_id": profiles.default_id()}
 
 
 @router.delete("/{profile_id}")

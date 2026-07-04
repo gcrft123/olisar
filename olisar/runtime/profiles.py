@@ -50,6 +50,7 @@ def _synthesize_default() -> dict:
     unconditionally), so switching is never needed to reach it."""
     return {
         "active": DEFAULT_ID,
+        "default": DEFAULT_ID,
         "profiles": [
             {
                 "id": DEFAULT_ID,
@@ -73,6 +74,10 @@ def _normalise(reg: dict) -> dict:
     ids = {p["id"] for p in profiles}
     if not profiles or reg.get("active") not in ids:
         reg["active"] = profiles[0]["id"] if profiles else DEFAULT_ID
+    # `default` = the bot the app opens on launch. Fall back to the active profile if unset
+    # or pointing at a since-deleted bot.
+    if reg.get("default") not in ids:
+        reg["default"] = reg["active"]
     reg["profiles"] = profiles
     return reg
 
@@ -119,6 +124,21 @@ def active() -> dict:
     reg = _read()
     aid = reg["active"]
     return next(p for p in reg["profiles"] if p["id"] == aid)
+
+
+def default_id() -> str:
+    """The profile the app opens on launch."""
+    return _read()["default"]
+
+
+def set_default(profile_id: str) -> None:
+    """Pin which bot the app opens on launch. Independent of the currently-active bot —
+    you can run another bot this session without changing the launch default."""
+    reg = _read()
+    if not any(p["id"] == profile_id for p in reg["profiles"]):
+        raise ValueError(f"unknown profile: {profile_id}")
+    reg["default"] = profile_id
+    _write(reg)
 
 
 def db_path_for(profile_id: str) -> Path:
@@ -188,6 +208,10 @@ def delete(profile_id: str) -> None:
     if target is None:
         raise ValueError(f"unknown profile: {profile_id}")
     reg["profiles"] = [p for p in reg["profiles"] if p["id"] != profile_id]
+    # If the launch default was this bot, fall back to the active one (always valid — you
+    # can't delete the active bot).
+    if reg.get("default") == profile_id:
+        reg["default"] = reg["active"]
     _write(reg)
     # Reclaim the DB dir — but never the shared legacy olisar.db (+ its sidecars).
     if not target.get("legacy"):
