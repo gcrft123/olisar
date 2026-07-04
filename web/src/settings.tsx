@@ -7,10 +7,11 @@ import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'bot' | 'remote' | 'updates' | 'desktop' | 'feedback'
+type SectionId = 'appearance' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
 const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'appearance', label: 'Appearance', ic: 'palette' },
   { id: 'bot', label: 'Bot', ic: 'bolt' },
+  { id: 'logs', label: 'Logs', ic: 'docs' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
@@ -55,6 +56,7 @@ export function SettingsModal(
           </button>
           {section === 'appearance' && <Appearance />}
           {section === 'bot' && (botSwitcherOnly ? <BotSwitcher /> : <Bot />)}
+          {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
@@ -62,6 +64,47 @@ export function SettingsModal(
         </div>
       </div>
     </div>
+  )
+}
+
+// ── Logs ────────────────────────────────────────────────────────────────────
+// Bot / Funnel are read from the server VM over SSH (server-hosting mode); This app is the
+// local backend's own log buffer. Bot/Funnel return an "only for server-hosted bots" note
+// when there's no VM configured.
+function Logs() {
+  const [which, setWhich] = useState<'bot' | 'funnel' | 'app'>('app')
+  const [text, setText] = useState('')
+  const [err, setErr] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const load = (w: 'bot' | 'funnel' | 'app') => {
+    setLoading(true); setErr(''); setText('')
+    const p = w === 'app'
+      ? api.getLogs(500).then((d: any) => (d.lines || []).join('\n'))
+      : api.serverLogs(w).then((d: any) => (d?.ok ? (d.logs || '') : Promise.reject(new Error(d?.error || 'Only available for server-hosted bots.'))))
+    p.then((t: string) => setText(t)).catch((e: any) => setErr(e?.message || 'Couldn’t load logs.')).finally(() => setLoading(false))
+  }
+  useEffect(() => { load(which) }, [which])
+
+  const TABS: { id: 'bot' | 'funnel' | 'app'; label: string }[] = [
+    { id: 'bot', label: 'Bot' }, { id: 'funnel', label: 'Funnel' }, { id: 'app', label: 'This app' },
+  ]
+  return (
+    <>
+      <Head title="Logs" sub="Recent logs. Bot and Funnel are read from your server over SSH; This app is the local control panel." />
+      <div className="log-tabs">
+        {TABS.map((t) => (
+          <button key={t.id} className={'ghost' + (which === t.id ? ' on' : '')} onClick={() => setWhich(t.id)}>{t.label}</button>
+        ))}
+        <span className="grow" />
+        <button className="ghost icon-btn sm" data-tip="Refresh" aria-label="Refresh" onClick={() => load(which)}>
+          <Icon.refresh size={14} />
+        </button>
+      </div>
+      {loading ? <div className="settings-muted">Loading…</div>
+        : err ? <div className="settings-err">{err}</div>
+        : <pre className="srv-logs">{text || '(no logs)'}</pre>}
+    </>
   )
 }
 
@@ -248,6 +291,29 @@ function BotSwitcher() {
     catch (e: any) { toast(e?.message || 'Couldn’t delete the bot', 'danger') }
   }
 
+  const reset = async (p: BotProfile) => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: `Reset ${p.name}'s configuration?`,
+      message: (
+        <>
+          Clears <b>{p.name}</b>’s Discord credentials, API keys, and server/hosting config and signs
+          it out — but <b>keeps</b> its persona, memory, knowledge, and settings. You’ll set it up
+          again (a server-hosted bot goes to Reconnect).{' '}
+          <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
+        </>
+      ),
+      requirePhrase: { phrase: 'reset' },
+      confirmLabel: 'Reset configuration',
+    })
+    if (!ok) return
+    try {
+      const r = await api.resetBot(p.id)
+      if (r?.active) window.location.reload()  // App re-routes to reconnect / setup
+      else { toast(`Reset ${p.name}`, 'neutral'); load() }
+    } catch (e: any) { toast(e?.message || 'Couldn’t reset the bot', 'danger') }
+  }
+
   return (
     <>
       <Head title="Bots" sub="Run several bots from one app — each has its own token, settings, and memory. One local bot runs at a time; switching stops the current one and reloads the console." />
@@ -275,6 +341,9 @@ function BotSwitcher() {
                   )}
                   <button className="ghost icon-btn sm" data-tip="Rename" aria-label="Rename" disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
+                  </button>
+                  <button className="ghost icon-btn sm" data-tip="Reset configuration" aria-label="Reset configuration" disabled={busy} onClick={() => reset(p)}>
+                    <Icon.eraser size={14} />
                   </button>
                   {!isActive && (
                     <button className="ghost icon-btn sm" data-tip="Delete bot" aria-label="Delete bot" disabled={busy} onClick={() => del(p)}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
 import { SettingsModal } from './settings'
@@ -48,11 +48,46 @@ export function Cb({ file, code }: { file: string; code: string }) {
   )
 }
 
+// The app's SSH public key, fetched lazily when `enabled` (generated on first backend call).
+// Surfaces loading/error/retry so the key box never sticks on "generating…" if the fetch
+// hangs or fails (the fetch itself carries a timeout via api.serverPubkey).
+export function usePubkey(enabled: boolean) {
+  const [pubkey, setPubkey] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+  const retry = useCallback(() => {
+    setLoading(true); setErr('')
+    api.serverPubkey()
+      .then((r: any) => setPubkey(r.public_key || ''))
+      .catch((e: any) => setErr(e?.message || 'Couldn’t generate the SSH key.'))
+      .finally(() => setLoading(false))
+  }, [])
+  useEffect(() => { if (enabled && !pubkey && !loading && !err) retry() }, [enabled, pubkey, loading, err, retry])
+  return { pubkey, loading, err, retry }
+}
+
+// Renders the SSH public key with the three states: loading → "generating…", error → message +
+// Retry, ready → a copyable code box. Shared by the setup deploy step and the reconnect screens.
+export function PubkeyBox({ state }: { state: ReturnType<typeof usePubkey> }) {
+  if (state.err) {
+    return (
+      <div className="pubkey-err">
+        <span className="err">{state.err}</span>
+        <button className="ghost" onClick={state.retry}>Retry</button>
+      </div>
+    )
+  }
+  return <Cb file="app SSH public key" code={state.pubkey && !state.loading ? state.pubkey : 'generating…'} />
+}
+
 /** First-run wizard, shown full-screen when the backend reports the app is
  *  unconfigured. Collects the operator's Discord credentials + hosting choice.
  *  Local hosting saves + starts the bot here; server hosting instead hands the
  *  operator a turnkey deploy package (env + commands) for a cloud VM. */
-export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: () => void }) {
+export function SetupWizard(
+  { status, onDone, initialConnectMode }:
+  { status: SetupStatus; onDone: () => void; initialConnectMode?: boolean },
+) {
   // Pre-fill from `.env` when the backend supplied it (loopback + not configured).
   const pf = status.prefill || {}
 
@@ -85,21 +120,20 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   const [adminUser, setAdminUser] = useState('')
   // A standalone shortcut (from the first page): adopt a VM that already runs Olisar,
   // skipping the whole setup. Rendered as its own screen, not a wizard step.
-  const [connectMode, setConnectMode] = useState(false)
+  // Reconnect from a reset/reinstall (App passes hosting_mode==='server') opens the connect
+  // flow directly instead of the full wizard.
+  const [connectMode, setConnectMode] = useState(!!initialConnectMode)
   const [serverUser, setServerUser] = useState('ubuntu')
   const [serverHost, setServerHost] = useState('')
-  const [pubkey, setPubkey] = useState('')
+  const [showKey, setShowKey] = useState(false)  // the collapsible "add this key" fallback
   const [deploying, setDeploying] = useState(false)
   const [deployLog, setDeployLog] = useState('')
   const [deployErr, setDeployErr] = useState('')
 
-  // Fetch the app's SSH public key (generated on first call) once it's needed — on the
-  // Deploy step or in the standalone connect flow.
-  useEffect(() => {
-    if (((step === 3 && mode === 'server') || connectMode) && !pubkey) {
-      api.serverPubkey().then((r: any) => setPubkey(r.public_key || '')).catch(() => {})
-    }
-  }, [step, mode, connectMode, pubkey])
+  // The app's SSH key: always needed on the Deploy step (new VM); on the connect/reconnect
+  // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
+  // when the operator expands "Can't connect?".
+  const pk = usePubkey((step === 3 && mode === 'server') || (connectMode && showKey))
 
   // Step 4 — keys
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
@@ -248,26 +282,25 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
           <>
             <h1>Connect to an existing server</h1>
             <p className="step-sub">
-              Adopt a cloud VM that already runs Olisar — no setup needed here. It verifies over SSH and takes over start/stop + the dashboard, with no reinstall.
+              Point Olisar at a cloud VM that already runs it — it verifies over SSH and takes over start/stop + the dashboard, with no reinstall.
             </p>
-            <div className="tunnel-help">
-              <b>Point at your existing Olisar VM</b>
-              <ol>
-                <li>Add the SSH key below to the VM — paste it into <code>~/.ssh/authorized_keys</code> (or the provider's SSH keys box).</li>
-                <li>Enter the VM's <strong>public IP</strong> and press <strong>Connect</strong>. The app verifies Olisar is installed there and takes over control.</li>
-              </ol>
-            </div>
-            <div className="field">
-              <label>SSH public key — add this to the VM</label>
-              <div className="desc">Into <code>~/.ssh/authorized_keys</code>. The app connects with the matching private key.</div>
-              <Cb file="app SSH public key" code={pubkey || 'generating…'} />
+            <div className="callout tip" style={{ marginBottom: 16 }}>
+              <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+              <div className="callout-body">Reconfiguring an existing bot — its persona, memory, knowledge, and settings are kept.</div>
             </div>
             <Field label="VM public IP address" desc="The VM already running Olisar.">
               <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
             </Field>
-            <Field label="SSH user (optional)" desc="The VM's login user — Ubuntu images use ubuntu.">
-              <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
-            </Field>
+            <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
+              <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
+              <div className="desc" style={{ marginTop: 8 }}>
+                Paste this into the VM’s <code>~/.ssh/authorized_keys</code> (or the provider’s SSH-keys box), then Connect. A VM this app already set up trusts it automatically — you only need this for a brand-new VM.
+              </div>
+              <PubkeyBox state={pk} />
+              <Field label="SSH user" desc="The VM's login user — Ubuntu images use ubuntu.">
+                <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
+              </Field>
+            </details>
             {deploying && (
               <div className="callout note" style={{ marginBottom: 4 }}>
                 <span className="ic"><span className="spinner" /></span>
@@ -473,7 +506,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
             <div className="field">
               <label>SSH public key — paste this when creating the VM</label>
               <div className="desc">The app connects with the matching private key, which never leaves this machine.</div>
-              <Cb file="app SSH public key" code={pubkey || 'generating…'} />
+              <PubkeyBox state={pk} />
             </div>
 
             <Field label="VM public IP address" desc="From the instance's details page.">
