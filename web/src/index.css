@@ -1429,6 +1429,8 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .confirm-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .confirm-msg { color: var(--text-2); font-size: 13px; line-height: 1.55; margin-top: 5px; }
 .confirm-input { margin-top: 14px; }
+/* Move-bot modal body: stacks the callout, hosting target, IP field, and key disclosure. */
+.move-body { margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
 .confirm-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
 /* The "Type <phrase> to confirm." line + CopyField for a high-friction confirm. */
 .confirm-phrase { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; color: var(--text-2); }

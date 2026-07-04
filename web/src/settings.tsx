@@ -3,6 +3,7 @@ import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Select, Text, Toggle } from './ui'
 import { toast, confirmDialog, promptDialog } from './overlays'
+import { PubkeyBox, usePubkey } from './setup'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
@@ -220,6 +221,7 @@ function BotSwitcher() {
   const [activeId, setActiveId] = useState('')
   const [defaultId, setDefaultId] = useState('')
   const [busy, setBusy] = useState(false)
+  const [moving, setMoving] = useState<BotProfile | null>(null)
 
   const load = () =>
     api.botList()
@@ -342,6 +344,11 @@ function BotSwitcher() {
                   <button className="ghost icon-btn sm" data-tip="Rename" aria-label="Rename" disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
+                  {isActive && (
+                    <button className="ghost icon-btn sm" data-tip="Move / change hosting" aria-label="Move / change hosting" disabled={busy} onClick={() => setMoving(p)}>
+                      <Icon.remote size={14} />
+                    </button>
+                  )}
                   <button className="ghost icon-btn sm" data-tip="Reset configuration" aria-label="Reset configuration" disabled={busy} onClick={() => reset(p)}>
                     <Icon.eraser size={14} />
                   </button>
@@ -359,7 +366,126 @@ function BotSwitcher() {
       <div className="settings-row">
         <button disabled={busy} onClick={create}><Icon.add size={14} /> Create new bot</button>
       </div>
+      {moving && <MoveBotModal profile={moving} onClose={() => setMoving(null)} />}
     </>
+  )
+}
+
+// A dedicated "Move bot" flow: change where the active bot runs (this computer ↔ a cloud VM),
+// carrying its data across and keeping the old copy as a backup. Only the active bot can be
+// moved (it swaps the live DB + stops/starts the local bot), so this lives on the active row.
+function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () => void }) {
+  const [curMode, setCurMode] = useState<'local' | 'server' | ''>('')
+  const [curHost, setCurHost] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [target, setTarget] = useState<'local' | 'server'>('server')
+  const [host, setHost] = useState('')
+  const [user, setUser] = useState('ubuntu')
+  const [showKey, setShowKey] = useState(false)
+  const [moving, setMoving] = useState(false)
+  const [err, setErr] = useState('')
+
+  const pk = usePubkey(target === 'server' && showKey)
+
+  useEffect(() => {
+    api.activeBot()
+      .then((d: any) => {
+        const m = d.hosting_mode === 'server' ? 'server' : 'local'
+        setCurMode(m); setCurHost(d.server_host || '')
+        setTarget(m === 'local' ? 'server' : 'local')  // default to the other host
+      })
+      .catch((e: any) => setErr(e?.message || 'Couldn’t read the bot’s current hosting.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !moving) onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moving, onClose])
+
+  const sameServer = target === 'server' && curMode === 'server' && host.trim() === curHost && !!curHost
+  const canMove = !moving && !loading && !err && (target === 'local' || (host.trim().length > 0 && !sameServer))
+
+  const doMove = async () => {
+    setErr(''); setMoving(true)
+    try {
+      const r = await api.moveBot(profile.id, { target, host: host.trim(), user: user.trim() || 'ubuntu' })
+      if (!r?.ok) { setErr(r?.error || 'Move failed.'); setMoving(false); return }
+      toast(r.note || `Moved ${profile.name}`, 'success')
+      window.location.reload()  // active bot: hosting changed — App re-routes
+    } catch (e: any) { setErr(e?.message || 'Move failed.'); setMoving(false) }
+  }
+
+  const curLabel = curMode === 'server' ? `a server${curHost ? ` (${curHost})` : ''}` : 'this computer'
+
+  return (
+    <div className="modal-backdrop" onClick={() => { if (!moving) onClose() }}>
+      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="confirm-head">
+          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" /></div>
+          <div className="confirm-text">
+            <div className="confirm-title">Move {profile.name}</div>
+            <div className="confirm-msg">
+              {loading ? 'Reading current hosting…' : <>Currently runs on <b>{curLabel}</b>.</>}
+            </div>
+          </div>
+        </div>
+
+        {!loading && (
+          <div className="move-body">
+            <div className="callout tip">
+              <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+              <div className="callout-body">Reconfiguring an existing bot — its persona, memory, knowledge, and uploaded docs move with it, and the old copy is kept as a backup.</div>
+            </div>
+
+            {curMode === 'server' ? (
+              <Field label="Move to" desc="Where this bot should run.">
+                <Select value={target} onChange={(v) => setTarget(v as 'local' | 'server')}
+                  options={[
+                    { value: 'local', label: 'This computer (local)' },
+                    { value: 'server', label: 'A different server' },
+                  ]} />
+              </Field>
+            ) : (
+              <div className="settings-muted">Move this bot to a cloud server — Olisar deploys it there and uploads all of its data.</div>
+            )}
+
+            {target === 'server' && (
+              <>
+                <Field label="Destination VM public IP" desc="A cloud VM you created for this bot.">
+                  <Text value={host} onChange={setHost} placeholder="e.g. 203.0.113.9" mono />
+                </Field>
+                {sameServer && <div className="err">That’s the current server — pick a different IP or move to this computer.</div>}
+                <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
+                  <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
+                  <div className="desc" style={{ marginTop: 8 }}>
+                    Paste this into the VM’s <code>~/.ssh/authorized_keys</code> (or the provider’s SSH-keys box) before moving. A VM this app already set up trusts it automatically.
+                  </div>
+                  <PubkeyBox state={pk} />
+                  <Field label="SSH user" desc="The VM's login user — Ubuntu images use ubuntu.">
+                    <Text value={user} onChange={setUser} placeholder="ubuntu" mono />
+                  </Field>
+                </details>
+              </>
+            )}
+
+            {moving && (
+              <div className="callout note">
+                <span className="ic"><span className="spinner" /></span>
+                <div className="callout-body">Moving {profile.name} — deploying + transferring data. This can take a few minutes; keep this window open.</div>
+              </div>
+            )}
+            {err && <div className="err">{err}</div>}
+          </div>
+        )}
+
+        <div className="confirm-foot">
+          <button className="ghost" disabled={moving} onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={!canMove} onClick={doMove}>{moving ? 'Moving…' : 'Move bot'}</button>
+        </div>
+      </div>
+    </div>
   )
 }
 

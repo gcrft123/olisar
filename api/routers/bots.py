@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from api.trust import require_local_request
 from olisar import runtime_config, runtime_keys
 from olisar.db.engine import current_profile, reset_engine, session_scope
-from olisar.db.models import AppSecret
+from olisar.db.models import AppConfig, AppSecret
 from olisar.runtime import profiles, switch
 
 log = logging.getLogger("olisar.api.bots")
@@ -70,6 +70,12 @@ class RenameIn(BaseModel):
     name: str
 
 
+class MoveIn(BaseModel):
+    target: str            # 'local' | 'server'
+    host: str | None = ""  # destination VM IP (server target)
+    user: str | None = "ubuntu"
+
+
 def _view(p: dict) -> dict:
     return {
         "id": p["id"],
@@ -91,11 +97,15 @@ async def list_bots() -> dict:
 @router.get("/active")
 async def active_bot() -> dict:
     p = profiles.active()
+    async with session_scope() as session:
+        cfg = await session.get(AppConfig, 1)
+        server_host = (cfg.server_host if cfg else "") or ""
     return {
         **_view(p),
         "active_id": p["id"],
         "configured": await runtime_config.is_configured(),
         "hosting_mode": await runtime_config.hosting_mode(),
+        "server_host": server_host,
     }
 
 
@@ -174,6 +184,18 @@ async def reset_bot(profile_id: str, request: Request) -> dict:
             await reset_engine(str(profiles.db_path_for(profile_id)))
             runtime_config.invalidate(); runtime_keys.invalidate()
     return {"ok": True, "active": active, "hosting_mode": hosting}
+
+
+@router.post("/{profile_id}/move")
+async def move_bot(profile_id: str, body: MoveIn, request: Request) -> dict:
+    """Move the bot between hosts (local ↔ cloud VM), carrying its data + keeping the old copy
+    as a backup. Only the active bot can be moved (moving stops/starts its local bot and swaps
+    its live DB), so callers switch to it first. Long-running — no timeout on the client."""
+    if profile_id != profiles.active_id():
+        raise HTTPException(status_code=409, detail="switch to this bot before moving it")
+    from olisar.runtime import migrate
+
+    return await migrate.move(request.app, body.target, body.host or "", body.user or "ubuntu")
 
 
 @router.delete("/{profile_id}")
