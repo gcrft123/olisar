@@ -13,7 +13,7 @@ local to reach operator-machine-only controls (tunnel toggle, setup, the ``.env`
 
 from __future__ import annotations
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
@@ -28,3 +28,11 @@ def is_local_request(request: Request) -> bool:
     if headers.get("x-forwarded-host") or headers.get("x-forwarded-for") or headers.get("forwarded"):
         return False
     return True
+
+
+def require_local_request(request: Request) -> None:
+    """Dependency: admit only loopback (operator-at-the-machine) requests. Unlike
+    ``require_setup_access`` it has no "only before configured" clause, so it gates
+    operator-machine controls that stay available after setup (managing bot profiles)."""
+    if not is_local_request(request):
+        raise HTTPException(status_code=403, detail="only available on this machine")

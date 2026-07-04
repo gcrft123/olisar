@@ -236,9 +236,13 @@ export default function App() {
 }
 
 function Login() {
+  const [settingsOpen, setSettingsOpen] = useState(false)
   return (
     <div className="login">
       <div className="box">
+        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          <Icon.settings size={16} />
+        </button>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         <h1>Olisar Secure Console</h1>
         <p>Sign in with Discord. Only server admins can reach this console.</p>
@@ -246,6 +250,13 @@ function Login() {
           <Icon.login size={18} weight="Bold" /> Continue with Discord
         </a>
       </div>
+      {settingsOpen && (
+        <SettingsModal
+          sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
+          botSwitcherOnly
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   )
 }

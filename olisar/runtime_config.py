@@ -106,6 +106,14 @@ async def target_guild_id() -> int:
     return int(db_value) or int(settings.target_guild_id or 0)
 
 
+async def db_target_guild_id() -> int:
+    """The home guild as stored in *this profile's* DB, with no fallback to the in-memory
+    ``settings`` value. Used when folding config into ``settings`` on a profile switch, so a
+    fresh profile (DB value 0) resets the home guild instead of inheriting the previous
+    profile's still-in-memory id."""
+    return int((await _load()).get("target_guild_id") or 0)
+
+
 async def tunnel_enabled() -> bool:
     return bool((await _load()).get("tunnel_enabled"))
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
+import { SettingsModal } from './settings'
 import { Field, Text } from './ui'
 
 export type SetupPrefill = {
@@ -58,6 +59,7 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState<'' | 'local' | 'tunnel'>('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Step 1 — bot token
   const [token, setToken] = useState(pf.discord_token || '')
@@ -231,6 +233,16 @@ export function SetupWizard({ status, onDone }: { status: SetupStatus; onDone: (
   return (
     <div className="setup">
       <div className="box">
+        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+          <Icon.settings size={16} />
+        </button>
+        {settingsOpen && (
+          <SettingsModal
+            sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
+            botSwitcherOnly
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         {connectMode ? (
           <>
