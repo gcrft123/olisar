@@ -250,8 +250,16 @@ async def login(request: Request, desktop: str | None = None) -> Response:
         )
         return page
     redirect_uri = _redirect_uri(request)
+    client_id = await runtime_config.discord_client_id()
+    if not client_id:
+        # No Discord application configured for this (locally hosted) profile. Redirecting to
+        # Discord with an empty client_id gets a cryptic "Invalid Form Body" and strands the
+        # operator; bounce back to the app instead, which shows the setup wizard (see
+        # runtime_config.is_configured).
+        log.warning("sign-in blocked: no Discord client_id configured")
+        return RedirectResponse(_origin(request) + "/?setup=needed")
     params = {
-        "client_id": await runtime_config.discord_client_id(),
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "identify guilds",

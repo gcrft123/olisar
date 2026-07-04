@@ -123,7 +123,14 @@ export default function App() {
   // any server Olisar is in. Takes precedence over the normal auth flow.
   if (new URLSearchParams(window.location.search).has('denied')) return <AccessDenied />
   if (setup === 'checking') return <div className="loading">Loading…</div>
-  if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} onDone={() => setSetup('done')} />
+  if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} initialConnectMode={setupInfo.hosting_mode === 'server'} onDone={async () => {
+    // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
+    // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
+    // status still says local and we'd fall through to the local Discord login — which has no
+    // client id in server mode and dead-ends at Discord's "Invalid form body".
+    try { setSetupInfo(await api.setupStatus()) } catch { /* keep prior status */ }
+    setSetup('done')
+  }} />
   // Server hosting: the bot lives on the operator's VM. This local install is the loopback
   // control panel (start/stop over SSH) — no Discord login, no local console.
   if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />

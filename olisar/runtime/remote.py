@@ -46,6 +46,17 @@ volumes:
 """
 
 
+# TODO(migration): cross-host data transfer (follow-up, not implemented here). Move a bot's
+# data when its hosting changes, keeping the OLD copy as a backup:
+#   - transfer the SQLite DB (self-contained: vectors + FTS live inside it) + the kb_uploads/
+#     dir over SFTP via `conn.start_sftp_client()`; VM data is /var/lib/olisar/{olisar.db,kb_uploads},
+#     local is profiles.db_path_for(id) (+ sibling kb_uploads).
+#   - stop the source first (local: server.stop_all_supervisors + engine.reset_engine; VM:
+#     `docker compose stop`) so WAL/SHM are flushed before copying.
+#   - matrix: local→new-server (upload), server→local (download), server→server-same-IP (no-op),
+#     server→server-diff-IP (transfer). Verify the copy, then leave the old copy in place.
+
+
 async def _load() -> AppConfig | None:
     async with session_scope() as session:
         return await session.scalar(select(AppConfig).where(AppConfig.id == 1))
@@ -175,6 +186,31 @@ async def power(action: str) -> dict:
     return {"ok": True, "running": action == "up"}
 
 
+async def logs(which: str = "bot", tail: int = 200) -> dict:
+    """Recent VM logs over SSH for the control panel's Logs view. ``which='bot'`` returns the
+    container logs; ``which='funnel'`` filters them to the Tailscale Funnel lines (the funnel
+    runs in-process inside the same container, so its output is interleaved in the same logs)."""
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
+    n = max(1, min(int(tail or 200), 2000))
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    cmd = f"cd ~/{APP_DIR} && sudo docker compose logs --tail {n} --no-color 2>/dev/null || true"
+    if which == "funnel":
+        # Match the local funnel-log filter: tunnel loggers + the sidecar URL/error markers.
+        cmd += " | grep -Ei 'olisar\\.tunnel|olisar\\.api\\.tunnel|tailscale|funnel|ts\\.net|OLISAR_FUNNEL_(URL|ERROR)'"
+    try:
+        out = await _run(conn, cmd, timeout=40)
+    except Exception as exc:  # noqa: BLE001
+        conn.close()
+        return {"ok": False, "error": str(exc)}
+    conn.close()
+    return {"ok": True, "logs": out.strip()[-8000:]}
+
+
 async def status() -> dict:
     """Whether the remote container is running, recent logs, and the public URL."""
     cfg = await _load()
@@ -188,10 +224,22 @@ async def status() -> dict:
     try:
         ps = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose ps 2>/dev/null || true", timeout=30)
         logs = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose logs --tail 40 2>/dev/null || true", timeout=30)
+        # The public ts.net URL is logged once at funnel startup, which on a long-running bot
+        # has usually scrolled past the 40-line display tail — grep the FULL logs for it so
+        # "Open console" isn't left greyed out. Only the URL comes back over the wire.
+        url_out = await _run(
+            conn,
+            f"cd ~/{APP_DIR} && sudo docker compose logs --no-color 2>/dev/null "
+            "| grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1 || true",
+            timeout=40,
+        )
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {**base, "reachable": True, "error": str(exc)}
     conn.close()
     running = bool(re.search(r"\brunning\b|\bUp\b", ps))
-    m = _TSNET_RE.search(logs)
-    return {**base, "reachable": True, "running": running, "url": m.group(0) if m else "", "logs": logs.strip()[-4000:]}
+    url = url_out.strip()
+    if not url:
+        m = _TSNET_RE.search(logs)
+        url = m.group(0) if m else ""
+    return {**base, "reachable": True, "running": running, "url": url, "logs": logs.strip()[-4000:]}
