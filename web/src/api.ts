@@ -51,6 +51,10 @@ async function req(path: string, opts: RequestInit = {}): Promise<any> {
 export const api = {
   loginUrl: () => BASE + '/auth/login',
   logout: () => req('/auth/logout', { method: 'POST' }),
+  // Desktop sign-in: the app opens OAuth in the system browser and polls this loopback-only
+  // endpoint to claim the session the browser created (keyed by the app's nonce).
+  desktopClaim: (nonce: string) =>
+    req('/auth/desktop/claim', { method: 'POST', body: JSON.stringify({ nonce }) }),
 
   me: () => req('/api/me'),
   guilds: () => req('/api/guilds'),

@@ -642,6 +642,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
   background: #5865f2; color: #fff; padding: 11px 20px; border-radius: var(--radius-sm);
   font-weight: 600; font-size: 14px; transition: background 0.12s;
+  border: 0; cursor: pointer; font-family: inherit; appearance: none;
 }
 .btn-discord:hover { background: #4752e0; text-decoration: none; }
 
