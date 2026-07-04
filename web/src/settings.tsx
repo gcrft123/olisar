@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Select, Text, Toggle } from './ui'
-import { toast, confirmDialog } from './overlays'
+import { toast, confirmDialog, promptDialog } from './overlays'
 import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
@@ -17,8 +17,15 @@ const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'feedback', label: 'Feedback', ic: 'messages' },
 ]
 
-export function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [section, setSection] = useState<SectionId>('appearance')
+// `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
+// gears show a subset. `botSwitcherOnly` renders just the bot switcher under Bot (no
+// per-server "Clear memory" danger zone, which needs a configured server).
+export function SettingsModal(
+  { onClose, sections, botSwitcherOnly }:
+  { onClose: () => void; sections?: SectionId[]; botSwitcherOnly?: boolean },
+) {
+  const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
+  const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'appearance')
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -29,7 +36,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
     <div className="modal-backdrop" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
         <nav className="settings-nav">
-          {SECTIONS.map((s) => {
+          {visible.map((s) => {
             const Glyph = Icon[s.ic]
             return (
               <button
@@ -47,7 +54,7 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
-          {section === 'bot' && <Bot />}
+          {section === 'bot' && (botSwitcherOnly ? <BotSwitcher /> : <Bot />)}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
@@ -162,7 +169,102 @@ function Feedback() {
   )
 }
 
-// ── Bot (what Olisar remembers for this server) ───────────────────────────────
+// ── Bot switcher (run several bots from one app) ──────────────────────────────
+type BotProfile = { id: string; name: string; created: boolean }
+
+function BotSwitcher() {
+  const [profiles, setProfiles] = useState<BotProfile[] | null>(null)
+  const [activeId, setActiveId] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const load = () =>
+    api.botList()
+      .then((d: any) => { setProfiles(d.profiles || []); setActiveId(d.active_id || '') })
+      .catch(() => setProfiles([]))
+  useEffect(() => { load() }, [])
+
+  const switchTo = async (p: BotProfile) => {
+    if (p.id === activeId || busy) return
+    const ok = await confirmDialog({
+      title: `Switch to ${p.name}?`,
+      message: <>This stops the current bot and loads <b>{p.name}</b>. The console will reload.</>,
+      confirmLabel: 'Switch',
+    })
+    if (!ok) return
+    setBusy(true)
+    try { await api.switchBot(p.id); window.location.reload() }
+    catch (e: any) { toast(e?.message || 'Couldn’t switch bots', 'danger'); setBusy(false); load() }
+  }
+
+  const create = async () => {
+    const name = await promptDialog({
+      title: 'Create a new bot',
+      message: 'Give it a name — you’ll connect its Discord token next.',
+      confirmLabel: 'Create',
+      prompt: { placeholder: 'e.g. Support bot' },
+    })
+    if (name === null) return
+    setBusy(true)
+    try {
+      const p = await api.createBot(name.trim() || 'New bot')
+      await api.switchBot(p.id)
+      window.location.reload()
+    } catch (e: any) { toast(e?.message || 'Couldn’t create the bot', 'danger'); setBusy(false); load() }
+  }
+
+  const del = async (p: BotProfile) => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: `Delete ${p.name}?`,
+      message: (
+        <>
+          This permanently deletes <b>{p.name}</b> and everything it stores — its token,
+          settings, and memory. <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
+        </>
+      ),
+      requirePhrase: { phrase: 'delete' },
+      confirmLabel: 'Delete bot',
+    })
+    if (!ok) return
+    try { await api.deleteBot(p.id); toast(`Deleted ${p.name}`, 'neutral'); load() }
+    catch (e: any) { toast(e?.message || 'Couldn’t delete the bot', 'danger') }
+  }
+
+  return (
+    <>
+      <Head title="Bots" sub="Run several bots from one app — each has its own token, settings, and memory. One local bot runs at a time; switching stops the current one and reloads the console." />
+      {profiles === null ? <div className="settings-muted">Loading…</div> : (
+        <div className="bot-list">
+          {profiles.map((p) => (
+            <div key={p.id} className={'bot-row' + (p.id === activeId ? ' on' : '')}>
+              <span className="bot-ic"><Icon.bolt size={16} weight={p.id === activeId ? 'Bold' : 'Linear'} /></span>
+              <div className="bot-name">
+                {p.name}
+                {!p.created && <span className="bot-sub">not set up yet</span>}
+              </div>
+              <span className="grow" />
+              {p.id === activeId
+                ? <span className="badge success">Active</span>
+                : (
+                  <>
+                    <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>
+                    <button className="ghost icon-btn sm" data-tip="Delete bot" aria-label="Delete bot" disabled={busy} onClick={() => del(p)}>
+                      <Icon.trash size={14} />
+                    </button>
+                  </>
+                )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="settings-row">
+        <button disabled={busy} onClick={create}><Icon.add size={14} /> Create new bot</button>
+      </div>
+    </>
+  )
+}
+
+// ── Bot (switcher + what Olisar remembers for the active server) ───────────────
 function Bot() {
   const [busy, setBusy] = useState(false)
   const clearMemory = async () => {
@@ -194,12 +296,12 @@ function Bot() {
   }
   return (
     <>
-      <Head title="Bot" sub="Manage what Olisar remembers for the server you're configuring." />
+      <BotSwitcher />
       <div className="settings-subhead">Danger zone</div>
       <div className="settings-row between">
         <div>
           <div className="opt-label">Clear memory</div>
-          <div className="settings-muted">Erase everything Olisar has learned about this server — memory, member profiles, facts, the search index, glossary, and the knowledge base. It keeps its persona and your settings. This can't be undone.</div>
+          <div className="settings-muted">Erase everything the active bot has learned about the current server — memory, member profiles, facts, the search index, glossary, and the knowledge base. It keeps its persona and your settings. This can't be undone.</div>
         </div>
         <button className="danger" onClick={clearMemory} disabled={busy}>
           {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}

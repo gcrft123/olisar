@@ -16,7 +16,6 @@ import logging
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar.config import settings
 from olisar.context import name_map
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -34,6 +33,7 @@ from olisar.gemini.embeddings import embed_documents
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.memory.facts import extract_and_store_facts
 from olisar.memory.personas import maybe_build_user_persona
+from olisar.memory.purge import active_memory_guild_ids
 from olisar.memory.summarizer import maybe_summarize_channel
 from olisar.memory.vectors import upsert_embedding
 from olisar.memory.writer import estimate_tokens
@@ -102,14 +102,16 @@ async def embed_pending() -> int:
     return total
 
 
-def _memory_guilds() -> list[int]:
-    """Guilds the background passes cover: the configured target guild, plus DMs (guild 0),
-    which are stored as their own channels. Deduped, target first."""
-    return list(dict.fromkeys([settings.target_guild_id, 0]))
+async def _memory_guilds() -> list[int]:
+    """Guilds the background passes cover: every guild the bot is currently in, plus DMs
+    (guild 0), which are stored as their own channels. Deduped, DM bucket last — so a bot in
+    many servers maintains all of them, not just the home guild."""
+    async with session_scope() as session:
+        return await active_memory_guild_ids(session)
 
 
 async def run_summaries() -> None:
-    for guild_id in _memory_guilds():
+    for guild_id in await _memory_guilds():
         try:
             async with session_scope() as session:
                 config = await session.get(GuildConfig, guild_id)
@@ -138,7 +140,7 @@ async def run_glossary() -> None:
     channel has accumulated enough un-mined text. Independent of summarization and on
     a much lower threshold, so the glossary grows actively."""
     targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
-    for guild_id in _memory_guilds():
+    for guild_id in await _memory_guilds():
         try:
             async with session_scope() as session:
                 config = await session.get(GuildConfig, guild_id)
@@ -306,7 +308,7 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
 
 async def run_personas() -> None:
     targets: list[tuple[int, int, int]] = []  # (guild_id, user_id, threshold)
-    for guild_id in _memory_guilds():
+    for guild_id in await _memory_guilds():
         try:
             async with session_scope() as session:
                 config = await session.get(GuildConfig, guild_id)

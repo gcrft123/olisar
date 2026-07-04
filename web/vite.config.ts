@@ -101,6 +101,16 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/dev/status')) return send({ is_developer: false })
         if (url.startsWith('/api/dev/standing')) return send({ banned: false, warning: null })
         if (url.startsWith('/api/tunnel/status')) return send({ available: false, running: false, helper: false, headless: false, hostname: '', public_url: '' })
+        if (url.startsWith('/api/bots')) return send({
+          active_id: 'default',
+          profiles: [
+            { id: 'default', name: 'Red Nebula bot', created: true },
+            { id: 'a1b2c3d4', name: 'Support bot', created: true },
+            { id: 'e5f6a7b8', name: 'Staging bot', created: false },
+          ],
+        })
+        if (url.startsWith('/api/settings/updates')) return send({ current: '1.0.5', available: false })
+        if (url.startsWith('/api/settings/desktop')) return send({ show_in_menu_bar: true })
         if (url.startsWith('/api/usage/live')) return send(mockLive())
         if (url.startsWith('/api/usage/summary')) {
           const m = url.match(/days=(\d+)/)

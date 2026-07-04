@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
-from api.auth.deps import require_admin
+from api.auth.deps import require_admin, require_admin_or_local
 from api.routers.marketplace import _registry_error, _registry_post
 from api.schemas import DesktopSettingsIn, FeedbackIn
 from olisar import logbuffer, runtime_config
@@ -23,20 +23,20 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
 @router.get("/logs")
-async def get_logs(lines: int = 500, _: AdminUser = Depends(require_admin)) -> dict:
+async def get_logs(lines: int = 500, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     """Recent backend log lines (bot + API), newest last."""
     lines = max(1, min(lines, 4000))
     return {"lines": logbuffer.tail(lines)}
 
 
 @router.get("/updates")
-async def get_updates(_: AdminUser = Depends(require_admin)) -> dict:
+async def get_updates(_: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     """Whether a newer Olisar release is on GitHub."""
     return await check_latest()
 
 
 @router.post("/feedback")
-async def send_feedback(body: FeedbackIn, _: AdminUser = Depends(require_admin)) -> dict:
+async def send_feedback(body: FeedbackIn, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     """Email operator feedback (feedback / bug report / question) to the platform owner via
     the registry's Resend integration. Optional bot logs + attachments ride along."""
     payload = {
@@ -89,7 +89,7 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
 
 
 @router.get("/desktop")
-async def get_desktop(_: AdminUser = Depends(require_admin)) -> dict:
+async def get_desktop(_: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     """The desktop menu-bar toggle (honored by the Electron shell)."""
     async with session_scope() as session:
         cfg = await session.get(AppConfig, 1)
@@ -97,7 +97,7 @@ async def get_desktop(_: AdminUser = Depends(require_admin)) -> dict:
 
 
 @router.put("/desktop")
-async def put_desktop(body: DesktopSettingsIn, _: AdminUser = Depends(require_admin)) -> dict:
+async def put_desktop(body: DesktopSettingsIn, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     async with session_scope() as session:
         cfg = await session.get(AppConfig, 1)
         if cfg is None:

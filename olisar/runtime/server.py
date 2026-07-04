@@ -20,9 +20,13 @@ log = logging.getLogger("olisar.runtime")
 
 
 class BotSupervisor:
-    """The discord.py bot as a lazily-started, restartable background task."""
+    """The discord.py bot as a lazily-started, restartable background task.
 
-    def __init__(self) -> None:
+    Parameterised by ``profile_id`` (the bot profile it runs) — v1 only ever runs the active
+    one, but this is the seam that lets a future build run several concurrently."""
+
+    def __init__(self, profile_id: str | None = None) -> None:
+        self.profile_id = profile_id
         self._task: asyncio.Task | None = None
         self._bot = None
 
@@ -41,6 +45,13 @@ class BotSupervisor:
         if self.running:
             return
         await _apply_runtime_config()  # fold DB config into settings before cogs load
+        from olisar import runtime_config
+
+        # Server-hosted profiles run the bot on the operator's cloud VM — this local install
+        # is only their control panel, so never launch a local bot for them.
+        if await runtime_config.hosting_mode() == "server":
+            log.info("profile %s is server-hosted — no local bot", self.profile_id)
+            return
         token = await _resolve_token()
         if not token:
             log.warning("no Discord token configured — bot idle, awaiting setup")
@@ -86,17 +97,64 @@ async def _resolve_token() -> str:
     return await runtime_config.discord_token()
 
 
+_ENV_TARGET_GUILD_ID: int | None = None
+
+
+def _env_target_guild_id() -> int:
+    """The ``.env``-provided home guild, snapshotted once before any per-profile mutation, so
+    ``_apply_runtime_config`` can fall back to it when a profile's DB sets none."""
+    global _ENV_TARGET_GUILD_ID
+    if _ENV_TARGET_GUILD_ID is None:
+        from olisar.config import settings
+
+        _ENV_TARGET_GUILD_ID = int(getattr(settings, "target_guild_id", 0) or 0)
+    return _ENV_TARGET_GUILD_ID
+
+
 async def _apply_runtime_config() -> None:
     """Fold DB-backed runtime config into the in-memory ``settings`` singleton so the
     many synchronous ``settings.target_guild_id`` read sites (slash-command
     registration, DM handling) see the configured guild. Resolve-once: changing the
-    target guild takes effect on the next bot (re)start."""
+    target guild takes effect on the next bot (re)start.
+
+    Assigns the home guild **unconditionally** (including 0) — reading it straight from this
+    profile's DB, not the fallback accessor — so switching into a fresh profile resets it
+    rather than inheriting the previous profile's still-in-memory id."""
     from olisar import runtime_config
     from olisar.config import settings
 
-    gid = await runtime_config.target_guild_id()
-    if gid:
-        settings.target_guild_id = gid
+    env_fallback = _env_target_guild_id()  # captured before we mutate settings below
+    db_gid = await runtime_config.db_target_guild_id()
+    settings.target_guild_id = db_gid or env_fallback
+
+
+def active_supervisor(app):
+    """The ``BotSupervisor`` for the currently-active profile, or None."""
+    from olisar.runtime import profiles
+
+    return app.state.supervisors.get(profiles.active_id())
+
+
+async def start_supervisor(app, profile_id: str) -> "BotSupervisor":
+    """Create (if needed) and start the supervisor for ``profile_id``, pointing the legacy
+    ``app.state.bot_supervisor`` at it so the existing reference sites (bot power, live-bot
+    re-check, setup restart) keep working unchanged."""
+    supervisor = app.state.supervisors.get(profile_id)
+    if supervisor is None:
+        supervisor = BotSupervisor(profile_id)
+        app.state.supervisors[profile_id] = supervisor
+    app.state.bot_supervisor = supervisor
+    await supervisor.start()
+    return supervisor
+
+
+async def stop_all_supervisors(app) -> None:
+    """Stop and drop every running supervisor (v1: the single active one)."""
+    for supervisor in list(app.state.supervisors.values()):
+        with contextlib.suppress(Exception):
+            await supervisor.stop()
+    app.state.supervisors.clear()
+    app.state.bot_supervisor = None
 
 
 async def _init_database() -> None:
@@ -139,6 +197,12 @@ async def run(host: str, port: int) -> None:
     # public URL (and thus the OAuth redirect) uses 127.0.0.1 + the chosen port.
     runtime_config.set_local_base_url(f"http://127.0.0.1:{port}")
 
+    # Adopt the active bot profile's database before touching the DB. Runs after
+    # bootstrap_env() (which set the default DATABASE_PATH), so the profile pointer wins.
+    from olisar.runtime import profiles, switch
+
+    switch.point_settings_at(profiles.active_id())
+
     await _init_database()
     await _apply_runtime_config()
     vec_ok = await _self_check()
@@ -166,8 +230,10 @@ async def run(host: str, port: int) -> None:
     app.state.sandbox_ok = sandbox_ok
     app.state.transpile_ok = transpile_ok
     app.state.signing_ok = signing_ok
-    supervisor = BotSupervisor()
-    app.state.bot_supervisor = supervisor  # setup wizard (Phase 2) restarts via this
+    # Supervisors keyed by profile (v1 runs one — the active — at a time). The legacy
+    # ``bot_supervisor`` attribute is kept pointing at the active one by start_supervisor().
+    app.state.supervisors = {}
+    app.state.bot_supervisor = None
 
     from olisar.config import settings
     from olisar.runtime.paths import tailscale_state_dir
@@ -212,12 +278,12 @@ async def run(host: str, port: int) -> None:
         with contextlib.suppress(NotImplementedError):  # SIGTERM is absent on Windows
             loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
 
-    await supervisor.start()
+    await start_supervisor(app, profiles.active_id())
     log.info("backend listening on http://%s:%d", host, port)
     try:
         await server.serve()
     finally:
-        await supervisor.stop()
+        await stop_all_supervisors(app)
         await tunnel.stop()
         from olisar.db.engine import get_engine
 

@@ -21,6 +21,7 @@ import discord
 from fastapi import Cookie, Header, HTTPException, Request
 
 from api.auth.sessions import COOKIE_NAME, delete_session, get_admin_for_token
+from api.trust import is_local_request
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, Guild, utcnow
 
@@ -126,6 +127,19 @@ async def require_admin(
         raise HTTPException(status_code=401, detail="session invalid or expired")
     await _revalidate(request, admin, olisar_session)
     return admin
+
+
+async def require_admin_or_local(
+    request: Request,
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+) -> AdminUser | None:
+    """Admit an authenticated admin OR a loopback (operator-at-the-machine) request. Lets the
+    "lite" settings panels (Updates / Desktop / Feedback / logs) work on the pre-auth
+    login/onboarding screens of the desktop app, while remote (Funnel) callers still need a
+    session. Loopback trust matches the setup wizard's boundary (local machine access)."""
+    if is_local_request(request):
+        return None
+    return await require_admin(request, olisar_session)
 
 
 @dataclass

@@ -8,8 +8,10 @@ event listener, which fires for each pooled connection.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 import sqlite_vec
 from sqlalchemy import event
@@ -21,10 +23,24 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.util import await_only
 
-from olisar.config import settings
+# Engines/sessionmakers are keyed by the SQLite file path rather than a single global, so
+# switching the active bot profile just disposes the current entry and builds the next. The
+# ``current_profile`` contextvar is the seam for *future* concurrent local bots: v1 leaves it
+# unset (so everything resolves to the registry's active profile), while a later concurrent
+# build would set it per bot task / per API request to route each context to its own DB —
+# with no call-site changes, since all DB access already flows through ``session_scope()``.
+_engines: dict[str, AsyncEngine] = {}
+_sessionmakers: dict[str, async_sessionmaker[AsyncSession]] = {}
 
-_engine: AsyncEngine | None = None
-_sessionmaker: async_sessionmaker[AsyncSession] | None = None
+current_profile: ContextVar[str | None] = ContextVar("current_profile", default=None)
+
+
+def current_db_path() -> str:
+    """The SQLite path for the async context's profile: the ``current_profile`` contextvar
+    when set, else the registry's active profile."""
+    from olisar.runtime import profiles
+
+    return str(profiles.db_path_for(current_profile.get() or profiles.active_id()))
 
 
 def _register_connection_setup(engine: AsyncEngine) -> None:
@@ -53,20 +69,39 @@ def _register_connection_setup(engine: AsyncEngine) -> None:
 
 
 def get_engine() -> AsyncEngine:
-    global _engine
-    if _engine is None:
-        _engine = create_async_engine(settings.async_db_url, echo=False, future=True)
-        _register_connection_setup(_engine)
-    return _engine
+    path = current_db_path()
+    engine = _engines.get(path)
+    if engine is None:
+        engine = create_async_engine(
+            f"sqlite+aiosqlite:///{path}", echo=False, future=True
+        )
+        _register_connection_setup(engine)
+        _engines[path] = engine
+    return engine
 
 
 def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
-    global _sessionmaker
-    if _sessionmaker is None:
-        _sessionmaker = async_sessionmaker(
+    path = current_db_path()
+    sessionmaker = _sessionmakers.get(path)
+    if sessionmaker is None:
+        sessionmaker = async_sessionmaker(
             get_engine(), expire_on_commit=False, class_=AsyncSession
         )
-    return _sessionmaker
+        _sessionmakers[path] = sessionmaker
+    return sessionmaker
+
+
+async def reset_engine(path: str | None = None) -> None:
+    """Dispose and forget the engine for ``path`` (default: the current profile's DB), so
+    the next ``get_engine()`` rebuilds it. Disposing closes the pooled aiosqlite connections
+    and releases the WAL/SHM handles — required before another profile opens the same file,
+    and used by a profile switch to tear down the outgoing bot's engine."""
+    target = path or current_db_path()
+    engine = _engines.pop(target, None)
+    _sessionmakers.pop(target, None)
+    if engine is not None:
+        with contextlib.suppress(Exception):
+            await engine.dispose()
 
 
 @asynccontextmanager
