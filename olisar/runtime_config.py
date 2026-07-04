@@ -188,8 +188,18 @@ async def is_configured() -> bool:
     image on a cloud VM) with the essential Discord credentials supplied via env is
     treated as configured, so it serves the dashboard rather than the loopback-only
     wizard (which can't be reached over the public Funnel)."""
-    if bool((await _load()).get("configured")):
-        return True
+    data = await _load()
+    if bool(data.get("configured")):
+        # Server hosting: the bot + Discord OAuth run on the operator's VM, so this local
+        # install intentionally has no Discord creds — trust the flag.
+        if (data.get("hosting_mode") or "local") == "server":
+            return True
+        # Locally hosted: OAuth runs here, so it still needs the Discord app credentials. A
+        # stale ``configured`` flag with an empty client id/secret (a pre-hosting_mode DB, a
+        # half-set-up profile, config cleared) would make ``/auth/login`` hand Discord an
+        # empty client_id — a cryptic "Invalid Form Body" — so fall back to the setup wizard.
+        if await discord_client_id() and await discord_client_secret():
+            return True
     if settings.mock_auth:  # dev/testing: skip onboarding, go straight to the sign-in flow
         return True
     return bool(

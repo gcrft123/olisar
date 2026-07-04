@@ -20,14 +20,29 @@ export function setGuild(id: string | null): void {
   currentGuild = id
 }
 
-async function req(path: string, opts: RequestInit = {}): Promise<any> {
+// `timeoutMs` is opt-in — most calls have none (deploy/reindex legitimately run for minutes),
+// but SSH-backed reads (server status/pubkey/logs) pass a short timeout so a wedged/unreachable
+// backend surfaces as an error instead of hanging the UI forever.
+async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}): Promise<any> {
+  const { timeoutMs, ...init } = opts
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (currentGuild) headers['X-Guild-Id'] = currentGuild
-  const res = await fetch(BASE + path, {
-    credentials: 'include',
-    ...opts,
-    headers,
-  })
+  const ctrl = timeoutMs ? new AbortController() : null
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
+  let res: Response
+  try {
+    res = await fetch(BASE + path, {
+      credentials: 'include',
+      ...init,
+      ...(ctrl ? { signal: ctrl.signal } : {}),
+      headers,
+    })
+  } catch (e: any) {
+    if (ctrl?.signal.aborted) throw new Error('timed out — the backend didn’t respond')
+    throw e
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
   if (res.status === 401) { onUnauthorized?.(); throw new Unauthorized('not authenticated') }
   if (!res.ok) {
     const body = await res.text().catch(() => '')
@@ -195,15 +210,19 @@ export const api = {
     req('/api/setup/validate-token', { method: 'POST', body: JSON.stringify({ token }) }),
   saveSetupKeys: (b: any) => req('/api/setup/keys', { method: 'POST', body: JSON.stringify(b) }),
   saveSetup: (b: any) => req('/api/setup/save', { method: 'POST', body: JSON.stringify(b) }),
-  // Server hosting: the app drives the operator's cloud VM over SSH (no local bot).
-  serverPubkey: () => req('/api/server/pubkey'),
+  // Server hosting: the app drives the operator's cloud VM over SSH (no local bot). The
+  // SSH-backed reads carry a timeout so a wedged/unreachable backend surfaces as an error
+  // instead of hanging (deploy has none — it legitimately runs for minutes).
+  serverPubkey: () => req('/api/server/pubkey', { timeoutMs: 12000 }),
   serverDeploy: (b: { host: string; user?: string; env: string }) =>
     req('/api/server/deploy', { method: 'POST', body: JSON.stringify(b) }),
   serverConnect: (b: { host: string; user?: string }) =>
-    req('/api/server/connect', { method: 'POST', body: JSON.stringify(b) }),
+    req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 30000 }),
   serverPower: (action: 'up' | 'stop') =>
-    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }) }),
-  serverStatus: () => req('/api/server/status'),
+    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 130000 }),
+  serverStatus: () => req('/api/server/status', { timeoutMs: 40000 }),
+  serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
+    req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 
   // Bot profiles (loopback-only): each "bot" is an independent profile with its own token,
   // config, and database. One local bot is active at a time; switching stops the current
@@ -214,6 +233,9 @@ export const api = {
   switchBot: (id: string) => req('/api/bots/switch', { method: 'POST', body: JSON.stringify({ id }) }),
   renameBot: (id: string, name: string) => req('/api/bots/rename', { method: 'POST', body: JSON.stringify({ id, name }) }),
   setDefaultBot: (id: string) => req('/api/bots/default', { method: 'POST', body: JSON.stringify({ id }) }),
+  // Reset a bot's deployment config (Discord creds, server, API keys) — keeps its learned
+  // data + SSH key. Returns { ok, active, hosting_mode } so the caller can route.
+  resetBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
   deleteBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
