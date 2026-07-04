@@ -197,10 +197,11 @@ async def run(host: str, port: int) -> None:
     # public URL (and thus the OAuth redirect) uses 127.0.0.1 + the chosen port.
     runtime_config.set_local_base_url(f"http://127.0.0.1:{port}")
 
-    # Adopt the active bot profile's database before touching the DB. Runs after
+    # Open the launch-default bot: adopt it as active, then point the DB at it. Runs after
     # bootstrap_env() (which set the default DATABASE_PATH), so the profile pointer wins.
     from olisar.runtime import profiles, switch
 
+    profiles.set_active(profiles.default_id())
     switch.point_settings_at(profiles.active_id())
 
     await _init_database()

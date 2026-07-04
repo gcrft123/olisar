@@ -175,11 +175,12 @@ type BotProfile = { id: string; name: string; created: boolean }
 function BotSwitcher() {
   const [profiles, setProfiles] = useState<BotProfile[] | null>(null)
   const [activeId, setActiveId] = useState('')
+  const [defaultId, setDefaultId] = useState('')
   const [busy, setBusy] = useState(false)
 
   const load = () =>
     api.botList()
-      .then((d: any) => { setProfiles(d.profiles || []); setActiveId(d.active_id || '') })
+      .then((d: any) => { setProfiles(d.profiles || []); setActiveId(d.active_id || ''); setDefaultId(d.default_id || '') })
       .catch(() => setProfiles([]))
   useEffect(() => { load() }, [])
 
@@ -194,6 +195,23 @@ function BotSwitcher() {
     setBusy(true)
     try { await api.switchBot(p.id); window.location.reload() }
     catch (e: any) { toast(e?.message || 'Couldn’t switch bots', 'danger'); setBusy(false); load() }
+  }
+
+  const rename = async (p: BotProfile) => {
+    const name = await promptDialog({
+      title: 'Rename bot',
+      confirmLabel: 'Rename',
+      prompt: { placeholder: 'Bot name', defaultValue: p.name },
+    })
+    if (name === null || !name.trim() || name.trim() === p.name) return
+    try { await api.renameBot(p.id, name.trim()); load() }
+    catch (e: any) { toast(e?.message || 'Couldn’t rename the bot', 'danger') }
+  }
+
+  const makeDefault = async (p: BotProfile) => {
+    if (p.id === defaultId || busy) return
+    try { await api.setDefaultBot(p.id); toast(`${p.name} opens on launch`, 'success'); load() }
+    catch (e: any) { toast(e?.message || 'Couldn’t set the default', 'danger') }
   }
 
   const create = async () => {
@@ -235,26 +253,38 @@ function BotSwitcher() {
       <Head title="Bots" sub="Run several bots from one app — each has its own token, settings, and memory. One local bot runs at a time; switching stops the current one and reloads the console." />
       {profiles === null ? <div className="settings-muted">Loading…</div> : (
         <div className="bot-list">
-          {profiles.map((p) => (
-            <div key={p.id} className={'bot-row' + (p.id === activeId ? ' on' : '')}>
-              <span className="bot-ic"><Icon.bolt size={16} weight={p.id === activeId ? 'Bold' : 'Linear'} /></span>
-              <div className="bot-name">
-                {p.name}
-                {!p.created && <span className="bot-sub">not set up yet</span>}
-              </div>
-              <span className="grow" />
-              {p.id === activeId
-                ? <span className="badge success">Active</span>
-                : (
-                  <>
-                    <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>
+          {profiles.map((p) => {
+            const isActive = p.id === activeId
+            const isDefault = p.id === defaultId
+            return (
+              <div key={p.id} className={'bot-row' + (isActive ? ' on' : '')}>
+                <span className="bot-ic"><Icon.bolt size={16} weight={isActive ? 'Bold' : 'Linear'} /></span>
+                <div className="bot-name">
+                  {p.name}
+                  {!p.created && <span className="bot-sub">not set up yet</span>}
+                </div>
+                <span className="grow" />
+                <div className="bot-actions">
+                  {isDefault && <span className="badge">Default</span>}
+                  {isActive && <span className="badge success">Active</span>}
+                  {!isActive && <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
+                  {!isDefault && (
+                    <button className="ghost icon-btn sm" data-tip="Set as default" aria-label="Set as default" disabled={busy} onClick={() => makeDefault(p)}>
+                      <Icon.star size={14} />
+                    </button>
+                  )}
+                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label="Rename" disabled={busy} onClick={() => rename(p)}>
+                    <Icon.edit size={14} />
+                  </button>
+                  {!isActive && (
                     <button className="ghost icon-btn sm" data-tip="Delete bot" aria-label="Delete bot" disabled={busy} onClick={() => del(p)}>
                       <Icon.trash size={14} />
                     </button>
-                  </>
-                )}
-            </div>
-          ))}
+                  )}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
       <div className="settings-row">
