@@ -229,6 +229,7 @@ export const api = {
   // one and starts the selected profile's bot. Callers reload the app after switch/create,
   // since auth, guilds, the X-Guild-Id header, and the active database all change.
   botList: () => req('/api/bots'),
+  activeBot: () => req('/api/bots/active'),
   createBot: (name: string) => req('/api/bots', { method: 'POST', body: JSON.stringify({ name }) }),
   switchBot: (id: string) => req('/api/bots/switch', { method: 'POST', body: JSON.stringify({ id }) }),
   renameBot: (id: string, name: string) => req('/api/bots/rename', { method: 'POST', body: JSON.stringify({ id, name }) }),
@@ -236,6 +237,10 @@ export const api = {
   // Reset a bot's deployment config (Discord creds, server, API keys) — keeps its learned
   // data + SSH key. Returns { ok, active, hosting_mode } so the caller can route.
   resetBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
+  // Move a bot between hosts (local ↔ cloud VM), carrying its data + keeping the old copy as a
+  // backup. Long-running (SSH deploy + data transfer), so no client timeout. Only the active bot.
+  moveBot: (id: string, b: { target: 'local' | 'server'; host?: string; user?: string }) =>
+    req(`/api/bots/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify(b) }),
   deleteBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from pathlib import Path
 
 import asyncssh
 from sqlalchemy import select
@@ -29,6 +30,13 @@ log = logging.getLogger("olisar.remote")
 APP_DIR = "olisar"          # ~/olisar on the VM holds .env + docker-compose.yml
 CONNECT_TIMEOUT = 20        # seconds to establish the SSH connection
 _TSNET_RE = re.compile(r"https://[\w.-]+\.ts\.net")
+
+# The container mounts the olisar-data volume here, so the VM's DB + uploads live at these
+# paths (used by the cross-host data migration; see olisar.runtime.migrate).
+VM_DATA_DIR = "/var/lib/olisar"
+VM_DB = f"{VM_DATA_DIR}/olisar.db"
+VM_KB = f"{VM_DATA_DIR}/kb_uploads"
+_HELPER_IMAGE = "alpine"    # tiny image to read/write the named volume while stopped
 
 # The compose the app writes to the VM: pull the prebuilt image, read the .env beside it,
 # persist state in a named volume. No published ports — Tailscale Funnel is the ingress.
@@ -44,17 +52,6 @@ services:
 volumes:
   olisar-data:
 """
-
-
-# TODO(migration): cross-host data transfer (follow-up, not implemented here). Move a bot's
-# data when its hosting changes, keeping the OLD copy as a backup:
-#   - transfer the SQLite DB (self-contained: vectors + FTS live inside it) + the kb_uploads/
-#     dir over SFTP via `conn.start_sftp_client()`; VM data is /var/lib/olisar/{olisar.db,kb_uploads},
-#     local is profiles.db_path_for(id) (+ sibling kb_uploads).
-#   - stop the source first (local: server.stop_all_supervisors + engine.reset_engine; VM:
-#     `docker compose stop`) so WAL/SHM are flushed before copying.
-#   - matrix: local→new-server (upload), server→local (download), server→server-same-IP (no-op),
-#     server→server-diff-IP (transfer). Verify the copy, then leave the old copy in place.
 
 
 async def _load() -> AppConfig | None:
@@ -243,3 +240,98 @@ async def status() -> dict:
         m = _TSNET_RE.search(logs)
         url = m.group(0) if m else ""
     return {**base, "reachable": True, "running": running, "url": url, "logs": logs.strip()[-4000:]}
+
+
+# ── cross-host data transfer (used by olisar.runtime.migrate) ───────────────────
+# The bot's data is the self-contained SQLite DB (vectors + FTS live inside it) plus the
+# kb_uploads/ dir of uploaded documents. On the VM these sit in the `olisar-data` named
+# volume, which isn't on the host filesystem — so we stage it through a throwaway helper
+# container that mounts the volume, then SFTP the staged files. The caller stops the source
+# first (so the WAL is flushed) and keeps the old copy as a backup.
+
+
+async def _volume_name(conn) -> str:
+    """The actual Docker volume name backing `olisar-data` (Compose prefixes it with the
+    project name, e.g. `olisar_olisar-data`)."""
+    out = await _run(conn, "sudo docker volume ls -q --filter name=olisar-data 2>/dev/null || true", timeout=30)
+    for line in out.splitlines():
+        if line.strip():
+            return line.strip()
+    raise RuntimeError("couldn't find the olisar-data volume on the VM")
+
+
+async def _sftp_exists(sftp, path: str) -> bool:
+    try:
+        await sftp.stat(path)
+        return True
+    except Exception:  # noqa: BLE001 — any stat failure means "treat as absent"
+        return False
+
+
+async def read_env(host: str, user: str) -> str:
+    """The VM's `.env` text. For server-hosted bots the Discord creds + API keys live here
+    (not in the local DB), so a move to local / another server reads them from here."""
+    conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
+    try:
+        return await _run(conn, f"cat ~/{APP_DIR}/.env 2>/dev/null || true", timeout=30)
+    finally:
+        conn.close()
+
+
+async def export_data(host: str, user: str, dest_dir: Path) -> None:
+    """Stop the VM's container and copy its data — `olisar.db` (+ any WAL/SHM sidecars) and
+    `kb_uploads/` — into the local `dest_dir` over SFTP. Leaves the container stopped and the
+    volume intact, so the VM remains a full backup."""
+    conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
+    try:
+        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
+        vol = await _volume_name(conn)
+        await _run(conn, f"mkdir -p ~/{APP_DIR}/export && sudo rm -rf ~/{APP_DIR}/export/*", timeout=30)
+        await _run(
+            conn,
+            f"sudo docker run --rm -v {vol}:/v -v ~/{APP_DIR}/export:/out {_HELPER_IMAGE} sh -c "
+            "'set -e; for f in olisar.db olisar.db-wal olisar.db-shm; do "
+            "if [ -f /v/$f ]; then cp /v/$f /out/$f; fi; done; "
+            "if [ -d /v/kb_uploads ]; then cp -a /v/kb_uploads /out/kb_uploads; fi; "
+            "chmod -R a+rwX /out'",
+            timeout=600,
+        )
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        async with conn.start_sftp_client() as sftp:
+            base = f"{await sftp.realpath('.')}/{APP_DIR}/export"
+            for name in ("olisar.db", "olisar.db-wal", "olisar.db-shm"):
+                if await _sftp_exists(sftp, f"{base}/{name}"):
+                    await sftp.get(f"{base}/{name}", str(dest_dir / name))
+            if await _sftp_exists(sftp, f"{base}/kb_uploads"):
+                await sftp.get(f"{base}/kb_uploads", str(dest_dir / "kb_uploads"), recurse=True)
+    finally:
+        conn.close()
+
+
+async def import_data(host: str, user: str, src_dir: Path) -> None:
+    """Load a staged `olisar.db` (+ `kb_uploads/`) from `src_dir` into the VM's `olisar-data`
+    volume and (re)start the container. The compose file must already be present (deploy first).
+    Removes any stale WAL/SHM so the replaced DB opens clean."""
+    conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
+    try:
+        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
+        await _run(conn, f"mkdir -p ~/{APP_DIR}/import && sudo rm -rf ~/{APP_DIR}/import/*", timeout=30)
+        async with conn.start_sftp_client() as sftp:
+            base = f"{await sftp.realpath('.')}/{APP_DIR}/import"
+            await sftp.put(str(src_dir / "olisar.db"), f"{base}/olisar.db")
+            kb = src_dir / "kb_uploads"
+            if kb.is_dir():
+                await sftp.put(str(kb), f"{base}/kb_uploads", recurse=True)
+        vol = await _volume_name(conn)
+        await _run(
+            conn,
+            f"sudo docker run --rm -v {vol}:/v -v ~/{APP_DIR}/import:/in {_HELPER_IMAGE} sh -c "
+            "'set -e; rm -f /v/olisar.db /v/olisar.db-wal /v/olisar.db-shm; "
+            "cp /in/olisar.db /v/olisar.db; rm -rf /v/kb_uploads; "
+            "if [ -d /in/kb_uploads ]; then cp -a /in/kb_uploads /v/kb_uploads; fi; "
+            "chmod -R a+rwX /v'",
+            timeout=600,
+        )
+        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
+    finally:
+        conn.close()
