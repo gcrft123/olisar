@@ -68,7 +68,7 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --success: var(--ok); --error: var(--danger); --warning: var(--warn);
 
   /* Type */
-  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Radii — generously rounded */
@@ -146,10 +146,10 @@ body::after { width: 48vw; height: 48vw; bottom: -18vw; right: -6vw;
 
 ## Typography
 
-**Inter** for the whole UI; **JetBrains Mono** for IDs, URLs, tags, slash commands, code, and numeric readouts.
+**IBM Plex Sans** for the whole UI; **JetBrains Mono** for IDs, URLs, tags, slash commands, code, and numeric readouts.
 
 ```html
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 ```
 
 Small, dense, admin proportions:
