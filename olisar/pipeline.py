@@ -178,7 +178,11 @@ def _fallback_from_gathered(blank_fallback: str, gathered: list[str]) -> str:
             items.append(b)
     if not items:
         return blank_fallback
-    body = _strip_internal_header(items[0]) if len(items) == 1 else "\n\n".join(items)
+    # Strip each item's leading internal-instruction header (e.g. search_messages'
+    # "skim these…:" line) — it's meant for the model, never the user. Previously this
+    # only ran for a single result, so multiple gathered results (e.g. several search
+    # batches) leaked their headers into the reply.
+    body = "\n\n".join(_strip_internal_header(it) for it in items)
     return PARTIAL_PREFIX + body
 
 
