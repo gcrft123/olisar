@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar.context import name_map
 from olisar.db.models import ChannelSummary, Message, UserMemory, UserProfile
 from olisar.gemini.embeddings import embed_query
+from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.knowledge.retrieval import kb_block_from_qvec
 from olisar.memory.channels import channel_context_blocks
 from olisar.memory.facts import glossary_block
@@ -68,7 +69,12 @@ async def recall(
 
     # Everything below is semantic — needs the query embedded. If that's
     # unavailable (empty query or embed rate-limited), still return what we have.
-    qvec = await embed_query(query_text) if query_text.strip() else None
+    try:
+        qvec = await embed_query(query_text) if query_text.strip() else None
+    except RateLimitExceeded:
+        # Embed model over quota — degrade to non-semantic recall (persona/roles/recent)
+        # rather than failing the whole reply. Matches the "still return what we have" intent.
+        qvec = None
     if not qvec:
         log.info("recall: %s (no query vector)", ", ".join(used) or "nothing")
         if not blocks:
