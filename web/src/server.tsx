@@ -36,9 +36,17 @@ export function ServerControlPanel() {
   const pk = usePubkey(reconnect && showKey)
 
   async function refresh() {
-    // Degrade gracefully: a failed status read (VM down, container restarting, an older
-    // backend) resolves to "Unreachable" — never a stuck "Checking…" or a raw parse error.
-    try { setSt(await api.serverStatus()) } catch { setSt({ configured: true, reachable: false }) }
+    // Degrade gracefully: a failed status read (VM down, container restarting, timeout)
+    // resolves to "Unreachable" with the real error — never a stuck "Checking…".
+    try {
+      setSt(await api.serverStatus())
+    } catch (e: any) {
+      setSt({
+        configured: true,
+        reachable: false,
+        error: e?.message || 'status check failed',
+      })
+    }
   }
   useEffect(() => {
     refresh()
