@@ -299,9 +299,21 @@ app — not both at once** on the same token, or the two instances will fight ov
 
 :::note Your data, on your VM
 Everything Olisar learns (memory, profiles, the knowledge base, your settings) lives in a Docker
-volume on the VM, not in any cloud. Update with \`docker compose pull && docker compose up -d\`;
-the manual steps and full reference are in [deploy/README.md](https://github.com/gcrft123/olisar/blob/main/deploy/README.md).
+volume on the VM, not in any cloud. The full reference is in
+[deploy/README.md](https://github.com/gcrft123/olisar/blob/main/deploy/README.md).
 :::
+
+## Keeping the server image current
+
+If you manage the VM from the **desktop app** (server mode), opening the control panel **pulls the
+latest image** from GHCR over SSH and recreates the container when it was already running. **Start
+server** also pulls before \`up -d\`. Data in the Docker volume is preserved across pulls.
+
+You can still update by hand on the VM:
+
+\`\`\`
+cd ~/olisar && sudo docker compose pull && sudo docker compose up -d
+\`\`\`
 `,
   },
   {

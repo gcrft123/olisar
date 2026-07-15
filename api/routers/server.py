@@ -58,6 +58,12 @@ async def power(body: PowerIn) -> dict:
     return await remote.power(body.action)
 
 
+@router.post("/update")
+async def update() -> dict:
+    """Pull the latest Olisar image on the VM; recreate the container if it was running."""
+    return await remote.update_image()
+
+
 @router.get("/status")
 async def status() -> dict:
     """Whether the remote container is running, recent logs, and the public URL."""

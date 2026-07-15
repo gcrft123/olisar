@@ -17,12 +17,16 @@ type Status = {
 /** Shown (loopback-gated, no Discord login) when the app is in server-hosting mode:
  *  the bot runs on the operator's cloud VM, and this is the local control panel that
  *  starts/stops it over SSH (`docker compose up -d` / `stop`) and links to its console.
- *  A reconnect flow re-adopts the VM after a reinstall / reset / IP change. */
+ *  On open it pulls the latest GHCR image so the VM stays current without a manual
+ *  `compose pull`. A reconnect flow re-adopts the VM after a reinstall / reset / IP change. */
 export function ServerControlPanel() {
   const [st, setSt] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Startup image pull (once per panel mount). Non-fatal if the VM is down — status still runs.
+  const [updating, setUpdating] = useState(true)
+  const [updateNote, setUpdateNote] = useState('')
 
   // Reconnect sub-flow
   const [reconnect, setReconnect] = useState(false)
@@ -48,17 +52,45 @@ export function ServerControlPanel() {
       })
     }
   }
+
   useEffect(() => {
-    refresh()
-    const t = setInterval(refresh, 15000)
-    return () => clearInterval(t)
+    // Holder so the unmount cleanup always sees the latest interval id.
+    const life = { cancelled: false, poll: undefined as ReturnType<typeof setInterval> | undefined }
+    ;(async () => {
+      setUpdating(true)
+      setUpdateNote('')
+      try {
+        const r = await api.serverUpdate()
+        if (life.cancelled) return
+        if (r?.ok) {
+          if (r.updated) setUpdateNote('Server image updated to the latest release.')
+        } else if (r?.error) {
+          // Soft fail: still show status so a down VM doesn't block the panel forever.
+          setUpdateNote(`Couldn’t update the server image — ${r.error}`)
+        }
+      } catch (e: any) {
+        if (!life.cancelled) setUpdateNote(`Couldn’t update the server image — ${e?.message || 'request failed'}`)
+      } finally {
+        if (life.cancelled) return
+        setUpdating(false)
+        await refresh()
+        if (life.cancelled) return
+        // Status polls only after the pull finishes so we don't contend for SSH.
+        life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
+      }
+    })()
+    return () => {
+      life.cancelled = true
+      if (life.poll) clearInterval(life.poll)
+    }
   }, [])
 
   async function power(action: 'up' | 'stop') {
-    setErr(''); setBusy(true)
+    setErr(''); setBusy(true); setUpdateNote('')
     try {
       const r = await api.serverPower(action)
       if (!r?.ok) setErr(r?.error || 'That didn’t work.')
+      else if (action === 'up') setUpdateNote('Started with the latest server image.')
     } catch (e: any) {
       setErr(e?.message || 'Couldn’t reach the server.')
     } finally {
@@ -85,11 +117,26 @@ export function ServerControlPanel() {
     }
   }
 
-  const loading = st === null
+  const loading = st === null && !updating
   const running = !!st?.running
   const reachable = st?.reachable !== false
-  const stateLabel = loading ? 'Checking…' : !reachable ? 'Unreachable' : running ? 'Running' : 'Stopped'
-  const stateTone = loading ? 'info' : !reachable ? 'error' : running ? 'success' : 'warning'
+  const stateLabel = updating
+    ? 'Updating…'
+    : loading
+      ? 'Checking…'
+      : !reachable
+        ? 'Unreachable'
+        : running
+          ? 'Running'
+          : 'Stopped'
+  const stateTone = updating || loading
+    ? 'info'
+    : !reachable
+      ? 'error'
+      : running
+        ? 'success'
+        : 'warning'
+  const actionsLocked = busy || updating
 
   if (reconnect) {
     return (
@@ -141,19 +188,26 @@ export function ServerControlPanel() {
         </div>
         <p className="step-sub">
           Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here;
-          the full dashboard is served from the VM.
+          the full dashboard is served from the VM. The app pulls the latest server image when it opens
+          {updating ? '…' : '.'}
         </p>
 
         <div className="wiz-foot">
-          <button className="ghost" onClick={openReconnect}>Reconnect</button>
+          <button className="ghost" disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>
           <span className="grow" />
           {running
-            ? <button className="caution" disabled={busy} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
-            : <button disabled={busy || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
-          <button className="primary" disabled={!st?.url} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
+            ? <button className="caution" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
+            : <button disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
+          <button className="primary" disabled={!st?.url || updating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
         </div>
 
-        {!loading && !reachable && (
+        {updating && (
+          <p className="srv-hint">Checking for a newer server image and applying it if needed. This can take a few minutes…</p>
+        )}
+        {!updating && updateNote && (
+          <p className="srv-hint">{updateNote}</p>
+        )}
+        {!loading && !updating && !reachable && (
           <p className="srv-hint">Couldn’t reach your server{st?.error ? ` — ${st.error}` : ' — check the VM is running.'} Retrying, or use <b>Reconnect</b>.</p>
         )}
         {err && <div className="err">{err}</div>}
