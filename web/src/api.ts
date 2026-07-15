@@ -220,7 +220,9 @@ export const api = {
     req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 30000 }),
   serverPower: (action: 'up' | 'stop') =>
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 130000 }),
-  serverStatus: () => req('/api/server/status', { timeoutMs: 40000 }),
+  // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
+  // backend budget so a slow link doesn't false-flag the panel as Unreachable.
+  serverStatus: () => req('/api/server/status', { timeoutMs: 75000 }),
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 

@@ -209,7 +209,14 @@ async def logs(which: str = "bot", tail: int = 200) -> dict:
 
 
 async def status() -> dict:
-    """Whether the remote container is running, recent logs, and the public URL."""
+    """Whether the remote container is running, recent logs, and the public URL.
+
+    One SSH round-trip (connect + a single remote script). The previous implementation
+    ran three sequential ``docker compose`` commands and grepped the *entire* container
+    log history for the funnel URL — on a long-running VM that routinely exceeded the
+    control panel's 40s fetch budget, which the UI then painted as "Unreachable" even
+    though SSH (and the Logs view) still worked.
+    """
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {"configured": False}
@@ -218,27 +225,57 @@ async def status() -> dict:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
         return {**base, "reachable": False, "error": str(exc)}
+    # Markers keep parsing robust if docker stderr leaks into a section.
+    # URL strategy: recent logs first (fast); if empty, stream full history and stop at the
+    # first match (``grep -m1``) so we never ship megabytes of logs over the wire.
+    script = f"""set +e
+cd ~/{APP_DIR} || exit 0
+echo '__OLISAR_PS__'
+sudo docker compose ps 2>/dev/null
+echo '__OLISAR_LOGS__'
+sudo docker compose logs --tail 40 --no-color 2>/dev/null
+echo '__OLISAR_URL__'
+url=$(sudo docker compose logs --tail 5000 --no-color 2>/dev/null \\
+  | grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1)
+if [ -z "$url" ]; then
+  url=$(sudo docker compose logs --no-color 2>/dev/null \\
+    | grep -m1 -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net')
+fi
+printf '%s\\n' "$url"
+"""
     try:
-        ps = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose ps 2>/dev/null || true", timeout=30)
-        logs = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose logs --tail 40 2>/dev/null || true", timeout=30)
-        # The public ts.net URL is logged once at funnel startup, which on a long-running bot
-        # has usually scrolled past the 40-line display tail — grep the FULL logs for it so
-        # "Open console" isn't left greyed out. Only the URL comes back over the wire.
-        url_out = await _run(
-            conn,
-            f"cd ~/{APP_DIR} && sudo docker compose logs --no-color 2>/dev/null "
-            "| grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1 || true",
-            timeout=40,
+        # Feed the script on stdin so multi-line quoting stays simple and secrets-free.
+        r = await asyncio.wait_for(
+            conn.run("bash -s", input=script, check=False),
+            timeout=45,
         )
+        out = (r.stdout or "") + (r.stderr or "")
+        if r.exit_status not in (0, None):
+            raise RuntimeError(f"status probe failed ({r.exit_status}):\n{out.strip()[-800:]}")
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {**base, "reachable": True, "error": str(exc)}
     conn.close()
-    running = bool(re.search(r"\brunning\b|\bUp\b", ps))
-    url = url_out.strip()
+
+    def _section(name: str) -> str:
+        marker = f"__OLISAR_{name}__"
+        if marker not in out:
+            return ""
+        rest = out.split(marker, 1)[1]
+        for nxt in ("__OLISAR_PS__", "__OLISAR_LOGS__", "__OLISAR_URL__"):
+            if nxt != marker and nxt in rest:
+                rest = rest.split(nxt, 1)[0]
+                break
+        return rest.strip()
+
+    ps = _section("PS")
+    logs = _section("LOGS")
+    url_sec = _section("URL")
+    url = url_sec.splitlines()[0].strip() if url_sec else ""
     if not url:
         m = _TSNET_RE.search(logs)
         url = m.group(0) if m else ""
+    running = bool(re.search(r"\brunning\b|\bUp\b", ps))
     return {**base, "reachable": True, "running": running, "url": url, "logs": logs.strip()[-4000:]}
 
 
