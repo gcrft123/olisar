@@ -219,7 +219,11 @@ export const api = {
   serverConnect: (b: { host: string; user?: string }) =>
     req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 30000 }),
   serverPower: (action: 'up' | 'stop') =>
-    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 130000 }),
+    // Start pulls GHCR :latest first (can take several minutes on a cold cache).
+    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 600000 }),
+  // Pull latest VM image + recreate if running. Called once when the control panel opens.
+  serverUpdate: () =>
+    req('/api/server/update', { method: 'POST', timeoutMs: 600000 }),
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
   serverStatus: () => req('/api/server/status', { timeoutMs: 75000 }),

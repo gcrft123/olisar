@@ -5,6 +5,7 @@ creating their cloud VM, so the private key never leaves this machine. With that
 with no terminal work from the operator:
   - install Docker + write the .env / compose file + start the container (`deploy`)
   - start/stop it later from the in-app control panel (`power`)
+  - pull a newer image and recreate the container when running (`update_image`)
   - read whether it's running, recent logs, and the public URL (`status`)
 
 Host-key checking is disabled: the target is the operator's own freshly-created VM,
@@ -164,18 +165,90 @@ async def connect(host: str, user: str) -> dict:
     return {"ok": True}
 
 
-async def power(action: str) -> dict:
-    """Start (`up`) or stop (`stop`) the container on the stored VM."""
+async def _compose_image_id(conn) -> str:
+    """Short image id for the compose service (empty if none pulled yet)."""
+    out = await _run(
+        conn,
+        f"cd ~/{APP_DIR} && sudo docker compose images -q 2>/dev/null | head -1 || true",
+        timeout=30,
+    )
+    line = (out or "").strip().splitlines()
+    return line[0].strip() if line else ""
+
+
+async def _compose_running(conn) -> bool:
+    # Match status(): Compose v1/v2 wording ("running" / "Up") without relying on
+    # ``--status``, which older clients don't support.
+    out = await _run(
+        conn,
+        f"cd ~/{APP_DIR} && sudo docker compose ps 2>/dev/null || true",
+        timeout=30,
+    )
+    return bool(re.search(r"\brunning\b|\bUp\b", out or ""))
+
+
+async def update_image() -> dict:
+    """Pull ``ghcr.io/gcrft123/olisar:latest`` on the configured VM and recreate the
+    container when it was already running so the new image is applied.
+
+    Called when the server control panel opens (desktop app start in server mode).
+    Best-effort: SSH/pull failures return ``ok: False`` without raising so the panel
+    can still show status. A stopped bot is left stopped after a successful pull.
+    """
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {"ok": False, "error": "No server configured yet."}
-    sub = "up -d" if action == "up" else "stop"
+    base = {"host": cfg.server_host}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
+    try:
+        before = await _compose_image_id(conn)
+        was_running = await _compose_running(conn)
+        pull_out = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose pull", timeout=420)
+        after = await _compose_image_id(conn)
+        updated = bool(after) and after != before
+        # Also treat classic pull messages as an update when ids are unavailable.
+        if not updated and re.search(r"Downloaded newer image", pull_out or "", re.I):
+            updated = True
+        if was_running:
+            # Recreate so a new image actually replaces the running container.
+            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
+        running = await _compose_running(conn)
+    except Exception as exc:  # noqa: BLE001
+        conn.close()
+        return {**base, "ok": False, "reachable": True, "error": str(exc)}
+    conn.close()
+    return {
+        **base,
+        "ok": True,
+        "reachable": True,
+        "updated": updated,
+        "running": running,
+        "log": (pull_out or "").strip()[-2000:],
+    }
+
+
+async def power(action: str) -> dict:
+    """Start (`up`) or stop (`stop`) the container on the stored VM.
+
+    ``up`` pulls the latest image first so Start always boots current GHCR ``:latest``,
+    then runs ``compose up -d``.
+    """
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
     try:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
     try:
-        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose {sub}", timeout=120)
+        if action == "up":
+            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose pull", timeout=420)
+            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
+        else:
+            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
