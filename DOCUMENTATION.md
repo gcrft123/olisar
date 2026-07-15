@@ -11,8 +11,9 @@ This is the complete documentation: the same content as the in-app **Docs**, plu
 guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#setup) to get running.
 
 > [!NOTE]
-> This document consolidates the in-dashboard docs ([web/src/docs.tsx](web/src/docs.tsx)) and the
-> setup guide into one file. If you edit those sources, update this file to match.
+> This document is **generated** from [web/src/docs.tsx](web/src/docs.tsx) (in-app Docs) and the Setup
+> sections below. Edit those sources, then run `node web/scripts/build-docs-site.mjs` to refresh
+> this file and the GitHub Pages site in `docs/docs.html`.
 
 ## Contents
 
@@ -28,11 +29,12 @@ guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#s
 - [Install the desktop app](#install-the-desktop-app)
 - [Create your Discord application](#create-your-discord-application)
 - [First-run setup wizard](#first-run-setup-wizard)
-- [Build & run from source](#build--run-from-source)
+- [Build & run from source](#build-run-from-source)
 
 **Hosting & access**
 
-- [Hosting & your data](#hosting--your-data)
+- [Running multiple bots](#running-multiple-bots)
+- [Hosting & your data](#hosting-your-data)
 - [Host on a server](#host-on-a-server)
 - [Remote access](#remote-access)
 - [Console settings](#console-settings)
@@ -40,30 +42,34 @@ guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#s
 **Configure**
 
 - [Persona](#persona)
-- [Behavior & proactivity](#behavior--proactivity)
+- [Behavior & proactivity](#behavior-proactivity)
 - [Models](#models)
-- [Channels & modes](#channels--modes)
+- [Channels & modes](#channels-modes)
 - [Access control](#access-control)
 - [Command replies](#command-replies)
 - [API keys](#api-keys)
 
 **Knowledge & memory**
 
-- [Knowledge base & glossary](#knowledge-base--glossary)
-- [Memory & search](#memory--search)
+- [Knowledge base & glossary](#knowledge-base-glossary)
+- [Memory & search](#memory-search)
 - [Members](#members)
 - [Images](#images)
 
 **Extend**
 
 - [Extensions](#extensions)
+- [Create your own](#create-your-own)
+- [SDK reference](#sdk-reference)
+- [Slash commands & flows](#slash-commands-flows)
+- [Sharing extensions](#sharing-extensions)
+- [The marketplace](#the-marketplace)
+- [Security & trust](#security-trust)
 
 **Reference**
 
-- [Privacy & data](#privacy--data)
-- [Troubleshooting & FAQ](#troubleshooting--faq)
-
----
+- [Privacy & data](#privacy-data)
+- [Troubleshooting & FAQ](#troubleshooting-faq)
 
 ## Start
 
@@ -78,7 +84,7 @@ almost every setting is per-server — pick which one you're configuring with th
 the sidebar (see [Servers](#servers)).
 
 Olisar is **self-hosted**: it runs as a desktop app on one operator's machine, which stores all of its data
-locally and hosts this console — there's no Olisar cloud. See [Hosting & your data](#hosting--your-data). Other admins
+locally and hosts this console — there's no Olisar cloud. See [Hosting & your data](#hosting-your-data). Other admins
 manage their own servers by signing in with Discord, on that machine or over [remote access](#remote-access).
 
 > [!TIP]
@@ -87,24 +93,25 @@ manage their own servers by signing in with Discord, on that machine or over [re
 > **Save** (or discard them with **Reset**). Once saved, almost every setting takes effect on Olisar's
 > **next reply** — no restart, no redeploy.
 
+
 Under the hood it runs on the free tier of [Google's Gemini models](https://ai.google.dev/), so it's free to operate — it just
 gets rate-limited under heavy use and falls back across a chain of models when one is busy (see
 [Models](#models)).
 
 The tabs on the left:
-- [Persona](#persona) — who Olisar is (its voice and character).
-- [Behavior](#behavior--proactivity) — when and how it engages, which model it uses, and when it speaks up unprompted.
+- Persona — who Olisar is (its voice and character).
+- Behavior — when and how it engages, which model it uses, and when it speaks up unprompted.
 - [Models](#models) — the model fallback chains and their limits.
-- [Command replies](#command-replies) — the exact text it sends for each command and fallback.
-- [Channels](#channels--modes) — which channels it reads, talks in, or treats as reference.
-- [Access](#access-control) — which roles are allowed to use it.
-- [Knowledge](#knowledge-base--glossary) — documents and lore you teach it.
-- [Extensions](#extensions) — togglable packages of extra features.
-- [API keys](#api-keys) — bring your own Gemini, Cloudflare, and UEX keys.
+- Command replies — the exact text it sends for each command and fallback.
+- Channels — which channels it reads, talks in, or treats as reference.
+- Access — which roles are allowed to use it.
+- Knowledge — documents and lore you teach it.
+- Extensions — togglable packages of extra features.
+- API keys — bring your own Gemini, Cloudflare, and UEX keys.
 - Usage — how much of the free model quota you're using.
 
-The sidebar footer also has **[Settings](#console-settings)** — app-wide preferences (accent color, remote
-access, updates, and feedback) that aren't tied to any one server.
+The sidebar footer also has **[Settings](#console-settings)** — app-wide preferences (accent color, your
+[bots](#running-multiple-bots), remote access, updates, and feedback) that aren't tied to any one server.
 
 ### Servers
 
@@ -123,6 +130,7 @@ is remembered between visits.
 > The switcher lists the servers where **you** have **Manage Server** (and, for the bot's operator, every
 > server it's in). Someone who manages a different server signs in with Discord and sees only theirs.
 
+
 #### Adding Olisar to another server
 
 Invite the bot with an account that has **Manage Server** there. As it joins, Olisar provisions that
@@ -134,16 +142,17 @@ restart. Configure it like any other.
 > Manage-Server access is read when you log in. If you were just given it (or just added the bot), **log
 > out and back in** once so Olisar picks it up.
 
+
 #### What's per-server vs. shared
 
 | Per-server (one set per server) | Shared across the whole bot |
 | --- | --- |
-| Persona, Behavior, Channels, Access, Command replies | The [API keys](#api-keys) (Gemini / Cloudflare / UEX) |
+| Persona, Behavior, Channels, Access, Command replies | The API keys (Gemini / Cloudflare / UEX) |
 | Knowledge base, glossary, memory, search index | Gemini usage and the free-tier quota |
 | Extensions (toggled per server) | — |
 
 So every server gets its own character and rules, but they all draw on the same model quota and the same
-keys. That's separate from [Access](#access-control), which controls who can use Olisar **within** one server.
+keys. That's separate from Access, which controls who can use Olisar **within** one server.
 
 ### Talking to Olisar (for members)
 
@@ -159,12 +168,14 @@ Members can reach Olisar a few ways:
 > **Example**
 > "olisar, what's the plan for the raid tonight?" — or just reply to its last message with a follow-up.
 
+
 > [!TIP]
 > **Reply to point at a message**
-> When you **reply** to a message (Olisar's or anyone's) while addressing it, Olisar notices which message
-> you replied to and uses it as context — "isn't there a later one?" as a reply to an event post just works.
-> It's deliberately light-touch: if your question stands on its own, it answers that and won't drag the
-> quoted message in.
+> When you **reply** to a message (Olisar's or anyone's) while addressing it, Olisar notices which message you
+> replied to and uses it as context — "isn't there a later one?" as a reply to an event post just works. It's
+> deliberately light-touch: if your question stands on its own, it answers that and won't drag the quoted
+> message in.
+
 
 It can do a lot in conversation without any command: answer questions, search the server's history
 ("what's our X account?"), look things up on the web, recall what was said before, react to images you
@@ -178,7 +189,7 @@ Olisar's slash commands fall into three buckets: everyday commands anyone can us
 
 #### For everyone
 
-##### `/ping`
+#### `/ping`
 Checks that Olisar is alive and shows the round-trip latency to Discord. The reply is **ephemeral**
 (only you see it).
 
@@ -186,7 +197,8 @@ Checks that Olisar is alive and shows the round-trip latency to Discord. The rep
 > **Example**
 > `/ping` → "pong — 42 ms"
 
-##### `/ask <prompt>`
+
+#### `/ask <prompt>`
 Ask Olisar a one-off question from anywhere — even in channels where it's set to stay quiet. It uses
 the exact same brain as a normal conversation: memory, server search, the knowledge base, web search,
 and every tool. Subject to the **Access** rules.
@@ -195,15 +207,16 @@ and every tool. Subject to the **Access** rules.
 > `/ask` is the way to use Olisar in a channel whose mode is `off` or `memory` (where it won't reply
 > to normal messages). The answer posts in the channel; denial and "not found" notices are private.
 
-##### `/catchup [hours]`
+
+#### `/catchup [hours]`
 A quick digest of what you missed in this channel — by default since you last spoke, or the last
 `hours` you give it. The summary posts in the channel. You can also just ask in chat ("catch me up").
 
-##### `/privacy`
+#### `/privacy`
 Shows a plain-language summary of exactly what data Olisar keeps about you. Ephemeral, and always
 available regardless of access rules.
 
-##### `/forget-me`
+#### `/forget-me`
 Deletes **everything** Olisar has stored about you — your messages, remembered facts, the profile it
 built of you, and your entries in the server search index. Add `stop_remembering: true` to also opt
 out of all future recording, permanently. Always available to everyone.
@@ -212,17 +225,19 @@ out of all future recording, permanently. Always available to everyone.
 > **Irreversible**
 > There's no undo. With `stop_remembering: true`, Olisar will never record you again until you ask it to.
 
+
 > [!NOTE]
 > **Extension commands**
 > Some commands come from **extensions** and are documented alongside the extension that adds them — for
 > example `/citizen` lives under **Star Citizen** on the [Extensions](#extensions) page.
+
 
 #### Admin only — the `/olisar` group
 
 These require the **Manage Server** permission.
 
 - `/olisar watch` / `/olisar unwatch` — quickly set the current channel to `both` (read +
-  talk) or `off`. The [Channels](#channels--modes) tab gives finer control (memory / respond / resource / feed).
+  talk) or `off`. The Channels tab gives finer control (memory / respond / resource / feed).
 - `/olisar status` — show the current channel's mode.
 - `/olisar learn-url <url>` — add a single web page to the knowledge base.
 - `/olisar learn-site <url> [depth] [max_pages]` — crawl a website into the knowledge base.
@@ -230,17 +245,18 @@ These require the **Manage Server** permission.
 - `/olisar sources` — list knowledge-base sources and their status; `/olisar forget-source <id>`
   removes one.
 - `/olisar proactive <enabled> [level]` — quick toggle for unprompted chiming (full controls are on
-  the [Behavior](#behavior--proactivity) tab).
+  the Behavior tab).
 - `/olisar reindex` — rebuild the server-wide message search index from channel history.
 
 > [!WARNING]
 > **Big crawls cost quota**
 > `/olisar learn-site` with a high `max_pages` embeds a lot of text against the free quota and can dilute
-> results. See [Knowledge](#knowledge-base--glossary) for the trade-offs — narrower is usually better.
+> results. See [Knowledge](#knowledge-base-glossary) for the trade-offs — narrower is usually better.
+
 
 #### Destructive
 
-##### `/self-destruct`
+#### `/self-destruct`
 Admin-only. Wipes everything Olisar has **learned** (conversation memory, profiles, facts, the search
 index, and the knowledge base) while keeping its **personality** and all your settings. A red
 confirmation button guards it.
@@ -248,8 +264,6 @@ confirmation button guards it.
 > [!WARNING]
 > Irreversible. The knowledge base would have to be re-taught from scratch. Members' opt-out choices are
 > preserved through the wipe.
-
----
 
 ## Setup
 
@@ -357,6 +371,45 @@ cd desktop && npm install && npm run dist               # 4. installer for the c
 
 ## Hosting & access
 
+### Running multiple bots
+
+Olisar can run **several bots from one app** — each a completely separate Discord bot with its own token,
+persona, settings, memory, and database. This is different from one bot being in
+[multiple servers](#servers): a *server* is a Discord guild your bot is in; a *bot* is a distinct Discord
+application, with its own name, avatar, and login.
+
+Manage your bots in the [Settings](#console-settings) popup's **Bot** section, or from the **gear** in the corner of
+the sign-in and setup screens.
+
+#### One bot runs at a time
+
+On this machine, **one local bot is active at a time**. Switching to another **stops the current bot** and
+starts the selected one, then reloads the console. Bots you host on a [cloud server](#host-on-a-server) run on
+their own machine, so they stay online independently — the way to keep several bots running at once.
+
+#### The bot switcher
+
+Each bot is a row in **Settings → Bot**:
+- **Switch** — stop the current bot and load this one (the console reloads).
+- **Set as default** — pin which bot the app **opens on launch**. This is independent of the active bot: you
+  can switch to another for a session without changing what opens next time.
+- **Rename** — change a bot's display name (cosmetic; it doesn't touch Discord).
+- **Delete** — permanently remove a bot and everything it stores. You can't delete the **active** bot or the
+  **last** one.
+
+Two badges show each bot's state: **Active** (running right now) and **Default** (opens on launch).
+
+#### Adding a bot
+
+**Create new bot** adds an empty bot and drops you into its [setup wizard](#what-olisar-is) — connect its Discord
+token and credentials just like the first one. Each new bot needs its **own** bot application from the
+Discord Developer Portal.
+
+> [!TIP]
+> **One account, many bots**
+> You don't need multiple Discord accounts — one account can create many bot applications, each with its own
+> token. You *do* need a separate token per bot.
+
 ### Hosting & your data
 
 Olisar isn't a cloud service — it's a **desktop app you run yourself**. One operator installs it on a Mac
@@ -368,6 +421,7 @@ everything locally. There's no server to rent, no config files to edit, and no s
 > The person who installs Olisar is the **operator** (the machine's owner). Other server admins don't install
 > anything — they sign in to this console with Discord, either on the operator's machine or remotely (see
 > [Remote access](#remote-access)).
+
 
 #### First run
 
@@ -395,54 +449,67 @@ profiles, memory, knowledge base, your settings, and your API keys. Nothing is s
 > **When others sign in**
 > Because the data is local, the console only works while the operator's machine is running. Admins who sign
 > in — on that machine or over [remote access](#remote-access) — are reading and writing **that** database live;
-> there's no copy in the cloud. See [Privacy](#privacy--data) for exactly what's stored.
+> there's no copy in the cloud. See [Privacy](#privacy-data) for exactly what's stored.
 
 ### Host on a server
 
-By default Olisar runs inside the desktop app on your own machine, so the bot is online only while
-that machine is awake. To keep it running **24/7**, run the exact same backend on an always-on Linux
-server — no need to leave your computer on.
+By default Olisar runs inside the desktop app on your own machine, so the bot is online only
+while that machine is awake. To keep it running **24/7**, run the exact same backend on an
+always-on Linux server — no need to leave your computer on.
 
 > [!TIP]
 > **Free, always-on**
-> [Oracle Cloud's Free Tier](https://www.oracle.com/cloud/free/) includes an Always-Free Arm VM that's
-> plenty for Olisar. Paired with the free Gemini and Tailscale tiers, hosting it costs nothing.
+> [Oracle Cloud's Free Tier](https://www.oracle.com/cloud/free/) includes an **Always-Free Arm
+> VM** that's plenty for Olisar. Paired with the free Gemini and [Tailscale](https://tailscale.com/)
+> tiers, hosting it costs nothing.
 
-**What you'll need**
 
-- A Linux VM — an Oracle Cloud Free Arm instance (`VM.Standard.A1.Flex`, Ubuntu) is the tested target, but any VM with Docker works.
-- Your Discord app credentials (bot token + OAuth client id/secret) and your Discord user ID.
-- A free Gemini API key.
-- A free Tailscale account and a reusable auth key — this gives the server a public `https://…ts.net` address with no domain or open ports.
+#### What you'll need
+- A Linux VM — an Oracle Cloud Free **Arm** instance (`VM.Standard.A1.Flex`, Ubuntu) is the tested target, but any VM with Docker works.
+- Your **Discord app** credentials (bot token + OAuth client id/secret) and your **Discord user ID**.
+- A free **Gemini API key**.
+- A free **Tailscale** account and a reusable **auth key** — this gives the server a public `https://…ts.net` address with no domain or open ports.
 
-**Set it up — one line**
-
+#### Set it up — one line
 SSH into the VM and run:
 
-```sh
+```
 curl -fsSL https://raw.githubusercontent.com/gcrft123/olisar/main/deploy/bootstrap.sh | bash
 ```
 
-It installs Docker, asks for your tokens, starts Olisar in a container, and prints your public
-`https://…ts.net` URL and the OAuth redirect to register.
+It installs Docker, asks for your tokens, starts Olisar in a container, and prints two things:
+your public `https://…ts.net` URL and the OAuth redirect to register.
 
-**After it's running**
+#### After it's running
+1. In the [Discord Developer Portal](https://discord.com/developers/applications) → your app → **OAuth2 → Redirects**, add the printed `…/auth/callback`.
+2. Open the `…ts.net` URL in a browser and **sign in with Discord** (the account whose ID you allowlisted).
 
-1. In the Discord Developer Portal → your app → **OAuth2 → Redirects**, add the printed `…/auth/callback`.
-2. Open the `…ts.net` URL in a browser and sign in with Discord (the account whose ID you allowlisted).
-
-The bot is live and you manage everything from the browser — the desktop app is now optional.
+That's it — the bot is live and you manage everything from the browser. The desktop app is now **optional**.
 
 > [!WARNING]
 > **Run it in one place**
-> A Discord bot token allows only one live connection. Run Olisar on the server **or** the desktop app —
-> not both at once on the same token, or the two instances will fight over the gateway.
+> A Discord bot token allows only one live connection. Run Olisar on the **server or the desktop
+> app — not both at once** on the same token, or the two instances will fight over the gateway.
+
 
 > [!NOTE]
 > **Your data, on your VM**
-> Everything Olisar learns lives in a Docker volume on the VM, not in any cloud. Update with
-> `docker compose pull && docker compose up -d`; the full reference is in
+> Everything Olisar learns (memory, profiles, the knowledge base, your settings) lives in a Docker
+> volume on the VM, not in any cloud. The full reference is in
 > [deploy/README.md](https://github.com/gcrft123/olisar/blob/main/deploy/README.md).
+
+
+#### Keeping the server image current
+
+If you manage the VM from the **desktop app** (server mode), opening the control panel **pulls the
+latest image** from GHCR over SSH and recreates the container when it was already running. **Start
+server** also pulls before `up -d`. Data in the Docker volume is preserved across pulls.
+
+You can still update by hand on the VM:
+
+```
+cd ~/olisar && sudo docker compose pull && sudo docker compose up -d
+```
 
 ### Remote access
 
@@ -455,6 +522,7 @@ dashboard at a stable web address over **Tailscale Funnel** — free, with **no 
 > Tailscale Funnel gives Olisar an `https://…ts.net` address with a real certificate, tunnelled out without
 > opening any ports on your router. The operator needs a free Tailscale account; the admins who sign in don't
 > need Tailscale at all — they just open the link.
+
 
 #### Turning it on
 
@@ -474,6 +542,7 @@ Olisar then registers the public `…/auth/callback` so Discord login works both
 > switch** that reuses the auth key from setup, so you can take the public link down or bring it back
 > without re-entering anything. The same panel lists who has signed in.
 
+
 #### The web link
 
 Once remote access is on, the **sidebar footer** shows the public address — **"Open from the web"** with the
@@ -489,33 +558,33 @@ Discord account and only sees the servers where they have **Manage Server** (see
 ### Console settings
 
 The **Settings** button in the sidebar footer (next to **Log out**) opens an app-wide settings popup. Unlike
-the per-server tabs, nothing here is tied to a server — these are operator/device-level preferences. It has
-five sections:
+the tabs above it, nothing here is per-server — these are operator/device-level preferences. It has six
+sections:
 
 #### Appearance
-
 The **accent color** used across the console — for selection, links, focus rings, and active state. Pick one
 of the swatches, dial in a **custom** color, or **Reset** to the default blue. It's saved **on this device**
 (per browser), so each person who signs in can have their own.
 
-#### Remote access
+#### Bot
+The **bot switcher** — create, switch between, rename, set the launch default for, and delete the bots this
+app runs (see [Running multiple bots](#running-multiple-bots)). Below it, a **Clear memory** action wipes everything the
+active bot has learned about the current server (keeping its persona and settings).
 
+#### Remote access
 The status and **on/off switch** for the public web link, plus the list of who has signed in — covered in
 full under [Remote access](#remote-access).
 
 #### Updates
-
-Shows Olisar's **current version** and checks GitHub Releases for a newer one. In the desktop app an available
-update can be **installed and relaunched** in one click; from a browser it points you to the desktop app to
-update there.
+Shows Olisar's **current version** and checks [GitHub Releases](https://github.com/) for a newer one. In the
+desktop app an available update can be **installed and relaunched** in one click; from a browser it points you
+to the desktop app to update there.
 
 #### Desktop app
-
 A single toggle — **Show in the menu bar** — for whether Olisar keeps its tray icon (used for quick access and
-remote-access control). It applies to the installed desktop app, which picks it up on its next launch.
+[remote-access](#remote-access) control). It applies to the installed desktop app, which picks it up on its next launch.
 
 #### Feedback
-
 Send **feedback, a bug report, or a question** straight to the Olisar team — it's emailed on submit.
 - Pick a **type** (Feedback / Bug report / Question), write your **message**, and optionally add **your email**
   so the team can reply.
@@ -523,13 +592,11 @@ Send **feedback, a bug report, or a question** straight to the Olisar team — i
   for bug reports.
 - Press **Send**; you'll get a confirmation and can send another.
 
----
-
 ## Configure
 
 ### Persona
 
-The [Persona](#persona) tab is Olisar's character — the single biggest lever on how it feels.
+The Persona tab is Olisar's character — the single biggest lever on how it feels.
 - **Name** — what it calls itself.
 - **System prompt** — its core character, lore, and rules. The operating/safety rules are appended
   automatically, so you only write the personality.
@@ -545,6 +612,7 @@ The [Persona](#persona) tab is Olisar's character — the single biggest lever o
 > keeps replies short." Put hard rules ("never reveal spoilers for X") in the system prompt; put voice
 > ("casual, lowercase, no emoji") in the style notes.
 
+
 > [!TIP]
 > **Try changes live**
 > The **Test chat** — click the **Test chat** button to slide it in from the right — talks to Olisar in an
@@ -552,16 +620,17 @@ The [Persona](#persona) tab is Olisar's character — the single biggest lever o
 > and it never touches the server's glossary or chat history. Save the persona first; the sandbox uses the
 > saved version, not your unsaved draft.
 
+
 > [!NOTE]
 > Olisar also builds a **private** impression of each member from their messages and tailors how it talks
 > to them — that's separate from this persona, and it's wiped by `/forget-me` or `/self-destruct`.
 
 ### Behavior & proactivity
 
-The [Behavior](#behavior--proactivity) tab is where you shape how Olisar engages: when it decides a
-message is meant for it, which model it thinks with, how much of the conversation it holds in mind, and
-whether it ever speaks up on its own. Everything here is **per server** and takes effect on the **next
-reply** — no restart.
+The Behavior tab is where you shape how Olisar engages: when it decides a message is
+meant for it, which model it thinks with, how much of the conversation it holds in mind, and whether it
+ever speaks up on its own. Everything here is **per server** and takes effect on the **next reply** — no
+restart.
 
 #### Triggers
 
@@ -577,6 +646,7 @@ How Olisar decides a message is for it:
 > Loose messages make Olisar feel present but can be noisy in busy channels. Pair it with proactivity
 > cooldowns, or limit which channels are talk-enabled.
 
+
 #### Mentions
 
 **Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
@@ -587,6 +657,7 @@ ping is neutralized, so nobody gets pinged. Leave them unticked to let it mentio
 > **Stop accidental mass-pings**
 > Blocking **@everyone**/**@here** is the safe default for a chatty bot — it can reference the words without
 > lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. `@Mods`).
+
 
 #### Model & search
 
@@ -611,7 +682,7 @@ How much Olisar keeps in the moment, and how it distills conversation into durab
   = summarizes less.
 - **Glossary mine threshold** — how much fresh conversation a channel needs before Olisar mines new
   glossary facts from it. Lower = a faster-growing glossary (more quota). You can also trigger a mine by
-  hand from [Knowledge → Glossary](#knowledge-base--glossary).
+  hand from Knowledge → Glossary.
 - **Persona rebuild (messages)** — after this many new messages from a person, Olisar refreshes the
   private profile it keeps of them.
 
@@ -620,6 +691,7 @@ How much Olisar keeps in the moment, and how it distills conversation into durab
 > If you're hitting rate limits, trim the context window a little, raise the summary threshold (fewer
 > background summary calls), keep the grounding cap modest, and consider starting the model chain lower
 > (e.g. a Flash-Lite) so the busy top-tier models aren't your first hop.
+
 
 #### Proactivity
 
@@ -638,13 +710,12 @@ so it doesn't spam or burn quota.
 > Eagerness `low`, confidence `0.8`, channel cooldown `600`s, quiet hours 23–7 → Olisar only jumps in
 > on clearly relevant moments, at most once every 10 minutes per channel, and never overnight.
 
+
 #### Passive reactions
 
 Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message **without replying**.
 It has its own, looser gate — no expensive classifier, just a light heuristic plus a **cooldown** and an
-**hourly cap** — so it stays sparse. Toggle it, set its **confidence threshold** — the 0–1 bar a message
-must clear before a reaction is weighed (lower reacts more freely) — and set the cooldown/cap on the
-[Behavior](#behavior--proactivity) tab.
+**hourly cap** — so it stays sparse. Toggle it, set its **confidence threshold** — the 0–1 bar a message must clear before a reaction is weighed (lower reacts more freely) — and set the cooldown/cap on the Behavior tab.
 
 #### Situational awareness
 
@@ -670,9 +741,10 @@ reply fail (and then it shows a friendly fallback message).
 > The "throttle" below is Olisar's own conservative per-minute cap to stay under the free tier — not an
 > official Google number. Real free-tier limits also include daily caps that vary by model.
 
+
 #### General (chat & reasoning)
 
-This chain powers conversation, `/ask`, summaries, and profiles. The **Primary model** on the [Behavior](#behavior--proactivity)
+This chain powers conversation, `/ask`, summaries, and profiles. The **Primary model** on the Behavior
 tab sets where the chain starts.
 
 | Model | Throttle (req/min) | Role | Falls back to |
@@ -694,6 +766,7 @@ tab sets where the chain starts.
 > the visible answer getting cut off — while one-line jobs (welcome messages, emoji reactions) skip thinking
 > entirely to stay fast.
 
+
 #### Images & embeddings
 
 | Purpose | Model(s) | Limit | Fallback |
@@ -708,6 +781,7 @@ tab sets where the chain starts.
 > images on Cloudflare's free FLUX allocation instead. Image **understanding** (looking at posted images)
 > still uses Gemini's vision models, which are free.
 
+
 > [!WARNING]
 > **Under high demand**
 > The top models get busy first. Falling back keeps replies flowing, but if everything is contended you'll
@@ -716,7 +790,7 @@ tab sets where the chain starts.
 
 ### Channels & modes
 
-Each channel gets a **role** on the [Channels](#channels--modes) tab. The modes:
+Each channel gets a **role** on the Channels tab. The modes:
 - **off** — ignored entirely.
 - **memory** — reads & remembers, but never speaks.
 - **respond** — talks, but doesn't store history.
@@ -730,6 +804,7 @@ Each channel gets a **role** on the [Channels](#channels--modes) tab. The modes:
 > Set `#general` to **both**, `#rules` to **resource**, `#announcements` to **feed**, and your private
 > mod channel to **off**.
 
+
 **Forums** appear in the picker too (tagged "forum"), and their posts inherit the forum's mode — so set
 a forum to `both` and Olisar reads and replies in its threads. Regular threads inherit their parent
 channel's mode the same way.
@@ -737,11 +812,11 @@ channel's mode the same way.
 > [!TIP]
 > `resource` and `feed` are for **text** channels. A forum set to one of them is a harmless no-op.
 > Separately, Olisar keeps a **server-wide search index of every channel** so it can answer "where was
-> that posted?" — that's independent of these per-channel modes (see [Memory](#memory--search)).
+> that posted?" — that's independent of these per-channel modes (see [Memory](#memory-search)).
 
 ### Access control
 
-The [Access](#access-control) tab decides which roles can use Olisar — in chat and via slash commands like `/ask`.
+The Access tab decides which roles can use Olisar — in chat and via slash commands like `/ask`.
 For each role you choose:
 - **Allowed** — if you mark **any** role allowed, then **only** those roles (plus server admins) can use
   Olisar; everyone else is locked out.
@@ -753,6 +828,7 @@ For each role you choose:
 > Mark `@Member` **Allowed** and leave everything else Open → only people with `@Member` (and admins) can
 > talk to Olisar. Or mark just `@Muted` **Blocked** → everyone except muted members can use it.
 
+
 > [!TIP]
 > **Safeguards**
 > Server admins (Manage Server) **always** have access, so you can't lock yourself out, and `/privacy` and
@@ -760,7 +836,7 @@ For each role you choose:
 
 ### Command replies
 
-The [Command replies](#command-replies) tab lets you rewrite the exact text Olisar sends — for each slash command and
+The Command replies tab lets you rewrite the exact text Olisar sends — for each slash command and
 for its fixed conversational fallbacks. Leave a field blank to use the built-in default, and use the
 `{placeholders}` shown where available.
 
@@ -768,6 +844,7 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 > **Keep it on-voice**
 > This is the easy way to make every system message sound like your Olisar without touching the persona.
 > A blank field always falls back to the sensible default, and a broken template silently reverts too.
+
 
 #### Every customizable message
 
@@ -795,8 +872,8 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 
 ### API keys
 
-The [API keys](#api-keys) tab is where you give Olisar its own keys for the outside services it uses. You
-first enter these in the [setup wizard](#hosting--your-data), and you can add or change them here any time — bring your
+The API keys tab is where you give Olisar its own keys for the outside services it uses. You
+first enter these in the [setup wizard](#hosting-your-data), and you can add or change them here any time — bring your
 own, stored locally for this server. The fields use the same styling and the same examples as the wizard,
 so it's the same form you saw on first run.
 
@@ -804,6 +881,7 @@ so it's the same form you saw on first run.
 > **Built for handing off**
 > This is how you give Olisar to someone else: they never touch a config file or the server — they open the
 > console and paste their own keys. Each field shows whether its key is **set** or **not set**.
+
 
 #### The three providers
 
@@ -830,19 +908,18 @@ Press **Clear** on a saved key to remove it.
 > A saved key takes effect within a few seconds — no restart. Olisar rebuilds its Gemini connection on the
 > fly when the key changes.
 
+
 > [!WARNING]
 > **Handle keys with care**
 > Keys are **write-only** in the console: once saved they're never sent back to the browser (the fields stay
 > blank and only show status). They're stored in Olisar's local database in plain text — on the operator's
 > own machine — so keep that machine and its database file private. Only server admins can open this tab.
 
----
-
 ## Knowledge & memory
 
 ### Knowledge base & glossary
 
-The [Knowledge](#knowledge-base--glossary) tab holds two different things Olisar can draw on.
+The Knowledge tab holds two different things Olisar can draw on.
 
 #### Knowledge base
 
@@ -865,9 +942,11 @@ How it works, end to end:
 > results with low-value pages (nav bars, changelogs). A focused 25-page crawl of the pages that matter
 > usually beats a 200-page crawl of a whole site.
 
+
 > [!TIP]
 > Point a crawl at a **specific docs section** (a subpath) with low depth, or add a few small sources,
 > rather than one giant one. Crawling respects `robots.txt`, so some sites (or pages) may be off-limits.
+
 
 #### Glossary
 
@@ -911,10 +990,11 @@ source.
 > "olisar, where did someone post the mod list?" → it searches the index and replies with the message and
 > a link straight to it.
 
+
 - It reads **embeds** (so announcement posts and link previews are searchable) and posted **files** by
   name, and generates a short description of posted **images** so they turn up too.
 - **Live messages** are indexed going forward automatically; run `/olisar reindex` to backfill history.
-- **Exclude a channel** with the second dropdown on the [Channels](#channels--modes) tab (set it to *not
+- **Exclude a channel** with the second dropdown on the Channels tab (set it to *not
   indexed*) — that stops future indexing **and** wipes its already-indexed messages, including its threads.
 
 #### Edits & deletes follow
@@ -928,7 +1008,7 @@ won't quote something that no longer exists.
 
 ### Members
 
-The [Members](#members) tab shows the **private profile Olisar builds of each person** in the server,
+The Members tab shows the **private profile Olisar builds of each person** in the server,
 from what they say — so you can see what it has actually picked up. It's a grid of cards, one per member.
 
 Each card has:
@@ -943,8 +1023,9 @@ facts about, then everyone else — and you can filter by name, role, or impress
 > [!NOTE]
 > **When impressions form**
 > Olisar (re)builds a person's impression after they've sent a number of messages — set by **Persona rebuild
-> (msgs)** on the [Behavior](#behavior--proactivity) tab. Quieter members keep just their roles until then. A refresh
+> (msgs)** on the Behavior tab. Quieter members keep just their roles until then. A refresh
 > **refines** the existing impression (keeping what's still true) rather than rewriting it from scratch.
+
 
 > [!TIP]
 > **Build one on demand**
@@ -952,11 +1033,12 @@ facts about, then everyone else — and you can filter by name, role, or impress
 > away from the member's last ~60 messages — reaching into the server-wide message index when conversation
 > memory is thin, so it works even for people who mostly post in channels Olisar doesn't keep.
 
+
 > [!TIP]
 > **Private by design**
 > This is per-server and never shown to members — it's only how Olisar tailors its replies. Anyone can wipe
 > their own profile (impression, facts, messages) with `/forget-me`, and opted-out members are excluded
-> here entirely. See [Privacy](#privacy--data) for the full picture.
+> here entirely. See [Privacy](#privacy-data) for the full picture.
 
 ### Images
 
@@ -971,20 +1053,27 @@ Olisar handles images three ways:
 > **Example**
 > "olisar, draw a neon space whale over a city" → it generates the image and posts it with a caption.
 
+
 > [!TIP]
 > Image generation runs on [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) (a free daily allocation). If it isn't configured or the
 > allocation is used up, Olisar will simply say it can't make one right now. See [Models](#models) for why
 > generation uses Cloudflare instead of Gemini.
 
----
-
 ## Extend
 
 ### Extensions
 
-The [Extensions](#extensions) tab is where you switch on optional, packaged features. Toggle one, press
+The Extensions tab is where you switch on optional, packaged features. Toggle one, press
 **Save**, and it's live on Olisar's next reply — no restart. An extension can add tools Olisar uses in
 conversation, tweak its behavior, add commands, and set things up when enabled.
+
+> [!TIP]
+> **Build and share your own**
+> Beyond the built-ins, operators can **write their own extensions** in the console and **install** others
+> from a file or the marketplace. Start at [Create your own](#create-your-own), then the [SDK reference](#sdk-reference),
+> [slash commands & flows](#slash-commands-flows), [sharing](#sharing-extensions), [the marketplace](#the-marketplace), and the
+> [security model](#security-trust).
+
 
 #### Built-ins
 - **Dice roller** — Olisar can roll dice on request ("roll 2d6+3").
@@ -995,17 +1084,17 @@ conversation, tweak its behavior, add commands, and set things up when enabled.
 The **Welcome** extension greets new members as they join. Pick a channel and write a prompt that layers
 **on top of** the persona — e.g. "give {user} a warm in-character welcome" or "roast {user} on their
 username". Olisar generates a fresh, in-character message for each join and posts it; `{user}` and
-`{username}` are filled in. Off by default — enable and configure it on the [Extensions](#extensions)
+`{username}` are filled in. Off by default — enable and configure it on the Extensions
 tab (it has its own channel picker and prompt).
 
 #### Star Citizen
 A full example extension, for SC communities. Turning it on does several things at once:
 
-##### Knowledge
+#### Knowledge
 When enabled, it automatically adds the [RSI Comm-Link](https://robertsspaceindustries.com/en/comm-link) to the knowledge base, so Olisar can speak to
 recent official posts.
 
-##### Tools (used in conversation)
+#### Tools (used in conversation)
 Olisar calls these live as the conversation needs them and answers in its own voice. Most run on
 [UEX](https://uexcorp.uk/)'s public data; ships specs come from RSI's [ship matrix](https://robertsspaceindustries.com/ship-matrix) and the hangar
 timer from the [community tracker](https://exec.xyxyll.com/).
@@ -1042,7 +1131,8 @@ timer from the [community tracker](https://exec.xyxyll.com/).
 > ~9m 50s." · "where's the cheapest Avenger Titan in-game?" · "best trade route for Laranite?" · "what's the
 > aUEC purchasing-power index lately?" — each pulls live UEX/RSI figures.
 
-##### `/citizen <username>`
+
+#### `/citizen <username>`
 Returns a rich profile card scraped from a player's RSI page — handle, avatar, citizen record, enlisted
 date, languages, main org with rank and stars, and bio. Available to everyone once the extension is on.
 
@@ -1050,17 +1140,647 @@ date, languages, main org with rank and stars, and bio. Available to everyone on
 > **Example**
 > `/citizen DadBodNerd` → an embed with their citizen record, enlisted date, main org and rank, and bio.
 
+
 > [!TIP]
 > **UEX token (optional)**
 > The UEX tools work on [UEX](https://uexcorp.uk/)'s public endpoints with no setup. Adding a free
-> [UEX API token](https://uexcorp.uk/api) on the [API keys](#api-keys) tab just raises the rate limits — it's
+> [UEX API token](https://uexcorp.uk/api) on the API keys tab just raises the rate limits — it's
 > not required.
+
 
 > [!NOTE]
 > Lookups are best-effort against live third-party sites; if one is temporarily unreachable, Olisar says so
 > and carries on. Names are matched forgivingly, so small typos ("Quantanium" → "Quantainium") still work.
 
----
+### Create your own
+
+Beyond the toggles, you can **build your own extensions** right in the console — the same system the
+built-ins are made of. An extension is a small piece of TypeScript that can teach Olisar new tricks:
+tools it calls in conversation, slash commands (with forms and buttons), knowledge and glossary it seeds,
+a settings pane, and a line folded into its system prompt.
+
+> [!NOTE]
+> **Operators only**
+> Authoring is limited to the **operator** (the allowlisted account that runs the bot). Per-server admins
+> can enable and configure extensions, but not write or edit their code. This is the same boundary as the
+> API keys — code that runs inside Olisar is the operator's call.
+
+
+#### Opening the editor
+
+On the Extensions tab:
+- **+ New extension** — start from a blank editor.
+- **Edit code** (on any extension's detail panel) — open an existing one, including the built-ins, to read or fork it.
+
+The editor is a full code editor with the **Olisar SDK types loaded**, so you get autocomplete and inline
+hints for everything below. Press **Validate** to compile-check and see what your extension declares, then
+**Save** — it's live on Olisar's next reply (tools) and re-syncs slash commands within seconds. No restart.
+
+#### The shape of an extension
+
+You write one call to `defineExtension({ ... })`. You never import anything — `defineExtension` and `host`
+are provided by the runtime. The smallest useful extension is a single tool:
+
+```
+defineExtension({
+  id: "hello",
+  name: "Hello",
+  description: "A tiny demo.",
+  permissions: [],
+  tools: [{
+    name: "greet",
+    description: "Greet someone by name.",
+    parameters: { type: "object", properties: { who: { type: "string" } }, required: ["who"] },
+    handler: (args) => "Hello, " + args.who + "!",
+  }],
+})
+```
+
+Save that, enable it, and Olisar will call `greet` when a conversation calls for it — "olisar, say hi to
+Sam" → "Hello, Sam!". See the [SDK reference](#sdk-reference) for the full `defineExtension` surface.
+
+#### What happens when you save
+
+Your **source is the source of truth.** On save, the bot transpiles your TypeScript itself, runs it once in
+the [sandbox](#security-trust) to read what it declares (its tools, commands, permissions), and stores it.
+From then on it behaves exactly like a built-in: tools merge into Olisar's toolset on the next reply,
+commands register on the next sync, and any [seeds](#sdk-reference) apply the first time an admin enables it.
+
+#### Editing the built-ins
+
+Every built-in — Welcome and the Star Citizen pack — **is itself an SDK extension.**
+Open **Edit code** on any of them to see exactly how it's written; the Star Citizen pack is a complete,
+real-world example (live HTTP tools, a slash command, knowledge seeding).
+
+> [!TIP]
+> **Forking a built-in**
+> Editing a built-in keeps your changes **and stops it auto-updating** with future app releases (so your
+> edits are never overwritten). To experiment without that, copy its code into a **+ New extension** under a
+> new `id` instead.
+
+
+#### Permissions, in one line
+
+Anything your code reaches through `host.*` (the network, secrets, the knowledge base…) must be listed in
+`permissions`, and you approve that list when you save. A capability you didn't request simply isn't there.
+The full model — and why imported code is held to a stricter standard — is in [Security & trust](#security-trust).
+
+#### Where to go next
+- [SDK reference](#sdk-reference) — every field of `defineExtension` and every `host` capability.
+- [Slash commands & flows](#slash-commands-flows) — commands, modal forms, and button/menu interactions.
+- [Sharing extensions](#sharing-extensions) — export and import `.olx` files.
+- [The marketplace](#the-marketplace) — browse, install, and publish extensions.
+
+### SDK reference
+
+This is the complete author-facing surface. You always start with one call to `defineExtension(spec)`; the
+fields of `spec` are below, followed by the `host` capabilities your handlers can use. For slash commands
+specifically, see [Slash commands & flows](#slash-commands-flows).
+
+#### defineExtension(spec)
+
+| Field | Type | What it does |
+| --- | --- | --- |
+| `id` | string | Unique key (lowercase letters, digits, `_`). Identifies the extension everywhere. |
+| `name` | string | Display name in the console. |
+| `version` | string | Semantic version, e.g. `"1.2.0"`. |
+| `description` | string | One-line summary shown in the catalog. |
+| `category` | string | Grouping label, e.g. `"Games"`, `"Utilities"`. |
+| `systemNote` | string | A line folded into Olisar's system prompt **while the extension is on**. |
+| `defaultEnabled` | boolean | Whether new servers get it on by default (usually `false`). |
+| `permissions` | string[] | The capabilities you request — see the table below. |
+| `tools` | ToolDef[] | LLM tools the model calls in conversation. |
+| `commands` | CommandDef[] | Slash commands. See [flows](#slash-commands-flows). |
+| `seeds` | object | Knowledge / glossary to add when enabled. |
+| `settingsSchema` | object | Declares a per-server settings pane. |
+| `components` | object | Persistent button/select handlers — see [Persistent buttons](#slash-commands-flows). |
+| `events` | object | Gateway-event hooks (e.g. `memberJoin`) — see [Event hooks](#sdk-reference) below. First-party only. |
+| `onEnable` | function | Runs once on the OFF → ON transition (durable setup). |
+
+#### Tools
+
+A **tool** is a function the language model can call on its own while your extension is enabled — this is
+how Olisar "looks things up" mid-conversation. Each tool declares a name, a description (the model reads
+this to decide when to use it), a JSON-schema for its arguments, and a handler that **returns a short
+string** for the model to weave into its reply.
+
+```
+{
+  name: "weather",
+  description: "Current weather for a city.",
+  parameters: {
+    type: "object",
+    properties: { city: { type: "string", description: "city name" } },
+    required: ["city"],
+  },
+  handler: async (args, ctx) => {
+    const r = await host.fetch("https://wttr.in/" + encodeURIComponent(args.city) + "?format=3")
+    return await r.text()
+  },
+}
+```
+
+The handler's second argument, `ctx`, carries `guildId`, `channelId`, `userId`, and `displayName` for the
+current conversation. Keep the returned string short and factual — Olisar rephrases it in its own voice.
+
+> [!TIP]
+> **Degrade politely**
+> Return a friendly string on failure ("couldn't reach the weather service") rather than throwing — Olisar
+> will pass it along in character. Uncaught errors become a generic tool-failed message.
+
+
+#### host capabilities
+
+Each `host` method works **only if you listed its permission**. Calling one you didn't request throws.
+
+| Capability | Permission | What it does |
+| --- | --- | --- |
+| `host.fetch(url, init?)` | `fetch` | Public HTTP(S) only. Caps size/time/calls. `init.bodyBlobId` sends a host blob as the raw body; `init.responseBlob: true` stores the response as `res.blobId` (≤ ~25 MB). Otherwise returns text via `text()`/`json()` (≤ ~20 MB). |
+| `host.secret(ref)` | `secret:<ref>` | Read an operator-approved key by reference (e.g. `host.secret("uex_api_key")`). You never see the literal value while authoring. |
+| `host.kb.addSource(seed)` | `kb.write` | Add a URL/website to the server's knowledge base. Idempotent. |
+| `host.glossary.add(fact)` | `glossary.write` | Add a `{ subject, fact }` to the glossary. |
+| `host.kv.get/set/delete` | `kv` | A small per-server key/value store your extension owns. |
+| `host.settings.get(key?)` | — | Read what an admin typed in your settings pane. No permission needed. |
+| `host.embed(spec)` | — | Build a Discord embed to pass to `reply({ embed })`. |
+| `host.log(msg)` | — | Write a line to the bot log. Always available. |
+| `host.files.ingest(optionName)` | — | Load a slash `attachment` into a **host blob** (`{ blobId, filename, size }`). Prefer for large files / API pipelines — bytes never enter the sandbox (≤ ~25 MB). |
+| `host.files.read(optionName)` | — | Load a slash `attachment` as base64 into the sandbox (`{ contentB64, … }`, ≤ ~20 MB). Fine for small files. |
+| `host.files.from({ name, text\|contentB64 })` | — | Create a host blob from sandbox data. |
+| `host.discord.*` (via the interaction) | `discord.reply`, `discord.modal`, `discord.components` | Reply (optionally with `files` / `blobId`), pop forms, and use buttons — see [flows](#slash-commands-flows). |
+| `host.generate({ task, maxTokens? })` | `model.generate` | Generate text in your server's persona voice (the persona is applied as the system prompt for you). Resolves to a string. **First-party only.** |
+| `host.discord.send(channelId, payload)` | `discord.send` | Post a message to a channel (content / embed / components / files) — for [event hooks](#sdk-reference) that have no interaction to reply to. |
+
+> [!WARNING]
+> **Host secrets and shared code**
+> `host.secret` reads the **operator's** keys (Gemini, Cloudflare, UEX). That's fine for extensions you
+> wrote yourself, but extensions **installed from a file or the marketplace are blocked from host secrets
+> entirely** — see [Security & trust](#security-trust). If you're publishing, don't rely on `host.secret`.
+
+
+#### Seeds and onEnable
+
+`seeds` lets a code-free (or any) extension contribute knowledge and glossary the moment it's switched on,
+applied idempotently:
+
+```
+seeds: {
+  kbSources: [{ type: "url", uri: "https://example.com/faq", title: "Project FAQ" }],
+  glossary: [{ subject: "HQ", fact: "Coordination happens in #command." }],
+}
+```
+
+For anything more involved, `onEnable(ctx)` runs once on the OFF → ON transition (`ctx.guildId` tells you
+which server) — use it to seed durable state with `host.kv` or `host.kb`.
+
+#### A settings pane
+
+Declare `settingsSchema` and Olisar renders a config form on the extension's detail panel; read what the
+admin entered with `host.settings.get()`:
+
+```
+settingsSchema: { fields: [
+  { key: "channel", type: "channel", label: "Announcement channel" },
+  { key: "intro",   type: "textarea", label: "Intro message" },
+] }
+// later, in a handler:
+const cfg = await host.settings.get()   // { channel, intro }
+```
+
+Field types: `text`, `textarea`, `channel`, `number`, `toggle`. Settings are **per server**, so each server
+configures the extension its own way.
+
+#### Event hooks
+
+An extension can react to Discord **gateway events** by declaring an `events` map. The host runs your
+handler in the sandbox when the event fires for a server where your extension is enabled. The event
+you can hook is `memberJoin`:
+
+```
+permissions: ["model.generate", "discord.send"],
+settingsSchema: { fields: [{ key: "channel_id", type: "channel", label: "Welcome channel" }] },
+events: {
+  async memberJoin(ctx) {
+    const cfg = await host.settings.get()
+    if (!cfg.channel_id) return
+    const text = await host.generate({
+      task: "Welcome " + ctx.member.displayName + " to the server in one warm sentence.",
+      maxTokens: 200,
+    })
+    await host.discord.send(cfg.channel_id, ctx.member.mention + " " + text)
+  },
+}
+```
+
+The handler's `ctx` carries `guildId` and `member` (`{ id, displayName, username, mention, bot }`). There's
+**no interaction to reply to** — an event handler posts with `host.discord.send(channelId, payload)`, and can
+generate a message in the server's voice with `host.generate(...)`.
+
+> [!WARNING]
+> **First-party only**
+> Event hooks, `host.generate`, and `host.discord.send` run only for **built-in and locally-authored**
+> extensions — never imported or marketplace code, the same bar as [host secrets](#security-trust). The built-in
+> **Welcome** extension is the worked example (open *Edit code* on it).
+
+
+#### systemNote
+
+A short instruction folded into Olisar's system prompt while the extension is enabled — use it to tell
+Olisar when to reach for your tools, or how to behave. Keep it brief; it's always in context.
+
+### Slash commands & flows
+
+Extensions can add **slash commands** — including multi-step flows with pop-up forms and buttons. Commands
+re-register with Discord automatically when you save (and when an admin toggles the extension).
+
+#### Defining a command
+
+```
+defineExtension({
+  id: "poll",
+  name: "Poll",
+  permissions: ["discord.reply"],
+  commands: [{
+    name: "ping",
+    description: "Check that Olisar is alive.",
+    handler: async (i) => { await i.reply("pong") },
+  }],
+})
+```
+
+| Command field | Type | Notes |
+| --- | --- | --- |
+| `name` / `description` | string | As they appear in Discord's slash-command list. |
+| `options` | OptionDef[] | Inputs: `{ name, description, type, required }`. Types: `string`, `integer`, `number`, `boolean`, `user`, `channel`, `attachment`. |
+| `defaultMemberPermissions` | string or null | `"manage_guild"` to limit it to server managers, or `null` for everyone. |
+| `guildOnly` | boolean | Disallow the command in DMs. |
+| `handler(i)` | function | Runs the command; `i` is the live interaction. |
+
+Read option values from `i.options`:
+
+```
+commands: [{
+  name: "echo",
+  description: "Repeat a message.",
+  options: [{ name: "text", description: "what to say", type: "string", required: true }],
+  handler: async (i) => { await i.reply(i.options.text) },
+}]
+```
+
+#### File uploads (attachment options)
+
+Use `type: "attachment"` so Discord shows a file picker. `i.options.<name>` is **metadata only**
+(`{ id, filename, size, contentType }`) — no filesystem path. Load the file two ways:
+
+| Method | What you get | Size cap | When to use |
+| --- | --- | --- | --- |
+| `host.files.ingest(name)` | `{ blobId, filename, size }` (bytes stay on the host) | ~25 MB | Large files, external APIs, reply with the result |
+| `host.files.read(name)` | `{ contentB64, … }` (base64 into the sandbox) | ~20 MB | Small files you process in JS |
+
+**Preferred pipeline** (upload → external API → reply with file) — nothing large enters QuickJS:
+
+```
+permissions: ["discord.reply", "fetch"],
+commands: [{
+  name: "compress",
+  description: "Compress a file via an external API.",
+  options: [{ name: "file", description: "File to compress", type: "attachment", required: true }],
+  handler: async (i) => {
+    await i.reply({ content: "Compressing…", ephemeral: true })  // ack within 3s
+    const input = await host.files.ingest("file")               // host blob
+    const res = await host.fetch("https://api.example.com/compress", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      bodyBlobId: input.blobId,   // raw bytes as the request body
+      responseBlob: true,         // store response as another host blob
+    })
+    if (!res.ok || !res.blobId) {
+      await i.followUp({ content: "Compression failed.", ephemeral: true })
+      return
+    }
+    await i.followUp({
+      content: "Done — compressed **" + input.filename + "**.",
+      files: [{ name: input.filename + ".gz", blobId: res.blobId }],
+      // stays private: followUps inherit ephemeral from the first reply
+    })
+  },
+}]
+```
+
+Small-file path with base64 still works:
+
+```
+const file = await host.files.read("doc")  // { filename, size, contentType, contentB64 }
+await i.reply({ content: "Got " + file.filename + " (" + file.size + " bytes)", ephemeral: true })
+```
+
+#### File output (attach on reply)
+
+`reply` / `followUp` / `host.discord.send` accept `files`. Each entry needs one of:
+
+- `text` — UTF-8 (≤ ~20 MB)
+- `contentB64` — binary as base64 (≤ ~20 MB)
+- `blobId` — host-held blob from `ingest` / `from` / `fetch({ responseBlob: true })` (≤ ~25 MB)
+
+Max 10 files; **total** size capped at ~25 MB (Discord’s bot limit):
+
+```
+await i.reply({
+  content: "Here's your export.",
+  files: [
+    { name: "report.csv", text: "a,b\n1,2\n" },
+    { name: "out.bin", blobId: someBlob.blobId },
+  ],
+})
+```
+
+#### The interaction object
+
+The handler's `i` exposes the conversation context (`guildId`, `channelId`, `userId`, `displayName`) and:
+
+- `i.reply(payload)` — the first response. A string, or `{ content, embed, ephemeral, components, files }`.
+- `i.followUp(payload)` — additional messages after the first (same shape; supports `ephemeral` and `files`).
+- `i.modal(spec)` — pop a form and **await** the submitted values (permission `discord.modal`).
+- `i.awaitComponent({ timeoutMs })` — wait for a button click / menu choice (permission `discord.components`).
+
+`reply`/`followUp` need `discord.reply`. Use `ephemeral: true` to make a message visible only to the caller.
+If the **first** reply is ephemeral, later `followUp`s stay private by default (you can still set
+`ephemeral: false` to post publicly). Use `host.files.read` / `ingest` for attachment option bytes
+(command handlers only).
+
+#### A form (modal)
+
+`i.modal` opens a Discord form and resolves with the submitted fields, keyed by `id`:
+
+```
+permissions: ["discord.reply", "discord.modal"],
+commands: [{
+  name: "suggest",
+  description: "Submit a suggestion.",
+  handler: async (i) => {
+    const f = await i.modal({
+      title: "New suggestion",
+      fields: [
+        { id: "title", label: "Title", style: "short", required: true },
+        { id: "body",  label: "Details", style: "paragraph" },
+      ],
+    })
+    await i.reply({ content: "Thanks! Logged: " + f.title, ephemeral: true })
+  },
+}]
+```
+
+#### Buttons and menus
+
+Send components with `reply`, then wait for the interaction:
+
+```
+permissions: ["discord.reply", "discord.components"],
+handler: async (i) => {
+  await i.reply({
+    content: "Ready to launch?",
+    components: [
+      { kind: "button", customId: "go", label: "Launch", style: "primary" },
+      { kind: "button", customId: "cancel", label: "Cancel", style: "secondary" },
+    ],
+  })
+  const c = await i.awaitComponent({ timeoutMs: 30000 })
+  await i.followUp(c.customId === "go" ? "Launching!" : "Cancelled.")
+}
+```
+
+A `select` component returns the chosen values in `c.values`. If nobody responds within `timeoutMs`, the
+await rejects — catch it and tidy up.
+
+#### Persistent buttons
+
+`awaitComponent` is for a single, short-lived prompt — it stops listening after `timeoutMs` (and after a
+bot restart). For buttons many people click over hours or days — polls, RSVPs — declare a **`components`**
+map instead. Each handler has a short key; a button/select that references it by `handlerId` keeps working
+for everyone and **survives restarts** (no per-message rebuild).
+
+```
+permissions: ["kv", "discord.reply", "discord.components"],
+components: {
+  // keyed by handlerId; runs on every click, by anyone, forever
+  vote: async (i) => {
+    const tally = (await host.kv.get("tally")) || {}
+    tally[i.userId] = i.arg            // i.arg is the small payload you set on the button
+    await host.kv.set("tally", tally)
+    await i.update({ embed: host.embed({ title: "Votes: " + Object.keys(tally).length }) })
+  },
+},
+commands: [{
+  name: "poll", description: "Start a poll.",
+  handler: async (i) => {
+    await i.reply({
+      content: "Pick one:",
+      components: [
+        { kind: "button", handlerId: "vote", arg: "a", label: "A" },
+        { kind: "button", handlerId: "vote", arg: "b", label: "B" },
+      ],
+    })
+  },
+}]
+```
+
+A persistent handler receives a **ComponentInteraction** `i` with `customId`, `arg`, `values` (for selects),
+and the usual context. Its methods differ from a command's:
+
+- `i.reply(payload)` — answer the **clicker privately** (ephemeral).
+- `i.update(payload)` — edit the **source message** in place (live tally, attendee list). Pass
+  `components: []` to clear the buttons; omit `components` to leave them.
+- `i.deferUpdate()` — acknowledge the click with no visible change.
+
+Keep `handlerId` + `arg` short (under ~40 chars); store anything bigger in `host.kv` and pass its key as
+`arg`. The host stamps the routing id, so a click can only ever reach the extension that owns it.
+
+#### Embeds
+
+Build rich cards with `host.embed` and pass them to `reply`:
+
+```
+const card = host.embed({
+  title: "Status", description: "All systems nominal.", color: 0x2e9fff,
+  fields: [{ name: "Uptime", value: "5d 2h", inline: true }],
+  footer: "live",
+})
+await i.reply({ embed: card })
+```
+
+### Sharing extensions
+
+Extensions move between bots as **`.olx` files** — a small, signed bundle. You can hand one to a friend
+directly, or use [the marketplace](#the-marketplace) (which is built on the same format).
+
+#### Exporting
+
+On any extension you can edit, the detail panel has an **Export** button. It downloads
+`<id>-<version>.olx` — a JSON document containing your extension's **source** (not compiled code), its
+metadata and declared permissions, an integrity hash, and a **signature** from your bot's publisher key.
+
+#### Importing
+
+The **Import .olx** button on the Extensions tab opens a file picker, then shows a
+**review screen** before anything is installed:
+
+- **What it adds** — its tools and commands.
+- **Signature** — *Signed & verified* (with the publisher's fingerprint), *Unsigned*, or *Signature invalid*.
+- **Capabilities to grant** — every permission it requests, as checkboxes. You grant a subset; anything you
+  leave unchecked simply won't work for the extension.
+
+Press **Install** and it's added as a custom extension you can then enable per server.
+
+> [!NOTE]
+> **The bot re-derives everything**
+> On import, Olisar **re-transpiles the source itself** and re-checks the signature — it never trusts
+> pre-built code from a file. A bundle whose signature doesn't match its contents is refused outright.
+
+
+> [!WARNING]
+> **Imported code is third-party**
+> An imported extension runs real code in your bot. Grant only the capabilities you're comfortable with, and
+> note that **host secrets are off-limits to imported extensions** regardless of what you grant (see
+> [Security & trust](#security-trust)). Prefer extensions from a **verified publisher**.
+
+
+#### Signing, briefly
+
+Your bot has its own Ed25519 **publisher key**, created automatically the first time you export or publish.
+The private key never leaves your machine; the public key (and a short *fingerprint*) travel with your
+bundles so others can confirm a bundle is really from you and hasn't been altered. More in
+[Security & trust](#security-trust).
+
+### The marketplace
+
+The marketplace is a shared catalog of extensions, hosted on Cloudflare. Browsing, installing, and
+publishing all happen from your console — the bot talks to the registry for you.
+
+#### Browsing and installing
+
+On the Extensions tab, **Marketplace** opens a searchable catalog. Each result shows the
+publisher (with a **✓ verified** badge if they're Discord-verified), the version, and the capabilities it
+requests. **Install** runs the exact same [consent screen](#sharing-extensions) as a file import — review what it
+adds and what it can access, grant a subset of permissions, and confirm. The bot downloads the bundle,
+re-verifies its signature, and installs it as a custom extension.
+
+> [!NOTE]
+> **Installed = third-party**
+> Marketplace extensions are held to the same rules as file imports: re-verified on install, granted only the
+> capabilities you approve, and **blocked from host secrets** (see [Security & trust](#security-trust)).
+
+
+#### Publishing your own
+
+On an extension you authored, the detail panel has a **Publish** button. The first time, you'll be asked to
+**claim a publisher handle** — your namespace in the catalog (e.g. `m-studio`). It's bound to your bot's
+[publisher key](#security-trust): once you own a handle, only your key can publish under it, and every bundle
+you publish is signed by it.
+
+Once it's live, the panel shows a **Published** badge with its catalog version. Edit the code and it flags
+**unpublished changes**, and the button becomes **Push update** — click it to publish your new source. Bump
+the `version` in your code first if you want existing installs to be **offered the update**: a same-version
+re-publish overwrites in place, so people who already installed it won't be prompted to update.
+
+#### Removing a version
+
+**Yank** pulls a version — or the whole extension — from the catalog. It stops appearing for everyone;
+anyone who already installed it sees a *Removed from marketplace* note but it keeps working. If an extension
+you **installed** from the marketplace is later yanked, it automatically **reverts to a plain local
+extension** — it drops the Marketplace label, keeps the capabilities you granted, and becomes publishable
+again, so you can keep using it or re-list it under your own handle.
+
+#### The verified badge
+
+Claiming a handle proves you hold the key; the **verified** badge additionally proves the handle belongs to
+a real Discord account. In the Marketplace view, a registered publisher sees **Verify with Discord** —
+click it, approve on Discord, and your published extensions show a **✓ Discord-verified** badge to everyone.
+
+> [!WARNING]
+> **One-time setup for verification**
+> Verification uses a Discord OAuth redirect, so you must register its callback URL in your bot's Discord
+> app (Developer Portal → your app → **OAuth2 → Redirects**), next to your existing login redirect:
+> `<your console URL>/api/marketplace/verify/callback` (e.g. `http://localhost:8000/api/marketplace/verify/callback`).
+> Without it, Discord rejects the flow with `invalid redirect_uri`. See [Hosting & access](#hosting-your-data) for your URL.
+
+
+#### Self-hosting / pointing elsewhere
+
+The registry the console uses is configurable via the `OLISAR_REGISTRY_URL` environment variable (it
+defaults to the official hosted one). Point it at your own Cloudflare Worker to run a private marketplace —
+the bundle format and signing are the same, so trust still travels with each signed `.olx`.
+
+> [!NOTE]
+> **Cost**
+> The hosted registry runs within Cloudflare's free tier, with hard caps on storage and writes so it can
+> never bill. Bundles are tiny (source only), so a catalog is effectively free to run.
+
+### Security & trust
+
+Extensions run real code, so Olisar runs them under a strict, layered security model. This page explains
+what protects you — useful whether you're authoring, installing, or just deciding whether to trust an
+extension.
+
+#### The sandbox
+
+Every extension runs in a **hermetic JavaScript sandbox** with **no ambient authority**. It cannot touch
+the filesystem, open arbitrary network connections, read environment variables, or reach the bot's
+internals. The only way out is the `host.*` capabilities — and each of those works only if the operator
+granted its permission. Each run is bounded by **CPU, memory, and wall-clock limits**, so a slow or
+runaway extension can't hang the bot.
+
+`host.fetch` is the one network door, and it's guarded: only public HTTP(S) hosts (loopback and private
+addresses are blocked, preventing access to internal services), with caps on response size, timeout, and
+the number of calls per run.
+
+#### Permissions: requested vs granted
+
+Two separate things:
+- **Requested** — the capabilities an extension declares in `permissions`.
+- **Granted** — what the operator actually approves.
+
+When you author an extension you grant what you declare. When you **install** one from a file or the
+marketplace, the [consent screen](#sharing-extensions) lets you grant a **subset** — uncheck anything you don't want,
+and that capability is simply unavailable to the extension at runtime.
+
+#### Host secrets are off-limits to third parties
+
+`host.secret` exposes the operator's own keys (Gemini, Cloudflare, UEX). **First-party** extensions
+(built-ins and ones you authored locally) may use them once granted. **Imported and marketplace**
+extensions are **blocked from host secrets entirely** — even if you tick the box — so installed third-party
+code can never read or exfiltrate your keys. The consent screen marks those requests as unavailable.
+
+The same first-party bar applies to the other powerful capabilities: `host.generate` (host-paid model
+calls), `host.discord.send` (unprompted channel posts), and **event hooks** like `memberJoin`. Built-in and
+locally-authored extensions can use them; imported and marketplace code can't, regardless of what's granted.
+
+#### Signing and integrity
+
+Every bundle carries a **content hash** and an **Ed25519 signature**:
+- The hash detects accidental corruption.
+- The signature ties the bundle to a publisher's key, so it can't be tampered with or impersonated. Your
+  bot's private key never leaves your machine; only the public key + a short **fingerprint** travel with
+  bundles.
+
+On install, Olisar re-derives the hash from the source and verifies the signature. **Valid** shows the
+publisher fingerprint; **Unsigned** means authorship can't be confirmed; **Invalid** blocks the install
+outright (the file was altered after signing).
+
+On the marketplace, a **handle is owned by the key that first claimed it**, so only that key can publish
+under it. A **✓ verified** publisher has additionally proven the handle maps to a real Discord account.
+
+#### What's withheld
+
+Even with every permission granted, extensions never get: the raw database or bot internals, the
+filesystem, arbitrary environment/secret values, the ability to DM arbitrary users, or `eval`/dynamic code
+loading. New capabilities are added deliberately, behind named permissions.
+
+#### Trusting an installed extension
+
+A quick checklist before installing third-party code:
+- Prefer a **✓ verified** publisher, or a bundle whose signature shows **Signed & verified**.
+- Read the **capabilities** it asks for — does a dice roller really need `fetch`?
+- Grant the **minimum** that makes it work; you can leave capabilities unchecked.
+- Remember it can't reach your **host secrets** or anything outside the sandbox no matter what.
 
 ## Reference
 
@@ -1071,8 +1791,9 @@ Olisar is built to respect members' data, and to be transparent about what it ke
 > [!NOTE]
 > **Stored locally, on the operator's machine**
 > All of the below lives in a single database on the **operator's own computer** — there's no Olisar cloud
-> (see [Hosting & your data](#hosting--your-data)). Admins who sign in, locally or over [remote access](#remote-access), read
+> (see [Hosting & your data](#hosting-your-data)). Admins who sign in, locally or over [remote access](#remote-access), read
 > and write that machine's data live.
+
 
 #### What it stores
 - **Messages** from channels set to `memory`/`both` (for conversation context), and a copy of **every**
@@ -1102,9 +1823,10 @@ Olisar is built to respect members' data, and to be transparent about what it ke
 > facts, the search index, and the knowledge base — while keeping its personality and your settings. It's
 > irreversible, and members' opt-out choices survive it.
 
+
 > [!TIP]
 > The all-channel search index is the one thing worth telling your members about up front. The `/privacy`
-> text discloses it, and you can reword that text on the [Command replies](#command-replies) tab.
+> text discloses it, and you can reword that text on the Command replies tab.
 
 ### Troubleshooting & FAQ
 
@@ -1112,25 +1834,23 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| "My mind went blank" / slow replies | Free-tier rate limiting — every model busy at once | Wait a minute; on [Behavior](#behavior--proactivity), start the chain at a less-contended model |
-| Won't reply in a channel | Channel mode is `off` or `memory` | Set `respond` or `both` on [Channels](#channels--modes) (threads/forum posts inherit the parent) |
-| A member can't use it | A role is marked **Allowed**, locking everyone else out | Adjust the [Access](#access-control) tab |
+| "My mind went blank" / slow replies | Free-tier rate limiting — every model busy at once | Wait a minute; on Behavior, start the chain at a less-contended model |
+| Won't reply in a channel | Channel mode is `off` or `memory` | Set `respond` or `both` on Channels (threads/forum posts inherit the parent) |
+| A member can't use it | A role is marked **Allowed**, locking everyone else out | Adjust the Access tab |
 | Image generation fails | Cloudflare not configured, or the daily allocation is used up | Add the Cloudflare keys; otherwise wait for the daily reset |
 | KB answers missing right after adding a site | Ingestion + embedding runs in the background, throttled | Give it time; check `/olisar sources` for status |
 | Search can't find old messages | Only live messages are indexed going forward | Run `/olisar reindex` to backfill history |
-| `/citizen` says the extension is off | Star Citizen extension disabled | Enable it on the [Extensions](#extensions) tab |
-| Web lookups stopped working | Daily grounding cap reached | Raise the cap on [Behavior](#behavior--proactivity), or wait for reset |
+| `/citizen` says the extension is off | Star Citizen extension disabled | Enable it on the Extensions tab |
+| Web lookups stopped working | Daily grounding cap reached | Raise the cap on Behavior, or wait for reset |
 | Olisar quoted a deleted message | Rare timing between the edit/delete and the sync | It syncs automatically — try again |
-| Dashboard won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting--your-data)) |
+| Dashboard won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting-your-data)) |
 | Other admins can't open the web link | Remote access is off, or the address changed | Operator re-enables it from **Settings → Remote access** (or the menu-bar icon) and re-shares the link from the sidebar ([Remote access](#remote-access)) |
 | Discord login bounces or says "invalid or expired state" | The redirect URL for that address isn't registered | Register the exact `…/auth/callback` the wizard shows (both the local and `…ts.net` ones) |
 | A setting didn't take effect | The change is still buffered in the save bar | Press **Save** in the bar at the bottom of the page |
-| App is blocked on first open | It is unsigned (Gatekeeper / SmartScreen) | macOS: `xattr -dr com.apple.quarantine /Applications/Olisar.app`; Windows: **More info → Run anyway** |
-| "Backend: starting…" never goes online | The native vector engine failed to load | Tray → *Refresh status*; if it shows *vector engine FAILED*, reinstall |
-| "Privileged intents" error on launch | Message Content / Server Members intents are off | Enable both in the Developer Portal → Bot |
 
 > [!TIP]
 > **Still stuck?**
-> Check the Usage tab to see whether you're hammering the quota, and the bot's logs (which now name the
+> Check the Usage tab to see whether you're hammering the quota, and the bot's logs (which name the
 > specific knowledge-base chunks, indexed messages, web sources, and tools each reply used) to see what it
 > actually did.
+
