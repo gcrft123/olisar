@@ -367,22 +367,27 @@ class BotActions:
 
     async def post_components(
         self, *, channel: object = None, content: object = None, embed: object = None,
-        components: object = None, ext_key: str = "", home_guild_id: int = 0,
-        trusted: bool = False,
+        components: object = None, files: object = None, blobs: object = None,
+        ext_key: str = "", home_guild_id: int = 0, trusted: bool = False,
     ) -> str:
-        """Post to a channel with an optional embed + interactive components — the host side
-        of host.discord.send for an extension tool. Persistent components keep working (they
-        route through the global DynamicItem template, same as a slash command's). A
-        third-party (untrusted) extension's post is stripped of @mentions so it can't
-        @everyone / mass-ping; built-ins keep normal mentions."""
+        """Post to a channel with an optional embed + interactive components + files —
+        the host side of host.discord.send for an extension tool. Persistent components
+        keep working (they route through the global DynamicItem template, same as a slash
+        command's). A third-party (untrusted) extension's post is stripped of @mentions so
+        it can't @everyone / mass-ping; built-ins keep normal mentions. ``blobs`` is the
+        invocation's host blob store for resolving FileOut ``blobId`` entries."""
         target = self._resolve_channel(channel, home_guild_id)
         if target is None or not hasattr(target, "send"):
             return (f"I couldn't find a channel matching {channel!r} to post in."
                     if channel else "There's no channel to post in here.")
         # Built in the cog layer (needs discord.py + the persistent-component templates).
-        from bot.cogs.sdk_commands import _build_view, _to_embed
+        from bot.cogs.sdk_commands import _build_view, _to_discord_files, _to_embed
         try:
             view = _build_view(list(components or []), ext_key=ext_key)
+            file_list = _to_discord_files(
+                list(files) if files else None,
+                blobs=blobs if isinstance(blobs, dict) else None,
+            )
         except Exception as exc:  # noqa: BLE001 - surfaced to the model
             return f"couldn't build the message: {exc}"
         kwargs: dict = {}
@@ -393,6 +398,8 @@ class BotActions:
             kwargs["embed"] = emb
         if view is not None:
             kwargs["view"] = view
+        if file_list:
+            kwargs["files"] = file_list
         if not kwargs:
             return "nothing to post"
         if not trusted:  # third-party posts can't ping anyone

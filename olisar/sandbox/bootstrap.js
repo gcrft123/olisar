@@ -31,8 +31,12 @@
         status: r.status,
         ok: r.status >= 200 && r.status < 300,
         headers: r.headers || {},
-        text: function () { return Promise.resolve(r.body); },
-        json: function () { return Promise.resolve(JSON.parse(r.body)); },
+        // Present when init.responseBlob was true — host-held bytes, use in reply files.
+        blobId: r.blobId || null,
+        size: r.size != null ? r.size : null,
+        contentType: r.contentType || null,
+        text: function () { return Promise.resolve(r.body || ""); },
+        json: function () { return Promise.resolve(JSON.parse(r.body || "null")); },
       };
     });
   }
@@ -50,8 +54,22 @@
     // Generate text in the server's persona voice (trusted extensions only). Resolves to
     // the generated string. opts: { task, maxTokens?, systemNote? }.
     generate: function (opts) { return request("generate", "run", [opts || {}]); },
-    // Post a message to a channel outside any interaction — for event handlers, which have
-    // no reply target (trusted extensions only). payload: string or { content, embed }.
+    // Files: read (base64 into sandbox), ingest (host blobId — prefer for large files),
+    // from (create a host blob from sandbox text/base64). Attachment methods only work
+    // inside a slash-command handler that received that option.
+    files: {
+      read: function (optionName) {
+        return request("files", "read", [String(optionName)]);
+      },
+      ingest: function (optionName) {
+        return request("files", "ingest", [String(optionName)]);
+      },
+      from: function (spec) {
+        return request("files", "from", [spec || {}]);
+      },
+    },
+    // Post a message to a channel outside any interaction — for event handlers / tools.
+    // payload: string or { content, embed, components, files }.
     discord: {
       send: function (channelId, payload) {
         return request("discord", "send", [String(channelId), payload]);

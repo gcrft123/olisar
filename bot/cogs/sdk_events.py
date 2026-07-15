@@ -19,12 +19,13 @@ import discord
 from discord.ext import commands
 from sqlalchemy import select
 
-from bot.cogs.sdk_commands import _build_view, _to_embed
+from bot.cogs.sdk_commands import _build_view, _to_discord_files, _to_embed
 from bot.replies import chunk_text
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import is_enabled
 from olisar.sandbox import run_event
+from olisar.sandbox.capabilities import BlobRecord
 
 log = logging.getLogger("olisar.cogs.sdk_events")
 
@@ -36,6 +37,7 @@ class _EventBridge:
     def __init__(self, guild: discord.Guild, ext_key: str) -> None:
         self.guild = guild
         self.ext_key = ext_key
+        self.blobs: dict[str, BlobRecord] = {}
 
     @staticmethod
     def _unpack(payload: Any) -> dict:
@@ -58,9 +60,14 @@ class _EventBridge:
         p = self._unpack(payload)
         embed = _to_embed(p.get("embed"))
         view = _build_view(list(p.get("components") or []), ext_key=self.ext_key) if p.get("components") else None
+        try:
+            files = _to_discord_files(p.get("files"), blobs=self.blobs)
+        except ValueError as exc:
+            log.warning("event send: bad files from %s: %s", self.ext_key, exc)
+            files = []
         content = p.get("content")
-        # Chunk defensively under Discord's 2000-char limit; the embed + components ride the
-        # first chunk so persistent buttons keep working across restarts.
+        # Chunk defensively under Discord's 2000-char limit; embed + components + files ride
+        # the first chunk so persistent buttons keep working across restarts.
         chunks = chunk_text(str(content)) if content else [None]
         first = True
         for chunk in chunks:
@@ -71,6 +78,8 @@ class _EventBridge:
                 kwargs["embed"] = embed
             if first and view is not None:
                 kwargs["view"] = view
+            if first and files:
+                kwargs["files"] = files
             if kwargs:
                 await channel.send(**kwargs)
             first = False
@@ -92,6 +101,13 @@ class _EventBridge:
 
     async def defer_update(self) -> None:
         raise RuntimeError("deferUpdate() isn't available in an event handler")
+
+    async def fetch_attachment_bytes(
+        self, option_name: str,
+    ) -> tuple[bytes, str, str | None]:
+        raise RuntimeError(
+            "host.files.read/ingest is only available from a slash-command handler"
+        )
 
 
 async def _targets_for(guild_id: int, event_name: str) -> list[tuple[str, str, list[str]]]:
