@@ -55,6 +55,12 @@ async def extract_manifest(compiled_js: str) -> dict:
     return await loop.run_in_executor(_pool, engine.extract_manifest, compiled_js)
 
 
+def _share_blobs(inv: Invocation, discord: DiscordBridge | None) -> None:
+    """Point the bridge at the invocation's blob store so FileOut blobId can resolve."""
+    if discord is not None:
+        discord.blobs = inv.blobs  # type: ignore[attr-defined]
+
+
 class _ToolBridge:
     """Adapts a ToolContext's DiscordActions to the sandbox DiscordBridge so a tool can post
     to a channel (with components) via host.discord.send. Only ``send`` is available from a
@@ -65,6 +71,7 @@ class _ToolBridge:
         self._ctx = ctx
         self._ext_key = ext_key
         self._trusted = trusted
+        self.blobs: dict = {}
 
     async def send(self, channel_id: str, payload: Any) -> Any:
         p = {"content": payload} if isinstance(payload, str) else (payload or {})
@@ -73,7 +80,8 @@ class _ToolBridge:
             ch = None  # the current channel — post_components uses its live channel object
         return await self._ctx.actions.post_components(
             channel=ch, content=p.get("content"), embed=p.get("embed"),
-            components=p.get("components"), ext_key=self._ext_key,
+            components=p.get("components"), files=p.get("files"),
+            blobs=self.blobs, ext_key=self._ext_key,
             home_guild_id=self._ctx.cfg_guild, trusted=self._trusted,
         )
 
@@ -95,6 +103,13 @@ class _ToolBridge:
     async def defer_update(self) -> None:
         raise RuntimeError("deferUpdate() isn't available from a tool")
 
+    async def fetch_attachment_bytes(
+        self, option_name: str,
+    ) -> tuple[bytes, str, str | None]:
+        raise RuntimeError(
+            "host.files.read/ingest is only available from a slash-command handler"
+        )
+
 
 async def run_tool(
     *, ext_key: str, compiled_js: str, permissions: list[str],
@@ -108,6 +123,7 @@ async def run_tool(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=ctx.cfg_guild, session=ctx.session, discord=bridge, trusted=trusted,
     )
+    _share_blobs(inv, bridge)
     payload = {
         "args": args or {},
         "ctx": {
@@ -134,9 +150,11 @@ async def run_command(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=guild_id, session=session, discord=discord, trusted=trusted,
     )
+    _share_blobs(inv, discord)
     await _invoke(
         inv, compiled_js, "command", command_name, {"interaction": interaction_data},
         cpu_seconds=engine.COMMAND_CPU_SECONDS, wall_seconds=engine.COMMAND_WALL_SECONDS,
+        memory_bytes=engine.COMMAND_MEMORY_BYTES,
     )
 
 
@@ -152,6 +170,7 @@ async def run_component(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=guild_id, session=session, discord=discord, trusted=trusted,
     )
+    _share_blobs(inv, discord)
     await _invoke(
         inv, compiled_js, "component", handler_name, {"ctx": component_ctx},
         perform_timeout=engine.COMPONENT_WALL_SECONDS,
@@ -171,6 +190,7 @@ async def run_event(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=guild_id, session=session, discord=discord, trusted=trusted,
     )
+    _share_blobs(inv, discord)
     await _invoke(
         inv, compiled_js, "event", handler_name, {"ctx": event_ctx},
         perform_timeout=engine.EVENT_WALL_SECONDS,
