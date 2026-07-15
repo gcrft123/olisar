@@ -1147,7 +1147,7 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 
 | Capability | Permission | What it does |
 | --- | --- | --- |
-| \`host.fetch(url, init?)\` | \`fetch\` | Call any public HTTP(S) API. Private/loopback hosts are blocked; size, timeout, and per-run call count are capped. Returns \`{ status, ok, headers, text(), json() }\`. |
+| \`host.fetch(url, init?)\` | \`fetch\` | Public HTTP(S) only. Caps size/time/calls. \`init.bodyBlobId\` sends a host blob as the raw body; \`init.responseBlob: true\` stores the response as \`res.blobId\` (≤ ~25 MB). Otherwise returns text via \`text()\`/\`json()\` (≤ ~20 MB). |
 | \`host.secret(ref)\` | \`secret:<ref>\` | Read an operator-approved key by reference (e.g. \`host.secret("uex_api_key")\`). You never see the literal value while authoring. |
 | \`host.kb.addSource(seed)\` | \`kb.write\` | Add a URL/website to the server's knowledge base. Idempotent. |
 | \`host.glossary.add(fact)\` | \`glossary.write\` | Add a \`{ subject, fact }\` to the glossary. |
@@ -1155,9 +1155,12 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 | \`host.settings.get(key?)\` | — | Read what an admin typed in your settings pane. No permission needed. |
 | \`host.embed(spec)\` | — | Build a Discord embed to pass to \`reply({ embed })\`. |
 | \`host.log(msg)\` | — | Write a line to the bot log. Always available. |
-| \`host.discord.*\` (via the interaction) | \`discord.reply\`, \`discord.modal\`, \`discord.components\` | Reply, pop forms, and use buttons in slash commands — see [flows](#ext-flows). |
+| \`host.files.ingest(optionName)\` | — | Load a slash \`attachment\` into a **host blob** (\`{ blobId, filename, size }\`). Prefer for large files / API pipelines — bytes never enter the sandbox (≤ ~25 MB). |
+| \`host.files.read(optionName)\` | — | Load a slash \`attachment\` as base64 into the sandbox (\`{ contentB64, … }\`, ≤ ~20 MB). Fine for small files. |
+| \`host.files.from({ name, text\\|contentB64 })\` | — | Create a host blob from sandbox data. |
+| \`host.discord.*\` (via the interaction) | \`discord.reply\`, \`discord.modal\`, \`discord.components\` | Reply (optionally with \`files\` / \`blobId\`), pop forms, and use buttons — see [flows](#ext-flows). |
 | \`host.generate({ task, maxTokens? })\` | \`model.generate\` | Generate text in your server's persona voice (the persona is applied as the system prompt for you). Resolves to a string. **First-party only.** |
-| \`host.discord.send(channelId, payload)\` | \`discord.send\` | Post a message to a channel — for [event hooks](#ext-sdk) that have no interaction to reply to. **First-party only.** |
+| \`host.discord.send(channelId, payload)\` | \`discord.send\` | Post a message to a channel (content / embed / components / files) — for [event hooks](#ext-sdk) that have no interaction to reply to. |
 
 :::warning Host secrets and shared code
 \`host.secret\` reads the **operator's** keys (Gemini, Cloudflare, UEX). That's fine for extensions you
@@ -1260,7 +1263,7 @@ defineExtension({
 | Command field | Type | Notes |
 | --- | --- | --- |
 | \`name\` / \`description\` | string | As they appear in Discord's slash-command list. |
-| \`options\` | OptionDef[] | Inputs: \`{ name, description, type, required }\`. Types: \`string\`, \`integer\`, \`number\`, \`boolean\`, \`user\`, \`channel\`. |
+| \`options\` | OptionDef[] | Inputs: \`{ name, description, type, required }\`. Types: \`string\`, \`integer\`, \`number\`, \`boolean\`, \`user\`, \`channel\`, \`attachment\`. |
 | \`defaultMemberPermissions\` | string or null | \`"manage_guild"\` to limit it to server managers, or \`null\` for everyone. |
 | \`guildOnly\` | boolean | Disallow the command in DMs. |
 | \`handler(i)\` | function | Runs the command; \`i\` is the live interaction. |
@@ -1276,16 +1279,86 @@ commands: [{
 }]
 \`\`\`
 
+### File uploads (attachment options)
+
+Use \`type: "attachment"\` so Discord shows a file picker. \`i.options.<name>\` is **metadata only**
+(\`{ id, filename, size, contentType }\`) — no filesystem path. Load the file two ways:
+
+| Method | What you get | Size cap | When to use |
+| --- | --- | --- | --- |
+| \`host.files.ingest(name)\` | \`{ blobId, filename, size }\` (bytes stay on the host) | ~25 MB | Large files, external APIs, reply with the result |
+| \`host.files.read(name)\` | \`{ contentB64, … }\` (base64 into the sandbox) | ~20 MB | Small files you process in JS |
+
+**Preferred pipeline** (upload → external API → reply with file) — nothing large enters QuickJS:
+
+\`\`\`
+permissions: ["discord.reply", "fetch"],
+commands: [{
+  name: "compress",
+  description: "Compress a file via an external API.",
+  options: [{ name: "file", description: "File to compress", type: "attachment", required: true }],
+  handler: async (i) => {
+    await i.reply({ content: "Compressing…", ephemeral: true })  // ack within 3s
+    const input = await host.files.ingest("file")               // host blob
+    const res = await host.fetch("https://api.example.com/compress", {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      bodyBlobId: input.blobId,   // raw bytes as the request body
+      responseBlob: true,         // store response as another host blob
+    })
+    if (!res.ok || !res.blobId) {
+      await i.followUp({ content: "Compression failed.", ephemeral: true })
+      return
+    }
+    await i.followUp({
+      content: "Done — compressed **" + input.filename + "**.",
+      files: [{ name: input.filename + ".gz", blobId: res.blobId }],
+      // stays private: followUps inherit ephemeral from the first reply
+    })
+  },
+}]
+\`\`\`
+
+Small-file path with base64 still works:
+
+\`\`\`
+const file = await host.files.read("doc")  // { filename, size, contentType, contentB64 }
+await i.reply({ content: "Got " + file.filename + " (" + file.size + " bytes)", ephemeral: true })
+\`\`\`
+
+### File output (attach on reply)
+
+\`reply\` / \`followUp\` / \`host.discord.send\` accept \`files\`. Each entry needs one of:
+
+- \`text\` — UTF-8 (≤ ~20 MB)
+- \`contentB64\` — binary as base64 (≤ ~20 MB)
+- \`blobId\` — host-held blob from \`ingest\` / \`from\` / \`fetch({ responseBlob: true })\` (≤ ~25 MB)
+
+Max 10 files; **total** size capped at ~25 MB (Discord’s bot limit):
+
+\`\`\`
+await i.reply({
+  content: "Here's your export.",
+  files: [
+    { name: "report.csv", text: "a,b\\n1,2\\n" },
+    { name: "out.bin", blobId: someBlob.blobId },
+  ],
+})
+\`\`\`
+
 ## The interaction object
 
 The handler's \`i\` exposes the conversation context (\`guildId\`, \`channelId\`, \`userId\`, \`displayName\`) and:
 
-- \`i.reply(payload)\` — the first response. A string, or \`{ content, embed, ephemeral, components }\`.
-- \`i.followUp(payload)\` — additional messages after the first.
+- \`i.reply(payload)\` — the first response. A string, or \`{ content, embed, ephemeral, components, files }\`.
+- \`i.followUp(payload)\` — additional messages after the first (same shape; supports \`ephemeral\` and \`files\`).
 - \`i.modal(spec)\` — pop a form and **await** the submitted values (permission \`discord.modal\`).
 - \`i.awaitComponent({ timeoutMs })\` — wait for a button click / menu choice (permission \`discord.components\`).
 
-\`reply\`/\`followUp\` need \`discord.reply\`. Use \`ephemeral: true\` to make a reply visible only to the caller.
+\`reply\`/\`followUp\` need \`discord.reply\`. Use \`ephemeral: true\` to make a message visible only to the caller.
+If the **first** reply is ephemeral, later \`followUp\`s stay private by default (you can still set
+\`ephemeral: false\` to post publicly). Use \`host.files.read\` / \`ingest\` for attachment option bytes
+(command handlers only).
 
 ## A form (modal)
 

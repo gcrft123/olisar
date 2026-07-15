@@ -15,7 +15,9 @@ running bot; the sandbox/bridge plumbing is unit-tested without Discord.
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
+import io
 import logging
 import re
 import time
@@ -30,16 +32,27 @@ from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import is_enabled
 from olisar.sandbox import SandboxError, run_command, run_component
+from olisar.sandbox.capabilities import (
+    MAX_SDK_BASE64_BYTES,
+    MAX_SDK_BLOB_BYTES,
+    BlobRecord,
+)
 
 log = logging.getLogger("olisar.cogs.sdk_commands")
 
 _OPT_PY: dict[str, Any] = {
     "string": str, "integer": int, "number": float, "boolean": bool,
     "user": discord.Member, "channel": discord.abc.GuildChannel,
+    "attachment": discord.Attachment,
 }
 _COMPONENT_TIMEOUT = 300.0
 _MODAL_TIMEOUT = 600.0
 _COMPONENT_COOLDOWN = 1.5  # seconds between one user's clicks on the same message
+
+# SDK file I/O caps (aligned with olisar.sandbox.capabilities).
+_MAX_SDK_BASE64_BYTES = MAX_SDK_BASE64_BYTES  # text / contentB64 path
+_MAX_SDK_BLOB_BYTES = MAX_SDK_BLOB_BYTES  # host blobId path (Discord bot ceiling)
+_MAX_SDK_FILES_PER_MESSAGE = 10  # Discord's limit
 
 # Persistent-component custom_id wire format: "<oleb|oles>|<ext_key>|<handlerId>|<arg>".
 # The host always mints this (authors only choose handlerId + arg), so the ext_key is
@@ -53,7 +66,74 @@ def _ser(value: Any) -> Any:
     """Make an option value JSON-safe for the sandbox (ids for Discord objects)."""
     if isinstance(value, (discord.Member, discord.User, discord.abc.GuildChannel, discord.Role)):
         return str(value.id)
+    if isinstance(value, discord.Attachment):
+        # Metadata only — bytes come from host.files.read via the live bridge handle.
+        return {
+            "id": str(value.id),
+            "filename": value.filename,
+            "size": int(value.size or 0),
+            "contentType": value.content_type,
+        }
     return value
+
+
+def _safe_filename(name: str) -> str:
+    """Strip path segments and keep a Discord-safe basename."""
+    base = re.sub(r"[\\/]+", "/", str(name or "file")).rsplit("/", 1)[-1]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", base).strip("._") or "file"
+    return cleaned[:200]
+
+
+def _to_discord_files(
+    specs: list | None,
+    *,
+    blobs: dict[str, BlobRecord] | None = None,
+) -> list[discord.File]:
+    """Turn SDK FileOut specs into discord.File objects.
+
+    Each entry may use ``text``, ``contentB64`` (base64 path, ≤ 20 MB), or ``blobId``
+    (host-held bytes, ≤ 25 MB). Total payload capped at Discord's bot limit (25 MB).
+    """
+    if not specs:
+        return []
+    out: list[discord.File] = []
+    total = 0
+    for s in list(specs)[:_MAX_SDK_FILES_PER_MESSAGE]:
+        if not isinstance(s, dict):
+            raise ValueError(
+                "each file must be an object with name and text, contentB64, or blobId"
+            )
+        name = _safe_filename(str(s.get("name") or "file"))
+        max_one = _MAX_SDK_BASE64_BYTES
+        if s.get("blobId") is not None:
+            bid = str(s["blobId"])
+            if not blobs or bid not in blobs:
+                raise ValueError(f"unknown blobId {bid!r}")
+            rec = blobs[bid]
+            data = rec.data
+            if not s.get("name"):
+                name = _safe_filename(rec.filename)
+            max_one = _MAX_SDK_BLOB_BYTES
+        elif s.get("text") is not None:
+            data = str(s["text"]).encode("utf-8")
+        elif s.get("contentB64") is not None:
+            try:
+                data = base64.b64decode(str(s["contentB64"]), validate=False)
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError(f"invalid contentB64 for {name!r}") from exc
+        else:
+            raise ValueError(f"file {name!r} needs text, contentB64, or blobId")
+        if len(data) > max_one:
+            raise ValueError(
+                f"file {name!r} is too large (max {max_one // (1024 * 1024)} MB)"
+            )
+        total += len(data)
+        if total > _MAX_SDK_BLOB_BYTES:
+            raise ValueError(
+                f"total attachment size exceeds {_MAX_SDK_BLOB_BYTES // (1024 * 1024)} MB"
+            )
+        out.append(discord.File(io.BytesIO(data), filename=name))
+    return out
 
 
 def _to_embed(spec: dict | None) -> discord.Embed | None:
@@ -151,13 +231,28 @@ class _DiscordBridge:
     No auto-defer: the handler's first action is the initial interaction response, so
     `modal(...)` can open as the first response (Discord requires that). Authors should
     make their first reply/modal within ~3s and do slow work afterwards.
+
+    Attachment options are held live on the bridge so ``host.files.read(name)`` can pull
+    bytes without putting base64 into the initial interaction payload.
     """
 
     def __init__(self, interaction: discord.Interaction, ext_key: str):
         self.it = interaction
         self.ext_key = ext_key
         self._responded = False
+        # Whether this interaction's replies should stay private. Set by the first
+        # reply({ ephemeral }); followUps inherit it unless they set ephemeral explicitly.
+        self._ephemeral = False
         self._component_future: asyncio.Future | None = None
+        self._attachments: dict[str, discord.Attachment] = {}
+        # Shared with Invocation.blobs so FileOut blobId resolves to host-held bytes.
+        self.blobs: dict[str, BlobRecord] = {}
+
+    def capture_attachments(self, opts: dict[str, Any]) -> None:
+        """Stash live Attachment objects keyed by option name (before ``_ser``)."""
+        self._attachments = {
+            k: v for k, v in (opts or {}).items() if isinstance(v, discord.Attachment)
+        }
 
     def _component_cb(self, custom_id: str):
         async def cb(interaction: discord.Interaction):
@@ -172,31 +267,61 @@ class _DiscordBridge:
             return {"content": payload}
         return payload or {}
 
-    async def reply(self, payload: Any) -> None:
-        p = self._unpack(payload)
+    def _resolve_ephemeral(self, p: dict, *, initial: bool) -> bool:
+        """Ephemeral flag for this message.
+
+        * Initial reply: author sets it (default public).
+        * Follow-ups: inherit the first reply's privacy unless the payload sets
+          ``ephemeral`` explicitly — so a private "working…" stays private for the result.
+        """
+        if "ephemeral" in p:
+            return bool(p["ephemeral"])
+        if initial:
+            return False
+        return self._ephemeral
+
+    def _message_kwargs(self, p: dict, *, ephemeral: bool) -> dict:
         view = _build_view(p.get("components") or [], ext_key=self.ext_key, bridge=self)
-        kwargs = dict(
-            content=p.get("content"), embed=_to_embed(p.get("embed")),
-            ephemeral=bool(p.get("ephemeral")),
-        )
+        kwargs: dict[str, Any] = {
+            "content": p.get("content"),
+            "embed": _to_embed(p.get("embed")),
+            "ephemeral": ephemeral,
+        }
         if view is not None:
             kwargs["view"] = view
-        if not self._responded:
-            self._responded = True
-            await self.it.response.send_message(**{k: v for k, v in kwargs.items() if v is not None})
+        files = _to_discord_files(p.get("files"), blobs=self.blobs)
+        if files:
+            kwargs["files"] = files
+        # Keep ephemeral even when False so followups don't silently drop the flag
+        # when we need to pass True; False can be omitted (Discord default is public).
+        out = {k: v for k, v in kwargs.items() if v is not None}
+        if ephemeral:
+            out["ephemeral"] = True
         else:
-            kwargs.pop("ephemeral", None)
-            await self.it.followup.send(**{k: v for k, v in kwargs.items() if v is not None})
+            out.pop("ephemeral", None)
+        return out
+
+    async def reply(self, payload: Any) -> None:
+        p = self._unpack(payload)
+        if not self._responded:
+            eph = self._resolve_ephemeral(p, initial=True)
+            self._ephemeral = eph
+            self._responded = True
+            kwargs = self._message_kwargs(p, ephemeral=eph)
+            await self.it.response.send_message(**kwargs)
+        else:
+            # Second reply() is a follow-up — keep privacy consistent.
+            eph = self._resolve_ephemeral(p, initial=False)
+            kwargs = self._message_kwargs(p, ephemeral=eph)
+            await self.it.followup.send(**kwargs)
 
     async def follow_up(self, payload: Any) -> None:
         if not self._responded:
             return await self.reply(payload)
         p = self._unpack(payload)
-        view = _build_view(p.get("components") or [], ext_key=self.ext_key, bridge=self)
-        kwargs = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
-        if view is not None:
-            kwargs["view"] = view
-        await self.it.followup.send(**{k: v for k, v in kwargs.items() if v is not None})
+        eph = self._resolve_ephemeral(p, initial=False)
+        kwargs = self._message_kwargs(p, ephemeral=eph)
+        await self.it.followup.send(**kwargs)
 
     async def modal(self, spec: Any) -> dict:
         if self._responded:
@@ -212,6 +337,29 @@ class _DiscordBridge:
         self._component_future = loop.create_future()
         timeout = float((opts or {}).get("timeoutMs", _COMPONENT_TIMEOUT * 1000)) / 1000.0
         return await asyncio.wait_for(self._component_future, timeout=timeout)
+
+    async def fetch_attachment_bytes(
+        self, option_name: str,
+    ) -> tuple[bytes, str, str | None]:
+        """Load a slash-command attachment into memory (host-side only)."""
+        att = self._attachments.get(option_name)
+        if att is None:
+            raise ValueError(
+                f"no attachment option named {option_name!r} — "
+                "declare type: \"attachment\" and pass that option name to "
+                "host.files.read / host.files.ingest"
+            )
+        size = int(att.size or 0)
+        if size > _MAX_SDK_BLOB_BYTES:
+            raise ValueError(
+                f"file too large (max {_MAX_SDK_BLOB_BYTES // (1024 * 1024)} MB)"
+            )
+        raw = await att.read()
+        if len(raw) > _MAX_SDK_BLOB_BYTES:
+            raise ValueError(
+                f"file too large (max {_MAX_SDK_BLOB_BYTES // (1024 * 1024)} MB)"
+            )
+        return raw, att.filename, att.content_type
 
     # update()/deferUpdate() are component-only; raise politely if a command tries them.
     async def update(self, payload: Any) -> None:
@@ -255,6 +403,7 @@ class _ComponentBridge:
         self.it = interaction
         self.ext_key = ext_key
         self._responded = False
+        self.blobs: dict[str, BlobRecord] = {}
 
     def _unpack(self, payload: Any) -> dict:
         return {"content": payload} if isinstance(payload, str) else (payload or {})
@@ -262,9 +411,12 @@ class _ComponentBridge:
     async def reply(self, payload: Any) -> None:
         p = self._unpack(payload)
         view = _build_view(p.get("components") or [], ext_key=self.ext_key)
-        kwargs = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
+        kwargs: dict[str, Any] = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
         if view is not None:
             kwargs["view"] = view
+        files = _to_discord_files(p.get("files"), blobs=self.blobs)
+        if files:
+            kwargs["files"] = files
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         if not self._responded:
             self._responded = True
@@ -282,6 +434,7 @@ class _ComponentBridge:
         if "components" in p:  # explicit (even []) replaces the view; [] clears the buttons
             kwargs["view"] = _build_view(p["components"], ext_key=self.ext_key) or discord.ui.View()
         # omitting `components` leaves the existing buttons untouched (live tally edits)
+        # files on edit_message are not supported via this path
         if not self._responded:
             self._responded = True
             await self.it.response.edit_message(**kwargs)
@@ -303,6 +456,13 @@ class _ComponentBridge:
 
     async def send(self, channel_id: str, payload: Any) -> None:
         raise RuntimeError("host.discord.send is only available from an event handler")
+
+    async def fetch_attachment_bytes(
+        self, option_name: str,
+    ) -> tuple[bytes, str, str | None]:
+        raise RuntimeError(
+            "host.files.read/ingest is only available from a slash-command handler"
+        )
 
 
 async def _dispatch_component(it: discord.Interaction, ext_key: str, handler_id: str, arg: str) -> None:
@@ -401,12 +561,13 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
             compiled, perms = pkg.compiled_js, list(pkg.permissions or [])
             # First-party extensions may use host secrets; imported/marketplace can't.
             trusted = (pkg.origin or "local") == "local"
+        bridge = _DiscordBridge(interaction, ext_key)
+        bridge.capture_attachments(opts)
         data = {
             "options": {k: _ser(v) for k, v in opts.items()},
             "guildId": str(gid), "channelId": str(interaction.channel_id),
             "userId": str(interaction.user.id), "displayName": interaction.user.display_name,
         }
-        bridge = _DiscordBridge(interaction, ext_key)
         try:
             async with session_scope() as session:
                 await run_command(

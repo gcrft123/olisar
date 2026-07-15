@@ -46,11 +46,53 @@ interface ToolDef {
   handler(args: Record<string, any>, ctx: ToolCtx): Promise<string> | string;
 }
 
+/** Metadata for a slash-command attachment option (bytes are not included — use host.files.read). */
+interface AttachmentInfo {
+  id: string;
+  filename: string;
+  size: number;
+  contentType?: string | null;
+}
+
+/**
+ * A file to attach on reply / followUp / host.discord.send.
+ * Provide exactly one of: text, contentB64, or blobId (from host.files.ingest/from/fetch).
+ */
+interface FileOut {
+  name?: string;
+  /** UTF-8 text body (for .txt / .csv / .json / etc.). ≤ ~20 MB. */
+  text?: string;
+  /** Base64-encoded binary body. ≤ ~20 MB. */
+  contentB64?: string;
+  /**
+   * Host-held blob from host.files.ingest / host.files.from / host.fetch({ responseBlob: true }).
+   * Bytes never enter the sandbox; up to ~25 MB (Discord bot limit).
+   */
+  blobId?: string;
+  contentType?: string;
+}
+
+/** Bytes returned by host.files.read (base64 path — prefer ingest for large files). */
+interface FileBytes {
+  filename: string;
+  contentType?: string | null;
+  size: number;
+  contentB64: string;
+}
+
+/** Opaque host-held file handle. Use blobId in fetch bodyBlobId or reply files. */
+interface BlobRef {
+  blobId: string;
+  filename: string;
+  size: number;
+  contentType?: string | null;
+}
+
 /** A slash-command option (maps to a Discord application-command option). */
 interface OptionDef {
   name: string;
   description: string;
-  type?: "string" | "integer" | "number" | "boolean" | "user" | "channel";
+  type?: "string" | "integer" | "number" | "boolean" | "user" | "channel" | "attachment";
   required?: boolean;
 }
 
@@ -83,16 +125,35 @@ type Component =
 
 type ReplyPayload =
   | string
-  | { content?: string; embed?: any; ephemeral?: boolean; components?: Component[] };
+  | {
+      content?: string;
+      embed?: any;
+      ephemeral?: boolean;
+      components?: Component[];
+      /**
+       * Files to attach (max 10). Prefer `blobId` for large files (≤ ~25 MB total).
+       * `text` / `contentB64` are capped at ~20 MB each.
+       */
+      files?: FileOut[];
+    };
 
 /** The live interaction handed to a slash-command handler. */
 interface Interaction {
+  /**
+   * Resolved option values. Attachment options are {@link AttachmentInfo} metadata only —
+   * call `host.files.ingest(optionName)` (preferred) or `host.files.read(optionName)`.
+   */
   options: Record<string, any>;
   guildId: string;
   channelId: string;
   userId: string;
   displayName: string;
   reply(payload: ReplyPayload): Promise<void>;
+  /**
+   * Additional message after the first reply. Supports the same payload as reply
+   * (including `ephemeral` and `files`). If the first reply was ephemeral, follow-ups
+   * stay private unless you pass `ephemeral: false`.
+   */
   followUp(payload: ReplyPayload): Promise<void>;
   /** Pop a modal and resolve with the submitted field values (keyed by field id). */
   modal(spec: ModalSpec): Promise<Record<string, string>>;
@@ -207,10 +268,31 @@ interface ExtensionSpec {
 /** Register your extension. Call exactly once at the top level. */
 declare function defineExtension(spec: ExtensionSpec): void;
 
+interface FetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  /** String body (typical JSON APIs). */
+  body?: string;
+  /**
+   * Send a host-held blob as the raw request body (from host.files.ingest / from).
+   * Prefer this over base64-in-JSON for large files.
+   */
+  bodyBlobId?: string;
+  /**
+   * When true, store the response body as a host blob and return blobId (no body text).
+   * Use for binary/large responses (up to ~25 MB). Default false (text body, ≤ ~20 MB).
+   */
+  responseBlob?: boolean;
+}
+
 interface FetchResponse {
   status: number;
   ok: boolean;
   headers: Record<string, string>;
+  /** Set when init.responseBlob was true. */
+  blobId?: string | null;
+  size?: number | null;
+  contentType?: string | null;
   text(): Promise<string>;
   json(): Promise<any>;
 }
@@ -218,7 +300,7 @@ interface FetchResponse {
 /** Host capabilities. A method only works if you requested its permission. */
 declare const host: {
   /** Call an external HTTP(S) API. Private/loopback hosts are blocked. */
-  fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<FetchResponse>;
+  fetch(url: string, init?: FetchInit): Promise<FetchResponse>;
   kb: { addSource(seed: KbSeed): Promise<boolean> };
   glossary: { add(fact: GlossarySeed): Promise<number> };
   kv: {
@@ -244,17 +326,31 @@ declare const host: {
    * string. Needs `model.generate`; uses the operator's own model quota.
    */
   generate(opts: { task: string; maxTokens?: number; systemNote?: string }): Promise<string>;
+  /**
+   * File helpers. Attachment methods only work inside a slash-command handler.
+   * Prefer `ingest` + `blobId` for large files / API pipelines so bytes stay on the host.
+   */
+  files: {
+    /** Base64 into the sandbox (≤ ~20 MB). */
+    read(optionName: string): Promise<FileBytes>;
+    /** Host-held blob (≤ ~25 MB). Use blobId with fetch bodyBlobId / reply files. */
+    ingest(optionName: string): Promise<BlobRef>;
+    /** Create a host blob from sandbox text or contentB64 (≤ ~20 MB). */
+    from(spec: { name: string; text?: string; contentB64?: string; contentType?: string }): Promise<BlobRef>;
+  };
   discord: {
     /**
      * Post a message to a channel — for event handlers and tools, which have no interaction
      * to reply to. `channel` is a channel id, `<#id>` mention, or name (resolved in the
      * server). The payload may carry interactive `components` (persistent buttons/selects
-     * keep working). Needs `discord.send`; rate-limited, and a third-party extension's post
-     * can't @mention anyone. Resolves to a status string.
+     * keep working) and optional `files` (text / contentB64 / blobId). Needs `discord.send`;
+     * rate-limited, and a third-party extension's post can't @mention anyone.
      */
     send(
       channel: string,
-      payload: string | { content?: string; embed?: any; components?: Component[] },
+      payload:
+        | string
+        | { content?: string; embed?: any; components?: Component[]; files?: FileOut[] },
     ): Promise<string>;
   };
 };

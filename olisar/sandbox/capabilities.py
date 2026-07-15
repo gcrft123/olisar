@@ -15,8 +15,10 @@ Two invariants:
 
 from __future__ import annotations
 
+import base64
 import ipaddress
 import logging
+import re
 import socket
 import time
 from collections import deque
@@ -35,9 +37,22 @@ from olisar.memory.facts import upsert_facts
 
 log = logging.getLogger("olisar.sandbox.capabilities")
 
+# File / fetch size caps.
+# * BASE64 path (host.files.read, FileOut text/contentB64, fetch body text): 20 MB —
+#   balances Discord's bot upload limit with sandbox memory (base64 inflates ~33%).
+# * BLOB path (host.files.ingest / from, fetch bodyBlobId / responseBlob, FileOut blobId):
+#   25 MB — Discord's normal bot attachment ceiling; bytes never enter QuickJS.
+MAX_SDK_BASE64_BYTES = 20 * 1024 * 1024
+MAX_SDK_BLOB_BYTES = 25 * 1024 * 1024
+_MAX_BLOBS_PER_INV = 8
+_MAX_BLOB_TOTAL_BYTES = 50 * 1024 * 1024  # sum of host-held blobs for one handler run
+_MAX_ATTACHMENT_OPS = 5  # ingest + read calls against slash attachments per run
+
 # host.fetch limits.
 _FETCH_TIMEOUT = 15.0
-_FETCH_MAX_BYTES = 5 * 1024 * 1024
+_FETCH_BLOB_TIMEOUT = 90.0  # large bodyBlobId / responseBlob transfers
+_FETCH_MAX_BYTES = MAX_SDK_BASE64_BYTES
+_FETCH_BLOB_MAX_BYTES = MAX_SDK_BLOB_BYTES
 _FETCH_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}
 _FETCH_MAX_CALLS = 30  # per invocation
 
@@ -81,6 +96,18 @@ class DiscordBridge(Protocol):
     async def defer_update(self) -> None: ...
     # Event handlers only (no interaction to reply to) — post to a channel by id:
     async def send(self, channel_id: str, payload: Any) -> None: ...
+    # Slash-command attachment → raw bytes (command bridge only; never JSON-settled):
+    async def fetch_attachment_bytes(
+        self, option_name: str,
+    ) -> tuple[bytes, str, str | None]: ...
+
+
+@dataclass
+class BlobRecord:
+    """Host-held file bytes for one handler run. Opaque to the sandbox (only blobId)."""
+    data: bytes
+    filename: str
+    content_type: str | None = None
 
 
 @dataclass
@@ -95,6 +122,11 @@ class Invocation:
     # First-party (built-in or locally-authored) vs. third-party (imported/marketplace).
     # Third-party code is barred from the host's configured secrets regardless of grants.
     trusted: bool = False
+    # Host-side blob store (shared with the Discord bridge for FileOut blobId resolution).
+    blobs: dict[str, BlobRecord] = field(default_factory=dict)
+    blob_seq: int = 0
+    blob_total_bytes: int = 0
+    attachment_ops: int = 0
 
 
 class PermissionError_(Exception):
@@ -127,9 +159,63 @@ async def dispatch(inv: Invocation, cap: str, method: str, args: list) -> Any:
         return await _glossary_add(inv, args[0] if args else {})
     if cap == "discord":
         return await _discord(inv, method, args)
+    if cap == "files":
+        return await _files(inv, method, args)
     if cap == "generate":
         return await _generate(inv, args[0] if args else {})
     raise ValueError(f"unknown capability: {cap}")
+
+
+# ── host blobs (opaque file handles; never enter QuickJS as bytes) ───────────
+def _safe_blob_filename(name: str) -> str:
+    base = re.sub(r"[\\/]+", "/", str(name or "file")).rsplit("/", 1)[-1]
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", base).strip("._") or "file"
+    return cleaned[:200]
+
+
+def store_blob(
+    inv: Invocation,
+    data: bytes,
+    *,
+    filename: str = "file",
+    content_type: str | None = None,
+    max_bytes: int = MAX_SDK_BLOB_BYTES,
+) -> dict:
+    """Put bytes in the invocation blob store; return JSON-safe metadata + blobId."""
+    if not isinstance(data, (bytes, bytearray)):
+        raise TypeError("blob data must be bytes")
+    data = bytes(data)
+    if len(data) > max_bytes:
+        raise ValueError(
+            f"file too large (max {max_bytes // (1024 * 1024)} MB)"
+        )
+    if len(inv.blobs) >= _MAX_BLOBS_PER_INV:
+        raise RuntimeError(f"too many blobs in one run (max {_MAX_BLOBS_PER_INV})")
+    if inv.blob_total_bytes + len(data) > _MAX_BLOB_TOTAL_BYTES:
+        raise RuntimeError(
+            f"total blob storage for this run exceeds "
+            f"{_MAX_BLOB_TOTAL_BYTES // (1024 * 1024)} MB"
+        )
+    inv.blob_seq += 1
+    blob_id = f"b{inv.blob_seq}"
+    fname = _safe_blob_filename(filename)
+    inv.blobs[blob_id] = BlobRecord(
+        data=data, filename=fname, content_type=content_type,
+    )
+    inv.blob_total_bytes += len(data)
+    return {
+        "blobId": blob_id,
+        "filename": fname,
+        "size": len(data),
+        "contentType": content_type,
+    }
+
+
+def get_blob(inv: Invocation, blob_id: str) -> BlobRecord:
+    rec = inv.blobs.get(str(blob_id or ""))
+    if rec is None:
+        raise ValueError(f"unknown blobId {blob_id!r}")
+    return rec
 
 
 # ── fetch (with SSRF guard) ──────────────────────────────────────────────────
@@ -161,15 +247,69 @@ async def _fetch(inv: Invocation, url: str, init: dict | None = None) -> dict:
     if method not in _FETCH_METHODS:
         raise ValueError(f"method {method} not allowed")
     headers = {str(k): str(v) for k, v in (init.get("headers") or {}).items()}
-    body = init.get("body")
-    async with httpx.AsyncClient(timeout=_FETCH_TIMEOUT, follow_redirects=True, max_redirects=5) as c:
-        resp = await c.request(method, url, headers=headers, content=body)
-        raw = resp.content[:_FETCH_MAX_BYTES]
+
+    # Request body: plain string, or host-held blob (no base64 through the sandbox).
+    body_blob_id = init.get("bodyBlobId")
+    body: bytes | str | None
+    if body_blob_id:
+        body = get_blob(inv, str(body_blob_id)).data
+    else:
+        body = init.get("body")
+
+    response_blob = bool(init.get("responseBlob"))
+    max_bytes = _FETCH_BLOB_MAX_BYTES if response_blob else _FETCH_MAX_BYTES
+    timeout = _FETCH_BLOB_TIMEOUT if (body_blob_id or response_blob) else _FETCH_TIMEOUT
+
+    async with httpx.AsyncClient(
+        timeout=timeout, follow_redirects=True, max_redirects=5,
+    ) as c:
+        async with c.stream(method, url, headers=headers, content=body) as resp:
+            chunks: list[bytes] = []
+            total = 0
+            async for chunk in resp.aiter_bytes():
+                total += len(chunk)
+                if total > max_bytes:
+                    raise ValueError(
+                        f"response too large (max {max_bytes // (1024 * 1024)} MB"
+                        + ("; use responseBlob: false for smaller text APIs"
+                           if response_blob else
+                           "; use responseBlob: true to store as a host blob")
+                        + ")"
+                    )
+                chunks.append(chunk)
+            raw = b"".join(chunks)
+            status = resp.status_code
+            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+            content_type = resp_headers.get("content-type")
+            encoding = resp.encoding
+
+    if response_blob:
+        # Prefer Content-Disposition filename when present.
+        fname = "download"
+        cd = resp_headers.get("content-disposition") or ""
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";]+)"?', cd, re.I)
+        if m:
+            fname = m.group(1).strip()
+        ref = store_blob(
+            inv, raw, filename=fname, content_type=content_type,
+            max_bytes=_FETCH_BLOB_MAX_BYTES,
+        )
         return {
-            "status": resp.status_code,
-            "headers": {k.lower(): v for k, v in resp.headers.items()},
-            "body": raw.decode(resp.encoding or "utf-8", errors="replace"),
+            "status": status,
+            "headers": resp_headers,
+            "body": "",
+            "blobId": ref["blobId"],
+            "size": ref["size"],
+            "contentType": content_type,
         }
+
+    return {
+        "status": status,
+        "headers": resp_headers,
+        "body": raw.decode(encoding or "utf-8", errors="replace"),
+        "blobId": None,
+        "size": len(raw),
+    }
 
 
 # ── secret (by reference) ────────────────────────────────────────────────────
@@ -304,6 +444,82 @@ async def _discord(inv: Invocation, method: str, args: list) -> Any:
         body = args[1] if len(args) > 1 else {}
         return await inv.discord.send(channel_id, body)
     raise ValueError(f"unknown discord method: {method}")
+
+
+# ── files (slash attachments + host blobs) ───────────────────────────────────
+async def _load_attachment(inv: Invocation, option_name: str) -> tuple[bytes, str, str | None]:
+    if inv.discord is None:
+        raise RuntimeError(
+            "file access isn't available here — host.files.read/ingest only work "
+            "inside a slash-command handler"
+        )
+    if not option_name:
+        raise ValueError("needs the attachment option name")
+    inv.attachment_ops += 1
+    if inv.attachment_ops > _MAX_ATTACHMENT_OPS:
+        raise RuntimeError(
+            f"too many attachment operations in one command (max {_MAX_ATTACHMENT_OPS})"
+        )
+    return await inv.discord.fetch_attachment_bytes(option_name)
+
+
+async def _files(inv: Invocation, method: str, args: list) -> Any:
+    """File capabilities:
+
+    * ``read(optionName)`` — base64 into the sandbox (≤ 20 MB). Fine for small files.
+    * ``ingest(optionName)`` — store on the host as a blobId (≤ 25 MB). Prefer for
+      API pipelines so bytes never enter QuickJS.
+    * ``from({ name, text|contentB64 })`` — create a host blob from sandbox data.
+    """
+    if method == "read":
+        option_name = str(args[0]) if args else ""
+        data, filename, ctype = await _load_attachment(inv, option_name)
+        if len(data) > MAX_SDK_BASE64_BYTES:
+            raise ValueError(
+                f"file too large for host.files.read "
+                f"(max {MAX_SDK_BASE64_BYTES // (1024 * 1024)} MB) — "
+                "use host.files.ingest(optionName) and pass blobId to fetch/reply"
+            )
+        return {
+            "filename": filename,
+            "contentType": ctype,
+            "size": len(data),
+            "contentB64": base64.b64encode(data).decode("ascii"),
+        }
+    if method == "ingest":
+        option_name = str(args[0]) if args else ""
+        data, filename, ctype = await _load_attachment(inv, option_name)
+        return store_blob(
+            inv, data, filename=filename, content_type=ctype,
+            max_bytes=MAX_SDK_BLOB_BYTES,
+        )
+    if method == "from":
+        # Create a blob from sandbox-provided text/base64 (still size-capped).
+        spec = args[0] if args else {}
+        if not isinstance(spec, dict):
+            raise ValueError("host.files.from needs { name, text|contentB64 }")
+        name = str(spec.get("name") or "file")
+        ctype = spec.get("contentType")
+        ctype_s = str(ctype) if ctype is not None else None
+        if spec.get("text") is not None:
+            data = str(spec["text"]).encode("utf-8")
+        elif spec.get("contentB64") is not None:
+            try:
+                data = base64.b64decode(str(spec["contentB64"]), validate=False)
+            except Exception as exc:  # noqa: BLE001
+                raise ValueError("invalid contentB64") from exc
+        else:
+            raise ValueError("host.files.from needs text or contentB64")
+        if len(data) > MAX_SDK_BASE64_BYTES:
+            raise ValueError(
+                f"payload too large for host.files.from "
+                f"(max {MAX_SDK_BASE64_BYTES // (1024 * 1024)} MB)"
+            )
+        return store_blob(
+            inv, data, filename=name, content_type=ctype_s,
+            max_bytes=MAX_SDK_BASE64_BYTES,
+        )
+    raise ValueError(f"unknown files method: {method}")
 
 
 # ── model generation (spends the installing operator's own model quota) ──────

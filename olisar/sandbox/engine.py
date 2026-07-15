@@ -28,6 +28,8 @@ log = logging.getLogger("olisar.sandbox.engine")
 
 # Resource caps. Tools should be quick; commands may run a short interactive flow.
 DEFAULT_MEMORY_BYTES = 64 * 1024 * 1024
+# Slash-command handlers may touch base64-encoded files (≤ 20 MB); give the VM more headroom.
+COMMAND_MEMORY_BYTES = 128 * 1024 * 1024
 TOOL_CPU_SECONDS = 5.0
 COMMAND_CPU_SECONDS = 10.0
 # Wall-clock ceiling for the whole pump (CPU + host I/O between turns).
