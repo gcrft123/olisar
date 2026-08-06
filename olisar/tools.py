@@ -458,24 +458,16 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return block or "Nothing found in the knowledge base."
 
         if name == "search_messages":
-            # DMs live in the guild-0 bucket, separate from the server index. DM content is
-            # only ever recalled inside a DM (never surfaced into a public channel): there, a
-            # server admin may recall across ALL DMs, and anyone else only their own DM
-            # history — never another member's private DMs. In a normal channel, no DM access.
-            extra_guilds: list[int] = []
-            dm_channel: int | None = None
-            if ctx.is_dm:
-                if ctx.actions is not None and await ctx.actions.is_admin(
-                    ctx.user_id, ctx.cfg_guild
-                ):
-                    extra_guilds = [0]
-                else:
-                    dm_channel = ctx.channel_id
+            # DMs live in the guild-0 bucket, separate from the server index. A DM is only
+            # ever recalled inside that same 1:1 conversation — never another member's, and
+            # never in a channel. Being a server admin does NOT widen this: Manage Server is
+            # a permission over the server's own channels, and a member who DMs the bot has
+            # no way to know an admin could read it back out, nor any way to refuse.
+            dm_channel = ctx.channel_id if ctx.is_dm else None
             block = await search_messages(
                 ctx.session,
                 guild_id=ctx.cfg_guild,
                 query=args.get("query", ""),
-                extra_guild_ids=extra_guilds,
                 dm_channel_id=dm_channel,
             )
             return block or "No matching messages found in the server's history."
