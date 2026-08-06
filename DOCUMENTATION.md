@@ -75,55 +75,53 @@ guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#s
 
 ### What Olisar is
 
-Olisar is an AI companion for your Discord server — built to feel less like a command bot and more
+Olisar is an AI companion for your Discord server, built to feel less like a command bot and more
 like a member of the community. It reads the channels you allow, remembers context, builds a sense of
 who people are, and chimes in with its own personality.
 
 Everything here is configured from this console. Olisar can be in **more than one server** at once, and
-almost every setting is per-server — pick which one you're configuring with the switcher at the top of
+almost every setting is per-server. Pick which one you're configuring with the switcher at the top of
 the sidebar (see [Servers](#servers)).
 
 Olisar is **self-hosted**: it runs as a desktop app on one operator's machine, which stores all of its data
-locally and hosts this console — there's no Olisar cloud. See [Hosting & your data](#hosting-your-data). Other admins
+locally and hosts this console. There's no Olisar cloud (see [Hosting & your data](#hosting-your-data)). Other admins
 manage their own servers by signing in with Discord, on that machine or over [remote access](#remote-access).
 
 > [!TIP]
 > **Changes are held until you Save**
-> Edit any page and a **save bar** slides up at the bottom — your changes are buffered until you press
-> **Save** (or discard them with **Reset**). Once saved, almost every setting takes effect on Olisar's
-> **next reply** — no restart, no redeploy.
+> Edit any page and a **save bar** slides up at the bottom. Your changes aren't applied until you press
+> **Save**, or discarded with **Reset**.
 
 
-Under the hood it runs on the free tier of [Google's Gemini models](https://ai.google.dev/), so it's free to operate — it just
-gets rate-limited under heavy use and falls back across a chain of models when one is busy (see
-[Models](#models)).
+It runs on the free tier of [Google's Gemini models](https://ai.google.dev/), so it costs nothing to
+operate. It just gets rate-limited under heavy use, falling back across a chain of models when one is
+busy (see [Models](#models)).
 
 The tabs on the left:
-- Persona — who Olisar is (its voice and character).
-- Behavior — when and how it engages, which model it uses, and when it speaks up unprompted.
+- Persona — who Olisar is.
+- Behavior — when and how it engages, and which model it uses.
 - [Models](#models) — the model fallback chains and their limits.
-- Command replies — the exact text it sends for each command and fallback.
+- Command replies — the exact text it sends for each command.
 - Channels — which channels it reads, talks in, or treats as reference.
-- Access — which roles are allowed to use it.
+- Access — which roles can use it.
 - Knowledge — documents and lore you teach it.
-- Extensions — togglable packages of extra features.
-- API keys — bring your own Gemini, Cloudflare, and UEX keys.
+- Extensions — optional packages of extra features.
+- API keys — your own Gemini, Cloudflare, and UEX keys.
 - Usage — how much of the free model quota you're using.
 
-The sidebar footer also has **[Settings](#console-settings)** — app-wide preferences (accent color, your
-[bots](#running-multiple-bots), remote access, updates, and feedback) that aren't tied to any one server.
+The sidebar footer has [Settings](#console-settings) too: app-wide preferences that aren't tied to any one
+server.
 
 ### Servers
 
-Olisar can live in **multiple servers at once**, and almost every setting is **server-specific** — each
-server has its own persona, behaviour, channels, access rules, knowledge, glossary, extensions, and
-command replies. Two servers can run completely different Olisars.
+Olisar can live in **multiple servers at once**, and almost every setting is **server-specific**. Each
+server has its own persona, behavior, channels, access rules, knowledge, glossary, extensions, and
+command replies, so two servers can run completely different Olisars.
 
 #### The server switcher
 
-The dropdown at the **top of the sidebar** picks which server you're configuring. Every page below it —
-Persona, Behavior, Channels, and the rest — then shows and saves **that** server's settings. Your choice
-is remembered between visits.
+The dropdown at the **top of the sidebar** picks which server you're configuring. Every page below it
+then shows and saves **that** server's settings. Your choice is remembered between visits.
 
 > [!NOTE]
 > **You only see your own servers**
@@ -133,9 +131,8 @@ is remembered between visits.
 
 #### Adding Olisar to another server
 
-Invite the bot with an account that has **Manage Server** there. As it joins, Olisar provisions that
-server with sensible defaults and it shows up in your switcher automatically — no config files, no
-restart. Configure it like any other.
+Invite the bot with an account that has **Manage Server** there. As it joins, Olisar sets that server
+up with sensible defaults and it appears in your switcher. Configure it like any other.
 
 > [!TIP]
 > **Don't see a server you just got access to?**
@@ -171,10 +168,9 @@ Members can reach Olisar a few ways:
 
 > [!TIP]
 > **Reply to point at a message**
-> When you **reply** to a message (Olisar's or anyone's) while addressing it, Olisar notices which message you
-> replied to and uses it as context — "isn't there a later one?" as a reply to an event post just works. It's
-> deliberately light-touch: if your question stands on its own, it answers that and won't drag the quoted
-> message in.
+> When you **reply** to a message (Olisar's or anyone's) while addressing it, Olisar uses that message as
+> context — "isn't there a later one?" as a reply to an event post just works. If your question stands on
+> its own, it answers that instead and leaves the quoted message out of it.
 
 
 It can do a lot in conversation without any command: answer questions, search the server's history
@@ -184,7 +180,7 @@ Just talk to it naturally.
 
 ### Slash commands
 
-Olisar's slash commands fall into three buckets: everyday commands anyone can use, the admin-only
+Olisar's slash commands fall into three groups: everyday commands anyone can use, the admin-only
 `/olisar` group, and the destructive `/self-destruct`.
 
 #### For everyone
@@ -217,7 +213,7 @@ Shows a plain-language summary of exactly what data Olisar keeps about you. Ephe
 available regardless of access rules.
 
 #### `/forget-me`
-Deletes **everything** Olisar has stored about you — your messages, remembered facts, the profile it
+Deletes **everything** Olisar has stored about you: your messages, remembered facts, the profile it
 built of you, and your entries in the server search index. Add `stop_remembering: true` to also opt
 out of all future recording, permanently. Always available to everyone.
 
@@ -226,9 +222,14 @@ out of all future recording, permanently. Always available to everyone.
 > There's no undo. With `stop_remembering: true`, Olisar will never record you again until you ask it to.
 
 
+#### `/dm-indexing <enabled>`
+Controls whether Olisar saves and searches your direct messages with it. On by default, so it can hold
+context with you across conversations. Turning it off stops future saving; use `/forget-me` to also
+delete what's already stored.
+
 > [!NOTE]
 > **Extension commands**
-> Some commands come from **extensions** and are documented alongside the extension that adds them — for
+> Some commands come from **extensions** and are documented alongside the extension that adds them. For
 > example `/citizen` lives under **Star Citizen** on the [Extensions](#extensions) page.
 
 
@@ -269,37 +270,31 @@ confirmation button guards it.
 
 ### Install the desktop app
 
-Two ways to run Olisar: the **desktop app** (recommended — install, complete the wizard, done), or
-**from source** for developers (see [Build & run from source](#build--run-from-source)). The desktop
-app is covered here.
+Two ways to run Olisar: the **desktop app**, covered here, or
+**[from source](#build--run-from-source)** if you're a developer.
 
 Download the build for your OS and open it.
 
 **macOS** (Apple Silicon) — open `Olisar-<version>-arm64.dmg` and drag **Olisar** to Applications, then
-open it normally. The app is signed with a Developer ID certificate and notarized by Apple, so
-Gatekeeper lets it through with no extra steps.
-
-(Installing a build from before signing landed? Those were unsigned, and right-click → **Open**
-approves the main app but can leave the bundled backend blocked — clear Gatekeeper for the whole
-bundle instead with `xattr -dr com.apple.quarantine /Applications/Olisar.app`.)
+open it.
 
 **Windows** — run `Olisar Setup <version>.exe`. SmartScreen may warn about an unknown publisher: click
 **More info → Run anyway**.
 
-A bot must stay running to respond, so install Olisar on a machine that's usually on (your desktop, a
-home server, a mini PC). Closing the window keeps Olisar running in the **menu bar / system tray** — use
-**Quit Olisar** from the tray to fully stop it.
+A bot has to stay running to respond, so install Olisar on a machine that's usually on. Closing the
+window keeps it running in the **menu bar / system tray**; use **Quit Olisar** from the tray to stop it
+completely.
 
 ### Create your Discord application
 
-You run your own Discord application — that's what makes the bot *yours*. In the
+You run your own Discord application, which is what makes the bot *yours*. In the
 [Discord Developer Portal](https://discord.com/developers/applications):
 
 1. **New Application** → name it (e.g. "Olisar").
 2. **Bot** tab → **Reset Token** → copy it. Under *Privileged Gateway Intents*, enable **Message
-   Content Intent** and **Server Members Intent** (Olisar needs both). Enable **Presence Intent** too
-   only if you want the **Status & voice awareness** feature — it's optional, off by default, and also
-   needs `OLISAR_ENABLE_PRESENCE_INTENT` on the host (see [Behavior](#behavior--proactivity)).
+   Content Intent** and **Server Members Intent**; Olisar needs both. Enable **Presence Intent** only
+   if you want **Status & voice awareness**, which also needs `OLISAR_ENABLE_PRESENCE_INTENT` on the
+   host (see [Behavior](#behavior--proactivity)).
 3. **OAuth2** tab → copy the **Client ID** and **Client Secret** (Reset to reveal).
 4. **OAuth2 → URL Generator** → scopes `bot` + `applications.commands`, grant permission to read and
    send messages, and use the generated URL to **invite the bot to your server**.
@@ -314,20 +309,26 @@ Launch Olisar. The window opens to a four-step wizard:
 1. **Bot token** — paste it and click *Test token* (Olisar confirms "Connected as …").
 2. **Application** — paste the Client ID and Client Secret. Optionally set your main server's ID (with
    Developer Mode on, right-click the server → *Copy Server ID*).
-3. **Access** — choose **This machine only** (you administer locally) or **Remote access** (other admins
-   sign in over a tunnel — see [Remote access](#remote-access)). The wizard shows the exact **redirect
-   URL** to paste into the Developer Portal → **OAuth2 → Redirects**; for local use that's
-   `http://127.0.0.1:<port>/auth/callback`.
+3. **Access** — pick where Olisar runs:
+   - **Local unshared hosting** — on this machine, reachable only from here.
+   - **Local shared hosting** — on this machine, but published over Tailscale so other admins can sign
+     in from anywhere (see [Remote access](#remote-access)).
+   - **Server shared hosting** — on a free cloud server, so it stays online with this computer off (see
+     [Host on a server](#host-on-a-server)).
+
+   For the two local options the wizard shows the exact **redirect URL** to paste into the Developer
+   Portal → **OAuth2 → Redirects**. Locally that's `http://127.0.0.1:<port>/auth/callback`.
 4. **API keys** — paste your free **Gemini API key** ([Google AI Studio](https://aistudio.google.com/apikey)).
    Cloudflare (image generation) and UEX (the optional Star Citizen extension) can be added later on the
-   [API keys](#api-keys) tab.
+   [API keys](#api-keys) tab. If you chose server hosting, this step is **Deploy** instead: enter your
+   VM's IP and Olisar installs itself onto it over SSH.
 
-Click **Finish & start Olisar**. The bot connects and the window reloads to **Continue with Discord** —
-sign in with the Discord account that has *Manage Server* on your server to reach the console.
+Click **Finish & start Olisar**. The bot connects and the window reloads to **Continue with Discord**;
+sign in with the account that has *Manage Server* on your server to reach the console.
 
 > [!NOTE]
-> **Access is live-checked.** Only accounts with *Manage Server* on a server Olisar is in (or an
-> allowlisted operator) can open the console — and if that permission is removed, access is revoked on
+> **Access is live-checked.** Only accounts with *Manage Server* on a server Olisar is in, or an
+> allowlisted operator, can open the console. If that permission is taken away, access is revoked on
 > the next request.
 
 ### Build & run from source
@@ -381,7 +382,7 @@ cd desktop && npm install && npm run dist               # 4. installer for the c
 
 ### Running multiple bots
 
-Olisar can run **several bots from one app** — each a completely separate Discord bot with its own token,
+Olisar can run **several bots from one app**, each a completely separate Discord bot with its own token,
 persona, settings, memory, and database. This is different from one bot being in
 [multiple servers](#servers): a *server* is a Discord guild your bot is in; a *bot* is a distinct Discord
 application, with its own name, avatar, and login.
@@ -393,7 +394,7 @@ the sign-in and setup screens.
 
 On this machine, **one local bot is active at a time**. Switching to another **stops the current bot** and
 starts the selected one, then reloads the console. Bots you host on a [cloud server](#host-on-a-server) run on
-their own machine, so they stay online independently — the way to keep several bots running at once.
+their own machine, so they stay online independently, which is how you keep several bots running at once.
 
 #### The bot switcher
 
@@ -409,13 +410,13 @@ Two badges show each bot's state: **Active** (running right now) and **Default**
 
 #### Adding a bot
 
-**Create new bot** adds an empty bot and drops you into its [setup wizard](#what-olisar-is) — connect its Discord
+**Create new bot** adds an empty bot and drops you into its [setup wizard](#what-olisar-is). Connect its Discord
 token and credentials just like the first one. Each new bot needs its **own** bot application from the
 Discord Developer Portal.
 
 > [!TIP]
 > **One account, many bots**
-> You don't need multiple Discord accounts — one account can create many bot applications, each with its own
+> You don't need multiple Discord accounts: one account can create many bot applications, each with its own
 > token. You *do* need a separate token per bot.
 
 ### Hosting & your data
@@ -427,7 +428,7 @@ everything locally. There's no server to rent, no config files to edit, and no s
 > [!TIP]
 > **One operator, many admins**
 > The person who installs Olisar is the **operator** (the machine's owner). Other server admins don't install
-> anything — they sign in to this console with Discord, either on the operator's machine or remotely (see
+> anything. They sign in to this console with Discord, either on the operator's machine or remotely (see
 > [Remote access](#remote-access)).
 
 
@@ -437,18 +438,18 @@ The first time you open Olisar it walks you through a short **setup wizard**: pa
 token**, the OAuth **client ID + secret**, your main server ID, and (optionally) your free **API keys**. It
 checks the token live and shows you the exact redirect URL to register in the
 [Discord Developer Portal](https://discord.com/developers/applications). Save, and the bot starts and hands
-off to the normal Discord login. You only do this once — there are no config files to edit.
+off to the normal Discord login. You only do this once.
 
 #### The menu-bar app
 
 Olisar lives in your **menu bar / system tray**, not as an ordinary window. From its icon you can open this
 dashboard, see whether the bot is online, and turn [remote access](#remote-access) on or off. **Closing the
-dashboard window leaves Olisar running** in the tray — quit it explicitly from the tray menu to stop the
+dashboard window leaves Olisar running** in the tray. Quit it from the tray menu to stop the
 bot. Keep the machine awake and online for Olisar to stay live.
 
 #### Where your data lives
 
-Everything Olisar knows sits in one local database on the operator's machine — the message index, member
+Everything Olisar knows sits in one local database on the operator's machine: the message index, member
 profiles, memory, knowledge base, your settings, and your API keys. Nothing is sent to an Olisar server
 (there isn't one). On macOS it's under `~/Library/Application Support/Olisar`; on Windows under
 `%APPDATA%\Olisar`.
@@ -463,7 +464,7 @@ profiles, memory, knowledge base, your settings, and your API keys. Nothing is s
 
 By default Olisar runs inside the desktop app on your own machine, so the bot is online only
 while that machine is awake. To keep it running **24/7**, run the exact same backend on an
-always-on Linux server — no need to leave your computer on.
+always-on Linux server, so you don't need to leave your computer on.
 
 > [!TIP]
 > **Free, always-on**
@@ -485,8 +486,8 @@ SSH into the VM and run:
 curl -fsSL https://raw.githubusercontent.com/gcrft123/olisar/main/deploy/bootstrap.sh | bash
 ```
 
-It installs Docker, asks for your tokens, starts Olisar in a container, and prints two things:
-your public `https://…ts.net` URL and the OAuth redirect to register.
+It installs Docker, asks for your tokens, starts Olisar, and prints two things: your public
+`https://…ts.net` address and the OAuth redirect to register.
 
 #### After it's running
 1. In the [Discord Developer Portal](https://discord.com/developers/applications) → your app → **OAuth2 → Redirects**, add the printed `…/auth/callback`.
@@ -507,11 +508,11 @@ That's it — the bot is live and you manage everything from the browser. The de
 > [deploy/README.md](https://github.com/gcrft123/olisar/blob/main/deploy/README.md).
 
 
-#### Keeping the server image current
+#### Keeping the server up to date
 
-If you manage the VM from the **desktop app** (server mode), opening the control panel **pulls the
-latest image** from GHCR over SSH and recreates the container when it was already running. **Start
-server** also pulls before `up -d`. Data in the Docker volume is preserved across pulls.
+The VM updates itself daily. If a new version fails to start, the previous one is restored
+automatically. From the desktop app's control panel you can also press **Update now** to do it on
+demand. Your data is kept either way.
 
 You can still update by hand on the VM:
 
@@ -521,15 +522,15 @@ cd ~/olisar && sudo docker compose pull && sudo docker compose up -d
 
 ### Remote access
 
-By default this console is **local-only** — the operator manages Olisar from the machine it runs on. To let
+By default this console is **local-only**: the operator manages Olisar from the machine it runs on. To let
 other admins sign in **from anywhere**, the operator can switch on **remote access**, which publishes the
-dashboard at a stable web address over **Tailscale Funnel** — free, with **no domain required**.
+dashboard at a stable web address over **Tailscale Funnel**. It's free and needs **no domain**.
 
 > [!TIP]
 > **No domain, no port-forwarding**
 > Tailscale Funnel gives Olisar an `https://…ts.net` address with a real certificate, tunnelled out without
 > opening any ports on your router. The operator needs a free Tailscale account; the admins who sign in don't
-> need Tailscale at all — they just open the link.
+> need Tailscale at all. They just open the link.
 
 
 #### Turning it on
@@ -553,52 +554,52 @@ Olisar then registers the public `…/auth/callback` so Discord login works both
 
 #### The web link
 
-Once remote access is on, the **sidebar footer** shows the public address — **"Open from the web"** with the
+Once remote access is on, the **sidebar footer** shows the public address: **"Open from the web"** with the
 `…ts.net` link and a **Copy** button. Share that link with your other admins; each signs in with their own
 Discord account and only sees the servers where they have **Manage Server** (see [Servers](#servers)).
 
 > [!WARNING]
 > **Keep the auth key private**
-> The Tailscale auth key is stored locally and only ever handed to the bundled Tailscale helper — it's never
+> The Tailscale auth key is stored locally and only ever handed to the bundled Tailscale helper. It's never
 > shown in this console or sent anywhere. Turning remote access **off** — from the tray or **Settings →
 > Remote access** — takes the public address down immediately; local access keeps working.
 
 ### Console settings
 
-The **Settings** button in the sidebar footer (next to **Log out**) opens an app-wide settings popup. Unlike
-the tabs above it, nothing here is per-server — these are operator/device-level preferences. It has six
-sections:
+The **Settings** button in the sidebar footer, next to **Log out**, opens an app-wide settings popup.
+Unlike the tabs above it, nothing here is per-server.
 
 #### Appearance
-The **accent color** used across the console — for selection, links, focus rings, and active state. Pick one
-of the swatches, dial in a **custom** color, or **Reset** to the default blue. It's saved **on this device**
-(per browser), so each person who signs in can have their own.
+The **accent color** used across the console, for selection, links, focus rings, and active state. Pick a
+swatch, dial in a **custom** color, or **Reset** to the default blue. It's saved on this device, so
+everyone who signs in can pick their own.
 
 #### Bot
-The **bot switcher** — create, switch between, rename, set the launch default for, and delete the bots this
-app runs (see [Running multiple bots](#running-multiple-bots)). Below it, a **Clear memory** action wipes everything the
-active bot has learned about the current server (keeping its persona and settings).
+The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this
+app runs (see [Running multiple bots](#running-multiple-bots)). Below it, **Clear memory** wipes everything the active bot
+has learned about the current server, keeping its persona and settings.
+
+#### Logs
+Recent log lines, for when something isn't behaving. **This app** is the local console's own log; **Bot**
+and **Funnel** are read from your VM over SSH and only apply if you [host on a server](#host-on-a-server).
 
 #### Remote access
-The status and **on/off switch** for the public web link, plus the list of who has signed in — covered in
+The status and **on/off switch** for the public web link, plus the list of who has signed in. Covered in
 full under [Remote access](#remote-access).
 
 #### Updates
-Shows Olisar's **current version** and checks [GitHub Releases](https://github.com/) for a newer one. In the
-desktop app an available update can be **installed and relaunched** in one click; from a browser it points you
-to the desktop app to update there.
+Shows Olisar's **current version** and whether a newer one has been released. In the desktop app an
+available update can be installed in one click; from a browser you'll need to open the desktop app.
 
 #### Desktop app
-A single toggle — **Show in the menu bar** — for whether Olisar keeps its tray icon (used for quick access and
-[remote-access](#remote-access) control). It applies to the installed desktop app, which picks it up on its next launch.
+A single toggle, **Show in the menu bar**, for whether Olisar keeps its tray icon. It applies to the
+installed desktop app, which picks it up on its next launch.
 
 #### Feedback
-Send **feedback, a bug report, or a question** straight to the Olisar team — it's emailed on submit.
-- Pick a **type** (Feedback / Bug report / Question), write your **message**, and optionally add **your email**
-  so the team can reply.
-- Attach up to **8 files** (≤ 3 MB each), and/or click **Add bot logs** to include recent log lines — handy
-  for bug reports.
-- Press **Send**; you'll get a confirmation and can send another.
+Send **feedback, a bug report, or a question** straight to the Olisar team.
+- Pick a **type**, write your **message**, and optionally add **your email** so the team can reply.
+- Attach up to **8 files** (≤ 3 MB each), and click **Add bot logs** to include recent log lines.
+- Press **Send**.
 
 ## Configure
 
@@ -609,10 +610,8 @@ The Persona tab is Olisar's character — the single biggest lever on how it fee
 - **System prompt** — its core character, lore, and rules. The operating/safety rules are appended
   automatically, so you only write the personality.
 - **Style notes** — tone and formatting guidance.
-- **Profile bio (About Me)** — the bot's public About Me, applied to Discord automatically when you save
-  (no Developer-Portal copy-paste). It's a single **bot-wide** setting — not per-server. Your text is
-  capped at **300 characters**, and a short `Powered by Olisar AI` attribution line is appended
-  automatically below it (it stays even if you leave the bio blank).
+- **About Me** — the bot's public Discord bio, applied when you save. It's the same across every server,
+  capped at **300 characters**, with a short `Powered by Olisar AI` line added below it.
 
 > [!TIP]
 > **Write it like a person**
@@ -623,22 +622,20 @@ The Persona tab is Olisar's character — the single biggest lever on how it fee
 
 > [!TIP]
 > **Try changes live**
-> The **Test chat** — click the **Test chat** button to slide it in from the right — talks to Olisar in an
-> enclosed sandbox: full persona, knowledge base, and tools, but **no memory**. Nothing said there is saved,
-> and it never touches the server's glossary or chat history. Save the persona first; the sandbox uses the
-> saved version, not your unsaved draft.
+> The **Test chat** button opens a drawer that talks to Olisar with the full persona, knowledge base, and
+> tools, but **no memory**. Nothing said there is saved, and it never touches the server's glossary or chat
+> history. Save the persona first — the test chat uses the saved version, not your unsaved draft.
 
 
 > [!NOTE]
 > Olisar also builds a **private** impression of each member from their messages and tailors how it talks
-> to them — that's separate from this persona, and it's wiped by `/forget-me` or `/self-destruct`.
+> to them. That's separate from this persona, and it's wiped by `/forget-me` or `/self-destruct`.
 
 ### Behavior & proactivity
 
 The Behavior tab is where you shape how Olisar engages: when it decides a message is
 meant for it, which model it thinks with, how much of the conversation it holds in mind, and whether it
-ever speaks up on its own. Everything here is **per server** and takes effect on the **next reply** — no
-restart.
+ever speaks up on its own. Everything here is **per server**.
 
 #### Triggers
 
@@ -658,33 +655,30 @@ How Olisar decides a message is for it:
 #### Mentions
 
 **Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
-reply. Tick any of **@everyone**, **@here**, and **All roles** — Olisar can still *say* "@everyone" but the
+reply. Tick any of **@everyone**, **@here**, and **All roles**. Olisar can still *say* "@everyone" but the
 ping is neutralized, so nobody gets pinged. Leave them unticked to let it mention normally.
 
 > [!TIP]
 > **Stop accidental mass-pings**
-> Blocking **@everyone**/**@here** is the safe default for a chatty bot — it can reference the words without
+> Blocking **@everyone**/**@here** is the safe default for a chatty bot: it can reference the words without
 > lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. `@Mods`).
 
 
-#### Model & search
+#### Model & tools
 
-- **Primary model** — the top of a fallback chain. If a model is rate-limited (429) or overloaded
-  (503), Olisar automatically drops to the next-best model rather than failing. See [Models](#models) for the
-  full chain and limits.
-- **Web search (grounding)** — lets Olisar look up current, real-world info from the web. It has a
-  **daily cap** because the free tier's grounding quota is small.
-- **Grounding daily cap** — how many grounded lookups per day before it stops and answers from what it
-  knows.
+- **Primary model** — the top of a fallback chain. If a model is busy or overloaded, Olisar drops to the
+  next-best one rather than failing. See [Models](#models) for the full chain and limits.
+- **Web search** — lets Olisar look up current, real-world information. It has a daily cap because the
+  free tier's search quota is small.
+- **Web searches per day** — how many lookups it runs before falling back to what it already knows.
 
 #### Memory & summaries
 
-How much Olisar keeps in the moment, and how it distills conversation into durable, long-term memory.
-- **Context window (messages)** — how many of the most recent messages in a channel Olisar pulls into
-  view when it replies. This is its **short-term** memory of the conversation in front of it: a higher
-  number lets it follow longer back-and-forths, but every message rides along on each reply, so it costs
-  more tokens. Anything older than the window isn't forgotten — it comes back through summaries and
-  semantic memory. Defaults to 12.
+How much Olisar keeps in the moment, and how it turns conversation into long-term memory.
+- **Context window (messages)** — how many of the most recent messages Olisar pulls into view when it
+  replies. This is its short-term memory: a higher number lets it follow longer back-and-forths, but
+  every message rides along on each reply, so it costs more tokens. Anything older isn't forgotten — it
+  comes back through summaries and semantic memory. Defaults to 12.
 - **Summary token threshold** — once a channel accumulates this much unsummarized conversation, Olisar
   rolls it into a durable summary it can recall later. Lower = summarizes more often (more quota); higher
   = summarizes less.
@@ -696,19 +690,18 @@ How much Olisar keeps in the moment, and how it distills conversation into durab
 
 > [!TIP]
 > **Tuning for the free tier**
-> If you're hitting rate limits, trim the context window a little, raise the summary threshold (fewer
-> background summary calls), keep the grounding cap modest, and consider starting the model chain lower
-> (e.g. a Flash-Lite) so the busy top-tier models aren't your first hop.
+> If you're hitting rate limits, trim the context window a little, raise the summary threshold, keep the
+> web-search cap modest, and consider starting the model chain lower (a Flash-Lite, say) so the busy
+> top-tier models aren't your first hop.
 
 
 #### Proactivity
 
-When enabled, Olisar can speak up **unprompted** in channels it can talk in. A cheap classifier gates it
-so it doesn't spam or burn quota.
+When enabled, Olisar can speak up **unprompted** in channels it can talk in. A cheap check gates it so
+it doesn't spam or burn quota.
 - **Eagerness** — `off` (never), `low` (rare, only high-confidence moments), `medium` (balanced),
   `high` (chatty).
-- **Confidence threshold** — the minimum score (0–1) the gate must give before Olisar chimes in. Higher
-  = more selective.
+- **Confidence threshold** — how sure it has to be (0–1) before chiming in. Higher is more selective.
 - **Global / channel cooldowns** — minimum seconds between unprompted messages overall and per channel.
 - **Max per hour** — a hard ceiling on unprompted messages.
 - **Quiet hours** — a UTC window where Olisar stays silent.
@@ -721,14 +714,14 @@ so it doesn't spam or burn quota.
 
 #### Passive reactions
 
-Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message **without replying**.
-It has its own, looser gate — no expensive classifier, just a light heuristic plus a **cooldown** and an
-**hourly cap** — so it stays sparse. Toggle it, set its **confidence threshold** — the 0–1 bar a message must clear before a reaction is weighed (lower reacts more freely) — and set the cooldown/cap on the Behavior tab.
+Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message without replying.
+This has its own looser gate, plus a cooldown and an hourly cap, so it stays sparse. Its **confidence
+threshold** works the same way as proactivity's: lower reacts more freely.
 
 #### Situational awareness
 
 With **Status & voice awareness** on, Olisar can answer "what's X playing?" or "who's in voice right now?"
-by reading members' live Discord presence and voice state **only when asked** — it's never stored.
+by reading members' live Discord presence and voice state **only when asked**. It's never stored.
 
 > [!WARNING]
 > **Needs a privileged intent**
@@ -746,7 +739,7 @@ reply fail (and then it shows a friendly fallback message).
 
 > [!NOTE]
 > **About the limits**
-> The "throttle" below is Olisar's own conservative per-minute cap to stay under the free tier — not an
+> The "throttle" below is Olisar's own conservative per-minute cap to stay under the free tier, not an
 > official Google number. Real free-tier limits also include daily caps that vary by model.
 
 
@@ -771,8 +764,8 @@ tab sets where the chain starts.
 > **Reasoning ("thinking")**
 > The newer Flash models can spend hidden **thinking** tokens before answering. Olisar caps that budget on
 > the conversation path and reserves headroom for the actual reply, so it reasons on hard questions without
-> the visible answer getting cut off — while one-line jobs (welcome messages, emoji reactions) skip thinking
-> entirely to stay fast.
+> the visible answer getting cut off. One-line jobs like welcome messages and emoji reactions skip
+> thinking entirely to stay fast.
 
 
 #### Images & embeddings
@@ -793,8 +786,7 @@ tab sets where the chain starts.
 > [!WARNING]
 > **Under high demand**
 > The top models get busy first. Falling back keeps replies flowing, but if everything is contended you'll
-> see slower replies or the occasional "my mind went blank." It clears on its own — the limits reset over
-> time.
+> see slower replies or the occasional "my mind went blank." It clears on its own once the limits reset.
 
 ### Channels & modes
 
@@ -813,18 +805,18 @@ Each channel gets a **role** on the Channels tab. The modes:
 > mod channel to **off**.
 
 
-**Forums** appear in the picker too (tagged "forum"), and their posts inherit the forum's mode — so set
+**Forums** appear in the picker too (tagged "forum"), and their posts inherit the forum's mode, so set
 a forum to `both` and Olisar reads and replies in its threads. Regular threads inherit their parent
 channel's mode the same way.
 
 > [!TIP]
 > `resource` and `feed` are for **text** channels. A forum set to one of them is a harmless no-op.
 > Separately, Olisar keeps a **server-wide search index of every channel** so it can answer "where was
-> that posted?" — that's independent of these per-channel modes (see [Memory](#memory-search)).
+> that posted?". That's independent of these per-channel modes (see [Memory](#memory-search)).
 
 ### Access control
 
-The Access tab decides which roles can use Olisar — in chat and via slash commands like `/ask`.
+The Access tab decides which roles can use Olisar, in chat and via slash commands like `/ask`.
 For each role you choose:
 - **Allowed** — if you mark **any** role allowed, then **only** those roles (plus server admins) can use
   Olisar; everyone else is locked out.
@@ -844,7 +836,7 @@ For each role you choose:
 
 ### Command replies
 
-The Command replies tab lets you rewrite the exact text Olisar sends — for each slash command and
+The Command replies tab lets you rewrite the exact text Olisar sends, for each slash command and
 for its fixed conversational fallbacks. Leave a field blank to use the built-in default, and use the
 `{placeholders}` shown where available.
 
@@ -867,6 +859,7 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 | `/olisar learn-doc` | queued a document | `{filename}` |
 | `/forget-me` | confirms deletion | `{messages}`, `{facts}` |
 | `/forget-me` (opt-out line) | confirms it stopped recording you | — |
+| `/dm-indexing` | DM saving toggled | `{state}` |
 | `/olisar proactive` | proactivity toggled | `{state}`, `{level}` |
 | `/privacy` | the privacy explainer | — |
 | **When rate-limited** | every model is busy | — |
@@ -881,14 +874,12 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 ### API keys
 
 The API keys tab is where you give Olisar its own keys for the outside services it uses. You
-first enter these in the [setup wizard](#hosting-your-data), and you can add or change them here any time — bring your
-own, stored locally for this server. The fields use the same styling and the same examples as the wizard,
-so it's the same form you saw on first run.
+first enter these in the [setup wizard](#hosting-your-data), and you can add or change them here any time.
 
 > [!TIP]
 > **Built for handing off**
-> This is how you give Olisar to someone else: they never touch a config file or the server — they open the
-> console and paste their own keys. Each field shows whether its key is **set** or **not set**.
+> This is how you give Olisar to someone else: they never touch a config file or the server, they just open
+> the console and paste their own keys.
 
 
 #### The three providers
@@ -900,28 +891,17 @@ so it's the same form you saw on first run.
 | **UEX** | the Star Citizen extension's trade / ship / location data | Optional | [uexcorp.uk → API](https://uexcorp.uk/api) — register an app for a bearer token |
 
 Without the Cloudflare keys, image generation is simply off (Olisar says it can't make pictures). Without
-a UEX token the Star Citizen tools still work on UEX's public endpoints — a token just raises the rate
+a UEX token the Star Citizen tools still work on UEX's public endpoints. A token just raises the rate
 limits. See [Models](#models) for the full breakdown of what each key powers.
 
-#### How it resolves
-
-Each key is simply set or not — the value you enter (in the setup wizard or here) is what Olisar uses:
-- **Set** — that key is used. This is the normal case.
-- **Not set** — no key, so that feature is off. Without a Gemini key, Olisar can't reply until you add one.
-
-Press **Clear** on a saved key to remove it.
-
-> [!NOTE]
-> **Changes are live**
-> A saved key takes effect within a few seconds — no restart. Olisar rebuilds its Gemini connection on the
-> fly when the key changes.
-
+Each field shows whether its key is **set** or **not set**, and press **Clear** to remove a saved one.
+Without a Gemini key, Olisar can't reply until you add one.
 
 > [!WARNING]
 > **Handle keys with care**
-> Keys are **write-only** in the console: once saved they're never sent back to the browser (the fields stay
-> blank and only show status). They're stored in Olisar's local database in plain text — on the operator's
-> own machine — so keep that machine and its database file private. Only server admins can open this tab.
+> Once saved, a key is never sent back to the browser: the field stays blank and only shows its status.
+> Keys are stored in plain text in Olisar's local database on the operator's machine, so keep that machine
+> and its database private. Only server admins can open this tab.
 
 ## Knowledge & memory
 
@@ -931,7 +911,7 @@ The Knowledge tab holds two different things Olisar can draw on.
 
 #### Knowledge base
 
-Documents and websites you deliberately teach it, which it draws on when answering — in its own
+Documents and websites you deliberately teach it, which it draws on when answering, in its own
 voice, without tacking on a source tag (only **web search** results are cited).
 
 How it works, end to end:
@@ -958,7 +938,7 @@ How it works, end to end:
 
 #### Glossary
 
-Short, server-specific lore Olisar carries into **every** reply so it speaks your community's dialect —
+Short, server-specific lore Olisar carries into **every** reply so it speaks your community's dialect:
 abbreviations, org and person relationships, codenames, in-jokes. Unlike the knowledge base, the
 glossary isn't searched on demand; it's always in context (it's small and high-value).
 
@@ -1071,9 +1051,8 @@ Olisar handles images three ways:
 
 ### Extensions
 
-The Extensions tab is where you switch on optional, packaged features. Toggle one, press
-**Save**, and it's live on Olisar's next reply — no restart. An extension can add tools Olisar uses in
-conversation, tweak its behavior, add commands, and set things up when enabled.
+The Extensions tab is where you switch on optional, packaged features. An extension can
+add tools Olisar uses in conversation, tweak its behavior, and add slash commands.
 
 > [!TIP]
 > **Build and share your own**
@@ -1180,9 +1159,8 @@ On the Extensions tab:
 - **+ New extension** — start from a blank editor.
 - **Edit code** (on any extension's detail panel) — open an existing one, including the built-ins, to read or fork it.
 
-The editor is a full code editor with the **Olisar SDK types loaded**, so you get autocomplete and inline
-hints for everything below. Press **Validate** to compile-check and see what your extension declares, then
-**Save** — it's live on Olisar's next reply (tools) and re-syncs slash commands within seconds. No restart.
+The editor has the **Olisar SDK types loaded**, so you get autocomplete and inline hints for everything
+below. Press **Validate** to compile-check and see what your extension declares, then **Save**.
 
 #### The shape of an extension
 
@@ -1852,16 +1830,16 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 | KB answers missing right after adding a site | Ingestion + embedding runs in the background, throttled | Give it time; check `/olisar sources` for status |
 | Search can't find old messages | Only live messages are indexed going forward | Run `/olisar reindex` to backfill history |
 | `/citizen` says the extension is off | Star Citizen extension disabled | Enable it on the Extensions tab |
-| Web lookups stopped working | Daily grounding cap reached | Raise the cap on Behavior, or wait for reset |
+| Web lookups stopped working | The daily web-search cap is used up | Raise it on Behavior, or wait for the reset |
 | Olisar quoted a deleted message | Rare timing between the edit/delete and the sync | It syncs automatically — try again |
 | Dashboard won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting-your-data)) |
-| Other admins can't open the web link | Remote access is off, or the address changed | Operator re-enables it from **Settings → Remote access** (or the menu-bar icon) and re-shares the link from the sidebar ([Remote access](#remote-access)) |
+| Other admins can't open the web link | Remote access is off, or the address changed | The operator turns it back on under **Settings → Remote access** and re-shares the link from the sidebar ([Remote access](#remote-access)) |
 | Discord login bounces or says "invalid or expired state" | The redirect URL for that address isn't registered | Register the exact `…/auth/callback` the wizard shows (both the local and `…ts.net` ones) |
 | A setting didn't take effect | The change is still buffered in the save bar | Press **Save** in the bar at the bottom of the page |
 
 > [!TIP]
 > **Still stuck?**
-> Check the Usage tab to see whether you're hammering the quota, and the bot's logs (which name the
-> specific knowledge-base chunks, indexed messages, web sources, and tools each reply used) to see what it
-> actually did.
+> Check the Usage tab to see whether you're hammering the quota, then the bot's logs under
+> **Settings → Logs** — they name the knowledge-base chunks, indexed messages, web sources, and tools
+> behind each reply.
 
