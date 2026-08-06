@@ -16,6 +16,7 @@ from api.schemas import TunnelEnableIn
 from api.trust import is_local_request
 from olisar import runtime_config
 from olisar.config import settings
+from olisar.runtime import state
 from olisar.runtime.paths import tailscale_state_dir
 
 log = logging.getLogger("olisar.api.tunnel")
@@ -77,6 +78,8 @@ async def enable(body: TunnelEnableIn, request: Request) -> dict:
         tunnel_node=node,
         tunnel_hostname=_host_from_url(public_url),
     )
+    # Republish state.json — boot may have written it before the tunnel existed.
+    state.write(public_url=public_url)
     return {
         "ok": True,
         "public_url": public_url,
@@ -90,4 +93,5 @@ async def disable(request: Request) -> dict:
     if mgr is not None:
         await mgr.stop()
     await runtime_config.save(tunnel_enabled=False)
+    state.write(public_url="")  # pruned back to an absent key
     return {"ok": True}

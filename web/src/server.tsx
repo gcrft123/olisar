@@ -9,24 +9,67 @@ type Status = {
   configured?: boolean
   reachable?: boolean
   running?: boolean
+  /** Docker's own healthcheck verdict: healthy | unhealthy | starting | '' (none). */
+  health?: string
+  /** From the image's OCI labels, so it resolves even while the container is stopped. */
+  version?: string
+  digest?: string
   url?: string
   host?: string
   error?: string
 }
 
+type UpdateResult = {
+  ok?: boolean
+  status?: string
+  message?: string
+  tag?: string
+  updated?: boolean
+  rolled_back?: boolean
+  error?: string
+  at?: string
+}
+
+/** Numeric version compare, matching the backend's (leading "v" and any suffix ignored). */
+function isNewer(remote: string, local: string): boolean {
+  const parts = (v: string) => (String(v || '').match(/\d+/g) || ['0']).map(Number)
+  const a = parts(remote)
+  const b = parts(local)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0
+    const y = b[i] || 0
+    if (x !== y) return x > y
+  }
+  return false
+}
+
+/** One line describing an update attempt — ours, or one the VM's timer ran unattended. */
+function noteFor(r: UpdateResult | null | undefined): string {
+  if (!r || !r.at) return ''
+  const tag = r.tag || 'the latest release'
+  if (r.rolled_back) return `${tag} failed its healthcheck and was rolled back — the server is on the previous version.`
+  if (r.updated) return `Server updated to ${tag}.`
+  if (r.ok === false) return `Last update attempt failed — ${r.message || r.error || 'unknown error'}.`
+  return ''
+}
+
 /** Shown (loopback-gated, no Discord login) when the app is in server-hosting mode:
  *  the bot runs on the operator's cloud VM, and this is the local control panel that
  *  starts/stops it over SSH (`docker compose up -d` / `stop`) and links to its console.
- *  On open it pulls the latest GHCR image so the VM stays current without a manual
- *  `compose pull`. A reconnect flow re-adopts the VM after a reinstall / reset / IP change. */
+ *  A reconnect flow re-adopts the VM after a reinstall / reset / IP change.
+ *
+ *  Opening the panel only *reads* status. It used to fire an image pull from a mount
+ *  effect, which locked every button — including "Open console" — for minutes, and meant
+ *  a server whose operator rarely opened the app never updated at all. The VM now runs its
+ *  own daily update timer; "Update now" here is the same script, on demand. */
 export function ServerControlPanel() {
   const [st, setSt] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // Startup image pull (once per panel mount). Non-fatal if the VM is down — status still runs.
-  const [updating, setUpdating] = useState(true)
+  const [updating, setUpdating] = useState(false)
   const [updateNote, setUpdateNote] = useState('')
+  const [available, setAvailable] = useState('')  // newer release tag, if any
 
   // Reconnect sub-flow
   const [reconnect, setReconnect] = useState(false)
@@ -57,27 +100,16 @@ export function ServerControlPanel() {
     // Holder so the unmount cleanup always sees the latest interval id.
     const life = { cancelled: false, poll: undefined as ReturnType<typeof setInterval> | undefined }
     ;(async () => {
-      setUpdating(true)
-      setUpdateNote('')
+      await refresh()
+      if (life.cancelled) return
+      // Surface what the VM's update timer did while the app was closed — otherwise an
+      // unattended update (or a rollback) would leave no trace the operator ever sees.
       try {
-        const r = await api.serverUpdate()
-        if (life.cancelled) return
-        if (r?.ok) {
-          if (r.updated) setUpdateNote('Server image updated to the latest release.')
-        } else if (r?.error) {
-          // Soft fail: still show status so a down VM doesn't block the panel forever.
-          setUpdateNote(`Couldn’t update the server image — ${r.error}`)
-        }
-      } catch (e: any) {
-        if (!life.cancelled) setUpdateNote(`Couldn’t update the server image — ${e?.message || 'request failed'}`)
-      } finally {
-        if (life.cancelled) return
-        setUpdating(false)
-        await refresh()
-        if (life.cancelled) return
-        // Status polls only after the pull finishes so we don't contend for SSH.
-        life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
-      }
+        const last = await api.serverLastUpdate()
+        if (!life.cancelled) setUpdateNote(noteFor(last))
+      } catch { /* informational only */ }
+      if (life.cancelled) return
+      life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
     })()
     return () => {
       life.cancelled = true
@@ -85,16 +117,43 @@ export function ServerControlPanel() {
     }
   }, [])
 
+  // Is there a newer release than what the VM is actually running? Compared against the
+  // server's version (from its image labels), not this app's — they update separately.
+  useEffect(() => {
+    if (!st?.version) return
+    let cancelled = false
+    api.getUpdates()
+      .then((r: any) => {
+        if (cancelled || !r?.latest) return
+        setAvailable(isNewer(r.latest, st.version || '') ? String(r.latest).replace(/^v/i, '') : '')
+      })
+      .catch(() => { /* offline: just don't offer an update */ })
+    return () => { cancelled = true }
+  }, [st?.version])
+
   async function power(action: 'up' | 'stop') {
     setErr(''); setBusy(true); setUpdateNote('')
     try {
       const r = await api.serverPower(action)
       if (!r?.ok) setErr(r?.error || 'That didn’t work.')
-      else if (action === 'up') setUpdateNote('Started with the latest server image.')
     } catch (e: any) {
       setErr(e?.message || 'Couldn’t reach the server.')
     } finally {
       setBusy(false)
+      await refresh()
+    }
+  }
+
+  async function runUpdate() {
+    setErr(''); setUpdateNote(''); setUpdating(true)
+    try {
+      const r: UpdateResult = await api.serverUpdate()
+      setUpdateNote(noteFor(r) || (r?.ok ? 'Already on the latest release.' : 'The update didn’t complete.'))
+      if (r?.ok) setAvailable('')
+    } catch (e: any) {
+      setUpdateNote(`Couldn’t update the server — ${e?.message || 'request failed'}`)
+    } finally {
+      setUpdating(false)
       await refresh()
     }
   }
@@ -117,21 +176,29 @@ export function ServerControlPanel() {
     }
   }
 
-  const loading = st === null && !updating
+  const loading = st === null
   const running = !!st?.running
   const reachable = st?.reachable !== false
+  // Docker's healthcheck is authoritative: a crashlooping container under
+  // `restart: unless-stopped` is "running", and reporting that as healthy was a lie.
+  const unhealthy = running && st?.health === 'unhealthy'
+  const starting = running && st?.health === 'starting'
   const stateLabel = updating
     ? 'Updating…'
     : loading
       ? 'Checking…'
       : !reachable
         ? 'Unreachable'
-        : running
-          ? 'Running'
-          : 'Stopped'
-  const stateTone = updating || loading
+        : !running
+          ? 'Stopped'
+          : unhealthy
+            ? 'Unhealthy'
+            : starting
+              ? 'Starting…'
+              : 'Running'
+  const stateTone = updating || loading || starting
     ? 'info'
-    : !reachable
+    : !reachable || unhealthy
       ? 'error'
       : running
         ? 'success'
@@ -188,24 +255,40 @@ export function ServerControlPanel() {
         </div>
         <p className="step-sub">
           Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here;
-          the full dashboard is served from the VM. The app pulls the latest server image when it opens
-          {updating ? '…' : '.'}
+          the full dashboard is served from the VM. It checks for a new release daily on its own.
         </p>
 
         <div className="wiz-foot">
           <button className="ghost" disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>
           <span className="grow" />
+          {available && (
+            <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
+              {updating ? 'Updating…' : `Update to v${available}`}
+            </button>
+          )}
           {running
             ? <button className="caution" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
             : <button disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
           <button className="primary" disabled={!st?.url || updating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
         </div>
 
+        {st?.version && (
+          <p className="srv-hint">
+            Server version <b>v{st.version}</b>
+            {available ? <> — <b>v{available}</b> is available.</> : <> — up to date.</>}
+          </p>
+        )}
         {updating && (
-          <p className="srv-hint">Checking for a newer server image and applying it if needed. This can take a few minutes…</p>
+          <p className="srv-hint">
+            Applying the update on the VM and waiting for it to pass its healthcheck. If it doesn’t come up,
+            the previous version is restored automatically. This can take a few minutes…
+          </p>
         )}
         {!updating && updateNote && (
           <p className="srv-hint">{updateNote}</p>
+        )}
+        {!loading && !updating && unhealthy && (
+          <p className="srv-hint">The container is running but failing its healthcheck — check the logs below.</p>
         )}
         {!loading && !updating && !reachable && (
           <p className="srv-hint">Couldn’t reach your server{st?.error ? ` — ${st.error}` : ' — check the VM is running.'} Retrying, or use <b>Reconnect</b>.</p>

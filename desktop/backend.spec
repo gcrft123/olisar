@@ -117,6 +117,11 @@ datas += [(os.path.join(ROOT, "web", "dist"), "web_dist")]
 # version from a frozen build too (its <_MEIPASS>/pyproject.toml fallback).
 datas += [(os.path.join(ROOT, "pyproject.toml"), ".")]
 
+# The files the app installs onto a server-mode VM (update script + systemd units). They
+# live on disk rather than in a Python string so they stay shell-lintable and are the same
+# bytes deploy/bootstrap.sh uses — olisar.runtime.remote._asset() reads them from here.
+datas += _datafiles("deploy", ["olisar-update.*"], "deploy")
+
 a = Analysis(
     [os.path.join(ROOT, "olisar", "runtime", "__main__.py")],
     pathex=[ROOT],

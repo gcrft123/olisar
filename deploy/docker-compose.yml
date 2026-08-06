@@ -4,8 +4,13 @@
 #   2. docker compose up -d
 #   3. docker compose logs -f   → copy the printed https://…ts.net URL
 #
-# By default this pulls the prebuilt multi-arch image from GHCR. To build locally
-# instead (e.g. from a clone, no GHCR access), run: docker compose up -d --build
+# This file is for building/running from a clone. A *managed* VM (deployed by the desktop
+# app or by bootstrap.sh) does not use it: olisar-update.sh generates the compose file
+# there, pinned to an immutable digest, so what's deployed is a fact on disk rather than
+# whatever :latest resolved to at the time.
+#
+# `:latest` now tracks the newest *release*, not the tip of main — use `:main` if you
+# actually want the canary.
 services:
   olisar:
     image: ghcr.io/gcrft123/olisar:latest

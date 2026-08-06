@@ -219,11 +219,14 @@ export const api = {
   serverConnect: (b: { host: string; user?: string }) =>
     req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 30000 }),
   serverPower: (action: 'up' | 'stop') =>
-    // Start pulls GHCR :latest first (can take several minutes on a cold cache).
-    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 600000 }),
-  // Pull latest VM image + recreate if running. Called once when the control panel opens.
+    // Boots the pinned digest — no pull, so this is quick now.
+    req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 120000 }),
+  // Runs the VM's update script: resolve the newest release, pin it, apply it health-gated,
+  // roll back on failure. Explicit — the panel no longer fires this just by opening.
   serverUpdate: () =>
-    req('/api/server/update', { method: 'POST', timeoutMs: 600000 }),
+    req('/api/server/update', { method: 'POST', timeoutMs: 1260000 }),
+  // What the VM's update timer last did, including while the app was closed.
+  serverLastUpdate: () => req('/api/server/last-update', { timeoutMs: 40000 }),
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
   serverStatus: () => req('/api/server/status', { timeoutMs: 75000 }),
