@@ -104,7 +104,9 @@ def _scope_sql(guilds: list[int], dm_channels: list[int], table: str = "search_m
     for i, g in enumerate(guilds):
         params[f"sg{i}"] = g
         gph.append(f":sg{i}")
-    frag = f"{table}.guild_id IN ({','.join(gph)})"
+    # No guild scope at all (a DM with no resolvable home server) means the server arm
+    # matches nothing — never everything. "0" is SQLite's false literal.
+    frag = f"{table}.guild_id IN ({','.join(gph)})" if gph else "0"
     if dm_channels:
         cph = []
         for i, c in enumerate(dm_channels):
@@ -315,17 +317,20 @@ async def search_messages(
     guild_id: int,
     query: str,
     k: int = FINAL_K,
-    extra_guild_ids: list[int] | None = None,
     dm_channel_id: int | None = None,
 ) -> str:
     """Search the server's message history. Returns a rendered candidate block (with
     Discord jump-links) for the model to read and synthesize, or ''.
 
-    ``extra_guild_ids`` widens the search to more buckets — pass ``[0]`` (the DM bucket)
-    for a server admin, so they can recall across every DM. ``dm_channel_id`` adds one
-    specific DM channel regardless of guild, for own-DM recall by a non-admin in their DM.
-    DM hits render as "DM · <author>" without a jump-link (they're private 1:1s)."""
-    guilds = [guild_id, *(extra_guild_ids or [])]
+    ``dm_channel_id`` adds one specific DM channel (the guild-0 bucket is otherwise never
+    searched), so a DM conversation can recall its own history. There is deliberately no
+    way to widen this to the whole DM bucket: a member's 1:1 messages are readable only
+    inside that same conversation, by anyone, admin or not. DM hits render as
+    "DM · <author>" without a jump-link (they're private 1:1s)."""
+    # Guild 0 *is* the DM bucket, so it must never be used as a server scope — otherwise a
+    # DM whose home guild can't be resolved (dm_home_guild_id falling back to an unset
+    # target_guild_id) would search every member's private messages.
+    guilds = [guild_id] if guild_id else []
     dm_channels = [dm_channel_id] if dm_channel_id else []
     fts_query = sanitize_fts_query(query)
     tokens = [t.strip('"') for t in fts_query.split(" OR ") if t]
