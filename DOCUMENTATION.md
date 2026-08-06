@@ -275,16 +275,13 @@ app is covered here.
 
 Download the build for your OS and open it.
 
-**macOS** (Apple Silicon) — open `Olisar-<version>-arm64.dmg` and drag **Olisar** to Applications. The
-app is unsigned and runs a bundled helper process, so the reliable way to clear Gatekeeper is to run
-this **once** in Terminal:
+**macOS** (Apple Silicon) — open `Olisar-<version>-arm64.dmg` and drag **Olisar** to Applications, then
+open it normally. The app is signed with a Developer ID certificate and notarized by Apple, so
+Gatekeeper lets it through with no extra steps.
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Olisar.app
-```
-
-(Right-click → **Open** approves the main app but can leave the bundled backend blocked, so prefer the
-command above.) Then open Olisar normally.
+(Installing a build from before signing landed? Those were unsigned, and right-click → **Open**
+approves the main app but can leave the bundled backend blocked — clear Gatekeeper for the whole
+bundle instead with `xattr -dr com.apple.quarantine /Applications/Olisar.app`.)
 
 **Windows** — run `Olisar Setup <version>.exe`. SmartScreen may warn about an unknown publisher: click
 **More info → Run anyway**.
@@ -335,9 +332,19 @@ sign in with the Discord account that has *Manage Server* on your server to reac
 
 ### Build & run from source
 
-For developers. Requires **Python 3.13** (a Homebrew Python on macOS, *not* Apple's system Python — the
-system build disables `enable_load_extension`, which `sqlite-vec` needs),
-[uv](https://docs.astral.sh/uv/), and **Node 18+**.
+For developers. Requires **Python 3.13**, [uv](https://docs.astral.sh/uv/), and **Node 18+**.
+
+On macOS the interpreter matters: `sqlite-vec` is loaded through SQLite's extension API, and both
+Apple's system Python and python.org's installer build ship with `enable_load_extension`
+**disabled**. Let uv manage it — the same interpreter CI builds with — rather than whatever
+`python3` happens to resolve to:
+
+```sh
+uv venv --python cpython-3.13.14-macos-aarch64-none    # uv downloads it if needed
+```
+
+To check any interpreter: `python3 -c "import sqlite3; print(hasattr(sqlite3.connect(':memory:'), 'enable_load_extension'))"`
+must print `True`. `desktop/backend.spec` refuses to build a bundle from one that prints `False`.
 
 Run the unified backend (bot + API + dashboard) directly, no Electron:
 
@@ -363,8 +370,9 @@ cd web && npm run build && cd ..                        # 1. dashboard
 uv run pyinstaller desktop/backend.spec --noconfirm --clean   # 2. bundle the backend
 # 3. (optional) build the Tailscale Funnel helper — see desktop/resources/README.md
 cd desktop && npm install && npm run dist               # 4. installer for the current OS
-#   npm run dist:mac   -> unsigned .dmg + .app
-#   npm run dist:win   -> NSIS .exe   (run on Windows / CI)
+#   npm run dist:mac   -> .dmg + .app  (signed if a Developer ID cert is in your keychain,
+#                                       otherwise unsigned — see ../RELEASING.md)
+#   npm run dist:win   -> NSIS .exe    (run on Windows / CI)
 ```
 
 ---

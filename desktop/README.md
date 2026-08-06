@@ -11,8 +11,11 @@ Contents:
 - `main.js` / `preload.js` — Electron main process: backend lifecycle, tray, window.
 - `updater.js` — in-app updater (checks GitHub Releases; self-installs).
 - `backend.spec` — PyInstaller spec for the unified backend, incl. the sqlite-vec binary.
-- `package.json` — `electron-builder` config: unsigned `.dmg`/`.app` (macOS) + NSIS `.exe`
-  (Windows), the GitHub publish target, and the bundled resources.
+- `package.json` — `electron-builder` config: signed + notarized `.dmg`/`.app` (macOS) +
+  unsigned NSIS `.exe` (Windows), the GitHub publish target, and the bundled resources.
+- `build/` — macOS code-signing bits: the hardened-runtime `entitlements.mac.plist`, an
+  `after-pack.js` hook that strips extended attributes before signing, and
+  `notarize-dmg.js`, which notarizes + staples + verifies the finished `.dmg`.
 - `funnel-sidecar/` — the Go Tailscale Funnel helper (`tsnet`); built into
   `resources/olisar-funnel[.exe]` — see `resources/README.md`.
 
