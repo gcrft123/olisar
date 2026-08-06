@@ -45,6 +45,22 @@ FALLBACK_RATELIMIT = DEFAULT_COMMAND_MESSAGES["rate_limit"]
 
 MAX_TOOL_ITERS = 6
 
+# Per-reply cap on the *lookup* tools. Left alone, the model re-queries these with
+# slightly reworded arguments until the iteration budget is gone and it never gets to
+# an answer — which is how a bare "test" in a DM spent six rounds re-searching the
+# question from several turns earlier, then fell through to the failure path. Action
+# tools (react, reminders, sends, remember…) stay uncapped: repeating those is the
+# user asking for several things, not the model spinning.
+LOOKUP_CALL_CAP = 3
+LOOKUP_TOOLS = frozenset(
+    {"search_messages", "recall_memory", "query_knowledge", "web_search"}
+)
+LOOKUP_CAP_NOTE = (
+    "You've already used {name} {cap} times for this reply — that's the limit. Do not "
+    "call it again; answer the user now with what you already have, and say plainly "
+    "what you couldn't find."
+)
+
 # When a reply hits the output-token ceiling (finish_reason MAX_TOKENS) it gets cut
 # off mid-sentence. We ask the model to keep going and stitch the pieces, up to this
 # many extra rounds. A rate-limit/error during a continuation just sends what we have.
@@ -154,36 +170,26 @@ def _response_text(resp) -> str:
         return ""
 
 
-PARTIAL_PREFIX = "I couldn't pull together a clean summary just now, but here's what I found:\n\n"
+def _fallback_when_synthesis_fails(blank_fallback: str, gathered: list[str]) -> str:
+    """Last resort when both synthesis and the forced final answer fail.
 
+    This used to paste every gathered tool result into the reply so nothing was "dropped
+    behind the apology". That made the failure path an exfiltration path: tool results are
+    written *for the model*, not the user, and they carry other members' verbatim messages
+    (search_messages), their names and timestamps, internal instruction headers, and tool
+    error strings like "answer from what you know" — all of which reached a user verbatim
+    in a real incident, including private DMs the requester was never meant to see.
 
-def _strip_internal_header(body: str) -> str:
-    """Drop a leading internal-instruction line (e.g. search_messages' "skim these:"
-    header) so it isn't shown to the user."""
-    if "\n" in body and body.split("\n", 1)[0].rstrip().endswith(":"):
-        return body.split("\n", 1)[1]
-    return body
-
-
-def _fallback_from_gathered(blank_fallback: str, gathered: list[str]) -> str:
-    """Last resort when synthesis fails: surface *everything* we gathered (deduped,
-    order preserved), not just the most recent result, so nothing important is
-    dropped behind the apology."""
-    seen: set[str] = set()
-    items: list[str] = []
-    for r in gathered:
-        b = r.strip()
-        if b and b not in seen:
-            seen.add(b)
-            items.append(b)
-    if not items:
-        return blank_fallback
-    # Strip each item's leading internal-instruction header (e.g. search_messages'
-    # "skim these…:" line) — it's meant for the model, never the user. Previously this
-    # only ran for a single result, so multiple gathered results (e.g. several search
-    # batches) leaked their headers into the reply.
-    body = "\n\n".join(_strip_internal_header(it) for it in items)
-    return PARTIAL_PREFIX + body
+    Nothing the tools return is safe to show raw, so nothing is. What we gathered is logged
+    for the operator instead; the user gets the ordinary blank fallback and can retry.
+    """
+    if gathered:
+        log.warning(
+            "synthesis failed after %d tool result(s); replying with the blank fallback "
+            "rather than surfacing raw tool output",
+            len(gathered),
+        )
+    return blank_fallback
 
 
 async def _complete_truncated(
@@ -257,12 +263,19 @@ async def _force_final_answer(
         text = _response_text(resp)
         if text:
             return await _complete_truncated(client, contents, nudged, model, tools, resp, text)
+    except RateLimitExceeded:
+        raise  # generate_reply says "I'm rate limited" — see the note below
     except Exception:
         log.exception("forced final answer (tools barred) failed")
     # The model kept trying to call tools — remove tools entirely so it can't, and
     # let it write the summary from the gathered results already in `contents`. Retry
     # once on an empty candidate (a transient empty response here is what otherwise
     # drops us to the out-of-character raw-results fallback).
+    #
+    # A rate limit must NOT be swallowed here. Returning "" is indistinguishable from
+    # "the model had nothing to say", so an exhausted quota used to surface as the
+    # generic blank fallback ("my mind went blank") instead of the rate_limit reply the
+    # admin configured — leaving no hint that waiting would fix it.
     for attempt in range(2):
         try:
             result = await client.generate(
@@ -275,6 +288,8 @@ async def _force_final_answer(
             if result.text:
                 return result.text
             log.warning("forced final answer (no tools) returned empty (attempt %d/2)", attempt + 1)
+        except RateLimitExceeded:
+            raise
         except Exception:
             log.exception("forced final answer (no tools) failed")
             break
@@ -293,6 +308,7 @@ async def _run_tool_loop(
     model returns a plain text answer (or the iteration budget is spent)."""
     client = get_gemini()
     gathered: list[str] = []  # every useful tool result, for the graceful fallback
+    lookups: dict[str, int] = {}  # lookup tool -> calls so far this reply
     for _ in range(MAX_TOOL_ITERS):
         resp = await client.generate_with_tools(
             contents=contents,
@@ -313,6 +329,25 @@ async def _run_tool_loop(
         contents.append(resp.candidates[0].content)  # the model's tool-call turn
         responses = []
         for call in calls:
+            if call.name in LOOKUP_TOOLS:
+                lookups[call.name] = lookups.get(call.name, 0) + 1
+                if lookups[call.name] > LOOKUP_CALL_CAP:
+                    log.info(
+                        "%s called %d times this reply — capped at %d, telling the model "
+                        "to answer with what it has",
+                        call.name, lookups[call.name], LOOKUP_CALL_CAP,
+                    )
+                    responses.append(
+                        types.Part.from_function_response(
+                            name=call.name,
+                            response={
+                                "result": LOOKUP_CAP_NOTE.format(
+                                    name=call.name, cap=LOOKUP_CALL_CAP
+                                )
+                            },
+                        )
+                    )
+                    continue  # not a real result — never goes into `gathered`
             result = await execute_tool(call.name, dict(call.args or {}), ctx)
             if _useful(result):
                 gathered.append(result)
@@ -328,8 +363,8 @@ async def _run_tool_loop(
     if answer:
         return answer
 
-    # Last resort: surface everything we gathered, not just the last item.
-    return _fallback_from_gathered(blank_fallback, gathered)
+    # Last resort: apologize. Raw tool results are never shown to the user — see below.
+    return _fallback_when_synthesis_fails(blank_fallback, gathered)
 
 
 async def generate_reply(
