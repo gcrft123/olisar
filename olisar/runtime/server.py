@@ -159,10 +159,20 @@ async def stop_all_supervisors(app) -> None:
 
 async def _init_database() -> None:
     """Create/upgrade the schema and seed guild defaults — idempotent, replaces the
-    old manual ``python -m scripts.init_db`` step so a fresh install just works."""
+    old manual ``python -m scripts.init_db`` step so a fresh install just works.
+
+    ``create_schema`` migrates forward only (and drops a table whose primary key changed),
+    so snapshot the database first whenever a *different* build is about to touch it."""
     from scripts.init_db import create_schema, seed_builtins, seed_defaults
 
+    from olisar.config import settings
+    from olisar.runtime import dbbackup
+    from olisar.updates import current_version
+
+    version = current_version()
+    dbbackup.before_migration(settings.database_path, version)
     await create_schema()
+    dbbackup.record_version(settings.database_path, version)
     await seed_defaults()
     await seed_builtins()
 
@@ -263,6 +273,19 @@ async def run(host: str, port: int) -> None:
             await runtime_config.save(tunnel_enabled=True, tunnel_hostname=funnel_host)
         elif not ok:
             log.warning("Funnel auto-start skipped: %s", msg)
+
+    # Publish what only this process knows (public URL + self-check results) so an
+    # out-of-band reader doesn't have to grep our logs for it. In a server deployment
+    # that reader is the desktop control panel, over `docker exec … cat`.
+    from olisar.runtime import state
+
+    state.write(
+        public_url=await runtime_config.public_base_url(),
+        vec_ok=vec_ok,
+        sandbox_ok=sandbox_ok,
+        transpile_ok=transpile_ok,
+        signing_ok=signing_ok,
+    )
 
     # Trust X-Forwarded-* from the Tailscale Funnel sidecar (a local-only reverse proxy
     # in front of this server) so the OAuth flow sees the real public host/scheme.
