@@ -20,6 +20,16 @@ on:
       - ".github/workflows/image.yml"
   workflow_dispatch:
 
+# Merging a batch of PRs otherwise starts one multi-arch build per merge, each ~10
+# minutes of QEMU-emulated arm64, all but the last already obsolete — main has moved on
+# by the time they finish. Keep one build per ref and cancel the ones overtaken: a build
+# started later is built from a commit that already contains the earlier merges, so
+# nothing is lost by dropping them. Tags get their own group and are never cancelled,
+# since a release image has to exist for its own tag.
+concurrency:
+  group: server-image-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: read
   packages: write
