@@ -52,7 +52,7 @@ export default function App() {
       const ok = p.get('verified') === '1'
       window.history.replaceState({}, '', window.location.pathname)
       toast(ok
-        ? 'Publisher verified with Discord — your published extensions now show a verified badge.'
+        ? 'Verified with Discord. Your published extensions now show a verified badge.'
         : 'Discord verification didn’t complete.', ok ? 'success' : 'warning')
     }
   }, [])
@@ -326,7 +326,7 @@ function NoServers(props: { username?: string; onLogout: () => void }) {
         <h1>No servers yet</h1>
         <p>
           You're signed in as <b>{props.username}</b>, but Olisar isn't in any server where you have
-          Manage Server. Add the bot to a server (and make sure you have Manage Server there), then reload.
+          Manage Server. Add the bot to one, then reload.
         </p>
         <div className="login-actions">
           <button className="primary" onClick={() => window.location.reload()}>Reload</button>
@@ -348,8 +348,7 @@ function AccessDenied() {
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>
-          You signed in with Discord, but this account can't manage Olisar. The console is only for
-          members with <b>Manage Server</b> on a server Olisar is in.
+          The console is only for members with <b>Manage Server</b> on a server Olisar is in.
         </p>
         <ul className="hint-list">
           <li>Ask a server admin to give you <b>Manage Server</b>, then sign in again.</li>
@@ -372,7 +371,7 @@ function Banned(props: { message?: string; onLogout: () => void }) {
       <div className="box wide">
         <div className="mark warn"><Icon.ban size={26} weight="Bold" /></div>
         <h1>Account suspended</h1>
-        <p>{props.message || 'This account has been banned from Olisar. If you believe this is a mistake, contact the Olisar team.'}</p>
+        <p>{props.message || 'This account has been banned from Olisar. If you think that’s a mistake, contact the Olisar team.'}</p>
         <div className="login-actions">
           <button className="ghost" onClick={props.onLogout}><Icon.logout size={16} /> Log out</button>
         </div>
@@ -561,7 +560,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
     return (
       <div className="weblink off">
         <span className="weblink-label">Web access off</span>
-        <span className="weblink-hint">Turn it on under Settings → Remote access (or the menu-bar icon) to get a shareable link.</span>
+        <span className="weblink-hint">Turn it on under Settings → Remote access to get a shareable link.</span>
       </div>
     )
   }

@@ -5,7 +5,7 @@
 <h1 align="center">Olisar</h1>
 
 <p align="center">
-  A self-hosted AI Discord bot that feels like a <em>living member</em> of your server —
+  A self-hosted AI Discord bot that feels like a <em>living member</em> of your server,
   with a private admin dashboard, persistent memory, and a teachable knowledge base.
 </p>
 
@@ -21,13 +21,13 @@
 
 Olisar reads the channels you allow, remembers context, builds a sense of who people
 are, and chimes in with its own personality — by name, by @mention, by reply, in DMs,
-through `/ask`, or proactively when it can genuinely help. Everything is configured from
+through `/ask`, or unprompted when it can genuinely help. Everything is configured from
 a **React admin dashboard** (Discord-OAuth, admins only), and it runs entirely on the
-**free tier of Google Gemini** — no paid APIs.
+**free tier of Google Gemini**.
 
 You run it yourself: **one desktop app** on your own machine hosts the bot, the API, and
-the dashboard together. There's no server to rent and no cloud — all of your data stays
-local.
+the dashboard together. There's no server to rent and no cloud, and all of your data
+stays local.
 
 ## Highlights
 
@@ -43,8 +43,8 @@ local.
 - **Sees & draws** — looks at posted images, describes them for search, and generates
   images (Cloudflare Workers AI, optional).
 - **Fully customizable** — persona, behavior, per-channel modes, role-based access,
-  knowledge, extensions, and **every system/command reply** (with `{placeholder}`
-  templates) — all from the dashboard, applied live with no restart.
+  knowledge, extensions, and **every system and command reply** (with `{placeholder}`
+  templates), all from the dashboard.
 - **Extensible** — toggle packaged features (dice, calculator, concise mode) and a full
   **Star Citizen** pack (live trade/ship/location tools + `/citizen` profiles).
 - **Secure by design** — Discord-OAuth login, admins only, with **live permission
@@ -69,9 +69,7 @@ In short:
    a free [Gemini key](https://aistudio.google.com/apikey)).
 4. Sign in to the console with the Discord account that has **Manage Server**.
 
-There's also a complete **Docs** section inside the dashboard (overview, persona,
-behavior, channels, access, knowledge, memory, members, images, extensions, privacy, and
-troubleshooting).
+The same documentation is also available inside the dashboard, under **Docs**.
 
 ## Remote access
 
@@ -83,13 +81,10 @@ Tailscale account; the admins who sign in don't need Tailscale at all. See
 
 ## Updates
 
-Olisar checks this repo's latest **GitHub Release** on launch and every few hours (and on
-demand from the tray → *Check for Updates…*). When a newer version is published it can
-**install it in place** — *Install & Restart* downloads the new build, swaps the app, and
-relaunches into the new version (no manual drag-to-Applications). On platforms it can't
-self-install yet, it falls back to opening the installer download. Maintainers: see
-**[RELEASING.md](RELEASING.md)** for how to cut a release (a tag push builds, signs,
-notarizes and publishes the installers via GitHub Actions).
+The desktop app checks for a newer release on launch and every few hours, and on demand
+from the tray → *Check for Updates…*. *Install & Restart* installs it in place; on
+platforms that can't self-install yet, it opens the installer download instead.
+Maintainers: see **[RELEASING.md](RELEASING.md)** for how to cut a release.
 
 ## How it's built
 
@@ -113,8 +108,8 @@ scripts/   init_db.py and other one-offs
 
 ## Privacy
 
-Everything Olisar knows lives in a single local database on the operator's machine —
-there is no Olisar cloud. Opted-out members are never recorded or indexed; `/forget-me`
+Everything Olisar knows lives in a single local database on the operator's machine.
+There is no Olisar cloud. Opted-out members are never recorded or indexed; `/forget-me`
 removes a person entirely; `/self-destruct` wipes everything learned while keeping the
 persona and settings. The all-channel search index is an admin's explicit choice and is
 disclosed by `/privacy`. See the in-dashboard **Privacy** doc for the full picture.

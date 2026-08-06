@@ -92,7 +92,7 @@ function Logs() {
   ]
   return (
     <>
-      <Head title="Logs" sub="Recent logs. Bot and Funnel are read from your server over SSH; This app is the local control panel." />
+      <Head title="Logs" />
       <div className="log-tabs">
         {TABS.map((t) => (
           <button key={t.id} className={'ghost' + (which === t.id ? ' on' : '')} onClick={() => setWhich(t.id)}>{t.label}</button>
@@ -109,11 +109,11 @@ function Logs() {
   )
 }
 
-function Head({ title, sub }: { title: string; sub: string }) {
+function Head({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="settings-head">
       <h2>{title}</h2>
-      <p>{sub}</p>
+      {sub && <p>{sub}</p>}
     </div>
   )
 }
@@ -162,7 +162,7 @@ function Feedback() {
     setBusy(true)
     try {
       const r = await api.sendFeedback({ category, message: message.trim(), email: email.trim(), logs: logsAttached ? logs : '', attachments: files })
-      if (r && r.emailed === false) toast('Sent — but the email didn’t go through. The team will still see it.', 'warning')
+      if (r && r.emailed === false) toast('Sent, but the email didn’t go through. The team will still see it.', 'warning')
       else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
       setDone(true)
     } catch (e: any) { toast('Couldn’t send: ' + (e?.message || 'try again'), 'danger') }
@@ -176,10 +176,10 @@ function Feedback() {
   if (done) {
     return (
       <>
-        <Head title="Feedback" sub="Send feedback, report a bug, or ask a question — it's emailed straight to the Olisar team." />
+        <Head title="Feedback" sub="Goes straight to the Olisar team." />
         <div className="callout tip">
           <span className="ic"><Icon.check size={17} weight="Bold" /></span>
-          <div className="callout-body">Thanks — your {category.toLowerCase()} was sent to the Olisar team.{email.trim() ? ` They'll reply to ${email.trim()} if needed.` : ''}</div>
+          <div className="callout-body">Thanks — your {category.toLowerCase()} was sent.{email.trim() ? ` The team will reply to ${email.trim()} if needed.` : ''}</div>
         </div>
         <div className="settings-row end" style={{ marginTop: 16 }}>
           <button className="ghost" onClick={() => { setDone(false); setMessage(''); setFiles([]); setLogsAttached(false); setLogs('') }}>Send another</button>
@@ -189,10 +189,10 @@ function Feedback() {
   }
   return (
     <>
-      <Head title="Feedback" sub="Send feedback, report a bug, or ask a question — it's emailed straight to the Olisar team." />
+      <Head title="Feedback" sub="Goes straight to the Olisar team." />
       <Field label="Type"><Select value={category} onChange={setCategory} options={FEEDBACK_TYPES} /></Field>
       <Field label="Message"><Area value={message} onChange={setMessage} rows={6} placeholder={placeholder} /></Field>
-      <Field label="Your email" desc="Optional — so the team can reply."><Text value={email} onChange={setEmail} placeholder="you@example.com" /></Field>
+      <Field label="Your email" desc="Optional, so the team can reply."><Text value={email} onChange={setEmail} placeholder="you@example.com" /></Field>
       <div className="settings-subhead">Attachments (optional)</div>
       <div className="report-attach">
         <button className="ghost" onClick={() => fileRef.current?.click()}><Icon.add size={14} /> Add files</button>
@@ -262,7 +262,7 @@ function BotSwitcher() {
   const create = async () => {
     const name = await promptDialog({
       title: 'Create a new bot',
-      message: 'Give it a name — you’ll connect its Discord token next.',
+      message: 'You’ll connect its Discord token next.',
       confirmLabel: 'Create',
       prompt: { placeholder: 'e.g. Support bot' },
     })
@@ -281,7 +281,7 @@ function BotSwitcher() {
       title: `Delete ${p.name}?`,
       message: (
         <>
-          This permanently deletes <b>{p.name}</b> and everything it stores — its token,
+          This permanently deletes <b>{p.name}</b> and everything it stores: its token,
           settings, and memory. <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
@@ -299,9 +299,9 @@ function BotSwitcher() {
       title: `Reset ${p.name}'s configuration?`,
       message: (
         <>
-          Clears <b>{p.name}</b>’s Discord credentials, API keys, and server/hosting config and signs
-          it out — but <b>keeps</b> its persona, memory, knowledge, and settings. You’ll set it up
-          again (a server-hosted bot goes to Reconnect).{' '}
+          Clears <b>{p.name}</b>’s Discord credentials, API keys, and hosting setup, and signs it
+          out. It <b>keeps</b> its persona, memory, knowledge, and settings, and you’ll set it up
+          again.{' '}
           <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
@@ -318,7 +318,7 @@ function BotSwitcher() {
 
   return (
     <>
-      <Head title="Bots" sub="Run several bots from one app — each has its own token, settings, and memory. One local bot runs at a time; switching stops the current one and reloads the console." />
+      <Head title="Bots" sub="Each bot has its own token, settings, and memory. Only one runs on this machine at a time." />
       {profiles === null ? <div className="settings-muted">Loading…</div> : (
         <div className="bot-list">
           {profiles.map((p) => {
@@ -436,7 +436,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
           <div className="move-body">
             <div className="callout tip">
               <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-              <div className="callout-body">Reconfiguring an existing bot — its persona, memory, knowledge, and uploaded docs move with it, and the old copy is kept as a backup.</div>
+              <div className="callout-body">Its persona, memory, knowledge, and uploaded docs move with it. The old copy is kept as a backup.</div>
             </div>
 
             {curMode === 'server' ? (
@@ -448,7 +448,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
                   ]} />
               </Field>
             ) : (
-              <div className="settings-muted">Move this bot to a cloud server — Olisar deploys it there and uploads all of its data.</div>
+              <div className="settings-muted">Move this bot to a cloud server. Olisar sets it up there and moves its data across.</div>
             )}
 
             {target === 'server' && (
@@ -456,14 +456,14 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
                 <Field label="Destination VM public IP" desc="A cloud VM you created for this bot.">
                   <Text value={host} onChange={setHost} placeholder="e.g. 203.0.113.9" mono />
                 </Field>
-                {sameServer && <div className="err">That’s the current server — pick a different IP or move to this computer.</div>}
+                {sameServer && <div className="err">That’s the current server. Pick a different IP, or move to this computer.</div>}
                 <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
                   <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
                   <div className="desc" style={{ marginTop: 8 }}>
-                    Paste this into the VM’s <code>~/.ssh/authorized_keys</code> (or the provider’s SSH-keys box) before moving. A VM this app already set up trusts it automatically.
+                    Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, or the provider’s SSH-keys box, before moving. A VM this app already set up trusts it automatically.
                   </div>
                   <PubkeyBox state={pk} />
-                  <Field label="SSH user" desc="The VM's login user — Ubuntu images use ubuntu.">
+                  <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
                     <Text value={user} onChange={setUser} placeholder="ubuntu" mono />
                   </Field>
                 </details>
@@ -473,7 +473,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
             {moving && (
               <div className="callout note">
                 <span className="ic"><span className="spinner" /></span>
-                <div className="callout-body">Moving {profile.name} — deploying + transferring data. This can take a few minutes; keep this window open.</div>
+                <div className="callout-body">Moving {profile.name}. This can take a few minutes — keep this window open.</div>
               </div>
             )}
             {err && <div className="err">{err}</div>}
@@ -498,9 +498,9 @@ function Bot() {
       title: 'Clear memory',
       message: (
         <>
-          This erases everything Olisar has learned about this server — conversation memory, summaries, the
-          search index, remembered facts, the glossary, snapshots, usage stats, its read on each member, and
-          the knowledge base. Its persona, behaviour, channel roles, and command replies are kept.{' '}
+          This erases everything Olisar has learned about this server: conversation memory, summaries, the
+          search index, remembered facts, the glossary, usage stats, its read on each member, and the
+          knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
           <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
         </>
       ),
@@ -512,7 +512,7 @@ function Bot() {
     try {
       const r = await api.clearMemory()
       const c = (r && r.counts) || {}
-      toast(`Memory cleared — forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
+      toast(`Memory cleared. Forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
     } catch (e: any) {
       toast(e?.message || 'Couldn’t clear memory', 'danger')
     } finally {
@@ -526,7 +526,7 @@ function Bot() {
       <div className="settings-row between">
         <div>
           <div className="opt-label">Clear memory</div>
-          <div className="settings-muted">Erase everything the active bot has learned about the current server — memory, member profiles, facts, the search index, glossary, and the knowledge base. It keeps its persona and your settings. This can't be undone.</div>
+          <div className="settings-muted">Erase everything the active bot has learned about this server. It keeps its persona and your settings. This can't be undone.</div>
         </div>
         <button className="danger" onClick={clearMemory} disabled={busy}>
           {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
@@ -542,7 +542,7 @@ function Appearance() {
   const pick = (c: string) => { setAccent(c); setAccentState(c) }
   return (
     <>
-      <Head title="Appearance" sub="The accent color used across the console. Saved on this device." />
+      <Head title="Appearance" sub="Saved on this device, so everyone who signs in can pick their own." />
       <div className="swatches">
         {ACCENTS.map((a) => (
           <button
@@ -606,7 +606,7 @@ function Remote() {
   }
   return (
     <>
-      <Head title="Remote access" sub="Reach this console from anywhere over Tailscale Funnel." />
+      <Head title="Remote access" sub="Reach this console from anywhere, over Tailscale." />
       {err && <div className="settings-err">{err}</div>}
       {!data ? <div className="settings-muted">Loading…</div> : (
         <>
@@ -616,7 +616,7 @@ function Remote() {
               <div className="status-line">{st?.running ? 'Online' : st?.available ? 'Off' : 'Not available in this build'}</div>
               {isWeb
                 ? <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, '')}</a>
-                : <span className="settings-muted">{st?.running ? 'Starting…' : 'No public link — turn remote access on.'}</span>}
+                : <span className="settings-muted">{st?.running ? 'Starting…' : 'No public link yet.'}</span>}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button className="ghost" onClick={() => load(true)} title="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
@@ -625,13 +625,13 @@ function Remote() {
           </div>
           {headless ? (
             <p className="settings-foot">
-              Remote access is managed by the server — the Tailscale Funnel starts automatically from its configured key, so it’s always on and can’t be toggled from here.
+              Your server manages remote access, so it’s always on and can’t be turned off from here.
             </p>
           ) : canToggle && (
             <p className="settings-foot">
               {st?.running
-                ? 'The funnel is live. Turning it off closes the public link; you can still reach the console locally.'
-                : 'Turning it on exposes the console over Tailscale Funnel using the auth key from setup. You can also toggle it from the menu-bar tray.'}
+                ? 'Turning it off closes the public link. You can still reach the console from this machine.'
+                : 'Turning it on publishes the console using the Tailscale key from setup.'}
             </p>
           )}
 
@@ -696,7 +696,7 @@ function Updates() {
 
   return (
     <>
-      <Head title="Updates" sub="Olisar checks GitHub Releases for a newer version." />
+      <Head title="Updates" />
       <div className="update-card">
         <div>
           <div className="settings-muted">Current version</div>
@@ -723,11 +723,9 @@ function Updates() {
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
-      <p className="settings-foot">
-        {du
-          ? 'Installing downloads the new build and restarts Olisar automatically.'
-          : 'Updates are installed from the Olisar desktop app — open it and update there.'}
-      </p>
+      {!du && (
+        <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
+      )}
     </>
   )
 }
@@ -743,7 +741,7 @@ function Desktop() {
   }
   return (
     <>
-      <Head title="Desktop app" sub="Settings for the Olisar desktop application." />
+      <Head title="Desktop app" />
       <div className="settings-row between">
         <div>
           <div className="opt-label">Show in the menu bar</div>
@@ -752,7 +750,7 @@ function Desktop() {
         {on === null ? <span className="settings-muted">…</span> : <Toggle value={on} onChange={toggle} />}
       </div>
       {!isDesktop && (
-        <p className="settings-foot">You're viewing the web console — this applies to the installed desktop app, which picks it up on its next launch.</p>
+        <p className="settings-foot">This applies to the installed desktop app, which picks it up on its next launch.</p>
       )}
     </>
   )

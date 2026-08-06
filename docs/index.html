@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Olisar — a self-hosted AI that lives in your Discord</title>
-<meta name="description" content="Olisar is a self-hosted AI Discord bot that feels like a living member of your server — persistent memory, a teachable knowledge base, and a private admin console. Free Gemini tier, your data stays local." />
+<meta name="description" content="Olisar is a self-hosted AI Discord bot that feels like a living member of your server: persistent memory, a teachable knowledge base, and a private admin console. Free Gemini tier, your data stays local." />
 <link rel="icon" type="image/png" href="favicon.png" />
 <meta property="og:title" content="Olisar" />
 <meta property="og:description" content="A self-hosted AI Discord bot that feels like a member of your server. Run it yourself; all data stays local." />
@@ -142,48 +142,10 @@
   .stage { margin-top: clamp(48px, 8vh, 88px); position: relative; }
   .stage .window { animation: float 9s ease-in-out infinite; }
   @keyframes float { 50% { transform: translateY(-9px); } }
+  /* The hero shot is a pre-rendered, perspective-skewed screenshot on a transparent
+     background — it carries its own corners and shadow, so it needs no window chrome. */
+  .hero-shot { display: block; width: 100%; height: auto; animation: float 9s ease-in-out infinite; }
 
-  .dash { display: grid; grid-template-columns: 230px 1fr; font-family: 'IBM Plex Sans', var(--sans); background: #0a0a0b; min-height: 482px; }
-  .dash-side { background: #0b0b0d; border-right: 1px solid var(--line); padding: 16px 12px; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
-  .ds-brand { display: flex; align-items: center; gap: 9px; padding: 4px 8px 16px; }
-  .ds-brand img { width: 28px; height: 28px; border-radius: 8px; }
-  .ds-brand .n { font-weight: 600; font-size: 14px; }
-  .ds-brand .s { font-size: 10.5px; color: var(--ink-3); }
-  .ds-switch { display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; background: #131316; margin-bottom: 12px; }
-  .ds-switch .ic { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg,#5b9cf6,#3b6fd6); flex: none; }
-  .ds-switch .t { font-size: 12.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ds-switch .cv { margin-left: auto; color: var(--ink-3); }
-  .ds-label { font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); padding: 8px 8px 4px; }
-  .ds-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; color: var(--ink-2); }
-  .ds-item .gl { width: 16px; height: 16px; border-radius: 4px; border: 1.6px solid currentColor; opacity: .55; flex: none; }
-  .ds-item.on { background: rgba(91,156,246,0.13); color: #fff; }
-  .ds-item.on .gl { opacity: 1; border-color: var(--violet); background: rgba(91,156,246,0.25); }
-  .ds-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
-  .ds-power { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: #131316; border: 1px solid var(--line); border-radius: 9px; }
-  .ds-power .pbtn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(67,207,142,0.5); display: grid; place-items: center; color: var(--ok); box-shadow: 0 0 0 3px rgba(67,207,142,0.12); flex: none; }
-  .ds-power .ps { font-size: 11.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-  .ds-power .ps .d { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-  .ds-power .ph { font-size: 10px; color: var(--ink-3); }
-  .ds-who { font-size: 11px; color: var(--ink-2); padding: 0 4px; }
-  .ds-who b { color: var(--ink); }
-
-  .dash-main { padding: 32px; overflow: hidden; }
-  .dm-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .dm-head .hi { width: 34px; height: 34px; border-radius: 9px; background: rgba(91,156,246,0.14); color: var(--violet); display: grid; place-items: center; }
-  .dm-head h2 { font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
-  .dm-sub { color: var(--ink-2); font-size: 13px; margin: 0 0 24px 48px; max-width: 460px; }
-  .card { background: #111113; border: 1px solid var(--line); border-radius: 13px; padding: 20px; margin-bottom: 16px; }
-  .card h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
-  .card .hint { color: var(--ink-2); font-size: 12px; margin-bottom: 16px; line-height: 1.5; }
-  .field label { display: block; font-size: 12px; font-weight: 550; margin-bottom: 8px; }
-  .field .inp { background: #161618; border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 12px; font-size: 13px; color: var(--ink); }
-  .field .inp.area { min-height: 92px; line-height: 1.6; color: var(--ink-2); }
-  .field .inp.area b { color: var(--ink); font-weight: 500; }
-  .field { margin-bottom: 16px; }
-  .ds-ic { width: 17px; height: 17px; flex: none; }
-  .ds-item.on .ds-ic { color: var(--violet); }
-  .pwr-ic { width: 17px; height: 17px; }
-  .hi-ic { width: 18px; height: 18px; }
   .fic > svg { width: 20px; height: 20px; }
 
   .sec { padding: clamp(72px, 12vh, 128px) 0 0; }
@@ -292,7 +254,7 @@
   @media (prefers-reduced-motion: reduce) { .foot-orb { animation: none; } }
 
   @media (prefers-reduced-motion: reduce) {
-    .glow::before, .stage .window { animation: none; }
+    .glow::before, .stage .window, .hero-shot { animation: none; }
     .reveal { transition: none; opacity: 1; transform: none; }
     html { scroll-behavior: auto; }
   }
@@ -326,13 +288,6 @@
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
-  <symbol id="ic-persona" viewBox="0 0 24 24"><circle cx="12" cy="9" r="3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/><path d="M17.9691 20C17.81 17.1085 16.9247 15 11.9999 15C7.07521 15 6.18991 17.1085 6.03076 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-  <symbol id="ic-behavior" viewBox="0 0 24 24"><path d="M9.5 14C11.1569 14 12.5 15.3431 12.5 17C12.5 18.6568 11.1569 20 9.5 20C7.84315 20 6.5 18.6568 6.5 17C6.5 15.3431 7.84315 14 9.5 14Z" stroke="currentColor" stroke-width="1.5"/><path d="M14.5 3.99998C12.8431 3.99998 11.5 5.34312 11.5 6.99998C11.5 8.65683 12.8431 9.99998 14.5 9.99998C16.1569 9.99998 17.5 8.65683 17.5 6.99998C17.5 5.34312 16.1569 3.99998 14.5 3.99998Z" stroke="currentColor" stroke-width="1.5"/><path d="M15 16.9585L22 16.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M9 6.9585L2 6.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M2 16.9585L4 16.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M22 6.9585L20 6.9585" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-  <symbol id="ic-channels" viewBox="0 0 24 24"><path d="M10 3L5 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 3L14 21" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 9H4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M20 16H2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="ic-access" viewBox="0 0 24 24"><path d="M3 10.4167C3 7.21907 3 5.62028 3.37752 5.08241C3.75503 4.54454 5.25832 4.02996 8.26491 3.00079L8.83772 2.80472C10.405 2.26824 11.1886 2 12 2C12.8114 2 13.595 2.26824 15.1623 2.80472L15.7351 3.00079C18.7417 4.02996 20.245 4.54454 20.6225 5.08241C21 5.62028 21 7.21907 21 10.4167C21 10.8996 21 11.4234 21 11.9914C21 17.6294 16.761 20.3655 14.1014 21.5273C13.38 21.8424 13.0193 22 12 22C10.9807 22 10.62 21.8424 9.89856 21.5273C7.23896 20.3655 3 17.6294 3 11.9914C3 11.4234 3 10.8996 3 10.4167Z" stroke="currentColor" stroke-width="1.5"/><path d="M11.5 16H12.5C13.0523 16 13.5 15.5523 13.5 15V13.5987C14.3967 13.0799 15 12.1104 15 11C15 9.34315 13.6569 8 12 8C10.3431 8 9 9.34315 9 11C9 12.1104 9.6033 13.0799 10.5 13.5987V15C10.5 15.5523 10.9477 16 11.5 16Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
-  <symbol id="ic-knowledge" viewBox="0 0 24 24"><path d="M4 8C4 5.17157 4 3.75736 4.87868 2.87868C5.75736 2 7.17157 2 10 2H14C16.8284 2 18.2426 2 19.1213 2.87868C20 3.75736 20 5.17157 20 8V16C20 18.8284 20 20.2426 19.1213 21.1213C18.2426 22 16.8284 22 14 22H10C7.17157 22 5.75736 22 4.87868 21.1213C4 20.2426 4 18.8284 4 16V8Z" stroke="currentColor" stroke-width="1.5"/><path d="M19.8978 16H7.89778C6.96781 16 6.50282 16 6.12132 16.1022C5.08604 16.3796 4.2774 17.1883 4 18.2235" stroke="currentColor" stroke-width="1.5"/><path d="M8 7H16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M8 10.5H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13 16V19.5309C13 19.8065 13 19.9443 12.9051 20C12.8103 20.0557 12.6806 19.9941 12.4211 19.8708L11.1789 19.2808C11.0911 19.2391 11.0472 19.2182 11 19.2182C10.9528 19.2182 10.9089 19.2391 10.8211 19.2808L9.57889 19.8708C9.31943 19.9941 9.18971 20.0557 9.09485 20C9 19.9443 9 19.8065 9 19.5309V16.45" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-  <symbol id="ic-extensions" viewBox="0 0 24 24"><path d="M10.0128 21.9673L9.86335 22.7023H9.86335L10.0128 21.9673ZM16.0342 20.4846C15.6622 20.6668 15.5084 21.116 15.6906 21.488C15.8728 21.86 16.3221 22.0138 16.6941 21.8316L16.0342 20.4846ZM10.1622 21.2324C5.93808 20.3736 2.75 16.6065 2.75 12.0832H1.25C1.25 17.3253 4.94577 21.7025 9.86335 22.7023L10.1622 21.2324ZM2.75 12.0832C2.75 6.92275 6.89721 2.75 12 2.75V1.25C6.05709 1.25 1.25 6.10606 1.25 12.0832H2.75ZM12 2.75C17.1028 2.75 21.25 6.92275 21.25 12.0832H22.75C22.75 6.10606 17.9429 1.25 12 1.25V2.75ZM12.75 20.1498V15.1082H11.25V20.1498H12.75ZM21.25 12.0832C21.25 15.7797 19.1208 18.9726 16.0342 20.4846L16.6941 21.8316C20.2798 20.0752 22.75 16.369 22.75 12.0832H21.25ZM9.86335 22.7023C11.5214 23.0394 12.75 21.618 12.75 20.1498H11.25C11.25 20.909 10.6697 21.3355 10.1622 21.2324L9.86335 22.7023Z" fill="currentColor"/><path d="M9 11.8C9 11.3582 9.35817 11 9.8 11H14.2C14.6418 11 15 11.3582 15 11.8V12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12V11.8Z" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 11V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M10.5 11V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
-  <symbol id="ic-power" viewBox="0 0 24 24"><path d="M12 2V6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.75 2.75C12.75 2.33579 12.4142 2 12 2C11.5858 2 11.25 2.33579 11.25 2.75V6.75C11.25 7.16421 11.5858 7.5 12 7.5C12.4142 7.5 12.75 7.16421 12.75 6.75V2.75Z" fill="currentColor"/><path d="M8.7919 5.14692C9.17345 4.98571 9.35208 4.54571 9.19087 4.16416C9.02966 3.7826 8.58966 3.60398 8.2081 3.76519C4.70832 5.24386 2.25 8.70905 2.25 12.7501C2.25 18.1349 6.61522 22.5001 12 22.5001C17.3848 22.5001 21.75 18.1349 21.75 12.7501C21.75 8.70905 19.2917 5.24386 15.7919 3.76519C15.4103 3.60398 14.9703 3.7826 14.8091 4.16416C14.6479 4.54571 14.8265 4.98571 15.2081 5.14692C18.1722 6.39927 20.25 9.33293 20.25 12.7501C20.25 17.3065 16.5563 21.0001 12 21.0001C7.44365 21.0001 3.75 17.3065 3.75 12.7501C3.75 9.33293 5.82779 6.39927 8.7919 5.14692Z" fill="currentColor"/></symbol>
   <symbol id="ic-f-memory" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M5.07868 5.06891C8.87402 1.27893 15.0437 1.31923 18.8622 5.13778C22.6824 8.95797 22.7211 15.1313 18.9262 18.9262C15.1312 22.7211 8.95793 22.6824 5.13774 18.8622C2.87389 16.5984 1.93904 13.5099 2.34047 10.5812C2.39672 10.1708 2.775 9.88377 3.18537 9.94002C3.59575 9.99627 3.88282 10.3745 3.82658 10.7849C3.4866 13.2652 4.27782 15.881 6.1984 17.8016C9.44288 21.0461 14.6664 21.0646 17.8655 17.8655C21.0646 14.6664 21.046 9.44292 17.8015 6.19844C14.5587 2.95561 9.33889 2.93539 6.13935 6.12957L6.88705 6.13333C7.30126 6.13541 7.63535 6.47288 7.63327 6.88709C7.63119 7.3013 7.29372 7.63539 6.87951 7.63331L4.33396 7.62052C3.92269 7.61845 3.58981 7.28556 3.58774 6.8743L3.57495 4.32874C3.57286 3.91454 3.90696 3.57707 4.32117 3.57498C4.73538 3.5729 5.07285 3.907 5.07493 4.32121L5.07868 5.06891ZM11.9999 7.24992C12.4141 7.24992 12.7499 7.58571 12.7499 7.99992V11.6893L15.0302 13.9696C15.3231 14.2625 15.3231 14.7374 15.0302 15.0302C14.7373 15.3231 14.2624 15.3231 13.9696 15.0302L11.2499 12.3106V7.99992C11.2499 7.58571 11.5857 7.24992 11.9999 7.24992Z" fill="currentColor"/></symbol>
   <symbol id="ic-f-knowledge" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.27103 2.11151C5.46135 2.21816 5.03258 2.41324 4.72718 2.71244C4.42179 3.01165 4.22268 3.43172 4.11382 4.225C4.00176 5.04159 4 6.12387 4 7.67568V16.2442C4.38867 15.9781 4.82674 15.7756 5.29899 15.6517C5.82716 15.513 6.44305 15.5132 7.34563 15.5135L20 15.5135V7.67568C20 6.12387 19.9982 5.04159 19.8862 4.22499C19.7773 3.43172 19.5782 3.01165 19.2728 2.71244C18.9674 2.41324 18.5387 2.21816 17.729 2.11151C16.8955 2.00172 15.7908 2 14.2069 2H9.7931C8.2092 2 7.10452 2.00172 6.27103 2.11151ZM6.75862 6.59459C6.75862 6.1468 7.12914 5.78378 7.58621 5.78378H16.4138C16.8709 5.78378 17.2414 6.1468 17.2414 6.59459C17.2414 7.04239 16.8709 7.40541 16.4138 7.40541H7.58621C7.12914 7.40541 6.75862 7.04239 6.75862 6.59459ZM7.58621 9.56757C7.12914 9.56757 6.75862 9.93058 6.75862 10.3784C6.75862 10.8262 7.12914 11.1892 7.58621 11.1892H13.1034C13.5605 11.1892 13.931 10.8262 13.931 10.3784C13.931 9.93058 13.5605 9.56757 13.1034 9.56757H7.58621Z" fill="currentColor"/><path d="M8.68965 17.1351H7.47341C6.39395 17.1351 6.01657 17.1421 5.72738 17.218C4.93365 17.4264 4.30088 18.0044 4.02952 18.7558C4.0463 19.1382 4.07259 19.4746 4.11382 19.775C4.22268 20.5683 4.42179 20.9884 4.72718 21.2876C5.03258 21.5868 5.46135 21.7818 6.27103 21.8885C7.10452 21.9983 8.2092 22 9.7931 22H14.2069C15.7908 22 16.8955 21.9983 17.729 21.8885C18.5387 21.7818 18.9674 21.5868 19.2728 21.2876C19.5782 20.9884 19.7773 20.5683 19.8862 19.775C19.9776 19.1088 19.9956 18.2657 19.9991 17.1351H13.1034V20.1417C13.1034 20.4397 13.1034 20.5886 12.9988 20.6488C12.8941 20.709 12.751 20.6424 12.4647 20.5092L11.0939 19.8713C10.9971 19.8262 10.9486 19.8037 10.8966 19.8037C10.8445 19.8037 10.796 19.8262 10.6992 19.8713L9.32842 20.5092C9.04213 20.6424 8.89899 20.709 8.79432 20.6488C8.68965 20.5886 8.68965 20.4397 8.68965 20.1417V17.1351Z" fill="currentColor"/></symbol>
   <symbol id="ic-f-access" viewBox="0 0 24 24"><path fill-rule="evenodd" clip-rule="evenodd" d="M3.37752 5.08241C3 5.62028 3 7.21907 3 10.4167V11.9914C3 17.6294 7.23896 20.3655 9.89856 21.5273C10.62 21.8424 10.9807 22 12 22C13.0193 22 13.38 21.8424 14.1014 21.5273C16.761 20.3655 21 17.6294 21 11.9914V10.4167C21 7.21907 21 5.62028 20.6225 5.08241C20.245 4.54454 18.7417 4.02996 15.7351 3.00079L15.1623 2.80472C13.595 2.26824 12.8114 2 12 2C11.1886 2 10.405 2.26824 8.83772 2.80472L8.26491 3.00079C5.25832 4.02996 3.75503 4.54454 3.37752 5.08241ZM13.5 15C13.5 15.5523 13.0523 16 12.5 16H11.5C10.9477 16 10.5 15.5523 10.5 15V13.5987C9.6033 13.0799 9 12.1104 9 11C9 9.34315 10.3431 8 12 8C13.6569 8 15 9.34315 15 11C15 12.1104 14.3967 13.0799 13.5 13.5987V15Z" fill="currentColor"/></symbol>
@@ -359,7 +314,7 @@
 <header class="hero wrap" id="top">
   <div class="reveal in"><span class="eyebrow">Free · Open source · Self-hosted</span></div>
   <h1 class="reveal in" style="transition-delay:.05s">The Discord bot,<br> <em>reimagined</em>.</h1>
-  <p class="sub reveal in" style="transition-delay:.12s">Olisar reads the channels you allow, remembers context, builds a sense of who people are, and chimes in with its own personality — all configured from a private console you run yourself.</p>
+  <p class="sub reveal in" style="transition-delay:.12s">Olisar reads the channels you allow, remembers context, builds a sense of who people are, and chimes in with its own personality. You run it yourself, from a private console.</p>
   <div class="cta reveal in" style="transition-delay:.18s">
     <div class="dl">
       <a class="btn btn-primary dl-main" href="https://github.com/gcrft123/olisar/releases/latest">Download Olisar</a>
@@ -377,50 +332,19 @@
 </header>
 
 <section class="stage wrap reveal" id="dashboard">
-  <div class="window">
-    <div class="titlebar"><div class="lights"><i></i><i></i><i></i></div><div class="addr">olisar · secure console</div></div>
-    <div class="dash">
-      <aside class="dash-side">
-        <div class="ds-brand"><img src="logo-dash.png" alt="" /><div><div class="n">Olisar</div><div class="s">Secure Console</div></div></div>
-        <div class="ds-switch"><div class="ic"></div><div class="t">Red Nebula Industries</div><div class="cv">⌄</div></div>
-        <div class="ds-item on"><svg class="ds-ic"><use href="#ic-persona"/></svg> Persona</div>
-        <div class="ds-item"><svg class="ds-ic"><use href="#ic-behavior"/></svg> Behavior</div>
-        <div class="ds-item"><svg class="ds-ic"><use href="#ic-channels"/></svg> Channels</div>
-        <div class="ds-item"><svg class="ds-ic"><use href="#ic-access"/></svg> Access</div>
-        <div class="ds-item"><svg class="ds-ic"><use href="#ic-knowledge"/></svg> Knowledge</div>
-        <div class="ds-item"><svg class="ds-ic"><use href="#ic-extensions"/></svg> Extensions</div>
-        <div class="ds-foot">
-          <div class="ds-power">
-            <div class="pbtn">
-              <svg class="pwr-ic"><use href="#ic-power"/></svg>
-            </div>
-            <div><div class="ps"><span class="d"></span> Bot online</div><div class="ph">hold to power down</div></div>
-          </div>
-          <div class="ds-who">Signed in as <b>gcrft123</b><br>Allowlisted admin</div>
-        </div>
-      </aside>
-      <main class="dash-main">
-        <div class="dm-head">
-          <div class="hi"><svg class="hi-ic"><use href="#ic-persona"/></svg></div>
-          <h2>Persona</h2>
-        </div>
-        <p class="dm-sub">Olisar's character — the single biggest lever on how it feels.</p>
-        <div class="card">
-          <h3>Identity</h3>
-          <div class="hint">Its name and the system prompt that defines its voice, lore, and rules.</div>
-          <div class="field"><label>Name</label><div class="inp">Olisar</div></div>
-          <div class="field"><label>System prompt</label><div class="inp area">You are <b>Olisar</b>, the dry, unflappable AI that keeps the Red Nebula Industries comms running. You've seen every jump point and every bad trade. Keep replies short, a little wry, never break character — and never spoil the Friday raid plans.</div></div>
-          <div class="field" style="margin-bottom:0"><label>Style notes</label><div class="inp">casual, lowercase-ish, no emoji — like a ship's AI that's seen it all</div></div>
-        </div>
-      </main>
-    </div>
-  </div>
+  <img
+    class="hero-shot"
+    src="mockup.png"
+    width="2300"
+    height="1200"
+    alt="The Olisar console, open on the Persona page: a sidebar of settings tabs, the bot's name and system prompt, and its style notes."
+  />
 </section>
 
 <section class="sec wrap" id="chat">
   <div class="center">
     <h2 class="reveal" style="transition-delay:.05s">It lives in the conversation.</h2>
-    <p class="lead reveal" style="transition-delay:.1s">No slash-command gymnastics. Mention it, reply to it, or just say its name — it searches, remembers, looks things up, and makes pictures, in its own voice.</p>
+    <p class="lead reveal" style="transition-delay:.1s">Mention it, reply to it, or just say its name. It searches, remembers, looks things up, and makes pictures, all in its own voice.</p>
   </div>
   <div class="stage reveal" style="margin-top:48px">
     <div class="window" style="max-width:680px;margin:0 auto;animation:none">
@@ -465,33 +389,33 @@
 <section class="sec wrap" id="features">
   <h2 class="reveal" style="transition-delay:.05s">A whole personality, under your control.</h2>
   <div class="feat-grid">
-    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-memory"/></svg></div><h3>Persistent memory</h3><p>Rolling summaries, semantic recall, durable facts, and a server-wide search index — ask &quot;where was that posted?&quot; and get a jump-link.</p></div>
-    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-knowledge"/></svg></div><h3>Teachable knowledge</h3><p>Feed it web pages, whole sites, or documents. It chunks, embeds, and answers from them in its own voice — plus a glossary for your dialect.</p></div>
-    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-persona"/></svg></div><h3>Persona &amp; impressions</h3><p>Shape exactly who Olisar is — name, voice, and rules — then it builds a private impression of each member from how they talk and tailors how it replies to them.</p></div>
-    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-access"/></svg></div><h3>Access &amp; remote control</h3><p>Gate it by Discord role and let co-admins sign in from anywhere over Tailscale Funnel — a free <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link, no domain or port-forwarding.</p></div>
-    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-extensions"/></svg></div><h3>Extensions</h3><p>Toggle packaged features including a full Star Citizen pack with live trade, ship and location tools. Plus, a marketplace of community-built extensions and an SDK to create your own.</p></div>
-    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-more"/></svg></div><h3>And a lot more</h3><p>Proactive chiming &amp; emoji reactions, reminders &amp; catch-ups, on-join welcomes, image generation, and status &amp; voice awareness.</p><a class="flink" href="docs.html">See all features <span class="arr" aria-hidden="true">→</span></a></div>
+    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-memory"/></svg></div><h3>Persistent memory</h3><p>Rolling summaries, semantic recall, durable facts, and a server-wide search index. Ask &quot;where was that posted?&quot; and get a link straight to it.</p></div>
+    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-knowledge"/></svg></div><h3>Teachable knowledge</h3><p>Feed it web pages, whole sites, or documents, and it answers from them in its own voice. A glossary carries your community's dialect into every reply.</p></div>
+    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-persona"/></svg></div><h3>Persona &amp; impressions</h3><p>Shape exactly who Olisar is. It then builds a private impression of each member from how they talk, and tailors how it replies to them.</p></div>
+    <div class="fcard reveal"><div class="fic"><svg><use href="#ic-f-access"/></svg></div><h3>Access &amp; remote control</h3><p>Gate it by Discord role, and let co-admins sign in from anywhere on a free <code style="font-family:var(--mono);font-size:12px;color:var(--violet-bright)">…ts.net</code> link. No domain, no port-forwarding.</p></div>
+    <div class="fcard reveal" style="transition-delay:.05s"><div class="fic"><svg><use href="#ic-f-extensions"/></svg></div><h3>Extensions</h3><p>Toggle packaged features, including a full Star Citizen pack with live trade, ship and location tools. There's a marketplace of community-built ones, and an SDK to write your own.</p></div>
+    <div class="fcard reveal" style="transition-delay:.1s"><div class="fic"><svg><use href="#ic-f-more"/></svg></div><h3>And a lot more</h3><p>Proactive chiming and emoji reactions, reminders and catch-ups, on-join welcomes, image generation, and status and voice awareness.</p><a class="flink" href="docs.html">See all features <span class="arr" aria-hidden="true">→</span></a></div>
   </div>
 </section>
 
 <section class="wrap"><div class="band reveal">
   <div class="badge"><img src="logo-dash.png" alt="" /></div>
   <h2>Your bot. Your keys.<br>Your machine.</h2>
-  <p>There is no Olisar cloud. You run one app on a machine you own; it brings its own Discord bot and your own free API keys, and everything it knows lives in a single local database. Admins sign in with Discord — only those who should can reach the console.</p>
+  <p>There is no Olisar cloud. You run one app on a machine you own, with your own Discord bot and your own free API keys, and everything it knows lives in a single local database. Admins sign in with Discord, and only those who should can reach the console.</p>
   <div class="pills">
     <span class="pill"><b>Discord-OAuth</b> login, admins only</span>
     <span class="pill"><b>Live</b> permission re-checks</span>
     <span class="pill">all data <b>stays local</b></span>
     <span class="pill"><b>/forget-me</b> for every member</span>
-    <span class="pill">free <b>Gemini</b> tier — no paid APIs</span>
+    <span class="pill">free <b>Gemini</b> tier, no paid APIs</span>
   </div>
 </div></section>
 
 <section class="sec wrap">
   <h2 class="reveal" style="transition-delay:.05s">No server. No terminal.</h2>
   <div class="steps">
-    <div class="step reveal"><h3>Install the app</h3><p>Download the <code>.dmg</code> or <code>.exe</code> and open it. It bundles the bot, the API, and the dashboard.</p></div>
-    <div class="step reveal" style="transition-delay:.06s"><h3>Run the wizard</h3><p>Paste your Discord bot token and a free <code>Gemini</code> key. It validates them and shows the redirect to register.</p></div>
+    <div class="step reveal"><h3>Install the app</h3><p>Download the <code>.dmg</code> or <code>.exe</code> and open it.</p></div>
+    <div class="step reveal" style="transition-delay:.06s"><h3>Run the wizard</h3><p>Paste your Discord bot token and a free <code>Gemini</code> key. It checks them and shows you the redirect to register.</p></div>
     <div class="step reveal" style="transition-delay:.12s"><h3>Sign in &amp; tune</h3><p>Open the console with the account that has Manage&nbsp;Server, shape its persona, and let it loose.</p></div>
   </div>
 </section>
@@ -538,11 +462,10 @@
   <div class="dlg">
     <button class="dlg-x" id="dlNextClose" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <h3 id="dlNextTitle">You're almost there.</h3>
-    <p class="lede">Olisar is downloading. Once it lands, three quick steps and your bot is live — no server, no terminal.</p>
+    <p class="lede">Olisar is downloading. Two quick steps once it arrives and your bot is live.</p>
     <ol class="dlg-steps">
       <li><div><b>Open the installer</b><p id="dlStepOpen">Open the file you just downloaded and move Olisar to your Applications.</p></div></li>
-      <li><div><b>Let it run</b><p id="dlStepRun">Open Olisar — on Windows your OS may warn the first time.</p></div></li>
-      <li><div><b>Finish the setup wizard</b><p>Olisar opens to a short wizard — paste your Discord bot token and a free Gemini key, and it goes live.</p></div></li>
+      <li><div><b>Finish the setup wizard</b><p>Paste your Discord bot token and a free Gemini key, and it goes live.</p></div></li>
     </ol>
     <div class="dlg-actions">
       <a class="btn btn-primary" href="docs.html#install">Open the Setup guide &rarr;</a>
@@ -556,7 +479,6 @@
     var back = document.getElementById('dlNext');
     if (!back) return;
     var openStep = document.getElementById('dlStepOpen');
-    var runStep = document.getElementById('dlStepRun');
     function osGuess() {
       var s = ((navigator.userAgentData && navigator.userAgentData.platform || navigator.platform || '') + ' ' + (navigator.userAgent || '')).toLowerCase();
       if (s.indexOf('win') !== -1) return 'win';
@@ -571,14 +493,11 @@
     }
     function tailor(os) {
       if (os === 'win') {
-        openStep.innerHTML = 'Run <code>Olisar Setup &lt;version&gt;.exe</code> from your downloads.';
-        runStep.innerHTML = 'SmartScreen may warn about an unknown publisher — click <b>More info &rarr; Run anyway</b>.';
+        openStep.innerHTML = 'Run <code>Olisar Setup &lt;version&gt;.exe</code> from your downloads. SmartScreen may warn about an unknown publisher: click <b>More info &rarr; Run anyway</b>.';
       } else if (os === 'mac') {
         openStep.innerHTML = 'Open the <code>.dmg</code> and drag <b>Olisar</b> into Applications.';
-        runStep.innerHTML = 'Open Olisar normally — the app is signed and notarized by Apple, so Gatekeeper lets it straight through.';
       } else {
         openStep.innerHTML = 'Open the file you just downloaded and move <b>Olisar</b> to your Applications.';
-        runStep.innerHTML = 'Open Olisar — on Windows your OS may warn the first time; allow it to run (details in the Setup guide).';
       }
     }
     var lastFocus = null;
