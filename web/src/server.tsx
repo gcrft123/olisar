@@ -47,9 +47,9 @@ function isNewer(remote: string, local: string): boolean {
 function noteFor(r: UpdateResult | null | undefined): string {
   if (!r || !r.at) return ''
   const tag = r.tag || 'the latest release'
-  if (r.rolled_back) return `${tag} failed its healthcheck and was rolled back — the server is on the previous version.`
+  if (r.rolled_back) return `${tag} failed its healthcheck and was rolled back. The server is on the previous version.`
   if (r.updated) return `Server updated to ${tag}.`
-  if (r.ok === false) return `Last update attempt failed — ${r.message || r.error || 'unknown error'}.`
+  if (r.ok === false) return `Last update attempt failed: ${r.message || r.error || 'unknown error'}.`
   return ''
 }
 
@@ -151,7 +151,7 @@ export function ServerControlPanel() {
       setUpdateNote(noteFor(r) || (r?.ok ? 'Already on the latest release.' : 'The update didn’t complete.'))
       if (r?.ok) setAvailable('')
     } catch (e: any) {
-      setUpdateNote(`Couldn’t update the server — ${e?.message || 'request failed'}`)
+      setUpdateNote(`Couldn’t update the server: ${e?.message || 'request failed'}`)
     } finally {
       setUpdating(false)
       await refresh()
@@ -212,11 +212,11 @@ export function ServerControlPanel() {
           <img className="brand-logo" src="/logo.png" alt="Olisar" />
           <h1>Reconnect to your server</h1>
           <p className="step-sub">
-            Re-adopt the VM after a reset, a reinstall, or a changed IP — enter its IP and Olisar re-verifies over SSH. No reinstall.
+            Enter the VM's IP and Olisar re-verifies it over SSH. Nothing is reinstalled.
           </p>
           <div className="callout tip" style={{ marginBottom: 16 }}>
             <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-            <div className="callout-body">Reconfiguring an existing bot — its persona, memory, knowledge, and settings are kept.</div>
+            <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
           </div>
           <Field label="VM public IP address" desc="The VM running Olisar.">
             <Text value={rcHost} onChange={setRcHost} placeholder="e.g. 203.0.113.9" mono />
@@ -227,7 +227,7 @@ export function ServerControlPanel() {
               Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, then Reconnect. A VM this app already set up trusts it automatically.
             </div>
             <PubkeyBox state={pk} />
-            <Field label="SSH user" desc="The VM's login user — Ubuntu images use ubuntu.">
+            <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
               <Text value={rcUser} onChange={setRcUser} placeholder="ubuntu" mono />
             </Field>
           </details>
@@ -254,8 +254,7 @@ export function ServerControlPanel() {
           <span className={'badge ' + stateTone}>{stateLabel}</span>
         </div>
         <p className="step-sub">
-          Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here;
-          the full dashboard is served from the VM. It checks for a new release daily on its own.
+          Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here.
         </p>
 
         <div className="wiz-foot">
@@ -275,23 +274,23 @@ export function ServerControlPanel() {
         {st?.version && (
           <p className="srv-hint">
             Server version <b>v{st.version}</b>
-            {available ? <> — <b>v{available}</b> is available.</> : <> — up to date.</>}
+            {available ? <>, and <b>v{available}</b> is available.</> : <>, up to date.</>}
           </p>
         )}
         {updating && (
           <p className="srv-hint">
-            Applying the update on the VM and waiting for it to pass its healthcheck. If it doesn’t come up,
-            the previous version is restored automatically. This can take a few minutes…
+            Updating the VM. If the new version doesn’t come up, the previous one is restored
+            automatically. This can take a few minutes…
           </p>
         )}
         {!updating && updateNote && (
           <p className="srv-hint">{updateNote}</p>
         )}
         {!loading && !updating && unhealthy && (
-          <p className="srv-hint">The container is running but failing its healthcheck — check the logs below.</p>
+          <p className="srv-hint">Olisar is running but failing its healthcheck. Check the logs under Settings.</p>
         )}
         {!loading && !updating && !reachable && (
-          <p className="srv-hint">Couldn’t reach your server{st?.error ? ` — ${st.error}` : ' — check the VM is running.'} Retrying, or use <b>Reconnect</b>.</p>
+          <p className="srv-hint">Couldn’t reach your server{st?.error ? `: ${st.error}.` : '. Check that the VM is running.'} Still retrying, or use <b>Reconnect</b>.</p>
         )}
         {err && <div className="err">{err}</div>}
       </div>
