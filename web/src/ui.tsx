@@ -129,7 +129,7 @@ export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: str
         {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
       </button>
       {s.saved && (
-        <span className="saved"><Icon.check size={15} weight="Bold" /> Saved — live now</span>
+        <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
       )}
       {s.error && <span className="err">{s.error}</span>}
     </div>
@@ -175,8 +175,8 @@ export function SaveDock(props: {
       <div className="savedock-inner">
         <span className="savedock-msg">
           {s.error ? <span className="err">{s.error}</span>
-            : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved — live now</span>
-            : <>Careful — you have unsaved changes.</>}
+            : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
+            : <>You have unsaved changes.</>}
         </span>
         <div className="savedock-actions">
           {props.onReset && (
