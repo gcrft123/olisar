@@ -74,7 +74,7 @@ export default function ExtensionEditor(props: {
         setName(p.name || '')
         setManifest(p.manifest)
         setStatus(p.kind === 'builtin'
-          ? { kind: 'info', msg: 'Built-in extension — your edits persist and stop it auto-updating.' }
+          ? { kind: 'info', msg: 'Built-in extension. Editing it stops it updating with new releases.' }
           : null)
       } catch (e: any) { if (alive) setStatus({ kind: 'err', msg: e.message }) }
     })()
@@ -98,7 +98,7 @@ export default function ExtensionEditor(props: {
     if (key) await api.updateAuthoring(key, body)
     else { const r = await api.createAuthoring(body); setKey(r.key) }
     props.onChanged()
-    setStatus({ kind: 'ok', msg: 'Saved — live now.' })
+    setStatus({ kind: 'ok', msg: 'Saved.' })
   })
 
   const del = async () => {
@@ -125,13 +125,13 @@ export default function ExtensionEditor(props: {
           <h1>{title}</h1>
         </div>
         <p>
-          Write your extension in TypeScript against the Olisar SDK. It runs in a secure
-          sandbox and can add tools, knowledge, and slash commands. Autocomplete is on.
+          Write your extension in TypeScript against the Olisar SDK. It runs in a sandbox and
+          can add tools, knowledge, and slash commands.
         </p>
       </div>
 
       <Card>
-        <Field label="Display name" desc="Shown in the catalog (optional; defaults to the manifest name).">
+        <Field label="Display name" desc="Optional. Defaults to the name set in your code.">
           <Text value={name} onChange={setName} placeholder="My extension" />
         </Field>
         <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', marginTop: 8 }}>
@@ -170,7 +170,7 @@ export default function ExtensionEditor(props: {
           </button>
           <button className="ghost" onClick={validate}>Validate</button>
           {key && kind === 'user' && <button className="danger" onClick={del}>Delete</button>}
-          {saver.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved — live now</span>}
+          {saver.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>}
           {saver.error && <span className="err">{saver.error}</span>}
         </div>
       </Card>

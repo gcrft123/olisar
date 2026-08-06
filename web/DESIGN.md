@@ -15,6 +15,18 @@ A dark-only design system for **Olisar**, a self-hosted AI Discord bot configure
 - **Mechanics:** settings = a terse **label** + a one-sentence **description** with a concrete consequence. Slash commands and code in mono with a leading slash (`/ask`, `/forget-me`). Numbers are concrete ("seen 7×", "12,481 messages"). Em-dash glosses in options ("both — read & talk").
 - **No emoji** in the UI chrome, ever. No unicode-as-icon.
 
+### Writing UI copy
+
+The heading does the work. A description earns its place only when it says something the heading can't.
+
+- **Cut a description that restates its heading.** "Desktop app — settings for the Olisar desktop application" is one fact written twice; ship the heading alone. Same for card hints that just list the fields beneath them.
+- **Cut mechanism the reader can't act on.** No "checks GitHub Releases for a new version", no "applies live, no restart needed" — if a restart were needed, the UI would say so. Describe the consequence, not the implementation.
+- **Delete, don't compress.** If trimming a sentence leaves nothing a user would act on, remove the sentence. Shortening slop still ships slop.
+- **Em dashes only where a human would use one.** A genuine aside (`Admins who sign in — locally or remotely — write to that database live`) or an option gloss (`both — read & talk`). Never as a stand-in for a colon, period, or comma: `Saved — live now` is just **Saved**; `Careful — you have unsaved changes.` is **You have unsaved changes.**
+- **Status text states, it doesn't scold or hedge.** What happened, then the next step if there is one. No "Careful —", no "Please note", no apology.
+- **Plain words over house jargon** anywhere a server admin reads: "how sure it has to be" over "minimum classifier confidence", "hits its limit" over "returns a 429", "someone else's code" over "third-party code". Keep precise terminology in the SDK reference, where the reader is a developer.
+- **US spelling** throughout — behavior, customize, analyze.
+
 ---
 
 ## Design tokens
@@ -348,6 +360,44 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 - **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. A `--panel` pill, message + Reset/Save.
 - **ActionMenu** (click-to-open dropdown anchored to a trigger): a `--panel` menu (`--border-strong`, `--shadow-pop`, `--radius-sm`) that pops in with a `.14s` fade + scale from the top (`translateY(-6px) scale(.97)` → `0/1`). Items are `7px 9px` rows with a leading icon, optional right-aligned mono shortcut, hover → `--bg-inset`; a `danger` item is `--danger` (hover `--danger-soft`); thin `--border` dividers and uppercase section labels. Closes on outside-click / Escape / select.
 - **HoverCard** (expand-on-hover detail, e.g. a roles/members row): a `--panel` card (`--border-strong`, `--shadow-pop`, `--radius`) absolutely positioned above the trigger; fades + lifts in (`translateY(6px) scale(.98)` → `0/1`, `.15s`) **after a ~.18s delay**, closes immediately on leave. Make the trigger `tabindex=0` so `:focus-within` opens it too.
+
+### StepsDialog (the post-download popup)
+
+Fires on the marketing site after a download click: a Dialog whose body is a short **numbered handoff** telling someone what to do with the file they just got. Wider radius (18px) than a console dialog, and a display-serif title — the marketing site adds Instrument Serif for headings; in-console, use `--font-sans` at 600 instead.
+
+```css
+.dlg-back { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: rgba(6,6,9,.62); backdrop-filter: blur(4px);
+  opacity: 0; transition: opacity .22s ease; }
+.dlg-back.open { opacity: 1; }
+.dlg-back[hidden] { display: none; }
+
+.dlg { position: relative; width: min(520px, 100%); padding: 28px 28px 24px; border-radius: 18px;
+  background: var(--panel); border: 1px solid var(--border-strong); box-shadow: var(--shadow-modal);
+  opacity: 0; transform: translateY(14px) scale(.97);
+  transition: transform .26s var(--ease-out), opacity .26s ease; }
+.dlg-back.open .dlg { opacity: 1; transform: none; }
+.dlg h3 { font-family: "Instrument Serif", Georgia, serif;   /* site-only; --font-sans/600 in-console */
+  font-weight: 400; font-size: 30px; line-height: 1.1; margin: 2px 0 8px; }
+.dlg .lede { color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
+
+/* Numbered steps — CSS counter in an accent-tinted disc, no list markers. */
+.dlg-steps { list-style: none; margin: 20px 0 24px; padding: 0; counter-reset: dstep;
+  display: flex; flex-direction: column; gap: 14px; }
+.dlg-steps li { display: flex; gap: 13px; align-items: flex-start; }
+.dlg-steps li::before { counter-increment: dstep; content: counter(dstep);
+  flex: none; width: 24px; height: 24px; margin-top: 2px; border-radius: 50%;
+  display: grid; place-items: center; font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+.dlg-steps b { color: var(--text); font-weight: 600; }
+.dlg-steps p { color: var(--text-2); font-size: 13.5px; line-height: 1.55; margin: 2px 0 0; }
+.dlg-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+```
+
+**Behaviour.** Opens ~120ms after the click so it doesn't race the browser's own download chrome. Closes on backdrop click, the × , Escape, or the dismiss button; focus moves to the primary action on open and returns to the trigger on close. Steps are **tailored to the detected OS** by swapping each step's text.
+
+**Copy rule.** A step exists only where that platform actually needs one. Windows carries an unsigned-installer warning; macOS has nothing to say at that point, so the step is *absent* there rather than padded with "open it normally" — per **[Writing UI copy](#writing-ui-copy)**, a step with no action in it is deleted, not shortened.
 
 ### Tabs
 

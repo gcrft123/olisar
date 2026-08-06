@@ -123,7 +123,7 @@ function DevExtensions() {
   const moderate = async (r: any, status: 'warn' | 'ban') => {
     if (!r.publisher_discord_id) { toast('No publisher Discord ID on record for this extension.', 'warning'); return }
     const message = status === 'ban'
-      ? `Their extensions are de-listed and they’re blocked from Olisar (console + bot).`
+      ? `Their extensions are de-listed and they’re blocked from Olisar entirely.`
       : `They’ll see a notice next time they open the console.`
     if (!(await confirmDialog({
       title: `${status === 'ban' ? 'Ban' : 'Warn'} ${r.publisher} (Discord ${r.publisher_discord_id})?`,
@@ -206,7 +206,7 @@ function DevReports() {
   useEffect(load, [])
 
   const clearAll = async () => {
-    if (!(await confirmDialog({ title: 'Clear all reports?', message: 'Removes every standing report from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear reports' } }))) return
+    if (!(await confirmDialog({ title: 'Clear all reports?', message: 'This clears the list for every developer and can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear reports' } }))) return
     try { await api.devClearReports(); toast('Reports cleared.', 'success'); load() }
     catch (e: any) { toast('Couldn’t clear reports: ' + e.message, 'danger') }
   }
@@ -257,7 +257,7 @@ function DevBlocked() {
   useEffect(load, [])
 
   const clearAll = async () => {
-    if (!(await confirmDialog({ title: 'Clear all blocked publishes?', message: 'Removes every recorded blocked-publish from the list for all developers. This can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear blocked publishes' } }))) return
+    if (!(await confirmDialog({ title: 'Clear all blocked publishes?', message: 'This clears the list for every developer and can’t be undone.', confirmLabel: 'Clear all', tone: 'danger', requirePhrase: { phrase: 'clear blocked publishes' } }))) return
     try { await api.devClearBlocked(); toast('Blocked publishes cleared.', 'success'); load() }
     catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
   }
@@ -320,7 +320,7 @@ function DevModeration() {
         <button className="caution" onClick={() => act(id, 'warn', msg)}>Warn</button>
         <button className="danger" onClick={() => act(id, 'ban', msg)}>Ban</button>
       </div>
-      <div className="import-warn">A ban de-lists the publisher’s extensions and blocks them from Olisar (console + bot), enforced within ~a minute on every bot. A warning shows once in their console.</div>
+      <div className="import-warn">A ban de-lists the publisher’s extensions and blocks them from Olisar entirely, taking effect on every bot within about a minute. A warning shows once in their console.</div>
 
       <div className="settings-subhead" style={{ marginTop: 18 }}>Current standing</div>
       {err && <div className="settings-err">{err}</div>}
@@ -385,7 +385,7 @@ function DevPolicy() {
     <div className="card">
       <div className="settings-subhead">Publish risk threshold</div>
       <div className="settings-muted" style={{ marginBottom: 12 }}>
-        Publishing an extension is blocked when its AI risk score is at or above this value (0–100, higher = riskier). The same review is shown to anyone installing it.
+        Publishing is blocked when an extension's risk score reaches this value. The same review is shown to anyone installing it.
       </div>
       {err && <div className="settings-err">{err}</div>}
       <div className="dev-policy-row">

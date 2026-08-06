@@ -27,7 +27,7 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" sub="Olisar's Persona dictates who it is and how it behaves in your server. Try changes live in the Test chat — open it from the button in the corner." />
+      <PageHead icon="persona" title="Persona" sub="Who Olisar is and how it behaves in your server." />
       <Card title="Identity">
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
         <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
@@ -42,7 +42,7 @@ export function Persona() {
           title="About Me"
           hint={
             <>
-              Olisar's public Discord bio (bot-wide, not per-server). To keep Olisar free for everyone, an attribution is added automatically below your text (and stays even if you leave this blank). Your own text: {(data.desired_bio || '').length}/300.
+              Olisar's public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.
             </>
           }
         >
@@ -85,7 +85,7 @@ function SandboxChat() {
       const res = await api.sandboxChat(next.map((m) => ({ role: m.role, content: m.content })))
       setMessages([...next, { role: 'assistant', content: res?.reply || '…' }])
     } catch (e: any) {
-      setErr(e?.message || 'Something went wrong — try again.')
+      setErr(e?.message || 'Something went wrong. Try again.')
     } finally {
       setBusy(false)
     }
@@ -96,8 +96,7 @@ function SandboxChat() {
       <div className="sandbox-log" ref={logRef}>
         {messages.length === 0 && !busy && (
           <div className="sandbox-empty">
-            Try out Olisar's persona without affecting server context.
-            Nothing here is saved.
+            Try out Olisar's persona. Nothing here is saved.
           </div>
         )}
         {messages.map((m, i) => (
@@ -154,7 +153,7 @@ function TestChatDrawer() {
         <div className="chatdrawer-head">
           <div className="chatdrawer-titles">
             <div className="chatdrawer-title">Test chat</div>
-            <div className="chatdrawer-sub">An enclosed sandbox with the full persona, knowledge base, and tools, but no memory.</div>
+            <div className="chatdrawer-sub">Uses the saved persona, knowledge base, and tools, but keeps no memory.</div>
           </div>
           <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
         </div>
@@ -199,7 +198,7 @@ export function Behavior() {
 
   return (
     <>
-      <PageHead icon="behavior" title="Behavior" sub="Control how and when Olisar participates in your server. Fallback message customization lives in Command replies." />
+      <PageHead icon="behavior" title="Behavior" sub="How and when Olisar joins in." />
       <div className="cols2">
         <div className="col">
       <Card title="Engagement" hint="When and where Olisar joins the conversation.">
@@ -232,22 +231,22 @@ export function Behavior() {
           </div>
         </Field>
       </Card>
-      <Card title="Model & tools" hint="The model Olisar runs on and the live lookups it may use while replying.">
-        <Field label="Primary model" desc="The fallback chain starts here and walks down to the next best on a rate limit.">
+      <Card title="Model & tools">
+        <Field label="Primary model" desc="If this model is busy, Olisar falls back to the next one down the chain.">
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
-        <Field label="Web search (grounding)" desc="Let Olisar look things up on the web to ground its answers.">
+        <Field label="Web search" desc="Let Olisar look things up on the web.">
           <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" />
         </Field>
-        <Field label="Grounding daily cap" desc="The most web-grounded answers Olisar will run in a day.">
+        <Field label="Web searches per day" desc="The most lookups Olisar will run in a day.">
           <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} />
         </Field>
         <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
         </Field>
       </Card>
-      <Card title="Memory & summaries" hint="How often Olisar condenses activity into long-term memory and refreshes what it knows.">
-        <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher remembers more of the immediate conversation but costs more tokens per reply.">
+      <Card title="Memory & summaries">
+        <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">
           <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} />
         </Field>
         <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens.">
@@ -272,7 +271,7 @@ export function Behavior() {
             { value: 'off', label: 'off' },
           ]} />
         </Field>
-        <Field label="Confidence threshold" desc="Minimum classifier confidence (0–1) before it replies.">
+        <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it speaks up.">
           <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
         <div className="row">
@@ -292,7 +291,7 @@ export function Behavior() {
       </Card>
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Confidence threshold" desc="Minimum confidence (0–1) before it reacts.">
+        <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
           <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} />
         </Field>
         <div className="row">
@@ -313,6 +312,7 @@ const MSG_LABELS: Record<string, string> = {
   channel_status: '/olisar status', learn_url: '/olisar learn-url',
   learn_site: '/olisar learn-site', learn_doc: '/olisar learn-doc',
   forget_me: '/forget-me', forget_me_optout: '/forget-me (opt-out line)',
+  dm_indexing: '/dm-indexing',
   proactive: '/olisar proactive', privacy: '/privacy',
   rate_limit: 'When rate-limited', blank_fallback: 'When it draws a blank',
   access_denied: 'When access is denied',
@@ -336,7 +336,7 @@ export function Messages() {
 
   return (
     <>
-      <PageHead icon="messages" title="Command replies" sub="Customize the text Olisar sends when slash commands are run or it can't respond. Leave blank to use the default. Use {placeholders} where shown." />
+      <PageHead icon="messages" title="Command replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
       <div className="grid2">
       {Object.keys(data).filter((key) => key !== 'privacy').map((key) => (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
@@ -401,7 +401,7 @@ export function Channels() {
           <div><span className="tag">feed</span> remembers just the last 3 messages without summaries; doesn't speak (e.g. #announcements, #game-news)</div>
           <div><span className="tag">off</span> ignored entirely</div>
         </div>
-        <div className="hint">Indexing is separate: it controls whether a channel's messages go into the server-wide <b>search index</b> (what <code>search_messages</code> looks through). Turn it off to exclude a channel and wipe its currently indexed messages. </div>
+        <div className="hint">Indexing is separate from the mode: it decides whether a channel's messages can be found by search. Turning it off also wipes what's already been indexed there.</div>
       </Card>
       <Card title={`Channels — ${configured} configured`}>
         {rows.length === 0 ? (
@@ -479,11 +479,11 @@ export function Access() {
     ? 'Restricted: only allowed roles (and server admins) can use Olisar.'
     : blocked.length
       ? 'Open except blocked: everyone can use Olisar except the blocked roles.'
-      : 'Open to everyone — no role restrictions are set.'
+      : 'Open to everyone. No role restrictions are set.'
 
   return (
     <>
-      <PageHead icon="access" title="Access" sub="Choose which roles have access to Olisar in chat and via slash commands like /ask. Server admins always have access and /privacy &amp; /forget-me stay open to everyone." />
+      <PageHead icon="access" title="Access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
       <Card title="How access works">
         <div className="mode-legend">
           <div><span className="tag">Allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
@@ -547,7 +547,7 @@ function SearchIndexCard() {
   const clear = async () => {
     if (!(await confirmDialog({
       title: 'Clear search index?',
-      message: 'Clear the entire message search index? New posts keep indexing live, and "Re-index all" rebuilds history.',
+      message: 'New messages will still be indexed as they arrive, and "Re-index all" rebuilds the history.',
       confirmLabel: 'Clear index',
       tone: 'danger',
       requirePhrase: { phrase: 'clear index' },
@@ -562,7 +562,7 @@ function SearchIndexCard() {
     (a: any, b: any) => (rank[a.status] - rank[b.status]) || (b.indexed - a.indexed)
   )
   return (
-    <Card title="Message search index" hint="A server-wide index of past messages so Olisar can search history. Re-indexing rebuilds it from each channel's history in the background.">
+    <Card title="Message search index" hint="Lets Olisar search back through your server's history.">
       {!data ? <div className="empty">Loading…</div> : (
         <>
           <div className="reindex-top">
@@ -630,7 +630,7 @@ export function Knowledge() {
       const where = mode === 'memory' ? 'memory' : 'the search index'
       const n = r.added || 0
       let msg = n ? `Learned ${n} new fact${n === 1 ? '' : 's'} from ${where}.` : `No new facts found in ${where}.`
-      if (mode === 'memory' && r.remaining) msg += ` ${r.remaining} message${r.remaining === 1 ? '' : 's'} left — mine again to continue.`
+      if (mode === 'memory' && r.remaining) msg += ` ${r.remaining} message${r.remaining === 1 ? '' : 's'} left. Mine again to continue.`
       toast(msg, n ? 'success' : 'neutral')
       reloadFacts()
     } catch (e: any) {
@@ -645,7 +645,7 @@ export function Knowledge() {
   const factRows = facts ?? []
   return (
     <>
-      <PageHead icon="knowledge" title="Knowledge" sub="What Olisar knows about your world. The knowledge base holds webpages and documents it can reference at any time and the glossary stores bits of server-specific info which is updated regularly by Olisar." />
+      <PageHead icon="knowledge" title="Knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in; the glossary holds short facts about your server." />
       <div className="cols2">
         <div className="col">
       <Card title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
@@ -678,7 +678,7 @@ export function Knowledge() {
           </div>
         ))}
       </Card>
-      <Card title="Glossary" hint="Durable server lore and bits of info. Olisar carries these into every reply and also mines them automatically when it summarizes a channel. Subject is the term (optional) and the fact is one short, standalone statement.">
+      <Card title="Glossary" hint="Short facts Olisar carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.">
         <div className="row">
           <Field label="Subject"><Text value={subject} onChange={setSubject} placeholder="MN" /></Field>
           <div style={{ flex: 3 }}>
@@ -851,8 +851,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         title: `Re-publish v${pub.local_version} in place?`,
         message:
           `The version number hasn't changed, so anyone who already installed it won't be offered ` +
-          `an update. Bump the version in your code to ship it as an update. Push these changes to ` +
-          `v${pub.local_version} anyway?`,
+          `an update. Bump the version in your code to ship it as one.`,
         confirmLabel: 'Push anyway',
         tone: 'warning',
       })
@@ -963,7 +962,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         )}
         {mkt?.yanked && (
           <div className="ext-prov" style={{ color: 'var(--warn)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Icon.warn size={14} weight="Bold" /> Removed from the marketplace{mkt.gone ? '' : ' by the publisher'} — it keeps working but won't get updates.
+            <Icon.warn size={14} weight="Bold" /> Removed from the marketplace{mkt.gone ? '' : ' by the publisher'}. It keeps working, but won't get updates.
           </div>
         )}
 
@@ -1076,7 +1075,7 @@ function ConsentModal(props: {
                   )}
                 </div>
               ) : (
-                <div className="settings-muted">Automated risk review unavailable — read the capabilities below carefully before installing.</div>
+                <div className="settings-muted">No automated risk review this time. Read the capabilities below carefully before installing.</div>
               )}
             </>
           )}
@@ -1101,11 +1100,11 @@ function ConsentModal(props: {
                   </label>
                 ))}
               </div>
-              <div className="import-warn">This runs third-party code in your bot. Grant only what you trust; ungranted capabilities will simply be unavailable to it.</div>
+              <div className="import-warn">This runs someone else's code in your bot. Grant only what you trust. Anything you leave unchecked won't work for it.</div>
             </>
           )}
 
-          {preview.exists && <div className="settings-err" style={{ marginTop: 14 }}>An extension named “{preview.id}” is already installed — delete it first to reinstall.</div>}
+          {preview.exists && <div className="settings-err" style={{ marginTop: 14 }}>An extension named “{preview.id}” is already installed. Delete it first to reinstall.</div>}
           {preview.is_builtin_key && <div className="settings-err" style={{ marginTop: 14 }}>“{preview.id}” is a reserved built-in name and can’t be installed.</div>}
         </div>
 
@@ -1189,7 +1188,7 @@ function ReportModal(props: {
         </div>
         {done ? (
           <>
-            <div className="import-review"><div className="settings-muted">Thanks — your report was sent to the Olisar team. They’ll review it.</div></div>
+            <div className="import-review"><div className="settings-muted">Thanks — your report was sent to the Olisar team.</div></div>
             <div className="import-foot"><button className="primary" onClick={props.onClose}>Done</button></div>
           </>
         ) : (
@@ -1198,7 +1197,7 @@ function ReportModal(props: {
               <div className="settings-subhead">What went wrong?</div>
               <Area
                 value={desc} onChange={setDesc} rows={5}
-                placeholder="Describe the behaviour you saw — what the extension did, when, and why it concerned you."
+                placeholder="What the extension did, when, and why it concerned you."
               />
               <div className="settings-subhead">Evidence (optional)</div>
               <div className="report-attach">
@@ -1305,7 +1304,7 @@ function PublishReviewModal(props: {
           <h2 className="deny-title">Security review</h2>
           <div className="deny-sub">{props.subject}</div>
           <RiskMeter score={0} band="ok" scanning />
-          <div className="deny-verdict" style={{ textAlign: 'center' }}>Analysing the source for risky behaviour…</div>
+          <div className="deny-verdict" style={{ textAlign: 'center' }}>Checking the source for risky behavior…</div>
         </div>
       </div>
     )
@@ -1342,7 +1341,7 @@ function PublishReviewModal(props: {
           <div className="callout warning">
             <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">
-              {inlineCode(r.message || 'The security review couldn’t run (your Gemi quota may be exhausted). Publishing is blocked until a review completes — try again later.')}
+              {inlineCode(r.message || 'The security review couldn’t run, so publishing is blocked. Try again later.')}
             </div>
           </div>
         ) : (
@@ -1494,7 +1493,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   const changeHandle = async () => {
     const h = (await promptDialog({
       title: 'Change publisher handle',
-      message: 'New publisher handle (a-z 0-9 _ -). Re-registering rotates your token; verification carries over.',
+      message: 'Your new namespace in the marketplace (a-z 0-9 _ -). Verification carries over.',
       prompt: { defaultValue: pubInfo?.handle || '', placeholder: 'handle' },
       confirmLabel: 'Change handle',
     }))?.trim()
@@ -1682,7 +1681,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-        <PageHead icon="extensions" title="Extensions" sub="Togglable packages of extra features." />
+        <PageHead icon="extensions" title="Extensions" sub="Optional packages of extra features." />
         {props.isOperator && (
           <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
             <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
@@ -1942,7 +1941,7 @@ export function Members() {
       <PageHead
         icon="members"
         title="Members"
-        sub="The private impression Olisar forms of each member from what they say, their roles, and facts it remembers. Anyone can wipe theirs with /forget-me."
+        sub="The private impression Olisar forms of each member. Anyone can wipe theirs with /forget-me."
       />
       <Card title={`${rows.length} known · ${learned} with an impression`}>
         <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" />
@@ -2008,9 +2007,9 @@ function KeyField(props: {
   // Same field stylization as the first-run wizard: a plain styled text input
   // (mono), with an example placeholder when nothing is set yet.
   const placeholder = s.dashboard
-    ? '•••••••• — set; leave blank to keep'
+    ? 'Set. Leave blank to keep it.'
     : s.env
-      ? 'Using the .env value — paste to override'
+      ? 'Using the value from .env. Paste to override.'
       : props.example || 'Paste your key'
   return (
     <Field label={props.label} desc={props.desc}>
@@ -2065,14 +2064,14 @@ export function ApiKeys() {
       <PageHead
         icon="keys"
         title="API keys"
-        sub="Bring your own keys. A key entered here is stored for this server and values are write-only meaning they never come back to a remote browser."
+        sub="Your own keys, stored for this server. Once saved, a key is never shown again."
       />
 
       <div className="cols2">
         <div className="col">
       <Card
         title="Google Gemini"
-        hint="Powers everything Olisar says — chat, memory, summaries, and image understanding. Required. The free tier is enough to run the bot (it just rate-limits under load)."
+        hint="Required. Powers everything Olisar says. The free tier is enough to run the bot."
       >
         <KeyField
           fieldKey="gemini_api_key"
@@ -2087,12 +2086,12 @@ export function ApiKeys() {
       </Card>
       <Card
         title="UEX (Star Citizen)"
-        hint="Optional — only used by the Star Citizen extension. The UEX tools already work on public endpoints; a token just raises the rate limits."
+        hint="Optional. Only used by the Star Citizen extension, and only to raise its rate limits."
       >
         <KeyField
           fieldKey="uex_api_key"
           label="UEX API token"
-          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a bearer token. Leave blank to use UEX's public access.</>}
+          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a token. Leave blank to use UEX's public access.</>}
           status={st('uex_api_key')}
           value={val('uex_api_key')}
           example="uex token"
@@ -2104,7 +2103,7 @@ export function ApiKeys() {
         <div className="col">
       <Card
         title="Cloudflare Workers AI"
-        hint="Optional — enables image generation (FLUX). Without it, Olisar simply says it can't make images. Needs your account ID and an API token with the Workers AI permission."
+        hint="Optional. Turns on image generation. Without it, Olisar says it can't make images."
       >
         <KeyField
           fieldKey="cloudflare_account_id"
@@ -2147,7 +2146,7 @@ const U_SOURCE_LABEL: Record<string, string> = {
 // Plain-language explanations for the more technical process labels — shown as a hover
 // tooltip on that legend row (data-tip). Add entries here to explain more of them.
 const U_SOURCE_TIP: Record<string, string> = {
-  embed: 'Turning text into numeric vectors so Olisar can search its memory and knowledge base by meaning, not just exact words.',
+  embed: 'Lets Olisar search its memory and knowledge base by meaning, not just exact words.',
 }
 const uShort = (m: string) => m.replace('gemini-', '').replace(/-latest$/, '').replace(/-0*(\d)/, '-$1')
 const uReq = (n: number) => (n >= 1000 ? n.toLocaleString() : String(n))
@@ -2337,7 +2336,7 @@ export function Usage() {
 
   return (
     <>
-      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call Olisar makes — by model, by day, and what's driving it." />
+      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call Olisar makes: by model, by day, and what's driving it." />
       <div className="u-tfrow">
         <div className="useg">{tf.map(([l, d]) => (<button key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>))}</div>
       </div>
@@ -2378,7 +2377,7 @@ export function Usage() {
           <div className="u-cardhead"><div><div className="u-ttl">Requests / min</div><div className="u-hint">live · per model against its cap</div></div>
             <div className="u-livehead" style={{ marginLeft: 'auto' }}><span className="u-livedot" /><span className="u-hint">live</span></div></div>
           <div style={{ marginTop: 14 }}>
-            {liveModels.length === 0 && <div className="u-hint">No calls in the last minute — all models idle.</div>}
+            {liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
             {liveModels.map((m) => (
               <div className={'u-meter ' + (clsFor[m.model] || 'us0')} key={m.model}><b>{uShort(m.model)}</b>
                 <div className="bar"><i className={m.rpm / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.rpm / Math.max(m.cap, 1)) * 100)}%` }} /></div>
@@ -2413,7 +2412,7 @@ export function Usage() {
         </Card>
       </div>
 
-      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its RPM cap or returns a 429, Olisar parks it for 120s and falls back to the next model in its chain.</div></div>
+      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, Olisar rests it for two minutes and falls back to the next one in its chain.</div></div>
     </>
   )
 }

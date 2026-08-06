@@ -282,11 +282,11 @@ export function SetupWizard(
           <>
             <h1>Connect to an existing server</h1>
             <p className="step-sub">
-              Point Olisar at a cloud VM that already runs it — it verifies over SSH and takes over start/stop + the dashboard, with no reinstall.
+              Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.
             </p>
             <div className="callout tip" style={{ marginBottom: 16 }}>
               <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-              <div className="callout-body">Reconfiguring an existing bot — its persona, memory, knowledge, and settings are kept.</div>
+              <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
             </div>
             <Field label="VM public IP address" desc="The VM already running Olisar.">
               <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
@@ -294,10 +294,10 @@ export function SetupWizard(
             <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
               <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
               <div className="desc" style={{ marginTop: 8 }}>
-                Paste this into the VM’s <code>~/.ssh/authorized_keys</code> (or the provider’s SSH-keys box), then Connect. A VM this app already set up trusts it automatically — you only need this for a brand-new VM.
+                Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, or the provider’s SSH-keys box, then Connect. A VM this app already set up trusts it automatically.
               </div>
               <PubkeyBox state={pk} />
-              <Field label="SSH user" desc="The VM's login user — Ubuntu images use ubuntu.">
+              <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
                 <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
               </Field>
             </details>
@@ -328,7 +328,7 @@ export function SetupWizard(
           <>
             <Field
               label="Discord bot token"
-              desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Enable the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too (and <strong>Presence Intent</strong> only if you want status/voice awareness).</>}
+              desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Turn on the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too, plus <strong>Presence Intent</strong> if you want status and voice awareness.</>}
             >
               <Text value={token} onChange={(v) => { setToken(v); setBotName(null) }} placeholder="your bot token" mono />
             </Field>
@@ -359,7 +359,7 @@ export function SetupWizard(
             </Field>
             <Field
               label="Main server ID (optional)"
-              desc={<>Right-click your server in Discord (with Developer Mode on) → Copy Server ID. Olisar still works in every server it's invited to; this just sets its home for DMs.</>}
+              desc={<>With Developer Mode on, right-click your server in Discord → Copy Server ID. This only sets Olisar's home for DMs; it still works in every server it's invited to.</>}
             >
               <Text value={guildId} onChange={setGuildId} placeholder="e.g. 1321947496179568680" mono />
             </Field>
@@ -371,7 +371,7 @@ export function SetupWizard(
             <div className="mode-grid">
               <div className={'mode-card' + (mode === 'local' ? ' sel' : '')} onClick={() => setMode('local')}>
                 <b>Local unshared hosting</b>
-                <p>Runs on this machine, reachable only from here. Simplest — nothing exposed.</p>
+                <p>Runs on this machine, reachable only from here.</p>
               </div>
               <div className={'mode-card' + (mode === 'tunnel' ? ' sel' : '')} onClick={() => setMode('tunnel')}>
                 <b>Local shared hosting</b>
@@ -379,7 +379,7 @@ export function SetupWizard(
               </div>
               <div className={'mode-card' + (mode === 'server' ? ' sel' : '')} onClick={() => setMode('server')}>
                 <b>Server shared hosting</b>
-                <p>Runs 24/7 on a free cloud server — this computer can be off. Best if you want it always online.</p>
+                <p>Runs 24/7 on a free cloud server, even with this computer off.</p>
               </div>
             </div>
 
@@ -389,22 +389,22 @@ export function SetupWizard(
                   <b>Free remote access via Tailscale — no domain needed</b>
                   <ol>
                     <li>Create a free {A('https://login.tailscale.com/start', 'Tailscale account')} (sign in with Google, GitHub, etc.).</li>
-                    <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')} — turn on <strong>Reusable</strong>. Paste it below.</li>
-                    <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for this device — Olisar shows the exact link to click, then press it again.</li>
+                    <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')}, turning on <strong>Reusable</strong>. Paste it below.</li>
+                    <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for this device. Olisar shows the exact link to click, then press Enable again.</li>
                   </ol>
                   <div style={{ marginTop: 8 }}>
-                    Olisar then serves your dashboard at a stable <code>https://…ts.net</code> address; other admins just open it and sign in with Discord — they don't need Tailscale.
+                    Your dashboard then lives at a stable <code>https://…ts.net</code> address. Other admins just open it and sign in with Discord; they don't need Tailscale themselves.
                   </div>
                 </div>
                 <Field
                   label="Tailscale auth key"
-                  desc="Joins your tailnet. Stored locally; only ever passed to the Tailscale helper."
+                  desc="Stored on this machine and only ever handed to Tailscale."
                 >
                   <Text value={tunnelAuthKey} onChange={(v) => { setTunnelAuthKey(v); setTunnelDone(false) }} placeholder="tskey-auth-…" mono />
                 </Field>
                 <Field
                   label="Device name (optional)"
-                  desc="This machine's name on your tailnet — becomes the first part of the URL."
+                  desc="Becomes the first part of your dashboard's web address."
                 >
                   <Text value={tunnelNode} onChange={(v) => { setTunnelNode(v); setTunnelDone(false) }} placeholder="olisar" mono />
                 </Field>
@@ -424,9 +424,8 @@ export function SetupWizard(
               <div className="callout note" style={{ marginBottom: 4 }}>
                 <span className="ic"><Icon.info size={17} weight="Bold" /></span>
                 <div className="callout-body">
-                  Olisar will run on a free cloud server, always on, even with this computer off.
-                  You'll create the account and grant access once (guided on the next step); after
-                  that it's copy-paste. Continue to get your ready-to-deploy package.
+                  The next step walks you through creating a free cloud server. Olisar installs
+                  itself onto it over SSH, so you won't need a terminal.
                 </div>
               </div>
             )}
@@ -434,7 +433,7 @@ export function SetupWizard(
             {mode !== 'server' && (
               <Field
                 label="Add this redirect URL in the Developer Portal"
-                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add. {mode === 'tunnel' ? 'Add both so login works locally and remotely.' : 'This loopback URL is what Discord redirects back to.'}</>}
+                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add.{mode === 'tunnel' ? ' Add both, so login works locally and remotely.' : ''}</>}
               >
                 <div className="redirect-box">
                   <span>{redirectLocal}</span>
@@ -459,14 +458,14 @@ export function SetupWizard(
           <>
             <Field
               label="Gemini API key"
-              desc={<>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add this later in Settings, but the bot can't reply without it.</>}
+              desc={<>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
             </Field>
-            <Field label="Cloudflare account ID (optional)" desc="Enables image generation. Leave blank to skip.">
+            <Field label="Cloudflare account ID (optional)" desc="Turns on image generation. Leave blank to skip.">
               <Text value={cfAccount} onChange={setCfAccount} placeholder="cloudflare account id" mono />
             </Field>
-            <Field label="Cloudflare API token (optional)" desc="Workers AI permission (Read).">
+            <Field label="Cloudflare API token (optional)" desc="Needs the Workers AI permission (Read is enough).">
               <Text value={cfToken} onChange={setCfToken} placeholder="cloudflare api token" mono />
             </Field>
             <Field label="UEX token (optional)" desc="Only for the Star Citizen extension.">
@@ -487,9 +486,9 @@ export function SetupWizard(
                 <b>Create a free Oracle Cloud VM — Olisar installs itself onto it</b>
                 <ol>
                   <li>Create a free {A('https://www.oracle.com/cloud/free/', 'Oracle Cloud account')}. A card is needed to verify identity, but the Always Free ARM server costs nothing.</li>
-                  <li><strong>Menu → Compute → Instances → Create instance</strong>. Image <strong>Ubuntu 22.04</strong>, shape <strong>VM.Standard.A1.Flex</strong> (Ampere — Always Free). If you see <strong>"out of capacity"</strong>, switch Availability Domain / region and retry — free ARM frees up through the day.</li>
+                  <li><strong>Menu → Compute → Instances → Create instance</strong>. Image <strong>Ubuntu 22.04</strong>, shape <strong>VM.Standard.A1.Flex</strong> (Ampere — Always Free). If you see <strong>"out of capacity"</strong>, switch Availability Domain or region and retry. Free ARM frees up through the day.</li>
                   <li>Under <strong>Add SSH keys</strong>, choose <strong>Paste public keys</strong> and paste the key below. Leave networking on defaults. Create it.</li>
-                  <li>Open the instance's details, copy its <strong>Public IP address</strong> into the field below, and press <strong>Deploy to server</strong>. Olisar SSHes in and sets everything up — no terminal needed.</li>
+                  <li>Open the instance's details, copy its <strong>Public IP address</strong> into the field below, and press <strong>Deploy to server</strong>. Olisar SSHes in and sets everything up, with no terminal needed.</li>
                 </ol>
               </div>
             ) : (
@@ -505,7 +504,7 @@ export function SetupWizard(
 
             <div className="field">
               <label>SSH public key — paste this when creating the VM</label>
-              <div className="desc">The app connects with the matching private key, which never leaves this machine.</div>
+              <div className="desc">The matching private key never leaves this machine.</div>
               <PubkeyBox state={pk} />
             </div>
 
@@ -515,7 +514,7 @@ export function SetupWizard(
             <Field label="Gemini API key" desc={<>Powers everything Olisar says. Free key from {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>}>
               <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
             </Field>
-            <Field label="Tailscale auth key" desc={<>Gives your server its dashboard URL — no domain needed. Reusable key from {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
+            <Field label="Tailscale auth key" desc={<>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
               <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
             </Field>
             <Field label="Your Discord username (admin)" desc="Only you (and anyone you list) can sign in to the console. Your Discord username or numeric ID.">
@@ -525,7 +524,7 @@ export function SetupWizard(
             {deploying && (
               <div className="callout note" style={{ marginBottom: 4 }}>
                 <span className="ic"><span className="spinner" /></span>
-                <div className="callout-body">Installing Olisar on your VM — this takes a few minutes (Docker + image pull). Keep this window open.</div>
+                <div className="callout-body">Installing Olisar on your VM. This takes a few minutes — keep this window open.</div>
               </div>
             )}
             {deployLog && <Cb file="install log" code={deployLog} />}
