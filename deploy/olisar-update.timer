@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Olisar server update check
+
+[Timer]
+OnCalendar=daily
+# Spread the fleet across a 3h window so a release doesn't stampede GHCR at 00:00, and
+# catch up after the VM has been off rather than skipping the window entirely.
+RandomizedDelaySec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
