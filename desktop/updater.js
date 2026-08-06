@@ -1,11 +1,14 @@
 // GitHub Releases updater for the Olisar desktop app.
 //
-// Olisar ships UNSIGNED, so it can't use Squirrel's signed auto-install. Instead it applies
-// updates itself: on macOS it downloads the release .dmg, mounts it, and a detached script
-// swaps the new Olisar.app over the running one and relaunches (works unsigned because a
-// file the app writes itself isn't Gatekeeper-quarantined); on Windows it downloads the
-// NSIS installer and runs it (which closes the app, installs over it, and relaunches).
-// Non-packaged / unsupported builds fall back to opening the installer download.
+// Olisar doesn't use Squirrel/electron-updater — it applies updates itself: on macOS it
+// downloads the release .dmg, mounts it, and a detached script swaps the new Olisar.app over
+// the running one and relaunches; on Windows it downloads the NSIS installer and runs it
+// (which closes the app, installs over it, and relaunches). Non-packaged / unsupported builds
+// fall back to opening the installer download.
+//
+// The macOS .app inside the .dmg is signed and notarized with its ticket stapled (see
+// RELEASING.md), so the copy this lands in /Applications validates on its own — no online
+// check, no Gatekeeper prompt.
 
 const https = require('https')
 const fs = require('fs')
@@ -281,8 +284,9 @@ async function _applyWindows(update, tmpRoot) {
 }
 
 // macOS: download the .dmg, mount it, stage the new .app on the target volume, and hand a
-// detached script the swap + relaunch (works unsigned — a self-downloaded file isn't
-// Gatekeeper-quarantined).
+// detached script the swap + relaunch. Copying out of the mounted image preserves the app's
+// signature and stapled notarization ticket, so the swapped-in bundle is as valid as the one
+// a user would have dragged across by hand.
 async function _applyMac(update, tmpRoot) {
   const appPath = currentAppPath()
   if (!appPath) throw new Error('could not locate the app bundle')

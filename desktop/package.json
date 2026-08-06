@@ -11,6 +11,8 @@
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac",
     "dist:win": "electron-builder --win",
+    "notarize:dmg": "node build/notarize-dmg.js",
+    "release:mac": "npm run dist:mac && npm run notarize:dmg",
     "release": "electron-builder --publish always"
   },
   "devDependencies": {
@@ -29,11 +31,22 @@
       { "from": "../dist/olisar-backend", "to": "backend" },
       { "from": "resources", "to": ".", "filter": ["olisar-funnel", "olisar-funnel.exe"] }
     ],
+    "afterPack": "build/after-pack.js",
     "mac": {
       "target": "dmg",
       "category": "public.app-category.developer-tools",
       "icon": "assets/icon.png",
-      "identity": null
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "signIgnore": [
+        "/Contents/Resources/backend/_internal/babel/locale-data/",
+        "/Contents/Resources/backend/_internal/pytz/zoneinfo/"
+      ],
+      "notarize": { "teamId": "2R2HK79MH6" }
+    },
+    "dmg": {
+      "sign": true
     },
     "win": {
       "target": "nsis",

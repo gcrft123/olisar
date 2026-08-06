@@ -2,9 +2,12 @@
 # macOS (Apple Silicon .dmg) and Windows (NSIS .exe) in parallel. The in-app updater
 # (desktop/updater.js) then picks up the new release automatically.
 #
-# Both jobs run electron-builder --publish always (releaseType "release" in package.json),
-# so they upload their installers to the same published v<tag> release. The app is unsigned
-# (CSC_IDENTITY_AUTO_DISCOVERY=false). See RELEASING.md.
+# Windows runs electron-builder --publish always (releaseType "release" in package.json), which
+# uploads straight to the published v<tag> release. macOS builds first and uploads afterwards
+# with `gh`, because its .dmg is signed with the Developer ID certificate and notarized by Apple
+# — and stapling the notarization ticket rewrites the file, so it can't be uploaded until that's
+# done. Both land on the same release. Without the signing secrets below the macOS job still
+# produces the old unsigned build. See RELEASING.md.
 name: Release
 
 on:
@@ -63,14 +66,33 @@ jobs:
       - name: Package the backend (PyInstaller)
         run: uv run pyinstaller desktop/backend.spec --noconfirm --clean
 
-      - name: Build & publish the desktop app
+      # Signs the .app + the .dmg with the Developer ID certificate, notarizes both with
+      # Apple, staples the tickets, and verifies the result (codesign / stapler / spctl).
+      # Every secret below is optional: with none of them set electron-builder logs a
+      # warning and builds the same unsigned .dmg as before, so forks and a repo without
+      # the certificate still cut releases.
+      - name: Build, sign & notarize the desktop app
         working-directory: desktop
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned build
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }} # base64 of the Developer ID .p12
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }} # its export password
+          APPLE_ID: ${{ secrets.APPLE_ID }} # Apple ID on the developer team
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           npm install
-          npm run release
+          npm run release:mac
+
+      # macOS can't publish through electron-builder (see the note at the top), so upload the
+      # finished .dmg here. The Windows job may have created the release already — whichever
+      # job gets there first wins, and the other just adds its asset.
+      - name: Publish the .dmg to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG='${{ github.ref_name }}'
+          gh release create "$TAG" --title "$TAG" --notes '' || true
+          gh release upload "$TAG" desktop/out/*.dmg --clobber
 
   windows:
     needs: version-check

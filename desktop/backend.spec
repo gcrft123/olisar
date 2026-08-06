@@ -9,10 +9,28 @@
 
 import glob
 import os
+import sqlite3
+import sys
 
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 ROOT = os.path.dirname(os.path.abspath(SPECPATH))  # desktop/ -> repo root
+
+# The bundle inherits _sqlite3 from whichever interpreter builds it, and sqlite-vec is loaded
+# through SQLite's extension API — which needs a CPython built with
+# --enable-loadable-sqlite-extensions. Apple's system Python and python.org's macOS installer
+# both ship it *disabled*, and a bundle made from one launches, then dies on its first database
+# connection with "'sqlite3.Connection' object has no attribute 'enable_load_extension'" — an
+# app that opens to a blank window. Signing and notarization sail right past it, so catch it
+# here rather than in a shipped .dmg.
+if not hasattr(sqlite3.connect(":memory:"), "enable_load_extension"):
+    raise SystemExit(
+        "backend.spec: this Python cannot load SQLite extensions, so the bundled backend "
+        "would crash on startup.\n"
+        f"  interpreter: {sys.executable}\n"
+        "  Rebuild the venv on one that can — `uv venv --python cpython-3.13.14-macos-aarch64-none`\n"
+        "  (uv's managed CPython is what CI uses). See DOCUMENTATION.md#build--run-from-source."
+    )
 
 
 def _datafiles(rel_dir, patterns, dest):
