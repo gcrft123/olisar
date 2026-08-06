@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for the signed macOS build. Used for BOTH the app bundle
+  (`mac.entitlements`) and everything nested inside it (`mac.entitlementsInherit`) — the
+  Electron helpers, the PyInstaller backend in Resources/backend, and the Go funnel helper.
+  They share one file because the backend needs the same exemptions the Electron helpers do.
+
+  Notarization rejects a build whose executables aren't signed with the hardened runtime, and
+  the hardened runtime blocks each of the things below unless the entitlement is present.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- V8 (Electron) JITs JavaScript; without these the renderer/helpers crash on launch. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- The PyInstaller backend dlopen()s libraries the loader never sees at link time —
+         the sqlite-vec extension (loaded through SQLite at runtime), quickjs, and
+         cryptography's Rust module. Library validation would refuse to load them. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- The frozen-Python bootloader relies on DYLD_* to find its own bundled libraries;
+         the hardened runtime strips those variables from child processes without this. -->
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+  </dict>
+</plist>
