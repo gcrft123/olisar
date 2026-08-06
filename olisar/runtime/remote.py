@@ -15,8 +15,10 @@ addressed by IP, so there's no prior known-hosts entry to pin.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+import sys
 from pathlib import Path
 
 import asyncssh
@@ -39,20 +41,27 @@ VM_DB = f"{VM_DATA_DIR}/olisar.db"
 VM_KB = f"{VM_DATA_DIR}/kb_uploads"
 _HELPER_IMAGE = "alpine"    # tiny image to read/write the named volume while stopped
 
-# The compose the app writes to the VM: pull the prebuilt image, read the .env beside it,
-# persist state in a named volume. No published ports — Tailscale Funnel is the ingress.
-COMPOSE_YML = """\
-services:
-  olisar:
-    image: ghcr.io/gcrft123/olisar:latest
-    env_file: .env
-    volumes:
-      - olisar-data:/var/lib/olisar
-    restart: unless-stopped
+# Files the app owns on the VM. They're (re)installed on every deploy AND every connect,
+# so a VM set up by an older client picks up the current layout instead of silently
+# drifting — the compose file used to be written once at deploy and never again.
+# `.env` is deliberately NOT in this set: it holds secrets the operator may have edited.
+_MANAGED_ASSETS = ("olisar-update.sh", "olisar-update.service", "olisar-update.timer")
 
-volumes:
-  olisar-data:
-"""
+# The compose file itself is written by olisar-update.sh, pinned to an immutable digest —
+# so "what is deployed" is a fact on disk rather than whatever :latest resolved to.
+
+
+def _asset(name: str) -> str:
+    """Read a ``deploy/`` asset that gets installed onto the VM. Resolves inside a
+    PyInstaller bundle (backend.spec ships them under ``deploy/``) and from source."""
+    for base in (
+        Path(getattr(sys, "_MEIPASS", "")) / "deploy",
+        Path(__file__).resolve().parents[2] / "deploy",
+    ):
+        candidate = base / name
+        if candidate.exists():
+            return candidate.read_text("utf-8")
+    raise RuntimeError(f"missing deploy asset: {name}")
 
 
 async def _load() -> AppConfig | None:
@@ -95,9 +104,51 @@ async def _run(conn, cmd: str, *, timeout: float = 180.0) -> str:
     return out
 
 
+async def _read_json(conn, path: str) -> dict:
+    """Read a small JSON file off the VM, or ``{}`` if it's missing or malformed."""
+    r = await conn.run(f"cat {path} 2>/dev/null || true", check=False)
+    try:
+        parsed = json.loads((r.stdout or "").strip() or "{}")
+    except ValueError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+async def _install_managed(conn, user: str) -> None:
+    """Install/refresh the update script and its systemd timer on the VM.
+
+    Idempotent, and run on connect as well as deploy — this is what brings a VM that an
+    older client set up onto the current layout. The timer is best-effort: a host without
+    systemd still gets the script (which the control panel can invoke directly)."""
+    await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
+    await conn.run(f"cat > ~/{APP_DIR}/olisar-update.sh", input=_asset("olisar-update.sh"), check=True)
+    await _run(conn, f"chmod +x ~/{APP_DIR}/olisar-update.sh", timeout=30)
+
+    # systemd wants an absolute path and the unit's user baked in; the app dir lives under
+    # the operator's home, which we don't know until we ask.
+    abs_dir = (await _run(conn, f"cd ~/{APP_DIR} && pwd", timeout=30)).strip().splitlines()[-1]
+    try:
+        for unit in ("olisar-update.service", "olisar-update.timer"):
+            body = _asset(unit).replace("@DIR@", abs_dir).replace("@USER@", user)
+            await conn.run(f"cat > /tmp/{unit}", input=body, check=True)
+            await _run(
+                conn,
+                f"sudo install -m 0644 /tmp/{unit} /etc/systemd/system/{unit} && rm -f /tmp/{unit}",
+                timeout=60,
+            )
+        await _run(
+            conn,
+            "sudo systemctl daemon-reload && sudo systemctl enable --now olisar-update.timer",
+            timeout=90,
+        )
+    except Exception as exc:  # noqa: BLE001 — a missing timer must not fail a deploy
+        log.warning("could not install the update timer: %s", exc)
+
+
 async def deploy(host: str, user: str, env_text: str) -> dict:
-    """Install Docker if needed, drop the .env + compose file, and start the container.
-    On success, persist the connection and switch the app into server-hosting mode."""
+    """Install Docker and the updater, write the .env, then let the updater put the newest
+    release on the VM and start it. On success, persist the connection and switch the app
+    into server-hosting mode."""
     host = (host or "").strip()
     user = (user or "").strip() or "ubuntu"
     if not host:
@@ -115,12 +166,14 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         # process list / shell history the way an inline command would.
         await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
         await conn.run(f"cat > ~/{APP_DIR}/.env", input=env_text, check=True)
-        await conn.run(f"cat > ~/{APP_DIR}/docker-compose.yml", input=COMPOSE_YML, check=True)
-        log_lines.append("Pulling the Olisar image…")
-        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose pull", timeout=420)
-        log_lines.append("Starting the container…")
-        out = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
-        log_lines.append(out.strip())
+        await _run(conn, f"chmod 600 ~/{APP_DIR}/.env", timeout=30)
+        await _install_managed(conn, user)
+        # A first deploy and an update are the same code path — the script resolves the
+        # newest release, pins its digest into the compose file, starts it, and rolls back
+        # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
+        log_lines.append("Pulling the latest Olisar release and starting it…")
+        out = await _run(conn, f"bash ~/{APP_DIR}/olisar-update.sh --start", timeout=900)
+        log_lines.append(out.strip()[-2000:])
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc), "log": "\n".join(log_lines)}
@@ -157,6 +210,12 @@ async def connect(host: str, user: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
+    # Reconcile the files we own so a VM deployed by an older client picks up the update
+    # script and timer. `.env` is never touched — the operator's secrets live there.
+    try:
+        await _install_managed(conn, user)
+    except Exception as exc:  # noqa: BLE001 — adoption must still succeed
+        log.warning("could not reconcile managed files on %s: %s", host, exc)
     conn.close()
     await runtime_config.save(
         server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
@@ -165,76 +224,236 @@ async def connect(host: str, user: str) -> dict:
     return {"ok": True}
 
 
-async def _compose_image_id(conn) -> str:
-    """Short image id for the compose service (empty if none pulled yet)."""
-    out = await _run(
-        conn,
-        f"cd ~/{APP_DIR} && sudo docker compose images -q 2>/dev/null | head -1 || true",
-        timeout=30,
-    )
-    line = (out or "").strip().splitlines()
-    return line[0].strip() if line else ""
+# ── state probe ─────────────────────────────────────────────────────────────────
+# One SSH round trip that collects everything the control panel needs. The signals come
+# from Docker itself and from the backend's own state.json — not from parsing log text:
+#   * run state + health  — `docker inspect` on the container (the image has defined a
+#     HEALTHCHECK all along; the old `ps`-regex threw that verdict away, so a crashlooping
+#     container under `restart: unless-stopped` reported "Running")
+#   * version + revision + digest — the OCI labels CI already stamps on the image, which
+#     resolve even while the container is stopped
+#   * public URL — state.json, written by the backend into the data volume
+# The log-grep URL fallback survives for containers built before state.json existed, and
+# is skipped entirely when state.json answered — it was the expensive part.
+
+_PROBE_SECTIONS = ("CONTAINER", "IMAGE", "STATE", "PS", "LOGS", "URL")
+
+_FMT_CONTAINER = "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}"
+_FMT_IMAGE = (
+    '{{index .Config.Labels "org.opencontainers.image.version"}}|'
+    '{{index .Config.Labels "org.opencontainers.image.revision"}}|'
+    "{{if .RepoDigests}}{{index .RepoDigests 0}}{{end}}"
+)
+
+# Placeholders rather than an f-string: the Go templates above are all braces.
+_PROBE_TEMPLATE = """set +e
+cd ~/@APP_DIR@ || exit 0
+CID=$(sudo docker compose ps -q 2>/dev/null | head -1)
+IMG=$(sudo docker compose images -q 2>/dev/null | head -1)
+STATE=""
+[ -n "$CID" ] && STATE=$(sudo docker exec "$CID" cat @DATA@/state.json 2>/dev/null)
+echo '__OLISAR_CONTAINER__'
+[ -n "$CID" ] && sudo docker inspect --format '@FMT_CONTAINER@' "$CID" 2>/dev/null
+echo '__OLISAR_IMAGE__'
+[ -n "$IMG" ] && sudo docker image inspect --format '@FMT_IMAGE@' "$IMG" 2>/dev/null
+echo '__OLISAR_STATE__'
+printf '%s\\n' "$STATE"
+echo '__OLISAR_PS__'
+sudo docker compose ps 2>/dev/null
+echo '__OLISAR_LOGS__'
+sudo docker compose logs --tail 40 --no-color 2>/dev/null
+echo '__OLISAR_URL__'
+case "$STATE" in
+  *ts.net*) : ;;
+  *)
+    url=$(sudo docker compose logs --tail 5000 --no-color 2>/dev/null \\
+      | grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1)
+    if [ -z "$url" ]; then
+      url=$(sudo docker compose logs --no-color 2>/dev/null \\
+        | grep -m1 -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net')
+    fi
+    printf '%s\\n' "$url"
+    ;;
+esac
+"""
 
 
-async def _compose_running(conn) -> bool:
-    # Match status(): Compose v1/v2 wording ("running" / "Up") without relying on
-    # ``--status``, which older clients don't support.
-    out = await _run(
-        conn,
-        f"cd ~/{APP_DIR} && sudo docker compose ps 2>/dev/null || true",
-        timeout=30,
+def _probe_script() -> str:
+    return (
+        _PROBE_TEMPLATE.replace("@APP_DIR@", APP_DIR)
+        .replace("@DATA@", VM_DATA_DIR)
+        .replace("@FMT_CONTAINER@", _FMT_CONTAINER)
+        .replace("@FMT_IMAGE@", _FMT_IMAGE)
     )
-    return bool(re.search(r"\brunning\b|\bUp\b", out or ""))
+
+
+def _clean(value: str) -> str:
+    """A Go template renders a missing map key as ``<no value>`` — treat that as absent
+    so an image without OCI labels reports "" rather than that literal in the UI."""
+    v = (value or "").strip()
+    return "" if v in ("<no value>", "<nil>") else v
+
+
+def _sections(out: str) -> dict[str, str]:
+    """Split probe output on its markers. Sections are ordered, so each one ends where the
+    next begins — that keeps stray docker stderr inside the section that produced it."""
+    found: dict[str, str] = {}
+    for i, name in enumerate(_PROBE_SECTIONS):
+        marker = f"__OLISAR_{name}__"
+        if marker not in out:
+            continue
+        rest = out.split(marker, 1)[1]
+        if i + 1 < len(_PROBE_SECTIONS):
+            rest = rest.split(f"__OLISAR_{_PROBE_SECTIONS[i + 1]}__", 1)[0]
+        found[name] = rest.strip()
+    return found
+
+
+def parse_probe(out: str) -> dict:
+    """Turn raw probe output into the status fields. Pure — the unit tests drive it with
+    captured ``docker`` output for the running / stopped / starting / unhealthy shapes."""
+    sec = _sections(out)
+
+    container_state = health = ""
+    lines = sec.get("CONTAINER", "").splitlines()
+    if lines:
+        parts = lines[0].split("|", 1)
+        container_state = _clean(parts[0])
+        health = _clean(parts[1]) if len(parts) > 1 else ""
+
+    version = revision = digest = ""
+    lines = sec.get("IMAGE", "").splitlines()
+    if lines:
+        parts = lines[0].split("|", 2)
+        version = _clean(parts[0])
+        revision = _clean(parts[1]) if len(parts) > 1 else ""
+        repo_digest = _clean(parts[2]) if len(parts) > 2 else ""
+        digest = repo_digest.split("@", 1)[1] if "@" in repo_digest else ""
+
+    published: dict = {}
+    raw_state = sec.get("STATE", "")
+    if raw_state:
+        try:
+            parsed = json.loads(raw_state)
+            published = parsed if isinstance(parsed, dict) else {}
+        except ValueError:
+            published = {}  # a truncated/garbled read is just an absent state file
+
+    logs = sec.get("LOGS", "")
+    url = str(published.get("public_url") or "").rstrip("/")
+    if not url:  # pre-state.json container — the old log-scrape path
+        url_lines = sec.get("URL", "").splitlines()
+        url = url_lines[0].strip() if url_lines else ""
+    if not url:
+        m = _TSNET_RE.search(logs)
+        url = m.group(0) if m else ""
+
+    # `docker inspect` is authoritative; the ps regex only covers a host whose compose
+    # couldn't give us a container id (Compose v1), where "Stopped" would be a lie.
+    running = container_state == "running"
+    if not container_state:
+        running = bool(re.search(r"\brunning\b|\bUp\b", sec.get("PS", "")))
+
+    return {
+        "running": running,
+        "state": container_state,
+        "health": health,  # healthy | unhealthy | starting | "" (no healthcheck)
+        "version": version or str(published.get("version") or ""),
+        "revision": revision,
+        "digest": digest,
+        "url": url,
+        "logs": logs.strip()[-4000:],
+    }
+
+
+async def _probe(conn) -> dict:
+    """Run the probe over an open connection and parse it. Raises on a failed probe."""
+    r = await asyncio.wait_for(
+        conn.run("bash -s", input=_probe_script(), check=False), timeout=45
+    )
+    out = (r.stdout or "") + (r.stderr or "")
+    if r.exit_status not in (0, None):
+        raise RuntimeError(f"status probe failed ({r.exit_status}):\n{out.strip()[-800:]}")
+    return parse_probe(out)
+
+
+async def last_update() -> dict:
+    """What the VM's last update attempt did — including one the systemd timer ran while
+    the app was closed, which is the only way the operator would ever learn about it."""
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception:  # noqa: BLE001 — informational only
+        return {}
+    try:
+        return await _read_json(conn, f"~/{APP_DIR}/last-update.json")
+    finally:
+        conn.close()
 
 
 async def update_image() -> dict:
-    """Pull ``ghcr.io/gcrft123/olisar:latest`` on the configured VM and recreate the
-    container when it was already running so the new image is applied.
+    """Apply the newest Olisar *release* on the configured VM, by running the VM's own
+    ``olisar-update.sh`` — which resolves the release tag, pins its digest into the compose
+    file, applies it, waits for the container's healthcheck, and rolls back to the previous
+    digest if it never comes up.
 
-    Called when the server control panel opens (desktop app start in server mode).
-    Best-effort: SSH/pull failures return ``ok: False`` without raising so the panel
-    can still show status. A stopped bot is left stopped after a successful pull.
+    Deliberately the same script the systemd timer runs, so a client-triggered update and
+    an unattended one cannot diverge. Best-effort: SSH failures return ``ok: False``
+    without raising so the panel can still show status.
     """
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {"ok": False, "error": "No server configured yet."}
+    user = cfg.server_ssh_user or "ubuntu"
     base = {"host": cfg.server_host}
     try:
-        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+        conn = await _connect(cfg.server_host, user)
     except Exception as exc:  # noqa: BLE001
         return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
     try:
-        before = await _compose_image_id(conn)
-        was_running = await _compose_running(conn)
-        pull_out = await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose pull", timeout=420)
-        after = await _compose_image_id(conn)
-        updated = bool(after) and after != before
-        # Also treat classic pull messages as an update when ids are unavailable.
-        if not updated and re.search(r"Downloaded newer image", pull_out or "", re.I):
-            updated = True
-        if was_running:
-            # Recreate so a new image actually replaces the running container.
-            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
-        running = await _compose_running(conn)
+        # A VM last touched by an older client has no script yet — install it first.
+        probe_script = await conn.run(f"test -x ~/{APP_DIR}/olisar-update.sh && echo OK", check=False)
+        if "OK" not in (probe_script.stdout or ""):
+            await _install_managed(conn, user)
+        r = await asyncio.wait_for(
+            conn.run(f"bash ~/{APP_DIR}/olisar-update.sh", check=False), timeout=1200
+        )
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
+        state = await _probe(conn)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {**base, "ok": False, "reachable": True, "error": str(exc)}
     conn.close()
-    return {
+
+    ok = bool(result.get("ok")) if result else r.exit_status == 0
+    out_dict = {
         **base,
-        "ok": True,
+        "ok": ok,
         "reachable": True,
-        "updated": updated,
-        "running": running,
-        "log": (pull_out or "").strip()[-2000:],
+        "updated": bool(result.get("updated")),
+        "rolled_back": bool(result.get("rolled_back")),
+        "status": result.get("status") or "",
+        "message": result.get("message") or "",
+        "tag": result.get("tag") or "",
+        "running": state.get("running"),
+        "health": state.get("health"),
+        "version": state.get("version"),
+        "log": out[-2000:],
     }
+    if not ok:
+        out_dict["error"] = result.get("message") or "The update did not complete."
+    return out_dict
 
 
 async def power(action: str) -> dict:
     """Start (`up`) or stop (`stop`) the container on the stored VM.
 
-    ``up`` pulls the latest image first so Start always boots current GHCR ``:latest``,
-    then runs ``compose up -d``.
+    ``up`` boots whatever digest the compose file is pinned to — it deliberately does NOT
+    pull. Start used to pull first, which meant an operator who stopped their bot for a
+    week silently came back on a different version; updating is now its own action.
     """
     cfg = await _load()
     if not (cfg and cfg.server_host):
@@ -245,7 +464,6 @@ async def power(action: str) -> dict:
         return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
     try:
         if action == "up":
-            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose pull", timeout=420)
             await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
         else:
             await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
@@ -282,13 +500,13 @@ async def logs(which: str = "bot", tail: int = 200) -> dict:
 
 
 async def status() -> dict:
-    """Whether the remote container is running, recent logs, and the public URL.
+    """What's running on the VM: run state, health, version, digest, public URL, logs.
 
-    One SSH round-trip (connect + a single remote script). The previous implementation
-    ran three sequential ``docker compose`` commands and grepped the *entire* container
-    log history for the funnel URL — on a long-running VM that routinely exceeded the
-    control panel's 40s fetch budget, which the UI then painted as "Unreachable" even
-    though SSH (and the Logs view) still worked.
+    One SSH round-trip (connect + a single remote script — see ``_probe``). An earlier
+    implementation ran three sequential ``docker compose`` commands and grepped the
+    *entire* container log history for the funnel URL; on a long-running VM that routinely
+    exceeded the control panel's 40s fetch budget, which the UI then painted as
+    "Unreachable" even though SSH (and the Logs view) still worked.
     """
     cfg = await _load()
     if not (cfg and cfg.server_host):
@@ -298,58 +516,13 @@ async def status() -> dict:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
         return {**base, "reachable": False, "error": str(exc)}
-    # Markers keep parsing robust if docker stderr leaks into a section.
-    # URL strategy: recent logs first (fast); if empty, stream full history and stop at the
-    # first match (``grep -m1``) so we never ship megabytes of logs over the wire.
-    script = f"""set +e
-cd ~/{APP_DIR} || exit 0
-echo '__OLISAR_PS__'
-sudo docker compose ps 2>/dev/null
-echo '__OLISAR_LOGS__'
-sudo docker compose logs --tail 40 --no-color 2>/dev/null
-echo '__OLISAR_URL__'
-url=$(sudo docker compose logs --tail 5000 --no-color 2>/dev/null \\
-  | grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1)
-if [ -z "$url" ]; then
-  url=$(sudo docker compose logs --no-color 2>/dev/null \\
-    | grep -m1 -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net')
-fi
-printf '%s\\n' "$url"
-"""
     try:
-        # Feed the script on stdin so multi-line quoting stays simple and secrets-free.
-        r = await asyncio.wait_for(
-            conn.run("bash -s", input=script, check=False),
-            timeout=45,
-        )
-        out = (r.stdout or "") + (r.stderr or "")
-        if r.exit_status not in (0, None):
-            raise RuntimeError(f"status probe failed ({r.exit_status}):\n{out.strip()[-800:]}")
+        probe = await _probe(conn)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {**base, "reachable": True, "error": str(exc)}
     conn.close()
-
-    def _section(name: str) -> str:
-        marker = f"__OLISAR_{name}__"
-        if marker not in out:
-            return ""
-        rest = out.split(marker, 1)[1]
-        for nxt in ("__OLISAR_PS__", "__OLISAR_LOGS__", "__OLISAR_URL__"):
-            if nxt != marker and nxt in rest:
-                rest = rest.split(nxt, 1)[0]
-                break
-        return rest.strip()
-
-    ps = _section("PS")
-    logs = _section("LOGS")
-    url_sec = _section("URL")
-    url = url_sec.splitlines()[0].strip() if url_sec else ""
-    if not url:
-        m = _TSNET_RE.search(logs)
-        url = m.group(0) if m else ""
-    running = bool(re.search(r"\brunning\b|\bUp\b", ps))
-    return {**base, "reachable": True, "running": running, "url": url, "logs": logs.strip()[-4000:]}
+    return {**base, "reachable": True, **probe}
 
 
 # ── cross-host data transfer (used by olisar.runtime.migrate) ───────────────────

@@ -1,0 +1,18 @@
+[Unit]
+# Applies the newest Olisar *release* to this VM — see olisar-update.sh. Runs from
+# olisar-update.timer so the server stays current even when nobody opens the desktop app
+# (the app used to be the only thing that ever triggered an update).
+Description=Olisar server update
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# @DIR@ / @USER@ are substituted at install time by the desktop app's deploy (and by
+# deploy/bootstrap.sh) — the app dir is under the operator's home, not a fixed path.
+User=@USER@
+WorkingDirectory=@DIR@
+ExecStart=/usr/bin/env bash @DIR@/olisar-update.sh
+# A failed update already rolls itself back; don't let systemd retry into a loop.
+Restart=no
+TimeoutStartSec=1800

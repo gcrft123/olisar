@@ -48,3 +48,6 @@ web/swap.sh
 
 # Local-only Claude Code project guide (kept on disk, not tracked)
 CLAUDE.md
+
+# Design-lint hook caches
+.impeccable/

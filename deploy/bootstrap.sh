@@ -28,8 +28,14 @@ fi
 if $SUDO docker compose version >/dev/null 2>&1; then DC="docker compose"; else DC="docker-compose"; fi
 
 mkdir -p "$DIR"; cd "$DIR"
-say "Fetching compose file…"
-curl -fsSL "$REPO_RAW/docker-compose.yml" -o docker-compose.yml
+say "Fetching the updater…"
+# The updater owns the compose file: it resolves the newest release, pins that image by
+# digest, applies it health-gated, and rolls back if it doesn't come up. Installing it here
+# means a hand-bootstrapped VM behaves exactly like one the desktop app deployed.
+curl -fsSL "$REPO_RAW/olisar-update.sh" -o olisar-update.sh
+curl -fsSL "$REPO_RAW/olisar-update.service" -o olisar-update.service
+curl -fsSL "$REPO_RAW/olisar-update.timer" -o olisar-update.timer
+chmod +x olisar-update.sh
 
 if [ ! -f .env ]; then
   say "Let's configure Olisar. (From the Discord Developer Portal + your API keys.)"
@@ -56,14 +62,30 @@ else
   say ".env already exists — reusing it."
 fi
 
-say "Starting Olisar…"
-$SUDO $DC pull 2>/dev/null || true
-$SUDO $DC up -d
+say "Installing the daily update timer…"
+if command -v systemctl >/dev/null 2>&1; then
+  sed -e "s|@DIR@|$DIR|g" -e "s|@USER@|$USER|g" olisar-update.service \
+    | $SUDO tee /etc/systemd/system/olisar-update.service >/dev/null
+  $SUDO install -m 0644 olisar-update.timer /etc/systemd/system/olisar-update.timer
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable --now olisar-update.timer || true
+else
+  echo "(no systemd here — run ./olisar-update.sh yourself to update)"
+fi
+
+say "Pulling the latest Olisar release and starting it…"
+./olisar-update.sh --start || { echo "Update/start failed — see the output above."; exit 1; }
 
 say "Waiting for the public URL (this can take up to ~2 minutes on first run)…"
 URL=""
 for _ in $(seq 1 60); do
-  URL="$($SUDO $DC logs 2>/dev/null | grep -oE 'OLISAR_FUNNEL_URL=https://[^ ]+' | tail -1 | cut -d= -f2- || true)"
+  # The backend publishes its public URL in state.json; fall back to the log marker.
+  CID="$($SUDO $DC ps -q 2>/dev/null | head -1)"
+  if [ -n "$CID" ]; then
+    URL="$($SUDO docker exec "$CID" cat /var/lib/olisar/state.json 2>/dev/null \
+      | grep -oE 'https://[A-Za-z0-9._-]+\.ts\.net' | head -1 || true)"
+  fi
+  [ -z "$URL" ] && URL="$($SUDO $DC logs 2>/dev/null | grep -oE 'OLISAR_FUNNEL_URL=https://[^ ]+' | tail -1 | cut -d= -f2- || true)"
   [ -n "$URL" ] && break
   sleep 3
 done
@@ -81,7 +103,8 @@ Next steps:
        ${URL%/}/auth/callback
   2. Open $URL in a browser and sign in with Discord (the account whose ID you allowlisted).
 
-Manage it later with:  cd $DIR && $DC logs -f   |   $DC restart   |   $DC pull && $DC up -d
+Manage it later with:  cd $DIR && $DC logs -f   |   $DC restart   |   ./olisar-update.sh
+(The update timer already runs daily — ./olisar-update.sh just does it now.)
 EOF
 else
   echo "Couldn't read the public URL yet. Check logs:  cd $DIR && $DC logs -f"
