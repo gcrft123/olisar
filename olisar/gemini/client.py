@@ -8,7 +8,9 @@ Tool/function calling is layered on in Phase 3.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from google import genai
 from google.genai import errors as genai_errors
@@ -30,6 +32,41 @@ _SERVER_ERROR_COOLDOWN = 15.0  # short skip of a model that just returned a 5xx
 
 class GroundingUnavailable(Exception):
     """Raised when Google Search grounding is quota-exhausted (free tier is small)."""
+
+
+# A 429 that carries a retry delay is a *rate* (per-minute) limit — it clears on its own
+# in seconds. One with no delay, or a long one, is the daily grounding quota, which won't
+# clear until Google's day rolls over. Anything up to this is treated as the former.
+_GROUNDING_SHORT_RETRY_MAX = 15 * 60.0
+# Matches both shapes Google uses: `"retryDelay": "23s"` and `retry_delay { seconds: 7 }`
+# — the first number after the key, whether or not a unit follows it.
+_RETRY_DELAY_RE = re.compile(r"retry[_-]?delay\D{0,16}?(\d+(?:\.\d+)?)", re.IGNORECASE)
+
+
+def _api_error_detail(exc: Exception) -> str:
+    """Everything Google told us about a refusal, on one line — the message plus any
+    structured details. Without this a 429 is indistinguishable from any other 429, and
+    you can't tell a per-minute throttle from a spent daily quota."""
+    parts = [str(getattr(exc, "message", None) or exc)]
+    details = getattr(exc, "details", None)
+    if details:
+        parts.append(f"details={details!r}")
+    status = getattr(exc, "status", None)
+    if status:
+        parts.append(f"status={status}")
+    return " | ".join(" ".join(str(p).split()) for p in parts if p)
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    """The retryDelay Google attached to a 429, if any (``"retryDelay": "23s"`` or
+    ``retry_delay { seconds: 23 }``). None means it didn't say — which is the signal
+    that waiting a moment won't help."""
+    match = _RETRY_DELAY_RE.search(_api_error_detail(exc))
+    return float(match.group(1)) if match else None
+
+
+def _next_utc_midnight(now: datetime) -> datetime:
+    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @dataclass
@@ -60,11 +97,21 @@ def was_truncated(resp) -> bool:
     return "MAX_TOKENS" in str(name).upper()
 
 
+# Models that answered a thinking_config with a 400 — remembered for the process so we
+# only pay that discovery once. Name-matching can't be trusted here: the "-latest"
+# aliases move between generations (gemini-flash-lite-latest became a Gemini 3 model,
+# which rejects thinking_budget=0 outright), so the API's answer is the only reliable
+# source. Cleared on restart, which is when an alias could have moved again.
+_THINKING_REJECTED: set[str] = set()
+
+
 def _supports_thinking(model: str) -> bool:
-    """Whether a model accepts ``thinking_config``. Thinking landed with Gemini 2.5;
-    the 2.0/1.x fallbacks reject the field with a 400, so we only set it for newer
-    models. ``gemini-flash-latest`` / ``-lite-latest`` have no version digit and are
-    2.5+ today, so they default to supported."""
+    """Whether a model plausibly accepts ``thinking_config``. Thinking landed with
+    Gemini 2.5; the 2.0/1.x fallbacks reject the field with a 400, so we don't set it
+    for them. Everything else is a guess — a cheap pre-filter, not the authority. The
+    ``-latest`` aliases have no version digit and drift between generations, so a model
+    that *takes* the field may still reject a particular budget; ``_THINKING_REJECTED``
+    records what the API actually said."""
     m = model.lower()
     return not any(v in m for v in ("2.0", "1.5", "1.0"))
 
@@ -73,6 +120,10 @@ class GeminiClient:
     def __init__(self) -> None:
         self._client: genai.Client | None = None
         self._key: str | None = None
+        # When grounded search is refused, stop attempting it until this passes. Without
+        # it every reply pays a full round trip (and up to a minute queued behind the
+        # rate limiter) to rediscover the same refusal.
+        self._grounding_blocked_until: datetime | None = None
 
     async def aclient(self) -> genai.Client:
         """The underlying SDK client, built lazily and rebuilt when the effective
@@ -89,6 +140,7 @@ class GeminiClient:
     async def _raw_generate(
         self, *, contents, config, model: str, chain: list[str] | None = None,
         thinking_budget: int | None = None, source: str = "other",
+        grounding: int = 0, fall_back_on: tuple[int, ...] = (),
     ):
         """Generate, walking the model fallback chain. The first immediately
         available model is used; if it errors transiently — a 429 (rate limit) or a
@@ -98,7 +150,13 @@ class GeminiClient:
         unavailable, the last error is raised (or RateLimitExceeded if none was hit).
 
         Pass ``chain`` to override the default chat ranking (e.g. the vision
-        chain); otherwise it's derived from ``model`` via ``model_chain``."""
+        chain); otherwise it's derived from ``model`` via ``model_chain``.
+
+        ``fall_back_on`` adds status codes that should also move to the next model
+        instead of raising — grounded search passes ``(400,)`` because not every model
+        in the chat chain accepts the google_search tool, and "this one can't ground"
+        should cost us the next model, not the whole request. ``grounding=1`` marks the
+        call in the usage rollup that the per-guild grounding cap reads."""
         limiter = get_rate_limiter()
         chain = chain or model_chain(model)
         last_error: Exception | None = None
@@ -111,15 +169,37 @@ class GeminiClient:
                 # Per-candidate config: only the thinking-capable models in the chain
                 # get thinking_config; the 2.0/1.x fallbacks would 400 on the field.
                 cand_config = config
-                if thinking_budget is not None and _supports_thinking(candidate):
+                sent_thinking = (
+                    thinking_budget is not None
+                    and _supports_thinking(candidate)
+                    and candidate not in _THINKING_REJECTED
+                )
+                if sent_thinking:
                     cand_config = config.model_copy(
                         update={"thinking_config": types.ThinkingConfig(
                             thinking_budget=thinking_budget
                         )}
                     )
-                resp = await client.aio.models.generate_content(
-                    model=candidate, contents=contents, config=cand_config
-                )
+                try:
+                    resp = await client.aio.models.generate_content(
+                        model=candidate, contents=contents, config=cand_config
+                    )
+                except genai_errors.APIError as exc:
+                    # A model that won't take our thinking_config — most often
+                    # thinking_budget=0 on a model that can't switch thinking off.
+                    # Retry it once with the field dropped, and remember, so this costs
+                    # one request per model per process instead of failing forever.
+                    if getattr(exc, "code", None) != 400 or not sent_thinking:
+                        raise
+                    _THINKING_REJECTED.add(candidate)
+                    log.warning(
+                        "gemini %s rejected thinking_budget=%s (%s); retrying without it "
+                        "and omitting it for this model from now on",
+                        candidate, thinking_budget, _api_error_detail(exc),
+                    )
+                    resp = await client.aio.models.generate_content(
+                        model=candidate, contents=contents, config=config
+                    )
             except genai_errors.APIError as exc:
                 code = getattr(exc, "code", None)
                 last_error = exc
@@ -132,6 +212,13 @@ class GeminiClient:
                     limiter.penalize(
                         candidate, seconds=_SERVER_ERROR_COOLDOWN, reason=f"a {code} error"
                     )
+                elif code in fall_back_on:
+                    # Caller says this code means "this model can't do it" rather than
+                    # "the request is bad" — e.g. a model that rejects the search tool.
+                    log.warning(
+                        "gemini %s rejected the request (code=%s): %s; trying the next model",
+                        candidate, code, _api_error_detail(exc),
+                    )
                 else:
                     raise  # non-transient error — surface it, don't mask
                 continue  # fall back to the next model in the chain
@@ -141,7 +228,7 @@ class GeminiClient:
                 if resp.usage_metadata is not None
                 else 0
             ) or 0
-            await record_usage(candidate, tokens, source=source)
+            await record_usage(candidate, tokens, grounding=grounding, source=source)
             if candidate != chain[0]:
                 log.info(
                     "used fallback model %s (preferred %s unavailable)",
@@ -255,28 +342,74 @@ class GeminiClient:
         )
         return safe_text(resp)
 
+    def _suppress_grounding(self, exc: Exception) -> None:
+        """Record *why* Google refused, and stop asking for a while.
+
+        A 429 carrying a retryDelay is a per-minute throttle: park grounding for that
+        long. One without is the daily quota (or a key whose tier has no grounding at
+        all), which no amount of retrying fixes before the day rolls over — that case
+        used to retry on every single reply, forever, each attempt a wasted round trip.
+        """
+        now = datetime.now(timezone.utc)
+        detail = _api_error_detail(exc)
+        retry = _retry_after_seconds(exc)
+        if retry is not None and retry <= _GROUNDING_SHORT_RETRY_MAX:
+            until = now + timedelta(seconds=retry)
+            why = f"Google asked for {retry:.0f}s"
+        else:
+            until = _next_utc_midnight(now)
+            why = (
+                "no retryDelay — treating it as the daily grounding quota"
+                if retry is None
+                else f"retryDelay {retry:.0f}s is longer than a throttle"
+            )
+        self._grounding_blocked_until = until
+        log.warning(
+            "grounded search refused by Google: %s | %s | not asking again until %s",
+            detail, why, until.isoformat(timespec="seconds"),
+        )
+
     async def search(self, query: str, *, model: str | None = None) -> tuple[str, list[str]]:
         """Grounded web search via Google Search. Returns (answer, source titles).
-        Raises GroundingUnavailable on quota exhaustion (free-tier grounding is
-        tiny) so the caller can degrade rather than crash."""
+        Raises GroundingUnavailable when Google refuses (free-tier grounding is tiny)
+        so the caller can degrade rather than crash.
+
+        Walks the same fallback chain as chat: grounding quota is usually per-model, so
+        a limit on the preferred model doesn't have to mean no web search at all. This
+        used to be pinned to one model with no fallback, which is why a single exhausted
+        model made every search fail while ordinary replies carried on."""
+        blocked_until = self._grounding_blocked_until
+        if blocked_until is not None:
+            if datetime.now(timezone.utc) < blocked_until:
+                log.info(
+                    "grounded search skipped — suppressed until %s",
+                    blocked_until.isoformat(timespec="seconds"),
+                )
+                raise GroundingUnavailable()
+            self._grounding_blocked_until = None  # window passed — try again
+
         model = model or settings.gemini_chat_model
         config = types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())]
         )
-        await get_rate_limiter().acquire(model)
         try:
-            client = await self.aclient()
-            resp = await client.aio.models.generate_content(
-                model=model, contents=query, config=config
+            resp = await self._raw_generate(
+                contents=query,
+                config=config,
+                model=model,
+                source="grounding",
+                grounding=1,  # counts toward the per-guild grounding cap
+                fall_back_on=(400,),  # a model that won't take the search tool
             )
+        except RateLimitExceeded as exc:
+            # Every model in the chain was already parked — same user-visible outcome.
+            log.warning("grounded search: no model in the chain was available (%s)", exc)
+            raise GroundingUnavailable() from exc
         except genai_errors.APIError as exc:
             if getattr(exc, "code", None) == 429:
+                self._suppress_grounding(exc)
                 raise GroundingUnavailable() from exc
             raise
-        tokens = (
-            resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
-        ) or 0
-        await record_usage(model, tokens, grounding=1, source="grounding")
 
         sources: list[str] = []
         try:
