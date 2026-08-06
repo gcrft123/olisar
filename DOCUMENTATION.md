@@ -1805,6 +1805,9 @@ Olisar is built to respect members' data, and to be transparent about what it ke
 
 #### What it doesn't do
 - It never shares DMs or private content publicly.
+- **Your DMs stay in your DMs.** A 1:1 conversation with Olisar can only be recalled inside that
+  same conversation — never in a channel, and never by another member. **Server admins are no
+  exception**: Manage Server governs the server's own channels, not anyone's private messages.
 - Opted-out members are **never** recorded or indexed.
 - It treats recalled memory as background **data**, not as instructions it must obey.
 - **Presence & voice** (what someone's playing, who's in voice) are read **live, only when a tool asks**
