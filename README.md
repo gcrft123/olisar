@@ -86,10 +86,10 @@ Tailscale account; the admins who sign in don't need Tailscale at all. See
 Olisar checks this repo's latest **GitHub Release** on launch and every few hours (and on
 demand from the tray → *Check for Updates…*). When a newer version is published it can
 **install it in place** — *Install & Restart* downloads the new build, swaps the app, and
-relaunches into the new version (no manual drag-to-Applications, even though the app is
-unsigned). On platforms it can't self-install yet, it falls back to opening the installer
-download. Maintainers: see **[RELEASING.md](RELEASING.md)** for how to cut a release (a tag
-push builds and publishes the installers via GitHub Actions).
+relaunches into the new version (no manual drag-to-Applications). On platforms it can't
+self-install yet, it falls back to opening the installer download. Maintainers: see
+**[RELEASING.md](RELEASING.md)** for how to cut a release (a tag push builds, signs,
+notarizes and publishes the installers via GitHub Actions).
 
 ## How it's built
 

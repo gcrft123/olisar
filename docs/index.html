@@ -541,7 +541,7 @@
     <p class="lede">Olisar is downloading. Once it lands, three quick steps and your bot is live — no server, no terminal.</p>
     <ol class="dlg-steps">
       <li><div><b>Open the installer</b><p id="dlStepOpen">Open the file you just downloaded and move Olisar to your Applications.</p></div></li>
-      <li><div><b>Let it run</b><p id="dlStepRun">It's unsigned, so your OS may warn the first time.</p></div></li>
+      <li><div><b>Let it run</b><p id="dlStepRun">Open Olisar — on Windows your OS may warn the first time.</p></div></li>
       <li><div><b>Finish the setup wizard</b><p>Olisar opens to a short wizard — paste your Discord bot token and a free Gemini key, and it goes live.</p></div></li>
     </ol>
     <div class="dlg-actions">
@@ -575,10 +575,10 @@
         runStep.innerHTML = 'SmartScreen may warn about an unknown publisher — click <b>More info &rarr; Run anyway</b>.';
       } else if (os === 'mac') {
         openStep.innerHTML = 'Open the <code>.dmg</code> and drag <b>Olisar</b> into Applications.';
-        runStep.innerHTML = 'Gatekeeper blocks unsigned apps — run <code>xattr -dr com.apple.quarantine /Applications/Olisar.app</code> once, then open it.';
+        runStep.innerHTML = 'Open Olisar normally — the app is signed and notarized by Apple, so Gatekeeper lets it straight through.';
       } else {
         openStep.innerHTML = 'Open the file you just downloaded and move <b>Olisar</b> to your Applications.';
-        runStep.innerHTML = "It's unsigned, so your OS may warn the first time — allow it to run (details in the Setup guide).";
+        runStep.innerHTML = 'Open Olisar — on Windows your OS may warn the first time; allow it to run (details in the Setup guide).';
       }
     }
     var lastFocus = null;
