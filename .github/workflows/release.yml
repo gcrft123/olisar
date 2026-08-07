@@ -92,6 +92,16 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # A set-but-empty CSC_LINK is worse than an absent one: electron-builder takes ""
+          # for a file path and dies on "<dir> not a file" before it builds anything. An empty
+          # MACOS_CERTIFICATE cost four v1.4.0 release builds that way, each failing with an
+          # error that named neither the secret nor signing. Unset it so an empty secret
+          # degrades exactly like an unset one — build-continues-unsigned, which is what the
+          # comment above promises. notarize-dmg.js already skips an unsigned image on its own.
+          if [ -z "${CSC_LINK:-}" ]; then
+            echo "::warning title=Unsigned macOS build::MACOS_CERTIFICATE is empty or unset — building an UNSIGNED, un-notarized .dmg. Set the secret to a base64 Developer ID .p12 to sign (RELEASING.md §2)."
+            unset CSC_LINK CSC_KEY_PASSWORD
+          fi
           npm install
           npm run release:mac
 
