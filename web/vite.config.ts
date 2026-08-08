@@ -71,7 +71,9 @@ function mockSummary(days: number) {
       const reqW = daily.reduce((s, d) => s + (d.by_model[m.model] || 0), 0)
       return {
         model: m.model, cap: m.cap, role: m.role, requests: reqW, tokens: m.tpr ? reqW * m.tpr : 0,
-        requests_today: last.by_model[m.model] || 0, peak_rpm_today: m.peak || 0,
+        requests_today: last.by_model[m.model] || 0,
+        tokens_today: (last.by_model[m.model] || 0) * (m.tpr || 0),
+        peak_rpm_today: m.peak || 0,
       }
     })
     .sort((a, b) => b.requests - a.requests)

@@ -894,7 +894,15 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
           <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
         </>
       ),
-      requirePhrase: { phrase: 'clear olisar memory' },
+      // The server's own name, not a generic phrase. DESIGN.md says it outright: a typed
+      // phrase "cannot prove the operator has the right server selected — that is the
+      // mistake the modal structurally cannot catch." `clear olisar memory` is the same
+      // five words for every server on the install, so it proves intent but not aim. On a
+      // phone the switcher is inside a closed drawer, so the name may be the only thing on
+      // screen identifying the target.
+      requirePhrase: serverName
+        ? { phrase: serverName, placeholder: `Type ${serverName} to confirm` }
+        : { phrase: 'clear olisar memory' },
       confirmLabel: 'Clear memory',
     })
     if (!ok) return
@@ -3077,7 +3085,7 @@ export function Usage() {
                       </div>
                     </td>
                     <td className="u-num">{uReq(m.requests_today)}</td>
-                    <td className="u-num">{uTok(m.tokens)}</td>
+                    <td className="u-num">{uTok(m.tokens_today ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>
