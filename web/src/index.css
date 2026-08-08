@@ -1952,6 +1952,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
    about the thing the operator just did there — landed on top of it. Sit above it instead. */
 body:has(.testchat-fab) .toast-stack { bottom: 76px; }
+/* The save dock is centred but wide, and at common widths its right edge runs under the
+   toast stack — measured 113x57px of overlap at 1440. Every bulk "Set all N…" fires both
+   at once, so the receipt naming what just changed was the thing you couldn't read. Lift
+   the toasts clear while the dock is up. */
+body:has(.savedock.show) .toast-stack { bottom: 96px; }
+body:has(.savedock.show):has(.testchat-fab) .toast-stack { bottom: 148px; }
 /* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
    the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
    is that nothing applies until you press Save. The dock wins the corner; the FAB steps
