@@ -680,7 +680,21 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .member-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; }
 .member-actions .err.sm { font-size: 11px; }
 .member-meta { color: var(--text-3); font-size: 11px; margin-top: 7px; }
-.key-status { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+/* A reserved slot for a conditional row action: it holds the column even when the action
+   isn't available, so every row's icons line up under each other. */
+.row-slot { display: inline-flex; width: 28px; flex: none; }
+.row-slot:empty { display: inline-block; }
+/* Separates benign row actions from destructive ones. */
+.row-divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); flex: none; }
+
+.key-status { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+/* Persistent, unlike the placeholder it replaced. */
+.key-state { color: var(--text-2); font-size: 12px; }
+/* Reveal sits inside the field so the control is unmistakably about this key. */
+.key-input { position: relative; display: flex; align-items: center; }
+.key-input input { padding-right: 40px; }
+.key-input .key-reveal { position: absolute; right: 1px; width: 34px; height: 32px; color: var(--text-3); }
+.key-input .key-reveal:hover { color: var(--text); background: transparent; }
 
 .list-row {
   display: flex; align-items: center; gap: 12px; padding: 12px 0;
@@ -1757,9 +1771,15 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .confirm-input { margin-top: 14px; }
 /* Move-bot modal body: stacks the callout, hosting target, IP field, and key disclosure. */
 .move-body { margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
-.confirm-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-/* The "Type <phrase> to confirm." line + CopyField for a high-friction confirm. */
+.confirm-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+/* The "Type <phrase> to confirm." line for a high-friction confirm. The phrase is shown,
+   never copyable — retyping it by hand is the whole mechanism. */
 .confirm-phrase { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; color: var(--text-2); }
+.confirm-phrase .phrase {
+  font-family: var(--mono); font-size: 12.5px; color: var(--text); user-select: none;
+  padding: 5px 12px; border-radius: var(--radius-sm);
+  background: var(--bg-inset); border: 1px solid var(--border-strong);
+}
 .copy { display: inline-flex; align-items: stretch; height: 34px; overflow: hidden; vertical-align: middle;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-inset); }
 .copy .val { display: inline-flex; align-items: center; padding: 0 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
