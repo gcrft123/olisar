@@ -237,6 +237,17 @@ Small, dense, admin proportions:
 
 Form **labels** sit at weight **550** (a hair above medium). Body line-height 1.55.
 
+**11px is the floor, and the eyebrow is the only thing that lives there.** Every label,
+category heading, status marker and axis tick in the console renders at 11px / 600 / 0.04em
+uppercase — one treatment, not five. The console had drifted to 9px, 10px and 10.5px variants
+of the same idea, some in monospace, which reads as a second type scale hiding under the
+first. Two deliberate exceptions, both documented where they live: chart tick labels inside a
+`role="img"` SVG (the values are also in the visually-hidden data table), and the 10px **APP**
+badge in the **DiscordPreview**, which is a faithful reproduction of someone else's chrome.
+
+Monospace is for **IDs, URLs, tags, slash commands, code, and numeric readouts** — not for
+making a word look technical. "Community", "Games" and "Custom" are labels; they set in sans.
+
 ---
 
 ## Iconography
@@ -861,6 +872,9 @@ by hand on the surface you touched:
 - Every mutually exclusive group announces as one: `role="radiogroup"` + `role="radio"` + `aria-checked`, roving `tabIndex`, arrow keys. A styled `.sel` class is not a selected state.
 - Leave a dirty page by every route you shipped — tab, server switcher, deep link, reload.
 - Read the **realized** line length on a text surface, don't assume it. `scrollWidth` on a `overflow: visible` element is not an overflow oracle either — scroll the page and read `window.scrollX`.
+- Reach every page with real data before calling it reviewed. A page the dev fixture can't populate is a page nobody looks at, and it is where the crash will be.
+- Call hooks above the `if (loading) return <Spinner />`. A hook that only runs once data arrives changes the hook count between renders, which React treats as fatal — the page dies rather than degrades.
+- Probe the element the style is actually on. A focus ring on `.toggle .track` reads as "no focus ring" if you measure `.toggle`, and `.focus()` from a script does not match `:focus-visible` at all — press a real Tab first.
 - Break the backend and look again: a dead poll must not render as an idle one, and a failed action must leave something on screen.
 
 ---
