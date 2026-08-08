@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
+import { Area, Field, Segmented, Select, Text, Toggle, hasDraft, useDraft } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
@@ -32,8 +32,24 @@ export function SettingsModal(
     (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
   )
 
+  // Escape and a backdrop click reach this sheet from anywhere inside it, including the
+  // Feedback pane's composer. Ask before discarding text the operator typed but never sent.
+  const guardedClose = async () => {
+    if (hasDraft()) {
+      const ok = await confirmDialog({
+        title: 'Discard your message?',
+        message: 'You’ve written a message but haven’t sent it. Closing settings will discard it.',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep writing',
+        tone: 'warning',
+      })
+      if (ok !== true) return
+    }
+    onClose()
+  }
+
   return (
-    <Modal className="settings-modal" label="Settings" onClose={onClose}>
+    <Modal className="settings-modal" label="Settings" onClose={guardedClose}>
         <nav className="settings-nav" aria-label="Settings sections">
           {visible.map((s) => {
             const Glyph = Icon[s.ic]
@@ -50,7 +66,7 @@ export function SettingsModal(
           })}
         </nav>
         <div className="settings-body">
-          <button className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+          <button className="settings-close" onClick={guardedClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
           </button>
           {section === 'general' && <General />}
@@ -142,6 +158,8 @@ function Feedback() {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // A written-but-unsent message is work. Escape used to bin it silently.
+  useDraft(() => !done && message.trim() !== '')
 
   const addFiles = async (list: FileList) => {
     const out = [...files]
