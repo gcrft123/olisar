@@ -141,6 +141,18 @@ function SandboxChat() {
 function TestChatDrawer() {
   const [open, setOpen] = useState(false)
   const drawer = useRef<HTMLElement>(null)
+  // Mirrors the CSS rule that hides the FAB behind the save dock below 720px. Kept in sync
+  // by observing the same two conditions rather than by guessing.
+  const [dockHidesFab, setDockHidesFab] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)')
+    const check = () => setDockHidesFab(mq.matches && !!document.querySelector('.savedock.show'))
+    check()
+    const obs = new MutationObserver(check)
+    obs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] })
+    mq.addEventListener('change', check)
+    return () => { obs.disconnect(); mq.removeEventListener('change', check) }
+  }, [])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     window.addEventListener('keydown', onKey)
@@ -152,7 +164,12 @@ function TestChatDrawer() {
   useEffect(() => { if (drawer.current) drawer.current.inert = !open }, [open])
   return (
     <>
-      <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat">
+      {/* CSS hides this below 720px while the save dock is up, and an `opacity: 0` control
+          is still focusable and still announced — a phone user with unsaved edits could Tab
+          onto an invisible button and open a drawer with Enter. The CSS handles the paint;
+          this handles the tab order. */}
+      <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat"
+        ref={(el) => { if (el) el.inert = dockHidesFab }}>
         <Icon.sandbox size={17} weight="Bold" /> Test chat
       </button>
       <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
@@ -465,7 +482,8 @@ function undoOf(ed: { previous: () => any; setData: (d: any) => void }, saver: {
     const before = ed.previous()
     if (before == null) return
     ed.setData(before)
-    // Commit on the next tick, once setData has flushed into the saver's closure.
+    // Next tick, so setData has flushed before the save reads it. `useSaver` keeps the
+    // callback in a ref, so this reaches the post-undo closure rather than the stale one.
     setTimeout(() => saver.run(), 0)
   }
 }
@@ -808,8 +826,11 @@ function SearchIndexCard() {
               <button onClick={start} disabled={busy}>
                 <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
               </button>
-              <button className="danger icon-btn" onClick={clear} disabled={busy || !data.indexed_messages} data-tip="Clear index" aria-label="Clear index">
-                <Icon.trash size={16} />
+              {/* Labelled, not an icon: this clears every indexed message in the server.
+                  It had the widest blast radius on the page and the smallest affordance,
+                  two pixels from a benign "Re-index all". */}
+              <button className="danger" onClick={clear} disabled={busy || !data.indexed_messages}>
+                <Icon.trash size={15} /> Clear index
               </button>
             </div>
           </div>
@@ -1026,7 +1047,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 console already knows the URL; retrying is the obvious next step and it was
                 simply missing. */}
             {s.status === 'error' && (
-              <button onClick={async () => {
+              <button aria-label={`Retry reading ${s.title || s.uri}`} onClick={async () => {
                 try {
                   await api.addSource({ type: s.type, uri: s.uri })
                   toast('Queued again — Olisar will retry reading it.', 'success')
@@ -1036,7 +1057,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 <Icon.refresh size={15} /> Retry
               </button>
             )}
-            <button className="danger" onClick={async () => {
+            <button className="danger" aria-label={`Remove ${s.title || s.uri}`} onClick={async () => {
               // Removing a source drops every passage Olisar read out of it. Re-adding means
               // re-crawling and re-reading against the free quota, so this is not a cheap undo.
               if (!(await confirmDialog({
@@ -1080,7 +1101,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}
               </div>
             </div>
-            <button className="danger" onClick={async () => {
+            <button className="danger" aria-label={`Delete the fact “${(f.subject || f.fact).slice(0, 40)}”`} onClick={async () => {
               if (!(await confirmDialog({
                 title: `Delete “${(f.subject || f.fact).slice(0, 48)}”?`,
                 message: <>“{f.fact}” — Olisar stops carrying this into replies. It may mine it again later if it comes up in conversation.</>,

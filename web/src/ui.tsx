@@ -300,16 +300,27 @@ export function useSaver(save: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const run = async () => {
+  // Held in a ref, because `run` outlives the render that created it. Undo does
+  // `setData(previous)` then calls `run()` on the next tick — and the `saver` object the
+  // caller holds is from the PRE-undo render, so `run` closed over the pre-undo `save`,
+  // which closed over the pre-undo `data`. Undo restored the old value on screen and sent
+  // the new one to the server. Reproduced as PUT bodies [ALPHA, BRAVO, BRAVO] with the
+  // field reading ALPHA. `useEditable`'s `dirty` had the identical staleness and was fixed
+  // with a version counter; this is the same bug one function down.
+  const latest = React.useRef(save)
+  latest.current = save
+  const run = async (): Promise<boolean> => {
     setBusy(true); setError(null); setSaved(false)
     try {
-      await save()
+      await latest.current()
       setSaved(true)
       // Long enough to actually use the Undo beside it — 2.5s was sized for a
       // confirmation nobody had to act on.
       setTimeout(() => setSaved(false), 7000)
+      return true
     } catch (e: any) {
       setError(e?.message || 'save failed')
+      return false
     } finally {
       setBusy(false)
     }
@@ -360,7 +371,7 @@ export function hasUnsavedChanges(): boolean {
 // always-visible rail already did — jump between pages — which makes it a slower way to
 // click something you can already see. A page's own actions are the reason to open it, and
 // Save is the action the whole console is organised around.
-type PageAction = { id: string; label: string; run: () => void }
+type PageAction = { id: string; label: string; run: () => void | Promise<boolean> }
 const pageActions = new Map<number, () => PageAction[]>()
 let nextActionId = 1
 
@@ -456,7 +467,7 @@ export function SaveDock(props: {
   const show = props.dirty || s.busy || s.saved || !!s.error
   // One registration here covers every config page, the same way the dirty registry does.
   usePageActions(() => (props.dirty && !s.busy
-    ? [{ id: 'save', label: props.label ?? 'Save changes', run: () => { void s.run() } }]
+    ? [{ id: 'save', label: props.label ?? 'Save changes', run: () => s.run() }]
     : []))
   return (
     <div className={'savedock' + (show ? ' show' : '')} aria-hidden={!show}>
@@ -464,9 +475,13 @@ export function SaveDock(props: {
         {/* "unsaved changes" -> "Saved" -> an error is the product's core state machine,
             and none of it reached a screen reader. */}
         <span className="savedock-msg" role="status">
+          {/* `show` guards the fall-through: without it the message reverted to the dirty
+              string while the dock was still sliding out, so every successful save ended on
+              a frame reading "You have unsaved changes." */}
           {s.error ? <span className="err">{s.error}</span>
             : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
-            : <>You have unsaved changes.</>}
+            : props.dirty ? <>You have unsaved changes.</>
+            : null}
         </span>
         <div className="savedock-actions">
           {/* The one moment undo is both cheap and wanted: the draft that was replaced is

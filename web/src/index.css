@@ -346,7 +346,9 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    shrink-wrap its content (so content-light pages render narrow, and pages widen once
    their data loads). A definite width makes every page the same 1180px, centered. */
 .main { padding: 40px 44px 96px; width: 100%; max-width: 1180px; margin: 0 auto; }
-.main:focus-visible { outline: none; }
+/* The skip link's whole payoff is landing somewhere visible. `outline: none` here meant
+   activating it produced no change on screen at all. */
+.main:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius); }
 /* Monaco names some of its own internal nodes with generic classes that collide with our
    layout classes above — notably `.main`, which Monaco gives each autocomplete row's
    content box. Our page `.main` padding/width then leaked into the editor and pushed every
@@ -649,7 +651,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .badge.pending, .badge.crawling, .badge.chunking, .badge.missing { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
-.badge.preference { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+/* Not the accent: it carries links, focus and the toggle "on" track, and this is one of
+   three neutral taxonomy labels sitting beside each other. */
+.badge.preference { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 /* Marketplace publisher chip — the violet accent, regardless of the active theme accent. */
 .badge.publisher {
   color: var(--accent-violet);
