@@ -252,8 +252,17 @@ export function Behavior() {
         ? cfg.name_triggers.split(',').map((s: string) => s.trim()).filter(Boolean)
         : cfg.name_triggers,
     })
-    await api.putProactivity(proEd.data)
-    configEd.markSaved(); proEd.markSaved()
+    // Mark each half saved as its own request lands. Marking both at the end meant a failing
+    // second PUT left the page reporting *everything* unsaved while the first half was
+    // already live on the server — so the operator either re-sent settings that had applied,
+    // or believed a change had been rolled back that hadn't.
+    configEd.markSaved()
+    try {
+      await api.putProactivity(proEd.data)
+    } catch (e: any) {
+      throw new Error(`Engagement settings saved, but proactivity didn’t: ${e?.message || 'request failed'}`)
+    }
+    proEd.markSaved()
   })
   if (configEd.loading || !configEd.data || configEd.error) return <Loading of={configEd} what="behavior settings" />
   if (proEd.loading || !proEd.data) return <Loading of={proEd} what="proactivity settings" />
@@ -2067,7 +2076,10 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
                   <button className="danger" onClick={() => doYank(r)}>Yank</button>
                 )}
-                <button className="primary" onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                {/* Not primary: a grid of twelve cards was a grid of twelve primaries, and
+                    the page lost its one loudest control. Install here opens the consent
+                    screen — the primary lives there, on the button that actually installs. */}
+                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
               </div>
             </div>
           ))}
