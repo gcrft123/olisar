@@ -475,21 +475,24 @@ export function SaveDock(props: {
         {/* "unsaved changes" -> "Saved" -> an error is the product's core state machine,
             and none of it reached a screen reader. */}
         <span className="savedock-msg" role="status">
-          {/* `show` guards the fall-through: without it the message reverted to the dirty
-              string while the dock was still sliding out, so every successful save ended on
-              a frame reading "You have unsaved changes." */}
+          {/* `dirty` outranks `saved`. The confirmation lasts 7s so the Undo beside it can
+              actually be used — but typing during those 7s used to leave the dock still
+              reading "Saved" with Undo still offered, over a form that now held unsaved
+              work. Taking that Undo discarded the new edit and there is only one history
+              slot, so it was unrecoverable. A fresh edit invalidates both the claim and the
+              offer. `dirty` also guards the fall-through, so the message doesn't revert to
+              the unsaved string while the dock is sliding out. */}
           {s.error ? <span className="err">{s.error}</span>
-            : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
             : props.dirty ? <>You have unsaved changes.</>
+            : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
             : null}
         </span>
         <div className="savedock-actions">
-          {/* The one moment undo is both cheap and wanted: the draft that was replaced is
-              still in memory, and the operator is looking straight at the confirmation. */}
-          {s.saved && props.onUndo && (
+          {/* Offered only while the save is still the newest thing that happened. */}
+          {s.saved && !props.dirty && props.onUndo && (
             <button className="ghost" onClick={props.onUndo}>Undo</button>
           )}
-          {props.onReset && !s.saved && (
+          {props.onReset && (!s.saved || props.dirty) && (
             <button className="ghost" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
           )}
           <button className="primary" disabled={s.busy || !props.dirty} onClick={s.run}>
