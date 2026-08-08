@@ -354,13 +354,16 @@ function BotSwitcher() {
                     )}
                   </span>
                   <span className="row-divider" aria-hidden="true" />
+                  {/* Two irreversible actions of different scope, both red, both wordless,
+                      6px apart, is a misclick waiting to happen. "Delete" carries its word;
+                      the icon-only one beside it is the reversible-ish reset. */}
                   <button className="danger icon-btn sm" data-tip="Reset configuration" aria-label={`Reset ${p.name}'s configuration`} disabled={busy} onClick={() => reset(p)}>
                     <Icon.eraser size={14} />
                   </button>
-                  <span className="row-slot">
+                  <span className="row-slot wide">
                     {!isActive && (
-                      <button className="danger icon-btn sm" data-tip="Delete bot" aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => del(p)}>
-                        <Icon.trash size={14} />
+                      <button className="danger" aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => del(p)}>
+                        <Icon.trash size={14} /> Delete
                       </button>
                     )}
                   </span>

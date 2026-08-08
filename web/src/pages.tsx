@@ -37,7 +37,7 @@ export function Persona() {
       </Card>
       <div className="grid2">
         <Card title="Style notes" hint="Olisar's voice, tone, and formatting.">
-          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
+          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} ariaLabel="Style notes" />
         </Card>
         <Card
           title="About me"
@@ -47,7 +47,7 @@ export function Persona() {
             </>
           }
         >
-          <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} />
+          <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} ariaLabel="About me — the bot's public Discord bio" />
         </Card>
       </div>
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
@@ -334,7 +334,12 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
   const initial = (name || 'O').trim().slice(0, 1).toUpperCase()
   // Split on {placeholder} so the slots read as slots — they're substituted at send time,
   // and showing them as literal prose is the one thing this preview must not do.
-  const parts = text.split(/(\{[a-z_]+\})/gi)
+  //
+  // Discord's own markdown gets rendered too. The shipped defaults use it — `/olisar status`
+  // is "This channel's mode is **{mode}**." — and printing the asterisks made the preview
+  // wrong on five of fourteen replies. A preview that is 95% faithful is worse than none,
+  // because the 5% is the part nobody thinks to check.
+  const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|`[^`\n]+`|~~[^~]+~~)/g)
   return (
     <div className="dcp">
       <div className="dcp-msg">
@@ -349,9 +354,15 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
           </div>
           <div className="dcp-text">
             {text.trim()
-              ? parts.map((seg, i) => (/^\{[a-z_]+\}$/i.test(seg)
-                  ? <span className="dcp-slot" key={i}>{seg}</span>
-                  : <span key={i}>{seg}</span>))
+              ? parts.map((seg, i) => {
+                  if (/^\{[a-z_]+\}$/i.test(seg)) return <span className="dcp-slot" key={i}>{seg}</span>
+                  if (/^\*\*[^*]+\*\*$/.test(seg)) return <b key={i}>{seg.slice(2, -2)}</b>
+                  if (/^__[^_]+__$/.test(seg)) return <b key={i}>{seg.slice(2, -2)}</b>
+                  if (/^\*[^*\n]+\*$/.test(seg)) return <i key={i}>{seg.slice(1, -1)}</i>
+                  if (/^~~[^~]+~~$/.test(seg)) return <s key={i}>{seg.slice(2, -2)}</s>
+                  if (/^`[^`\n]+`$/.test(seg)) return <code className="dcp-code" key={i}>{seg.slice(1, -1)}</code>
+                  return <span key={i}>{seg}</span>
+                })
               : <span className="dcp-empty">Olisar stays quiet.</span>}
           </div>
         </div>
@@ -749,7 +760,9 @@ function SearchIndexCard() {
               )}
             </div>
             <div className="reindex-actions">
-              <button className="primary" onClick={start} disabled={busy}>
+              {/* Not primary: a heavy background job shouldn't be the brightest thing on a
+                  page, least of all sitting beside a destructive action. */}
+              <button onClick={start} disabled={busy}>
                 <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
               </button>
               <button className="danger icon-btn" onClick={clear} disabled={busy || !data.indexed_messages} data-tip="Clear index" aria-label="Clear index">
@@ -945,17 +958,21 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             <Field label="Max pages"><Num value={maxPages} onChange={setMaxPages} min={1} max={100} unit="pages" def={25} /></Field>
           </div>
         )}
-        <SaveBar saver={adder} label="Add & ingest" />
+        <SaveBar saver={adder} label="Add & ingest" variant="secondary" />
         <div className="settings-subhead">Sources ({rows.length})</div>
         {rows.length === 0 && <div className="empty">Nothing yet.</div>}
         {rows.map((s) => (
-          <div className="list-row" key={s.id}>
+          // A failed row carries the most text and had the least room: badge + Retry +
+          // Remove won the flex fight and squeezed the identifier to 165px, so the URL
+          // ellipsised and the error interleaved with the wrapped meta line. When there's
+          // something to read, give it the full width and put the actions underneath.
+          <div className={'list-row' + (s.status === 'error' ? ' stacked' : '')} key={s.id}>
             <div className="grow">
-              <div className="title">{s.title || s.uri}</div>
+              <div className="title" title={s.title || s.uri}>{s.title || s.uri}</div>
               <div className="meta">
                 {s.type} · {s.chunks} chunks
-                {s.error && <span className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</span>}
               </div>
+              {s.error && <div className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</div>}
             </div>
             <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
             {/* A failed source used to offer Remove and nothing else, so recovering from a
@@ -996,7 +1013,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             <Field label="Fact"><Text value={fact} onChange={setFact} placeholder="MN is Movie Night, our Friday watch-party in #cinema" /></Field>
           </div>
         </div>
-        <SaveBar saver={factAdder} label="Add fact" />
+        <SaveBar saver={factAdder} label="Add fact" variant="secondary" />
         <div className="settings-subhead">Mine for facts</div>
         <div className="btn-row">
           <button onClick={() => mine('memory')} disabled={!!mining}>
@@ -1011,7 +1028,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         {factRows.map((f) => (
           <div className="list-row" key={f.id}>
             <div className="grow">
-              <div className="title" data-tip={f.fact}>{f.fact}</div>
+              <div className="title" data-tip={f.fact} title={f.fact}>{f.fact}</div>
               <div className="meta">
                 {f.subject && <span className="tag">{f.subject}</span>}
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}

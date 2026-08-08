@@ -25,6 +25,10 @@ const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'usage', label: 'Usage', ic: 'usage' },
 ]
 
+// Every id the router may resolve. Developer is included even when the tab is hidden:
+// a non-developer landing on #/developer should be redirected, not shown a blank page.
+const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs', 'developer'])
+
 type Guild = { id: string; name: string; icon: string }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
@@ -33,8 +37,19 @@ const GUILD_KEY = 'olisar_guild'
 // Persona, and no view could be linked to or bookmarked. The tab is in the hash: cheap
 // (no server routing needed for a file-served SPA), survives a reload, and gives the
 // browser's own Back/Forward something real to move through.
-function useTabRouting(tab: string, setTab: (id: string) => void, guard: (what: string) => Promise<boolean>) {
-  const hashTab = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
+function useTabRouting(
+  tab: string,
+  setTab: (id: string) => void,
+  guard: (what: string) => Promise<boolean>,
+  isTab: (id: string) => boolean,
+) {
+  // An unknown id renders nothing — `pages[id]` is simply undefined, so no boundary catches
+  // it and the operator gets a blank console with no active nav item. Treat anything that
+  // isn't a real tab as "no route" and rewrite the URL to match what's on screen.
+  const hashTab = () => {
+    const raw = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
+    return isTab(raw) ? raw : ''
+  }
   // Adopt the hash on first paint, so a bookmarked or shared link opens its page.
   useEffect(() => {
     const initial = hashTab()
@@ -51,7 +66,11 @@ function useTabRouting(tab: string, setTab: (id: string) => void, guard: (what: 
   useEffect(() => {
     const onPop = async () => {
       const next = hashTab()
-      if (!next || next === tab) return
+      // An unrecognised hash resolves to '' — keep the screen where it is and rewrite the
+      // URL, so a stale bookmark or a stray anchor never leaves the address bar describing
+      // a page that isn't showing.
+      if (!next) { history.replaceState(null, '', '#/' + tab); return }
+      if (next === tab) return
       if (await guard('this page')) setTab(next)
       else history.pushState(null, '', '#/' + tab)
     }
@@ -93,14 +112,28 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onLeave)
   }, [])
 
+  // The drawer covers the page but wasn't modal: the content behind stayed focusable and
+  // the body still scrolled, so tabbing out of the drawer landed on controls the operator
+  // couldn't see. The Settings modal gets this right through the Modal shell; the drawer
+  // is hand-rolled, so it has to do the same work itself.
   useEffect(() => {
     if (!navOpen) return
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
     const wide = window.matchMedia('(min-width: 861px)')
     const onWide = () => { if (wide.matches) setNavOpen(false) }
+    const main = document.getElementById('console-main')
+    if (main) main.inert = true
+    const prevOverflow = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.getElementById('console-nav')?.querySelector<HTMLElement>('button, [role="button"]')?.focus()
     window.addEventListener('keydown', onKey)
     wide.addEventListener('change', onWide)
-    return () => { window.removeEventListener('keydown', onKey); wide.removeEventListener('change', onWide) }
+    return () => {
+      if (main) main.inert = false
+      document.documentElement.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+      wide.removeEventListener('change', onWide)
+    }
   }, [navOpen])
 
   // Landing back from the marketplace Discord-verification round-trip.
@@ -145,6 +178,8 @@ export default function App() {
 
   usePaletteHotkey(React.useCallback(() => setPaletteOpen(true), []))
 
+  const isTab = React.useCallback((id: string) => TAB_IDS.has(id), [])
+
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
   // render before it — which React treats as fatal rather than degraded.
@@ -158,7 +193,7 @@ export default function App() {
       tone: 'warning',
     })
   }
-  useTabRouting(tab, setTab, leaveGuard)
+  useTabRouting(tab, setTab, leaveGuard, isTab)
 
   // Is this operator a whitelisted platform developer? Gates the Developer tab.
   useEffect(() => {
@@ -270,7 +305,22 @@ export default function App() {
   return (
     <div className="shell">
       {/* ~16 controls sit between the top of the page and the content on every tab. */}
-      <a className="skip-link" href="#console-main">Skip to content</a>
+      {/* Moves focus rather than navigating: the router reads the hash as a tab id, so
+          `href="#console-main"` left the URL at a tab that doesn't exist — a blank console
+          with no active nav item and no route back. `<main>` takes tabindex="-1" below so
+          the focus actually lands (Firefox and Safari won't focus a bare container). */}
+      <a
+        className="skip-link"
+        href="#console-main"
+        onClick={(e) => {
+          e.preventDefault()
+          const m = document.getElementById('console-main')
+          m?.focus()
+          m?.scrollIntoView({ block: 'start' })
+        }}
+      >
+        Skip to content
+      </a>
       {/* Narrow widths only — CSS hides it once the rail is back in the flow. */}
       <header className="topbar">
         <button className="ghost icon-btn sm" aria-label="Open navigation" aria-expanded={navOpen}
@@ -346,7 +396,7 @@ export default function App() {
         />
       )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} id="console-main" className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
+      <main key={guild ?? ''} id="console-main" tabIndex={-1} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
         {/* Keyed by tab too, so moving to another page clears a failed one. */}
         <PageBoundary key={tab}>{pages[tab]}</PageBoundary>
       </main>
