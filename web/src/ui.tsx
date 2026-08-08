@@ -213,12 +213,25 @@ export function Num(props: {
           max={props.max}
           step={props.step}
           style={reserve ? { paddingRight: reserve } : undefined}
+          // Leaving the field discards an unusable entry and shows the committed value again.
+          // Without this the box kept displaying a rejected "500" after Reset: the draft had
+          // correctly refused it, so `props.value` never changed and the local text had no
+          // signal to clear — the field disagreed with the data it was editing.
+          onBlur={() => { if (err) setText(null) }}
           onChange={(e) => {
             setText(e.target.value)
-            // Only propagate a value the field would accept. An out-of-range or empty box
-            // stays visibly wrong and blocks Save rather than quietly reaching the server.
-            const n = Number(e.target.value)
-            if (e.target.value.trim() !== '' && Number.isFinite(n)) props.onChange(n)
+            // Only propagate a value the field would accept. The comment used to say this
+            // while the code checked parseability alone, so 500 against max={100} still
+            // entered the draft and was stopped only by the disabled Save — which meant a
+            // Reset-then-leave could carry it, and any future save path that didn't consult
+            // the registry would have written it.
+            const raw = e.target.value.trim()
+            if (raw === '') return
+            const n = Number(raw)
+            if (!Number.isFinite(n)) return
+            if (props.min !== undefined && n < props.min) return
+            if (props.max !== undefined && n > props.max) return
+            props.onChange(n)
           }}
         />
         {props.unit && <span className="num-unit" ref={unitRef}>{props.unit}</span>}

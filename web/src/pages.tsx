@@ -241,6 +241,17 @@ function TestChatDrawer() {
   )
 }
 
+/** "23:00–07:00 UTC · 6 PM–2 AM your time" — the subtraction the operator was doing by hand. */
+function localQuiet(startUtc: number, endUtc: number): string {
+  const fmt = (h: number) => {
+    const d = new Date(Date.UTC(2000, 0, 2, h, 0, 0))
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  }
+  const offset = -new Date().getTimezoneOffset() / 60
+  if (offset === 0) return `${String(startUtc).padStart(2, '0')}:00–${String(endUtc).padStart(2, '0')}:00 — you're on UTC.`
+  return `${String(startUtc).padStart(2, '0')}:00–${String(endUtc).padStart(2, '0')}:00 UTC is ${fmt(startUtc)}–${fmt(endUtc)} where you are.`
+}
+
 // ── Behavior (guild_config + proactivity) ──────────────────────────────────
 // Mention types Olisar can be barred from pinging (multi-choice).
 const MENTION_OPTS = [
@@ -401,10 +412,15 @@ export function Behavior() {
           <Toggle value={quietOn} onChange={(v) => setQuiet(v ? { start: qh.start ?? 23, end: qh.end ?? 7 } : {})} label="Enable quiet hours" />
         </Field>
         {quietOn && (
-          <div className="row">
-            <Field label="From (hour)"><Num value={qh.start ?? 23} onChange={(v) => setQuiet({ ...qh, start: v })} min={0} max={23} /></Field>
-            <Field label="To (hour)"><Num value={qh.end ?? 7} onChange={(v) => setQuiet({ ...qh, end: v })} min={0} max={23} /></Field>
-          </div>
+          <>
+            <div className="row">
+              <Field label="From (hour)"><Num value={qh.start ?? 23} onChange={(v) => setQuiet({ ...qh, start: v })} min={0} max={23} /></Field>
+              <Field label="To (hour)"><Num value={qh.end ?? 7} onChange={(v) => setQuiet({ ...qh, end: v })} min={0} max={23} /></Field>
+            </div>
+            {/* The stored value is UTC because the bot is; the operator is not. Doing that
+                subtraction in your head is the whole cost of this control. */}
+            <div className="desc">{localQuiet(qh.start ?? 23, qh.end ?? 7)}</div>
+          </>
         )}
       </Card>
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
@@ -2611,7 +2627,16 @@ export function Members() {
         || (impressionOf(r) || '').toLowerCase().includes(term))
     : rows
 
-  const build = async (uid: string) => {
+  const build = async (uid: string, name: string, hasExisting: boolean) => {
+    // Overwrites what's there and spends model quota. Replacing something you're looking at
+    // is worth one question; creating the first one isn't.
+    if (hasExisting && !(await confirmDialog({
+      title: `Rebuild the impression of ${name}?`,
+      message: 'The current impression is replaced with a freshly generated one, and the rebuild uses your model quota.',
+      confirmLabel: 'Rebuild',
+      cancelLabel: 'Keep the current one',
+      tone: 'warning',
+    }))) return
     setBuilding({ ...building, [uid]: true })
     setErrs({ ...errs, [uid]: '' })
     try {
@@ -2675,7 +2700,7 @@ export function Members() {
               <div className="member-actions">
                 {/* The card's only action. As a ghost — transparent fill, transparent
                     border, --text-2 — it read as caption text rather than a control. */}
-                <button disabled={busy} onClick={() => build(p.user_id)}>
+                <button disabled={busy} onClick={() => build(p.user_id, p.display_name || 'this member', !!impression)}>
                   {busy ? 'Building…' : impression ? 'Rebuild impression' : 'Create impression'}
                 </button>
                 {errs[p.user_id] && <span className="err sm">{errs[p.user_id]}</span>}
