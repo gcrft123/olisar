@@ -156,6 +156,66 @@ export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; 
   )
 }
 
+// ── Segmented (an exclusive choice rendered as a button row) ─────────────────
+// The console had four of these and only one carried its state: the other three were
+// plain buttons with a visual-only `.on` class, so a screen reader heard "Today / 7
+// days / 30 days" with no way to tell which was active — on a page whose numbers
+// change meaning with the answer. One component, so that can't drift again.
+//
+// `contents` renders the group box away (`display: contents`) for a container that is
+// already a flex row with other children, keeping the ARIA grouping without the layout.
+export function Segmented<T extends string | number>(props: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: React.ReactNode }[]
+  ariaLabel: string
+  /** Class for the group wrapper — `useg`, `ext-seg`, … */
+  className?: string
+  /** Per-button class; receives whether that option is selected. */
+  buttonClass?: (on: boolean) => string
+  contents?: boolean
+}) {
+  const uid = React.useId()
+  const group = React.useRef<HTMLDivElement>(null)
+  const idOf = (v: T) => `${uid}-${String(v).replace(/\W/g, '_')}`
+  const onKey = (e: React.KeyboardEvent) => {
+    const step = /^Arrow(Right|Down)$/.test(e.key) ? 1 : /^Arrow(Left|Up)$/.test(e.key) ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const i = props.options.findIndex((o) => o.value === props.value)
+    const next = props.options[(Math.max(0, i) + step + props.options.length) % props.options.length]
+    props.onChange(next.value)
+    group.current?.querySelector<HTMLElement>(`#${CSS.escape(idOf(next.value))}`)?.focus()
+  }
+  return (
+    <div
+      ref={group}
+      className={props.className}
+      style={props.contents ? { display: 'contents' } : undefined}
+      role="radiogroup"
+      aria-label={props.ariaLabel}
+      onKeyDown={onKey}
+    >
+      {props.options.map((o) => {
+        const on = o.value === props.value
+        return (
+          <button
+            key={String(o.value)}
+            id={idOf(o.value)}
+            role="radio"
+            aria-checked={on}
+            tabIndex={on ? 0 : -1}
+            className={props.buttonClass ? props.buttonClass(on) : (on ? 'on' : '')}
+            onClick={() => props.onChange(o.value)}
+          >
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // A save button with status feedback, given an async save function.
 export function useSaver(save: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
@@ -191,6 +251,35 @@ export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: str
   )
 }
 
+// ── Unsaved-work registry ────────────────────────────────────────────────────
+// The whole console is built on "nothing applies until you press Save" — and every
+// page is remounted by a `key` when the tab or the server changes, which threw the
+// draft away without a word. The SaveDock lives *inside* the remounted subtree, so
+// the bar that just said "You have unsaved changes." vanished along with them.
+//
+// Each useEditable instance registers its dirty flag here; the shell asks before it
+// navigates. Keeping the registry module-level (rather than in context) means pages
+// need no wiring at all — they already route their draft through useEditable.
+const dirtyPages = new Map<number, () => boolean>()
+let nextPageId = 1
+
+/** True when any mounted page is holding edits that haven't been saved. */
+export function hasUnsavedChanges(): boolean {
+  for (const isDirty of dirtyPages.values()) if (isDirty()) return true
+  return false
+}
+
+/** Register a dirty-flag source for a page that doesn't use `useEditable`. */
+export function useDirtyGuard(isDirty: () => boolean): void {
+  const latest = React.useRef(isDirty)
+  latest.current = isDirty
+  React.useEffect(() => {
+    const id = nextPageId++
+    dirtyPages.set(id, () => latest.current())
+    return () => { dirtyPages.delete(id) }
+  }, [])
+}
+
 // Like useAsync, but tracks whether the editable `data` has diverged from what was
 // last loaded/saved. Pages edit `data` freely (nothing hits the server) and render a
 // <SaveDock> driven by `dirty`; saving calls `markSaved()`, reset reverts.
@@ -212,6 +301,7 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
     () => data != null && JSON.stringify(data) !== base.current,
     [data],
   )
+  useDirtyGuard(() => dirty)
   return {
     data, setData, loading, reload, dirty,
     reset: () => { if (base.current) setData(JSON.parse(base.current)) },

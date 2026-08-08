@@ -161,7 +161,6 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
         return {
             "name_triggers": c.name_triggers,
             "reply_in_dms": c.reply_in_dms,
-            "loose_msg_enabled": c.loose_msg_enabled,
             "default_model": c.default_model,
             "grounding_enabled": c.grounding_enabled,
             "grounding_daily_cap": c.grounding_daily_cap,

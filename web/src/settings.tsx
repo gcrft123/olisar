@@ -1,7 +1,7 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Select, Text, Toggle } from './ui'
+import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { ACCENTS, DEFAULT_ACCENT, SCALES, getAccent, getScale, setAccent, setScale } from './theme'
@@ -88,9 +88,10 @@ function Logs() {
     <>
       <Head title="Logs" />
       <div className="log-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={'ghost' + (which === t.id ? ' on' : '')} onClick={() => setWhich(t.id)}>{t.label}</button>
-        ))}
+        {/* `contents` so the group keeps its ARIA role without adding a box to this flex row. */}
+        <Segmented contents ariaLabel="Which log" value={which} onChange={setWhich}
+          buttonClass={(on) => 'ghost' + (on ? ' on' : '')}
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))} />
         <span className="grow" />
         <button className="ghost icon-btn sm" data-tip="Refresh" aria-label="Refresh" onClick={() => load(which)}>
           <Icon.refresh size={14} />
@@ -575,37 +576,18 @@ function Appearance() {
   )
 }
 
-// Three exclusive options in a segmented control — a radiogroup, so Tab lands on the current
-// size and ←/→ move between them rather than costing three separate stops.
+// The interface-size preference. Same exclusive-choice contract as every other
+// segmented control in the console, so it uses the same component.
 function SizeChoice() {
   const [scale, setScaleState] = useState(getScale)
-  const group = useRef<HTMLDivElement>(null)
-  const pick = (v: number) => { setScale(v); setScaleState(v) }
-  const onKey = (e: ReactKeyboardEvent) => {
-    const step = /^Arrow(Right|Down)$/.test(e.key) ? 1 : /^Arrow(Left|Up)$/.test(e.key) ? -1 : 0
-    if (!step) return
-    e.preventDefault()
-    const i = SCALES.findIndex((s) => s.value === scale)
-    const next = SCALES[(Math.max(0, i) + step + SCALES.length) % SCALES.length]
-    pick(next.value)
-    group.current?.querySelector<HTMLElement>(`#size-${String(next.value).replace('.', '_')}`)?.focus()
-  }
   return (
-    <div className="useg" ref={group} role="radiogroup" aria-label="Interface size" onKeyDown={onKey}>
-      {SCALES.map((s) => (
-        <button
-          key={s.value}
-          id={`size-${String(s.value).replace('.', '_')}`}
-          role="radio"
-          aria-checked={scale === s.value}
-          tabIndex={scale === s.value ? 0 : -1}
-          className={scale === s.value ? 'on' : ''}
-          onClick={() => pick(s.value)}
-        >
-          {s.label}
-        </button>
-      ))}
-    </div>
+    <Segmented
+      className="useg"
+      ariaLabel="Interface size"
+      value={scale}
+      onChange={(v) => { setScale(v); setScaleState(v) }}
+      options={SCALES.map((x) => ({ value: x.value, label: x.label }))}
+    />
   )
 }
 
