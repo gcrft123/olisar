@@ -72,6 +72,12 @@
   --neutral: #9d9da7; --neutral-soft: rgba(157, 157, 167, 0.12); --neutral-border: rgba(157, 157, 167, 0.28);
   --success: var(--ok); --error: var(--danger); --warning: var(--warn);
 
+  /* Discord's own chrome, for the surfaces that simulate it (the Command replies
+     preview). Deliberately off-palette: this is a picture of another product, and
+     approximating it in Olisar's greys would make the preview a lie. */
+  --dc-bg: #313338;      --dc-head: #f2f3f5;   --dc-text: #dbdee1;
+  --dc-muted: #949ba4;   --dc-hash: #80848e;   --dc-brand: #5865f2;
+
   /* Type */
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -298,6 +304,13 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .botpower.starting .power-ring { animation: bp-spin 0.9s linear infinite; }
 .botpower.starting .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
 
+/* Connected but resting a rate-limited model: up, and not answering. Amber, because it
+   is neither healthy nor broken, and it clears on its own. */
+.botpower.limited .power-btn {
+  color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border-strong));
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+.botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
 .botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
 
@@ -433,11 +446,6 @@ select { appearance: none; cursor: pointer;
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 .mono { font-family: var(--mono); font-size: 12.5px; }
-.code-default {
-  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-xs);
-  padding: 8px 10px; color: var(--text-2); font-size: 12px; margin-top: 8px;
-  font-family: var(--mono); white-space: pre-wrap; line-height: 1.5;
-}
 .placeholders { font-size: 11.5px; color: var(--text-3); margin-top: 7px; }
 .placeholders code { color: var(--accent); font-family: var(--mono); }
 
@@ -568,7 +576,17 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
 }
-.member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); }
+/* Avatar + name, so a member card is recognisably a person rather than a database row.
+   Discord hands us the avatar URL; the tinted initial is the fallback for a member the
+   bot hasn't seen since the avatar column landed, or while the bot is offline. */
+.member-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.member-av {
+  width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px;
+}
+.member-av img { width: 100%; height: 100%; object-fit: cover; }
+.member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .member-roles .tag.more { color: var(--text-3); cursor: default; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
@@ -608,6 +626,33 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text);
   border-radius: var(--radius-xs); padding: 1px 7px;
 }
+
+/* Discord role chip — the role's own colour, as it reads in Discord's member list.
+   `--rc` is set inline from the API's hex; an uncoloured role falls back to the ramp. */
+.rolechip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 2px 10px 2px 8px; border-radius: var(--radius-pill);
+  /* Explicit, because the "+N" popup's trigger is a .tag and would otherwise pass mono down. */
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 550; color: var(--text);
+  background: color-mix(in srgb, var(--rc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rc) 40%, transparent);
+}
+.rolechip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); flex: none; }
+.rolechip.plain { background: var(--bg-inset); border-color: var(--border); color: var(--text-2); }
+.rolechip.plain .rolechip-dot { background: var(--text-3); }
+
+/* Channel list, grouped the way Discord groups it. The category eyebrow reuses the
+   nav-label treatment; the rail never adopted it, but a channel tree is exactly what
+   it was drawn for. */
+.chan-group + .chan-group { margin-top: 6px; }
+.chan-cat {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-3); padding: 14px 0 5px;
+}
+.chan-group:first-child .chan-cat { padding-top: 4px; }
+/* The row's derived consequence line wraps rather than truncating — it is the sentence
+   that says what the two controls beside it actually do. */
+.chan-group .list-row .meta { white-space: normal; }
 
 .mode-legend { display: grid; gap: 8px; font-size: 12.5px; color: var(--text-2); }
 .mode-legend > div { display: flex; align-items: center; gap: 9px; }
@@ -1000,6 +1045,39 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .doc a:hover { color: #fff; text-decoration-color: #fff; }
 .doc code { font-family: var(--mono); background: var(--bg-inset); border: 1px solid var(--border); padding: 1px 5px; border-radius: 5px; font-size: 12px; color: var(--text); }
+
+/* ── Discord message preview ─────────────────────────────────────────────── */
+/* A picture of the thing being configured. Ported from the marketing site's mockup
+   (docs/index.html) so the console and the landing page show the same Discord, and
+   so "does this sound like Olisar" is a glance rather than an act of imagination. */
+.dcp {
+  background: var(--dc-bg); border-radius: var(--radius-sm);
+  padding: 14px 16px; margin-top: 10px; overflow: hidden;
+}
+.dcp-msg { display: flex; gap: 15px; }
+.dcp-av {
+  width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden;
+  background: var(--dc-brand); display: grid; place-items: center;
+  color: #fff; font-weight: 600; font-size: 15px;
+}
+.dcp-av img { width: 100%; height: 100%; object-fit: cover; }
+.dcp-body { min-width: 0; flex: 1; }
+.dcp-row { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; flex-wrap: wrap; }
+.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); }
+/* The APP badge is what makes this read as Discord rather than as a generic chat. */
+.dcp-tag {
+  background: var(--dc-brand); color: #fff; font-size: 10px; font-weight: 600;
+  padding: 2px 4px; border-radius: 4px; letter-spacing: 0.02em; position: relative; top: -1px;
+}
+.dcp-time { font-size: 11.5px; color: var(--dc-muted); }
+.dcp-text { color: var(--dc-text); font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+/* A {placeholder} is substituted when the message is actually sent, so it is shown as
+   a slot rather than as literal text the reader would expect to see. */
+.dcp-slot {
+  font-family: var(--mono); font-size: 0.85em; padding: 1px 5px; border-radius: 3px;
+  background: color-mix(in srgb, var(--dc-brand) 26%, transparent); color: #fff;
+}
+.dcp-empty { color: var(--dc-muted); font-style: italic; }
 
 /* ── Test chat (enclosed sandbox) ───────────────────────────────────────── */
 /* flex:1 + min-height:0 so the panel fills its card (matching Identity's height) and
