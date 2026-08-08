@@ -3,8 +3,9 @@
 // anywhere by the exported toast() / confirmDialog() / promptDialog() helpers.
 // These replace the native alert/confirm/prompt, which break the calm aesthetic.
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Icon, type IconName } from './icons'
+import { uiScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
@@ -51,6 +52,79 @@ function ToastStack() {
   const remove = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), [])
   if (!items.length) return null
   return <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>
+}
+
+// ── Modal shell ──────────────────────────────────────────────────────────────
+// Every overlay in the console goes through this. Hand-rolled backdrops drifted: some
+// closed on Escape and some didn't, none announced as a dialog, and focus stayed on the
+// trigger behind the overlay with the whole page still tabbable underneath.
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+export function Modal(props: {
+  /** Class on the dialog card itself — `.settings-modal`, `.import-modal`, `.confirm-dialog`, … */
+  className: string
+  /** id of the element that titles this dialog (its <h2> / .confirm-title). */
+  labelledBy?: string
+  label?: string
+  onClose?: () => void
+  /** Set false while an irreversible action is in flight, so a stray Escape can't abandon it. */
+  dismissable?: boolean
+  children: React.ReactNode
+}) {
+  const card = useRef<HTMLDivElement>(null)
+  const dismissable = props.dismissable !== false
+  const close = props.onClose
+
+  useEffect(() => {
+    const returnTo = document.activeElement as HTMLElement | null
+    const el = card.current
+    // Don't fight an autoFocus'd input — React has already focused it by now.
+    if (el && !el.contains(document.activeElement)) {
+      (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus()
+    }
+    return () => { if (returnTo?.isConnected) returnTo.focus() }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && dismissable) { e.stopPropagation(); close?.(); return }
+      if (e.key !== 'Tab') return
+      const el = card.current
+      if (!el) return
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.offsetParent !== null || n === document.activeElement)
+      if (!items.length) { e.preventDefault(); el.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      // Wrap at both ends, and pull focus back in if it escaped to the page behind.
+      if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus() }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [dismissable, close])
+
+  return (
+    <div
+      className="modal-backdrop"
+      // mousedown, not click: a text selection that starts inside the card and releases on
+      // the backdrop fires a click on this element and used to close the dialog mid-drag.
+      onMouseDown={(e) => { if (e.target === e.currentTarget && dismissable) close?.() }}
+    >
+      <div
+        ref={card}
+        className={props.className}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={props.labelledBy}
+        aria-label={props.labelledBy ? undefined : props.label}
+        tabIndex={-1}
+      >
+        {props.children}
+      </div>
+    </div>
+  )
 }
 
 // ── Confirm / prompt dialog ──────────────────────────────────────────────────
@@ -108,19 +182,12 @@ function CopyField({ value }: { value: string }) {
 function ConfirmHost() {
   const [state, setState] = useState<{ opts: DialogOpts; resolve: (v: boolean | string | null) => void } | null>(null)
   const [value, setValue] = useState('')
+  const titleId = React.useId()
 
   useEffect(() => {
     dialogShow = (opts, resolve) => { setValue(opts.prompt?.defaultValue ?? ''); setState({ opts, resolve }) }
     return () => { dialogShow = null }
   }, [])
-
-  useEffect(() => {
-    if (!state) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(state.opts.prompt ? null : false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
 
   if (!state) return null
   const { opts, resolve } = state
@@ -131,48 +198,47 @@ function ConfirmHost() {
   const onCancel = () => close(opts.prompt ? null : false)
   const toneClass = opts.tone === 'danger' ? 'danger' : opts.tone === 'warning' ? 'warning' : ''
   const Glyph = Icon[opts.icon ?? (opts.tone === 'danger' ? 'warn' : opts.tone === 'warning' ? 'warn' : 'info')]
+  const inputLabel = phrase ? 'Type the confirmation phrase' : opts.prompt?.placeholder || opts.title
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="confirm-head">
-          <div className={'confirm-icon ' + toneClass}><Glyph size={22} weight="Bold" /></div>
-          <div className="confirm-text">
-            <div className="confirm-title">{opts.title}</div>
-            {opts.message && <div className="confirm-msg">{opts.message}</div>}
-          </div>
-        </div>
-        {phrase && (
-          <>
-            <div className="confirm-phrase"><span>Type</span> <CopyField value={phrase} /> <span>to confirm.</span></div>
-            <div className="confirm-input">
-              <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false}
-                placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
-            </div>
-          </>
-        )}
-        {opts.prompt && (
-          <div className="confirm-input">
-            {opts.prompt.multiline ? (
-              <textarea autoFocus value={value} placeholder={opts.prompt.placeholder}
-                onChange={(e) => setValue(e.target.value)} />
-            ) : (
-              <input type="text" autoFocus value={value} placeholder={opts.prompt.placeholder}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
-            )}
-          </div>
-        )}
-        <div className="confirm-foot">
-          <button className="ghost" onClick={onCancel}>{opts.cancelLabel ?? 'Cancel'}</button>
-          <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
-            {opts.confirmLabel ?? 'Confirm'}
-          </button>
+    <Modal className="confirm-dialog" labelledBy={titleId} onClose={onCancel}>
+      <div className="confirm-head">
+        <div className={'confirm-icon ' + toneClass}><Glyph size={22} weight="Bold" aria-hidden /></div>
+        <div className="confirm-text">
+          <div className="confirm-title" id={titleId}>{opts.title}</div>
+          {opts.message && <div className="confirm-msg">{opts.message}</div>}
         </div>
       </div>
-    </div>
+      {phrase && (
+        <>
+          <div className="confirm-phrase"><span>Type</span> <CopyField value={phrase} /> <span>to confirm.</span></div>
+          <div className="confirm-input">
+            <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false} aria-label={inputLabel}
+              placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+          </div>
+        </>
+      )}
+      {opts.prompt && (
+        <div className="confirm-input">
+          {opts.prompt.multiline ? (
+            <textarea autoFocus value={value} placeholder={opts.prompt.placeholder} aria-label={inputLabel}
+              onChange={(e) => setValue(e.target.value)} />
+          ) : (
+            <input type="text" autoFocus value={value} placeholder={opts.prompt.placeholder} aria-label={inputLabel}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+          )}
+        </div>
+      )}
+      <div className="confirm-foot">
+        <button className="ghost" onClick={onCancel}>{opts.cancelLabel ?? 'Cancel'}</button>
+        <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
+          {opts.confirmLabel ?? 'Confirm'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -191,7 +257,15 @@ function TooltipHost() {
       if (!t && el.hasAttribute('title')) {
         t = el.getAttribute('title')
         el.setAttribute('data-tip', t || '')
-        el.removeAttribute('title')   // suppress the native tooltip
+        // Stripping `title` suppresses the native tooltip — but on a control whose ONLY name
+        // was that title, it also deletes the accessible name, and this runs on focusin, so
+        // merely tabbing to the control silenced it. Carry the name over first. Only when the
+        // element has no name of its own: an <a title={url}>host</a> keeps its link text.
+        if (t && !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby')
+            && !(el.textContent || '').trim()) {
+          el.setAttribute('aria-label', t)
+        }
+        el.removeAttribute('title')
       }
       return t || null
     }
@@ -203,7 +277,16 @@ function TooltipHost() {
       current = el
       const r = el.getBoundingClientRect()
       const below = r.top < 52
-      setTip({ text, x: Math.round(r.left + r.width / 2), y: Math.round(below ? r.bottom + 8 : r.top - 8), below })
+      // getBoundingClientRect is in viewport px; `left`/`top` below are read back in the
+      // zoomed coordinate space, so divide the scale out or the tip lands scale-1 × its
+      // distance from the origin away from its target (104px at 1.1, near the right edge).
+      const k = uiScale()
+      setTip({
+        text,
+        x: Math.round((r.left + r.width / 2) / k),
+        y: Math.round((below ? r.bottom + 8 : r.top - 8) / k),
+        below,
+      })
     }
     const onOver = (e: Event) => {
       const el = (e.target as Element)?.closest?.('[data-tip],[title]')

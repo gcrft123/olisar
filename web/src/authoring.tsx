@@ -1,7 +1,7 @@
 // The extension code editor — the "Build" mode of the Extensions tab. A focused,
-// full-width Monaco editor over the Olisar SDK; author TypeScript, transpile in-browser
-// (esbuild-wasm), and save to the backend. Lazy-loaded by pages.tsx so the heavy
-// editor/transpiler only load when an operator drills in to create or edit.
+// full-width Monaco editor over the Olisar SDK; author TypeScript and save it to the
+// backend, which transpiles it (see below). Lazy-loaded by pages.tsx so the editor only
+// loads when an operator drills in to create or edit.
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Card, Field, Text, useSaver } from './ui'

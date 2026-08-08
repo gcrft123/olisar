@@ -1,19 +1,19 @@
 // Central icon registry — every glyph in the console comes from the Solar icon
 // set (https://github.com/480-Design/Solar-Icon-Set) via @solar-icons/react.
 // No emoji anywhere; semantic names map to a single source of truth here.
+//
+// Keep this list to names actually in use: App indexes it dynamically (`Icon[n.ic]`), so
+// the bundler can't drop an entry nobody renders.
 
 import {
-  Planet,
   UserCircle,
   Tuning2,
   ChatRoundLine,
-  MagicStick3,
   Hashtag,
   ShieldKeyhole,
   PlugCircle,
   DocumentText,
   BookBookmark,
-  Notebook,
   ChartSquare,
   Logout2,
   Login3,
@@ -23,7 +23,6 @@ import {
   DangerTriangle,
   KeyMinimalistic,
   UsersGroupRounded,
-  Power,
   TestTube,
   Settings,
   Palette,
@@ -35,12 +34,10 @@ import {
   ForbiddenCircle,
   CodeSquare,
   Bolt,
-  CloseCircle,
   Magnifer,
   AltArrowLeft,
   AltArrowRight,
   AltArrowDown,
-  AltArrowUp,
   InfoCircle,
   ShieldCheck,
   Copy,
@@ -50,20 +47,18 @@ import {
   Plain2,
   Eraser,
   Star,
+  HamburgerMenu,
 } from '@solar-icons/react'
 
 export const Icon = {
-  brand: Planet,
   persona: UserCircle,
   behavior: Tuning2,
   messages: ChatRoundLine,
-  proactivity: MagicStick3,
   channels: Hashtag,
   access: ShieldKeyhole,
   extensions: PlugCircle,
   docs: DocumentText,
   knowledge: BookBookmark,
-  glossary: Notebook,
   usage: ChartSquare,
   logout: Logout2,
   login: Login3,
@@ -73,7 +68,6 @@ export const Icon = {
   warn: DangerTriangle,
   keys: KeyMinimalistic,
   members: UsersGroupRounded,
-  power: Power,
   sandbox: TestTube,
   settings: Settings,
   palette: Palette,
@@ -85,12 +79,10 @@ export const Icon = {
   ban: ForbiddenCircle,
   code: CodeSquare,
   bolt: Bolt,
-  close: CloseCircle,
   search: Magnifer,
   arrowLeft: AltArrowLeft,
   arrowRight: AltArrowRight,
   chevron: AltArrowDown,
-  arrowUp: AltArrowUp,
   info: InfoCircle,
   verified: ShieldCheck,
   copy: Copy,
@@ -100,6 +92,7 @@ export const Icon = {
   send: Plain2,
   eraser: Eraser,
   star: Star,
+  menu: HamburgerMenu,
 } as const
 
 export type IconName = keyof typeof Icon
