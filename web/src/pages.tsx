@@ -40,7 +40,7 @@ export function Persona() {
           <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
         </Card>
         <Card
-          title="About Me"
+          title="About me"
           hint={
             <>
               Olisar's public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.
@@ -914,7 +914,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 {s.error && <span className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</span>}
               </div>
             </div>
-            <span className={'badge ' + s.status}>{s.status}</span>
+            <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
             <button className="danger" onClick={async () => {
               // Removing a source drops every passage Olisar read out of it. Re-adding means
               // re-crawling and re-reading against the free quota, so this is not a cheap undo.
@@ -982,6 +982,15 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
       <ClearMemoryCard serverName={serverName} />
     </>
   )
+}
+
+// Badge text is written in the case it renders (the stylesheet no longer capitalizes),
+// and these two come off the API as lowercase enum values.
+const SOURCE_STATUS: Record<string, string> = {
+  ready: 'Ready', ingesting: 'Ingesting', queued: 'Queued', error: 'Error',
+}
+const MEMORY_KIND: Record<string, string> = {
+  fact: 'Fact', preference: 'Preference', event: 'Event',
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
@@ -1157,7 +1166,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
                   : e.editable
                     ? <span className="badge info">Custom</span>
                     : <span className="badge">Built-in</span>}
-              {e.user_modified && <span className="badge">edited</span>}
+              {e.user_modified && <span className="badge">Edited</span>}
               {isPublished && <span className="badge info">Published</span>}
               {isPublished && pub.has_changes && <span className="badge warning">Unpublished changes</span>}
               {mkt?.update_available && <span className="badge info">Update available</span>}
@@ -1925,10 +1934,15 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     <button
       key={e.key}
       className={'ext-item' + (e.enabled ? ' on' : '') + (effective?.key === e.key ? ' active' : '')}
+      // Which row the detail pane is showing was carried by a CSS class alone, so six
+      // buttons announced identically. `.on` is a green dot with no text equivalent, which
+      // is meaning in colour only — the state goes in the accessible name instead.
+      aria-current={effective?.key === e.key ? 'true' : undefined}
       onClick={() => setSelKey(e.key)}
     >
       <span className="dot" />
       <span className="nm">{e.name}</span>
+      <span className="visually-hidden">{e.enabled ? '— enabled' : '— disabled'}</span>
       {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} role="img" aria-label="Update available" data-tip="Update available"><Icon.update size={13} /></span>}
       {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} role="img" aria-label="Removed from marketplace" data-tip="Removed from marketplace"><Icon.warn size={13} /></span>}
       {pubStatus[e.key]?.has_changes && <span className="dot" style={{ background: 'var(--warn)', boxShadow: 'none' }} role="img" aria-label="Unpublished changes" data-tip="Unpublished changes" />}
@@ -2143,7 +2157,7 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
   const [open, setOpen] = useState(false)
   const [up, setUp] = useState(false)
   const [right, setRight] = useState(false)
-  const ref = useRef<HTMLSpanElement>(null)
+  const ref = useRef<HTMLButtonElement>(null)
   const show = () => {
     const r = ref.current?.getBoundingClientRect()
     if (r) {
@@ -2156,8 +2170,14 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
     setOpen(true)
   }
   return (
-    <span ref={ref} className="tag more rolepop-wrap" tabIndex={0}
-      onMouseEnter={show} onMouseLeave={() => setOpen(false)} onFocus={show} onBlur={() => setOpen(false)}>
+    // A real button. This was a bare `tabIndex={0}` span with no role and no name, so a
+    // keyboard user landed on something that announced only "+2" — and `.rolepop-wrap`
+    // killed the UA outline without providing a replacement, making it the one control in
+    // the console you could focus with no indication you had.
+    <button ref={ref} type="button" className="tag more rolepop-wrap"
+      aria-label={`Show all ${roles.length} roles`} aria-expanded={open}
+      onMouseEnter={show} onMouseLeave={() => setOpen(false)} onFocus={show} onBlur={() => setOpen(false)}
+      onClick={() => (open ? setOpen(false) : show())}>
       +{count}
       {open && (
         <span className={'rolepop ' + (up ? 'up' : 'down') + (right ? ' right' : '')} role="tooltip">
@@ -2165,7 +2185,7 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
           <span className="rolepop-list">{roles.map((r) => <RoleChip key={r.id || r.name} name={r.name} color={colourOf(r)} />)}</span>
         </span>
       )}
-    </span>
+    </button>
   )
 }
 
@@ -2255,7 +2275,7 @@ export function Members() {
               {p.memories?.length > 0 && (
                 <div className="member-memories">
                   {p.memories.map((m: any, i: number) => (
-                    <div className="mem" key={i}><span className={'badge ' + m.kind}>{m.kind}</span> {m.content}</div>
+                    <div className="mem" key={i}><span className={'badge ' + m.kind}>{MEMORY_KIND[m.kind] ?? m.kind}</span> {m.content}</div>
                   ))}
                 </div>
               )}
@@ -2347,15 +2367,15 @@ function KeyField(props: {
         {s.dashboard ? (
           <>
             {/* "set in dashboard" read equally as "done" and as an instruction to go do it. */}
-            <span className="badge ready">saved</span>
+            <span className="badge ready">Saved</span>
             <button className="ghost icon-btn" onClick={props.onClear} data-tip="Remove this key" aria-label={`Remove the saved ${props.label}`}>
               <Icon.trash size={16} />
             </button>
           </>
         ) : s.env ? (
-          <span className="badge">from environment</span>
+          <span className="badge">From environment</span>
         ) : (
-          <span className="badge missing">not set</span>
+          <span className="badge missing">Not set</span>
         )}
         <span className="key-state">{state}</span>
       </div>
