@@ -129,6 +129,11 @@ jobs:
       # macOS can't publish through electron-builder (see the note at the top), so upload the
       # finished .dmg here. The Windows job may have created the release already — whichever
       # job gets there first wins, and the other just adds its asset.
+      #
+      # `dist:mac` passes --publish never for that reason. Without it electron-builder still
+      # schedules an upload of its own — and since this step's env deliberately carries no
+      # GH_TOKEN (it was dropped when signing moved publishing down here), the build died on
+      # "GitHub Personal Access Token is not set" *after* signing and notarizing successfully.
       - name: Publish the .dmg to the release
         if: startsWith(github.ref, 'refs/tags/')
         env:

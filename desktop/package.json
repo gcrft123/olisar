@@ -9,7 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac",
+    "dist:mac": "electron-builder --mac --publish never",
     "dist:win": "electron-builder --win",
     "notarize:dmg": "node build/notarize-dmg.js",
     "release:mac": "npm run dist:mac && npm run notarize:dmg",
