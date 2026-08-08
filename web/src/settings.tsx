@@ -339,6 +339,7 @@ function BotSwitcher() {
                       action was missing. A disabled control says "not available here";
                       an absent one says nothing. */}
                   <button disabled={busy || isActive} onClick={() => switchTo(p)}
+                    aria-label={`Switch to ${p.name}`}
                     title={isActive ? 'Already the active bot' : undefined}>
                     Switch
                   </button>
@@ -517,7 +518,8 @@ function General() {
       <div className="settings-subhead">Keyboard</div>
       <dl className="shortcuts">
         {[
-          [['⌘', 'K'], 'Open the command palette', 'Jump to any page or switch server'],
+          [['⌘', 'K'], 'Open the command palette', 'Jump to any page, pane or doc — or run this page’s actions'],
+          [['⌘', 'S'], 'Save this page', 'Applies the edits the bar at the bottom is holding'],
           [['Esc'], 'Close', 'Dismisses a dialog, the palette, or the nav drawer'],
           [['Tab'], 'Move through the page', 'The skip link is the first stop'],
           [['↑', '↓'], 'Move in a list', 'In the palette, and in any mode picker'],

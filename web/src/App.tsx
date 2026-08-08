@@ -237,7 +237,12 @@ export default function App() {
       tone: 'warning',
     })
     if (r === 'extra' && save) {
-      save.run()
+      // Awaited: the operator picked the option that protects their work, and if the PUT
+      // fails the dock that would show the error unmounts with the page. On failure, stay
+      // put with the draft and the message intact.
+      const ok = await save.run()
+      if (ok === false) return false
+      toast('Saved', 'success')
       return true
     }
     return r === true
@@ -707,10 +712,12 @@ function BotPower() {
   const didPowerDown = useRef(false)
 
   const [cooling, setCooling] = useState(false)
-  const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
+  // No `.catch` here: usePoll counts consecutive rejections, and swallowing them was why
+  // a dead backend could never be distinguished from a quiet one.
+  const pull = () => api.botStatus().then((s: BotState) => setSt(s))
   // 5s is the right cadence while the operator is watching a power cycle land, but this ran
   // forever, on every tab, backgrounded or not — 12 requests a minute for a status dot.
-  usePoll(pull, 5000)
+  const poll = usePoll(pull, 5000)
   // "Online" isn't the whole truth: a bot that has exhausted a model's free-tier quota is
   // connected and silent. The rate limiter already reports that per model, so surface it
   // here rather than only on the Usage page, which is tab ten.
@@ -730,7 +737,11 @@ function BotPower() {
         <span className="power-btn" aria-hidden="true"><Icon.bolt size={15} /></span>
         <div className="botpower-text">
           <div className="bp-status">Bot status unknown</div>
-          <div className="bp-hint">{seen.current ? 'lost contact with the backend' : 'checking…'}</div>
+          {/* `stale` (two consecutive failures), not `seen` — gating the honest message on
+              "we once had a good reading" meant a backend that was down at page load said
+              "checking…" forever, which is exactly the dead-poll-as-idle-poll failure the
+              design guide warns about. */}
+          <div className="bp-hint">{poll.stale ? "can't reach the backend" : 'checking…'}</div>
         </div>
       </div>
     )
