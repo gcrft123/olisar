@@ -509,6 +509,29 @@ function Appearance() {
       <p className="settings-foot">
         Scales the whole interface, the way your browser's zoom does. Applies to this browser only.
       </p>
+
+      {/* This pane held one three-option control in a 900x620 sheet — about 85% empty on the
+          modal's default view. Shortcuts belong to "how the console behaves for me", they
+          are the one thing in the product with nowhere to be discovered, and they fill the
+          space with something the operator can use rather than with padding. */}
+      <div className="settings-subhead">Keyboard</div>
+      <dl className="shortcuts">
+        {[
+          [['⌘', 'K'], 'Open the command palette', 'Jump to any page or switch server'],
+          [['Esc'], 'Close', 'Dismisses a dialog, the palette, or the nav drawer'],
+          [['Tab'], 'Move through the page', 'The skip link is the first stop'],
+          [['↑', '↓'], 'Move in a list', 'In the palette, and in any mode picker'],
+          [['Enter'], 'Confirm', 'Runs the highlighted command or the dialog’s safe action'],
+        ].map(([keys, what, why]) => (
+          <div className="shortcut" key={what as string}>
+            <dt>{(keys as string[]).map((k) => <kbd key={k}>{k}</kbd>)}</dt>
+            <dd><b>{what as string}</b><span>{why as string}</span></dd>
+          </div>
+        ))}
+      </dl>
+      <p className="settings-foot">
+        On Windows and Linux, <kbd>Ctrl</kbd> stands in for <kbd>⌘</kbd>.
+      </p>
     </>
   )
 }

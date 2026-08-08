@@ -4,7 +4,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
-import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
   const Glyph = Icon[props.icon]
@@ -253,15 +253,20 @@ export function Behavior() {
         <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">
           <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} unit="messages" def={12} />
         </Field>
-        <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens.">
-          <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} unit="tokens" def={4000} />
-        </Field>
-        <Field label="Glossary mine threshold" desc="Mine the server glossary for new facts after this many new tokens.">
-          <Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} unit="tokens" def={1500} />
-        </Field>
-        <Field label="Persona rebuild (messages)" desc="Rebuild a member's persona after this many new messages from them.">
-          <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} unit="messages" def={15} />
-        </Field>
+        {/* Three thresholds that are quota trade-offs, not everyday settings — the sane
+            default is the right answer until the free tier starts biting. Folded away so
+            the page opens with the one memory control an operator actually reaches for. */}
+        <Disclosure summary="Tuning thresholds" hint="Only worth touching if you're hitting rate limits.">
+          <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens. Lower summarizes more often and costs more quota.">
+            <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} unit="tokens" def={4000} />
+          </Field>
+          <Field label="Glossary mine threshold" desc="Mine the server glossary for new facts after this many new tokens.">
+            <Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} unit="tokens" def={1500} />
+          </Field>
+          <Field label="Persona rebuild (messages)" desc="Rebuild a member's persona after this many new messages from them.">
+            <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} unit="messages" def={15} />
+          </Field>
+        </Disclosure>
       </Card>
         </div>
         <div className="col">
@@ -2776,6 +2781,7 @@ const U_RANGES: { value: number; label: string }[] = [
 
 export function Usage() {
   const [days, setDays] = useState(7)
+  const [showIdle, setShowIdle] = useState(false)
   const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
   const [live, setLive] = useState<any>(null)
   // No .catch here on purpose: usePoll needs the rejection to know the backend is gone.
@@ -2813,6 +2819,12 @@ export function Usage() {
   const liveModels: any[] = (live && live.models) || []
   const delta = (p: number) => (<span className={p >= 0 ? 'up' : 'dn'}>{p >= 0 ? '+' : ''}{p}%</span>)
   const rpmHot = !!(peak.rpm && peak.rpm.cap && peak.rpm.value / peak.rpm.cap > 0.75)
+  // The fallback chain is ten models deep and most of it is idle on any given day. Six
+  // all-zero rows with empty meters sat between the reader and the four rows carrying data;
+  // the chain is worth being able to see, not worth reading past every time.
+  const usedModels = models.filter((m: any) => m.requests_today > 0 || m.requests > 0)
+  const idleModels = models.filter((m: any) => !(m.requests_today > 0 || m.requests > 0))
+  const shownModels = showIdle ? models : usedModels
 
   return (
     <>
@@ -2919,7 +2931,7 @@ export function Usage() {
                 </tr>
               </thead>
               <tbody>
-                {models.map((m) => (
+                {shownModels.map((m) => (
                   <tr key={m.model}>
                     <th scope="row" className={'u-mname ' + clsFor[m.model]}>
                       <span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span>
@@ -2935,6 +2947,13 @@ export function Usage() {
                 ))}
               </tbody>
             </table>
+          )}
+          {idleModels.length > 0 && (
+            <button className="ghost u-idle-toggle" onClick={() => setShowIdle((v) => !v)} aria-expanded={showIdle}>
+              {showIdle
+                ? `Hide ${idleModels.length} idle models`
+                : `Show ${idleModels.length} idle models in the fallback chain`}
+            </button>
           )}
         </Card>
         <Card>
