@@ -4,7 +4,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
-import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
   const Glyph = Icon[props.icon]
@@ -24,7 +24,7 @@ export function Persona() {
   const ed = useEditable<any>(api.getPersona)
   const { data, loading, setData } = ed
   const saver = useSaver(async () => { await api.putPersona(ed.data); ed.markSaved() })
-  if (loading || !data) return <Spinner />
+  if (loading || !data) return <Loading of={ed} what="the persona" />
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
@@ -209,7 +209,8 @@ export function Behavior() {
     await api.putProactivity(proEd.data)
     configEd.markSaved(); proEd.markSaved()
   })
-  if (configEd.loading || !configEd.data || proEd.loading || !proEd.data) return <Spinner />
+  if (configEd.loading || !configEd.data || configEd.error) return <Loading of={configEd} what="behavior settings" />
+  if (proEd.loading || !proEd.data) return <Loading of={proEd} what="proactivity settings" />
   const data = configEd.data
   const pro = proEd.data
   const set = (k: string, v: any) => configEd.setData({ ...data, [k]: v })
@@ -404,7 +405,8 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
 }
 
 export function Messages() {
-  const { data, loading } = useAsync<any>(api.getMessages)
+  const msgs = useAsync<any>(api.getMessages)
+  const { data, loading } = msgs
   const { data: persona } = useAsync<any>(api.getPersona)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const base = useRef('')
@@ -420,7 +422,7 @@ export function Messages() {
   const dirty = base.current !== '' && JSON.stringify(edits) !== base.current
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
   const saver = useSaver(async () => { await api.putMessages(edits); prevEdits.current = base.current; base.current = JSON.stringify(edits) })
-  if (loading || !data) return <Spinner />
+  if (loading || !data) return <Loading of={msgs} what="the command replies" />
 
   return (
     <>
@@ -560,7 +562,7 @@ export function Channels() {
   })
   const patchRow = (id: number, patch: any) =>
     ed.setData((prev: any[] | null) => (prev ?? []).map((c) => (c.channel_id === id ? { ...c, ...patch } : c)))
-  if (ed.loading) return <Spinner />
+  if (ed.loading || ed.error) return <Loading of={ed} what="the channel list" />
   const rows = ed.data ?? []
   const configured = rows.filter((c) => c.mode !== 'off').length
   const term = q.trim().toLowerCase()
@@ -693,7 +695,8 @@ export function Access() {
     })
     ed.markSaved()
   })
-  if (ed.loading || lr || !config) return <Spinner />
+  if (ed.loading || ed.error) return <Loading of={ed} what="access settings" />
+  if (lr || !config) return <Spinner />
 
   const allowed: string[] = config.allowed_role_ids ?? []
   const blocked: string[] = config.blocked_role_ids ?? []
@@ -998,7 +1001,8 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
 }
 
 export function Knowledge({ serverName }: { serverName?: string } = {}) {
-  const { data, loading, reload } = useAsync<any[]>(api.getKnowledge)
+  const kb = useAsync<any[]>(api.getKnowledge)
+  const { data, loading, reload } = kb
   const [type, setType] = useState('url')
   const [uri, setUri] = useState('')
   const [depth, setDepth] = useState(1)
@@ -1035,7 +1039,8 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
     }
   }
 
-  if (loading || lf) return <Spinner />
+  if (loading || kb.error) return <Loading of={kb} what="the knowledge base" />
+  if (lf) return <Spinner />
   const rows = data ?? []
   const factRows = facts ?? []
   return (
@@ -2071,7 +2076,27 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   if (view === 'editor') {
     return (
       <Suspense fallback={<Spinner />}>
-        <ExtensionEditor editKey={editKey} onBack={() => { setView('catalog'); ed.reload(); reloadPubStatus() }} onChanged={ed.reload} />
+        {/* The editor registers a dirty guard, and it covers tab switch, server switch and
+            window close — but not this button, which is the one an operator actually uses to
+            leave. Hand-written source is, in the editor's own words, the costliest thing in
+            the console to lose. Same three-way prompt the shell uses. */}
+        <ExtensionEditor
+          editKey={editKey}
+          onBack={async () => {
+            if (hasUnsavedChanges()) {
+              const r = await confirmDialog({
+                title: 'You have unsaved changes',
+                message: 'This extension’s source has edits that were never saved.',
+                confirmLabel: 'Discard',
+                cancelLabel: 'Keep editing',
+                tone: 'warning',
+              })
+              if (r !== true) return
+            }
+            setView('catalog'); ed.reload(); reloadPubStatus()
+          }}
+          onChanged={ed.reload}
+        />
       </Suspense>
     )
   }
@@ -2084,7 +2109,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
       />
     )
   }
-  if (ed.loading) return <Spinner />
+  if (ed.loading || ed.error) return <Loading of={ed} what="your extensions" />
 
   // ── Catalog mode: a searchable rail + a rich detail panel ──
   const rows = ed.data ?? []
@@ -2377,7 +2402,8 @@ function fmtDate(iso: string | null): string {
 }
 
 export function Members() {
-  const { data, loading } = useAsync<any[]>(api.getProfiles)
+  const profiles = useAsync<any[]>(api.getProfiles)
+  const { data, loading } = profiles
   // Roles come back on the profile as {id, name}; the colour lives on /api/roles. Join by
   // id — role names are not unique in a Discord guild.
   const { data: guildRoles } = useAsync<any[]>(api.getRoles)
@@ -2389,7 +2415,7 @@ export function Members() {
   const [building, setBuilding] = useState<Record<string, boolean>>({})
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   const [errs, setErrs] = useState<Record<string, string>>({})
-  if (loading) return <Spinner />
+  if (loading || profiles.error) return <Loading of={profiles} what="the member list" />
   const rows = data ?? []
   const impressionOf = (p: any): string => overrides[p.user_id] ?? p.impression
   const learned = rows.filter((r) => impressionOf(r) || r.memories?.length).length
@@ -2570,7 +2596,8 @@ function KeyField(props: {
 }
 
 export function ApiKeys() {
-  const { data, loading, reload } = useAsync<Record<string, KeyStatus>>(api.getKeys)
+  const keys = useAsync<Record<string, KeyStatus>>(api.getKeys)
+  const { data, loading, reload } = keys
   const [edits, setEdits] = useState<Record<string, string>>({})
   const saver = useSaver(async () => {
     const body: Record<string, string> = {}
@@ -2586,7 +2613,7 @@ export function ApiKeys() {
   const dirty = Object.values(edits).some((v) => v.trim() !== '')
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
 
-  if (loading || !data) return <Spinner />
+  if (loading || !data) return <Loading of={keys} what="the key status" />
   const set = (k: string, v: string) => setEdits({ ...edits, [k]: v })
   // Autofilled from the environment (local-only) unless the operator has edited the field.
   const val = (k: string) => edits[k] ?? (data[k]?.value ?? '')
@@ -2920,11 +2947,12 @@ const U_RANGES: { value: number; label: string }[] = [
 export function Usage() {
   const [days, setDays] = useState(7)
   const [showIdle, setShowIdle] = useState(false)
-  const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
+  const usage = useAsync<any>(() => api.getUsage(days), [days])
+  const { data, loading } = usage
   const [live, setLive] = useState<any>(null)
   // No .catch here on purpose: usePoll needs the rejection to know the backend is gone.
   const livePoll = usePoll(() => api.getUsageLive().then(setLive), 4000)
-  if (loading || !data) return <Spinner />
+  if (loading || !data) return <Loading of={usage} what="usage data" />
 
   const models: any[] = data.by_model || []
   const clsFor: Record<string, string> = {}
@@ -3127,6 +3155,26 @@ export function Usage() {
 // bare left-aligned grey text, which reads as "empty" rather than "working". A moving
 // indicator is the difference, and `role="status"` means the state reaches a screen reader
 // too, since the visual cue can't.
+/**
+ * The gate every page puts in front of its content: a spinner while the first load is in
+ * flight, and — when it failed — the reason plus a retry, rather than a spinner that never
+ * stops or an empty state that blames the bot for a request the console never completed.
+ */
+export function Loading(props: { of: { loading: boolean; error?: string | null; reload: () => void }; what?: string }) {
+  if (props.of.loading) return <Spinner />
+  if (!props.of.error) return <Spinner />
+  return (
+    <div className="loadfail" role="alert">
+      <Icon.warn size={22} />
+      <div className="lf-body">
+        <strong>Couldn’t load {props.what ?? 'this page'}.</strong>
+        <p>{props.of.error}</p>
+      </div>
+      <button onClick={() => props.of.reload()}>Try again</button>
+    </div>
+  )
+}
+
 function Spinner({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="page-loading" role="status">

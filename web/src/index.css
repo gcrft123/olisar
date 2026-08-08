@@ -2193,3 +2193,16 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 .u-dl .v { margin-left: auto; font-family: var(--mono); color: var(--text-2); }
 .u-dl .pc { font-family: var(--mono); color: var(--text-3); font-size: 11.5px; min-width: 34px; text-align: right; }
 .u-dl[data-tip] { cursor: help; }
+
+/* Load failure — the state that used to be an endless spinner, or worse, an empty state
+   blaming the bot for a request the console never completed. */
+.loadfail {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px; margin: 8px 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  color: var(--warn);
+}
+.loadfail .lf-body { flex: 1; min-width: 0; }
+.loadfail strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+.loadfail p { margin: 0; color: var(--text-2); font-size: 13px; word-break: break-word; }
+.loadfail button { flex: none; }

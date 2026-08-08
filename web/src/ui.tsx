@@ -427,11 +427,17 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
   // work that was already committed — training the operator to click Discard on the dialog
   // that exists to protect real edits. This counter is what the memo can actually depend on.
   const [baseVersion, setBaseVersion] = useState(0)
+  // A swallowed rejection left every page that loads through this hook spinning on
+  // "Loading…" forever, and left the two list pages asserting something false — "No channels
+  // synced yet" when the truth was that the request failed. Keep the reason and let the page
+  // offer a retry.
+  const [error, setError] = useState<string | null>(null)
   const reload = React.useCallback(() => {
     setLoading(true)
+    setError(null)
     loader()
       .then((d) => { base.current = JSON.stringify(d); setBaseVersion((n) => n + 1); setData(d); setLoading(false) })
-      .catch(() => setLoading(false))
+      .catch((e: any) => { setError(e?.message || 'Could not reach the backend.'); setLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   React.useEffect(() => { reload() }, [reload])
@@ -445,7 +451,7 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
   )
   useDirtyGuard(() => dirty)
   return {
-    data, setData, loading, reload, dirty,
+    data, setData, loading, error, reload, dirty,
     reset: () => { if (base.current) setData(JSON.parse(base.current)) },
     // Keep the state we just replaced. A save was the one irreversible thing in a console
     // whose entire promise is that nothing is irreversible until you commit it — the
@@ -831,11 +837,16 @@ export function usePoll(load: () => void | Promise<unknown>, everyMs: number, ac
 export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const reload = React.useCallback(() => {
     setLoading(true)
-    loader().then((d) => { setData(d); setLoading(false) }).catch(() => setLoading(false))
+    setError(null)
+    loader()
+      .then((d) => { setData(d); setLoading(false) })
+      .catch((e: any) => { setError(e?.message || 'Could not reach the backend.'); setLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   React.useEffect(() => { reload() }, [reload])
-  return { data, loading, reload, setData }
+  return { data, loading, error, reload, setData }
 }
+

@@ -218,10 +218,12 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== 's' || !(e.metaKey || e.ctrlKey)) return
-      const save = currentPageActions().find((a) => a.id === 'save')
-      if (!save) return
+      // Always consume it. Settings advertises ⌘S as a console shortcut, and returning
+      // early on a page with nothing to save handed the key to the browser's Save-Page-As
+      // dialog — the one outcome an operator pressing it here never wants.
       e.preventDefault()
-      save.run()
+      const save = currentPageActions().find((a) => a.id === 'save')
+      if (save) save.run()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

@@ -38,7 +38,7 @@ const STATUS_COLOR = { ok: 'var(--ok)', err: 'var(--danger)', info: 'var(--text-
 
 export default function ExtensionEditor(props: {
   editKey: string | null
-  onBack: () => void
+  onBack: () => void | Promise<void>
   onChanged: () => void
 }) {
   const [key, setKey] = useState<string | null>(props.editKey)
