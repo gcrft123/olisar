@@ -252,6 +252,8 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .nav-rule { height: 1px; background: var(--border); margin: 10px 10px 9px; }
 .nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .nav-item:focus-visible { outline: none; box-shadow: var(--ring); }
+.nav-item { text-decoration: none; }
+.nav-item:hover { text-decoration: none; }
 .nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 .nav-item .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; }
 
@@ -307,6 +309,8 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .botpower-text { min-width: 0; }
 .bp-status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--text); }
 .bp-hint { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.botpower.unknown { opacity: 0.75; }
+.botpower.unknown .power-btn { color: var(--text-3); cursor: default; }
 
 .botpower.online .power-btn { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); box-shadow: 0 0 0 3px var(--ok-soft); }
 
@@ -545,7 +549,7 @@ select { appearance: none; cursor: pointer;
 /* The real checkbox is a 0x0 box, so the UA ring paints on nothing — the chip has to carry
    the focus itself. Without this, Behavior's three mention chips were invisible tab stops,
    and a focused chip was byte-identical to a selected one. */
-.choice:focus-within { outline: none; box-shadow: var(--ring); }
+.choice:has(input:focus-visible) { outline: none; box-shadow: var(--ring); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 button {
@@ -844,8 +848,13 @@ kbd {
    longest of six options were clipped at rest, so the control hid the vocabulary the
    legend above it had just taught. */
 .chan-ctl { flex: none; }
-.chan-ctl.mode { width: 200px; }
-.chan-ctl.index { width: 140px; }
+/* The gloss after the em dash IS the control's meaning — "resource — reference context"
+   is how DESIGN.md prescribes making a mode legible. At a fixed 200px the two longest of
+   six options were cut ("resource — reference cont"), so the control hid the vocabulary the
+   legend above it teaches. It takes the row's spare width; indexing is one short word and
+   doesn't need any. */
+.chan-ctl.mode { flex: 1 1 240px; min-width: 0; max-width: 320px; }
+.chan-ctl.index { flex: 0 0 140px; }
 .list-row:first-child { padding-top: 2px; }
 .list-row:last-child { border-bottom: none; padding-bottom: 2px; }
 .list-row .grow { flex: 1; min-width: 0; }
@@ -867,7 +876,13 @@ kbd {
   .list-row .grow { flex: 1 0 100%; }
   .list-row .title { white-space: normal; }
   .chan-ctl { flex: 1 1 0; min-width: 0; }
-  .chan-ctl.mode, .chan-ctl.index { width: auto; }
+  .chan-ctl.mode, .chan-ctl.index { flex: 1 1 0; max-width: none; }
+}
+/* Declared after the 620 block, which sets the same properties at equal specificity — a
+   rule that loses the cascade is a rule that isn't there. Mode gets its own row: "resource
+   — reference context" is unreadable in half of 390px. */
+@media (max-width: 520px) {
+  .chan-ctl.mode, .chan-ctl.index { flex: 1 0 100%; }
 }
 .tag {
   display: inline-block; font-family: var(--mono); font-size: 11.5px; font-weight: 500;

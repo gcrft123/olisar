@@ -188,13 +188,17 @@ type DialogOpts = {
   // High-friction confirm: show the phrase (not copyable) and only arm the confirm
   // button once the user types it back exactly (case/whitespace-insensitive).
   requirePhrase?: { phrase: string; placeholder?: string }
+  /** A third button between cancel and confirm; resolves the dialog with 'extra'. */
+  extraLabel?: string
 }
 
 let dialogShow: ((o: DialogOpts, resolve: (v: boolean | string | null) => void) => void) | null = null
 
-export function confirmDialog(opts: DialogOpts): Promise<boolean> {
+// Resolves true (confirmed), false (cancelled), or 'extra' when the optional third action
+// was taken — so a caller offering "Save and leave" can tell it apart from a plain confirm.
+export function confirmDialog(opts: DialogOpts): Promise<boolean | 'extra'> {
   return new Promise((resolve) => {
-    if (dialogShow) dialogShow(opts, (v) => resolve(v === true))
+    if (dialogShow) dialogShow(opts, (v) => resolve(v === 'extra' ? 'extra' : v === true))
     else resolve(false)
   })
 }
@@ -275,6 +279,9 @@ function ConfirmHost() {
         <button className={destructive ? 'primary' : 'ghost'} onClick={onCancel}>
           {opts.cancelLabel ?? 'Cancel'}
         </button>
+        {opts.extraLabel && (
+          <button onClick={() => close('extra')}>{opts.extraLabel}</button>
+        )}
         <button className={destructive ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
           {opts.confirmLabel ?? 'Confirm'}
         </button>

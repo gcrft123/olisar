@@ -8,8 +8,9 @@ import {
 import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { SettingsModal } from './settings'
+import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
 import { PageBoundary, currentPageActions, hasUnsavedChanges, usePoll } from './ui'
+import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
@@ -28,6 +29,22 @@ const NAV: { id: string; label: string; ic: IconName }[] = [
 // Every id the router may resolve. Developer is included even when the tab is hidden:
 // a non-developer landing on #/developer should be redirected, not shown a blank page.
 const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs', 'developer'])
+
+// The settings each page owns, so "quiet hours" or "context window" reaches Behavior
+// rather than whichever documentation paragraph happens to mention it.
+const PAGE_KEYWORDS: Record<string, string> = {
+  persona: 'name system prompt style notes about me bio character tone test chat',
+  behavior: 'triggers dms mentions ping everyone here model web search context window summary threshold glossary mine persona rebuild proactivity eagerness confidence cooldown quiet hours reactions presence voice',
+  messages: 'command replies ping watch unwatch status learn url site doc forget me dm indexing proactive privacy rate limited blank access denied placeholders',
+  channels: 'mode memory respond both resource feed off indexing search index category forum',
+  access: 'roles allowed blocked open restrict lock out permissions',
+  knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',
+  members: 'profiles impressions remembered facts roles avatars',
+  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator',
+  keys: 'gemini cloudflare uex api key token secret credentials',
+  usage: 'quota rate limits requests tokens rpm tpm by model by process free tier',
+  docs: 'documentation help guide reference',
+}
 
 type Guild = { id: string; name: string; icon: string }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
@@ -89,6 +106,7 @@ export default function App() {
   const [guild, setGuildState] = useState<string | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   const [isDev, setIsDev] = useState(false)
   const [standing, setStanding] = useState<{ status: string; message?: string; acknowledged?: boolean } | null>(null)
   const [warnDismissed, setWarnDismissed] = useState(false)
@@ -207,13 +225,22 @@ export default function App() {
   // render before it — which React treats as fatal rather than degraded.
   const leaveGuard = async (what: string) => {
     if (!hasUnsavedChanges()) return true
-    return confirmDialog({
-      title: 'Discard your unsaved changes?',
-      message: <>You have edits that haven't been saved. Leaving {what} discards them.</>,
+    // "Discard or stay" is a false choice: the operator's actual intent, almost always, is
+    // to keep the work AND go. The page already publishes its save action, so offer it.
+    const save = currentPageActions().find((a) => a.id === 'save')
+    const r = await confirmDialog({
+      title: 'You have unsaved changes',
+      message: <>Leaving {what} discards them.</>,
       confirmLabel: 'Discard',
       cancelLabel: 'Keep editing',
+      extraLabel: save ? 'Save and leave' : undefined,
       tone: 'warning',
     })
+    if (r === 'extra' && save) {
+      save.run()
+      return true
+    }
+    return r === true
   }
   useTabRouting(tab, setTab, leaveGuard, isTab)
 
@@ -314,14 +341,29 @@ export default function App() {
     })),
     ...nav.map((n) => ({
       id: 'tab:' + n.id, label: n.label, group: 'Page', ic: n.ic,
-      keywords: n.id, run: () => { void goTab(n.id) },
+      // What the page actually contains, so a setting's own name finds its page.
+      keywords: n.id + ' ' + (PAGE_KEYWORDS[n.id] ?? ''),
+      run: () => { void goTab(n.id) },
     })),
     ...guilds.map((g) => ({
       id: 'guild:' + g.id, label: g.name, group: 'Server', ic: 'members' as IconName,
       keywords: 'switch server guild', run: () => { void changeGuild(g.id) },
     })),
-    { id: 'settings', label: 'Settings', group: 'App', ic: 'settings' as IconName,
-      keywords: 'preferences appearance logs updates bot feedback', run: () => setSettingsOpen(true) },
+    // Every settings pane and every documentation section, not just the eleven things the
+    // rail already shows. An operator who types "quiet hours" should land somewhere, and
+    // "Search" is a promise the palette has to keep.
+    ...SETTINGS_SECTIONS.map((sec) => ({
+      id: 'settings:' + sec.id, label: sec.label, group: 'Settings', ic: sec.ic,
+      keywords: 'settings preferences ' + sec.id,
+      run: () => { setSettingsPane(sec.id); setSettingsOpen(true) },
+    })),
+    ...DOCS.map((d) => ({
+      id: 'doc:' + d.id, label: d.title, group: 'Docs', ic: 'docs' as IconName,
+      // The body is searchable but never displayed, so typing a phrase from a page finds it.
+      keywords: d.id,
+      body: d.body,
+      run: () => { void goTab('docs'); window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: d.id })) },
+    })),
   ]
 
   // A banned account is locked out of the console entirely (re-checked every poll).
@@ -386,18 +428,26 @@ export default function App() {
           return (
             <React.Fragment key={n.id}>
             {firstAfterRule && <div className="nav-rule" role="separator" />}
-            <div
+            {/* A real anchor now that the tab lives in the hash: middle-click and
+                open-in-new-tab work, the status bar shows where the row goes, and a screen
+                reader hears a link in a nav rather than a button. The click is still
+                intercepted so the unsaved-work guard runs — but a modified click (new tab,
+                new window) is left to the browser, because it isn't leaving this page. */}
+            <a
               className={'nav-item' + (active ? ' active' : '')}
-              role="button"
-              tabIndex={0}
+              href={'#/' + n.id}
               data-tab={n.id}
               aria-current={active ? 'page' : undefined}
-              onClick={() => { void goTab(n.id); setNavOpen(false) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void goTab(n.id); setNavOpen(false) } }}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                e.preventDefault()
+                void goTab(n.id)
+                setNavOpen(false)
+              }}
             >
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}
-            </div>
+            </a>
             </React.Fragment>
           )
         })}
@@ -423,7 +473,7 @@ export default function App() {
           </div>
         </div>
       </aside>
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsModal initialSection={settingsPane} onClose={() => { setSettingsOpen(false); setSettingsPane(undefined) }} />}
       <CommandPalette commands={commands} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {standing?.status === 'warned' && !standing.acknowledged && !warnDismissed && (
         <WarnModal
@@ -671,7 +721,20 @@ function BotPower() {
   }, 15000)
 
   if (st && st.available && st.can_power) seen.current = true
-  if (!st || !seen.current) return null
+  // Returning null deleted the bot-status control from the sidebar whenever the backend was
+  // unreachable — the one moment an operator most wants to know the bot's state, answered by
+  // an absence. Hold the row and say what is actually known.
+  if (!st || !seen.current) {
+    return (
+      <div className="botpower unknown" role="status">
+        <span className="power-btn" aria-hidden="true"><Icon.bolt size={15} /></span>
+        <div className="botpower-text">
+          <div className="bp-status">Bot status unknown</div>
+          <div className="bp-hint">{seen.current ? 'lost contact with the backend' : 'checking…'}</div>
+        </div>
+      </div>
+    )
+  }
 
   const busy = phase === 'stopping' || phase === 'starting'
   const online = st.running && st.ready && !busy
