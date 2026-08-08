@@ -8,6 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { api } from './api'
 import { Icon, CloseX } from './icons'
 import { Modal, toast, confirmDialog } from './overlays'
+import { Spinner } from './ui'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -31,7 +32,7 @@ function fmtDate(s?: string): string {
   const d = new Date(s.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z'))
   return isNaN(+d) ? s : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
-function Loading() { return <div className="empty" style={{ padding: 24 }}>Loading…</div> }
+function Loading() { return <Spinner /> }
 
 const COUNTED: Record<string, true> = { reports: true, blocked: true, moderation: true }
 
@@ -122,17 +123,31 @@ function DevExtensions() {
     })
   }, [rows, q, sort])
 
-  const th = (key: string, label: string, numeric = false) => (
-    <th className={(numeric ? 'num ' : '') + 'sortable' + (sort.key === key ? ' on' : '')}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}>
-      <span className="th-label">
-        {label}
-        {sort.key === key && (
-          <Icon.chevron size={11} className="th-sort" style={{ transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
-        )}
-      </span>
-    </th>
-  )
+  // A bare `<th onClick>` is invisible to the keyboard and announces nothing — DESIGN.md
+  // names this as the failure that recurs. The button carries the activation and the name;
+  // aria-sort on the cell tells a screen reader which column orders the table and which way.
+  const th = (key: string, label: string, numeric = false) => {
+    const on = sort.key === key
+    return (
+      <th
+        className={(numeric ? 'num ' : '') + 'sortable' + (on ? ' on' : '')}
+        aria-sort={on ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
+      >
+        <button
+          type="button"
+          className="th-sortbtn"
+          onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}
+        >
+          <span className="th-label">
+            {label}
+            {on && (
+              <Icon.chevron size={11} className="th-sort" style={{ transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
+            )}
+          </span>
+        </button>
+      </th>
+    )
+  }
 
   const viewCode = async (r: any) => {
     try { const d = await api.devSource(r.namespace, r.name, r.version); setCode({ id: r.id, ...d }) }
