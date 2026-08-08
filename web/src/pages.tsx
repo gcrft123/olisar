@@ -1085,7 +1085,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   // multi-minute ingest sat frozen on its first badge, looking stalled. Watch only while
   // something is actually moving, then stop.
   const ingesting = (data ?? []).some((r: any) => SOURCE_BUSY.has(r.status))
-  usePoll(reload, 4000, ingesting)
+  usePoll(kb.refresh, 4000, ingesting)
   const [type, setType] = useState('url')
   const [uri, setUri] = useState('')
   const [depth, setDepth] = useState(1)
@@ -1123,7 +1123,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
     }
   }
 
-  if (loading || kb.error) return <Loading of={kb} what="the knowledge base" />
+  if ((loading && !data) || (kb.error && !data)) return <Loading of={kb} what="the knowledge base" />
   if (lf) return <Spinner />
   const rows = data ?? []
   const factRows = facts ?? []
