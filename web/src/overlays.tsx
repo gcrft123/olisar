@@ -72,7 +72,14 @@ function ToastStack() {
   }, [])
   const remove = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), [])
   if (!items.length) return null
-  return <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>
+  // Portalled to <body> for the same reason the modal card is: `Overlays` renders inside
+  // #root, and an open dialog marks #root inert. A toast raised from inside Settings — every
+  // "Couldn't rename the bot" / "Couldn't send" path — painted but could not be clicked shut
+  // and was hidden from assistive tech until the dialog closed.
+  return createPortal(
+    <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>,
+    document.body,
+  )
 }
 
 // ── Modal shell ──────────────────────────────────────────────────────────────
@@ -84,6 +91,8 @@ const FOCUSABLE =
 
 // Dialogs nest (Settings ▸ Bot ▸ Move bot), so the inert flag is refcounted.
 let openModals = 0
+// Mount order of the open modals. The last one is the top-most and owns Escape.
+const escStack: symbol[] = []
 
 export function Modal(props: {
   /** Class on the dialog card itself — `.settings-modal`, `.import-modal`, `.confirm-dialog`, … */
@@ -130,9 +139,30 @@ export function Modal(props: {
     }
   }, [])
 
+  // Which modal owns Escape. Every instance listens on `document` in capture, and
+  // stopPropagation does NOT stop other listeners on the same node — so one Escape inside
+  // a nested dialog used to fire the parent's handler too: Settings ▸ Delete bot ▸ Escape
+  // closed the confirm *and* Settings. A non-dismissable modal was worse, because it fell
+  // straight through to the parent and unmounted the window that says "keep this open".
+  // Only the top of the stack reacts, and it always consumes the key either way.
+  const idRef = useRef<symbol>(null as unknown as symbol)
+  if (idRef.current == null) idRef.current = Symbol('modal')
+  useEffect(() => {
+    escStack.push(idRef.current)
+    return () => {
+      const i = escStack.indexOf(idRef.current)
+      if (i >= 0) escStack.splice(i, 1)
+    }
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && dismissable) { e.stopPropagation(); close?.(); return }
+      if (e.key === 'Escape') {
+        if (escStack[escStack.length - 1] !== idRef.current) return
+        e.stopPropagation()
+        if (dismissable) close?.()
+        return
+      }
       if (e.key !== 'Tab') return
       const el = card.current
       if (!el) return
@@ -365,10 +395,11 @@ function TooltipHost() {
     }
   }, [])
   if (!tip) return null
-  return (
+  return createPortal(
     <div className={'tooltip' + (tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
       {tip.text}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
