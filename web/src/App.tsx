@@ -66,9 +66,12 @@ function useTabRouting(
   // An unknown id renders nothing — `pages[id]` is simply undefined, so no boundary catches
   // it and the operator gets a blank console with no active nav item. Treat anything that
   // isn't a real tab as "no route" and rewrite the URL to match what's on screen.
+  // The first path segment is the tab; anything after it belongs to that tab (Docs uses it
+  // to name the open section, so a doc page can be bookmarked and shared).
   const hashTab = () => {
     const raw = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
-    return isTab(raw) ? raw : ''
+    const first = raw.split('/')[0]
+    return isTab(first) ? first : ''
   }
   // Adopt the hash on first paint, so a bookmarked or shared link opens its page.
   useEffect(() => {
@@ -80,6 +83,7 @@ function useTabRouting(
   // Publish tab changes without adding history noise for the initial adopt.
   useEffect(() => {
     if (hashTab() !== tab) history.pushState(null, '', '#/' + tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
   // Back/Forward runs through the same unsaved-work guard as a nav click; if the operator
   // keeps editing, put the hash back so the URL never disagrees with the screen.
