@@ -9,7 +9,10 @@ import react from '@vitejs/plugin-react'
 const MOCK = !!process.env.USAGE_MOCK
 
 function mockSummary(days: number) {
-  days = Math.max(1, Math.min(days, 30))
+  // days=0 is all-time; the real endpoint derives the window from the earliest recorded
+  // day and buckets past ~10 weeks. 400 days here so "Forever" exercises the bucketing.
+  const allTime = days === 0
+  days = allTime ? 400 : Math.max(1, Math.min(days, 30))
   // Full fallback roster: the top few have usage; the rest are idle chain models.
   const roster: any[] = [
     { model: 'gemini-flash-latest', cap: 10, role: 'chat', base: 520, growth: 780, tpr: 1400, peak: 8 },
@@ -47,6 +50,17 @@ function mockSummary(days: number) {
   }
   const last = daily[daily.length - 1]
   const total = daily.reduce((s, d) => s + d.requests, 0)
+  const step = days <= 70 ? 1 : days <= 730 ? 7 : 30
+  const series = step === 1 ? daily : daily.reduce((acc: any[], d, i) => {
+    if (i % step === 0) acc.push({ ...d, by_model: { ...d.by_model } })
+    else {
+      const b = acc[acc.length - 1]
+      b.requests += d.requests; b.tokens += d.tokens
+      b.peak_tpm = Math.max(b.peak_tpm, d.peak_tpm)
+      for (const k of Object.keys(d.by_model)) b.by_model[k] = (b.by_model[k] || 0) + d.by_model[k]
+    }
+    return acc
+  }, [])
   const by_model = roster
     .map((m) => {
       const reqW = daily.reduce((s, d) => s + (d.by_model[m.model] || 0), 0)
@@ -62,9 +76,12 @@ function mockSummary(days: number) {
   ]
   return {
     window_days: days,
+    all_time: allTime,
+    start: daily[0].day,
+    bucket_days: step,
     today: { requests: last.requests, tokens: last.tokens, grounding: 38 },
     peak: { rpm: { value: 8, cap: 10, model: 'gemini-flash-latest' }, tpm: last.peak_tpm, tpm_limit: 1000000 },
-    daily,
+    daily: series,
     by_model,
     by_source: shares.map(([source, f]) => ({ source, requests: Math.round(total * f) })).sort((a, b) => b.requests - a.requests),
   }

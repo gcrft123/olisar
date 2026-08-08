@@ -2380,6 +2380,35 @@ function spread(ys: number[], min = 13): number[] {
   return out
 }
 
+// A chart is `role="img"`, which is a leaf — nothing inside it reaches a screen reader, and
+// an aria-label can't carry a series. Every chart therefore ships the same numbers as a
+// real table, visually hidden, so the data is available rather than merely described.
+function ChartTable({ caption, columns, rows }: {
+  caption: string
+  columns: string[]
+  rows: (string | number)[][]
+}) {
+  // The class goes on a wrapping div, not the table: `display: table` treats `width: 1px`
+  // as a *minimum* and expands to fit its content, so an sr-only table sized itself to its
+  // widest row and pushed the page sideways. A block wrapper actually clips.
+  return (
+    <div className="visually-hidden">
+    <table>
+      <caption>{caption}</caption>
+      <thead><tr>{columns.map((c) => <th key={c} scope="col">{c}</th>)}</tr></thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i}>
+            <th scope="row">{r[0]}</th>
+            {r.slice(1).map((v, j) => <td key={j}>{v}</td>)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    </div>
+  )
+}
+
 function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: string; values: number[] }[]; labels: string[]; limit: number }) {
   const [box, W] = useChartWidth(940)
   const H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
@@ -2531,6 +2560,15 @@ function DonutChart({ items, total, unit }: { items: { label: string; value: num
   )
 }
 
+// 0 = all time. "Today" is gone: with a one-day window `prev` fell back to {0,0}, so both
+// KPI tiles printed a green "+0% vs yesterday" for a comparison that was never made, and a
+// single-point series pinned every x to x0 and drew a fictional diagonal across the card.
+const U_RANGES: { value: number; label: string }[] = [
+  { value: 7, label: '7 days' },
+  { value: 30, label: '30 days' },
+  { value: 0, label: 'Forever' },
+]
+
 export function Usage() {
   const [days, setDays] = useState(7)
   const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
@@ -2542,7 +2580,21 @@ export function Usage() {
   const clsFor: Record<string, string> = {}
   models.forEach((m, i) => { clsFor[m.model] = U_SERIES[i % U_SERIES.length] })
   const daily: any[] = data.daily || []
-  const labels = daily.map((d) => new Date(d.day + 'T00:00:00Z').toLocaleDateString(undefined, { weekday: 'short' }))
+  // The server buckets a long window (weekly past ~10 weeks, monthly past ~2 years) and
+  // says so, so the axis labels the bucket rather than guessing from the point count.
+  const bucket: number = data.bucket_days || 1
+  const fmt = (d: string, opts: Intl.DateTimeFormatOptions) =>
+    new Date(d + 'T00:00:00Z').toLocaleDateString(undefined, opts)
+  const labels = daily.map((d) => (
+    bucket === 1 ? fmt(d.day, { weekday: 'short' })
+      : bucket === 7 ? fmt(d.day, { month: 'short', day: 'numeric' })
+      : fmt(d.day, { month: 'short', year: '2-digit' })
+  ))
+  // What the range control is actually showing, said once and reused.
+  const windowLabel = data.all_time
+    ? `all time · since ${fmt(data.start, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    : `last ${data.window_days} ${data.window_days === 1 ? 'day' : 'days'}`
+  const bucketLabel = bucket === 1 ? 'per day' : bucket === 7 ? 'per week' : 'per month'
   const chartSeries = models.filter((m) => m.requests > 0).slice(0, 6).map((m) => ({ key: m.model, cls: clsFor[m.model], values: daily.map((d) => d.by_model[m.model] || 0) }))
   const last = daily[daily.length - 1] || { requests: 0, tokens: 0 }
   const prev = daily[daily.length - 2] || { requests: 0, tokens: 0 }
@@ -2554,36 +2606,30 @@ export function Usage() {
   const srcTotal = bySource.reduce((s, x) => s + x.requests, 0) || 1
   const liveModels: any[] = (live && live.models) || []
   const delta = (p: number) => (<span className={p >= 0 ? 'up' : 'dn'}>{p >= 0 ? '+' : ''}{p}%</span>)
-  const tf: [string, number][] = [['Today', 1], ['7 days', 7], ['30 days', 30]]
   const rpmHot = !!(peak.rpm && peak.rpm.cap && peak.rpm.value / peak.rpm.cap > 0.75)
 
   return (
     <>
       <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call this install makes, across all servers: by model, by day, and what's driving it." />
-      <div className="u-tfrow">
-        <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays}
-          options={tf.map(([l, d]) => ({ value: d, label: l }))} />
-      </div>
-
       <div className="u-kpis">
         <Card>
-          <div className="u-eyebrow">Requests · today</div>
+          <h2 className="u-eyebrow">Requests · today</h2>
           <div className="u-big">{uReq(last.requests)}</div>
           <div className="u-delta">{delta(pct(last.requests, prev.requests))} vs yesterday</div>
         </Card>
         <Card>
-          <div className="u-eyebrow">Tokens · today</div>
+          <h2 className="u-eyebrow">Tokens · today</h2>
           <div className="u-big">{uTok(last.tokens)}</div>
           <div className="u-delta">{delta(pct(last.tokens, prev.tokens))} vs yesterday</div>
         </Card>
         <Card>
-          <div className="u-eyebrow">Peak · requests / min</div>
+          <h2 className="u-eyebrow">Peak · requests / min</h2>
           <div className="u-big">{peak.rpm?.value || 0} <s>/ {peak.rpm?.cap || '—'}</s></div>
           <div className="u-track"><i className={rpmHot ? 'warn' : ''} style={{ width: `${Math.min(100, peak.rpm?.cap ? (peak.rpm.value / peak.rpm.cap) * 100 : 0)}%` }} /></div>
           <div className="u-delta">{peak.rpm?.model ? uShort(peak.rpm.model) : 'no calls yet today'}</div>
         </Card>
         <Card>
-          <div className="u-eyebrow">Peak · tokens / min</div>
+          <h2 className="u-eyebrow">Peak · tokens / min</h2>
           <div className="u-big">{uTok(peak.tpm || 0)} <s>/ {uTok(tpmLimit)}</s></div>
           <div className="u-track"><i style={{ width: `${Math.min(100, ((peak.tpm || 0) / tpmLimit) * 100)}%` }} /></div>
           <div className="u-delta">today's peak per-minute tokens</div>
@@ -2591,14 +2637,29 @@ export function Usage() {
       </div>
 
       <Card>
-        <div className="u-cardhead"><div><div className="u-ttl">Daily requests</div><div className="u-hint">per model · last {data.window_days} days · dashed line = daily request limit</div></div></div>
+        {/* The control lives here, on the card it governs, rather than floating above four
+            KPI tiles that are always today's. */}
+        <div className="u-cardhead">
+          <div><h2 className="u-ttl">Requests over time</h2>
+            <div className="u-hint">per model · {bucketLabel} · {windowLabel} · dashed line = daily request limit</div></div>
+          <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays} options={U_RANGES} />
+        </div>
         <div className="u-legend">{chartSeries.map((s) => (<span key={s.key} className={'lg ' + s.cls}><span className="d" />{uShort(s.key)}</span>))}</div>
-        {daily.length ? <DailyReqChart series={chartSeries} labels={labels} limit={U_RPD_LIMIT} /> : <div className="empty">No usage recorded yet.</div>}
+        {daily.length ? (
+          <>
+            <DailyReqChart series={chartSeries} labels={labels} limit={U_RPD_LIMIT} />
+            <ChartTable
+              caption={`Requests per model, ${bucketLabel}, ${windowLabel}`}
+              columns={['Period', ...chartSeries.map((x) => uShort(x.key))]}
+              rows={labels.map((l, i) => [l, ...chartSeries.map((x) => x.values[i] ?? 0)])}
+            />
+          </>
+        ) : <div className="empty">No usage recorded yet.</div>}
       </Card>
 
       <div className="u-mins">
         <Card>
-          <div className="u-cardhead"><div><div className="u-ttl">Requests / min</div><div className="u-hint">live · per model against its cap</div></div>
+          <div className="u-cardhead"><div><h2 className="u-ttl">Requests / min</h2><div className="u-hint">live · per model against its cap</div></div>
             <div className="u-livehead" style={{ marginLeft: 'auto' }}><span className="u-livedot" /><span className="u-hint">live</span></div></div>
           <div style={{ marginTop: 14 }}>
             {liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
@@ -2610,29 +2671,70 @@ export function Usage() {
           </div>
         </Card>
         <Card>
-          <div className="u-cardhead"><div><div className="u-ttl">Tokens / min</div><div className="u-hint">daily peak · last {data.window_days} days</div></div></div>
-          {daily.length ? <MiniArea values={tpmSeries} limit={tpmLimit} limitLabel={`cap ${uTok(tpmLimit)}/min`} cls="us1" /> : <div className="empty">No usage yet.</div>}
+          <div className="u-cardhead"><div><h2 className="u-ttl">Tokens / min</h2><div className="u-hint">daily peak · {windowLabel}</div></div></div>
+          {daily.length ? (
+            <>
+              <MiniArea values={tpmSeries} limit={tpmLimit} limitLabel={`cap ${uTok(tpmLimit)}/min`} cls="us1" />
+              <ChartTable
+                caption={`Peak tokens per minute, ${bucketLabel}, ${windowLabel}. Cap ${uTok(tpmLimit)} per minute.`}
+                columns={['Period', 'Peak tokens / min']}
+                rows={labels.map((l, i) => [l, uTok(tpmSeries[i] ?? 0)])}
+              />
+            </>
+          ) : <div className="empty">No usage yet.</div>}
         </Card>
       </div>
 
       <div className="u-cols">
         <Card>
-          <div className="u-cardhead"><div><div className="u-ttl">By model</div><div className="u-hint">today · each against its own free-tier caps</div></div></div>
-          <div className="u-colh"><span>Model</span><span>Peak rpm vs cap</span><span style={{ textAlign: 'right' }}>Requests</span><span style={{ textAlign: 'right' }}>Tokens</span></div>
-          {models.length === 0 && <div className="empty">No usage recorded yet.</div>}
-          {models.map((m) => (
-            <div className="u-mrow" key={m.model}>
-              <div className={'u-mname ' + clsFor[m.model]}><span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span></div>
-              <div className={'u-rpm ' + clsFor[m.model]}>{m.peak_rpm_today}<div className="bar"><i className={m.peak_rpm_today / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.peak_rpm_today / Math.max(m.cap, 1)) * 100)}%` }} /></div><span>{m.cap}</span></div>
-              <div className="u-num">{uReq(m.requests_today)}</div>
-              <div className="u-num">{uTok(m.tokens)}</div>
-            </div>
-          ))}
+          <div className="u-cardhead"><div><h2 className="u-ttl">By model</h2><div className="u-hint">today · each against its own free-tier caps</div></div></div>
+          {/* A real table, not a div grid: the four column labels used to read once and then
+              ~40 loose values streamed past with no column association. */}
+          {models.length === 0 ? <div className="empty">No usage recorded yet.</div> : (
+            <table className="u-mtable">
+              <thead>
+                <tr>
+                  <th scope="col">Model</th>
+                  <th scope="col">Peak rpm vs cap</th>
+                  <th scope="col" className="num">Requests</th>
+                  <th scope="col" className="num">Tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                {models.map((m) => (
+                  <tr key={m.model}>
+                    <th scope="row" className={'u-mname ' + clsFor[m.model]}>
+                      <span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span>
+                    </th>
+                    <td className={'u-rpm ' + clsFor[m.model]}>
+                      {m.peak_rpm_today}
+                      <span className="bar"><i className={m.peak_rpm_today / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.peak_rpm_today / Math.max(m.cap, 1)) * 100)}%` }} /></span>
+                      <span>{m.cap}</span>
+                    </td>
+                    <td className="u-num">{uReq(m.requests_today)}</td>
+                    <td className="u-num">{uTok(m.tokens)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </Card>
         <Card>
-          <div className="u-cardhead"><div><div className="u-ttl">By process</div><div className="u-hint">requests · last {data.window_days} days</div></div></div>
+          <div className="u-cardhead"><div><h2 className="u-ttl">By process</h2><div className="u-hint">requests · {windowLabel}</div></div></div>
           {bySource.length === 0 ? <div className="empty">Nothing recorded yet.</div>
-            : <DonutChart total={srcTotal} unit="requests" items={bySource.map((s) => ({ label: U_SOURCE_LABEL[s.source] || s.source, value: s.requests, tip: U_SOURCE_TIP[s.source] }))} />}
+            : (
+              <>
+                <DonutChart total={srcTotal} unit="requests" items={bySource.map((s) => ({ label: U_SOURCE_LABEL[s.source] || s.source, value: s.requests, tip: U_SOURCE_TIP[s.source] }))} />
+                <ChartTable
+                  caption={`Requests by process, ${windowLabel}`}
+                  columns={['Process', 'Requests', 'Share']}
+                  rows={bySource.map((x) => [
+                    U_SOURCE_LABEL[x.source] || x.source, uReq(x.requests),
+                    Math.round((x.requests / srcTotal) * 100) + '%',
+                  ])}
+                />
+              </>
+            )}
         </Card>
       </div>
 

@@ -146,6 +146,14 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* Available to assistive tech, absent to everyone else. Not `display: none`, which would
+   hide it from both. Used for the chart data tables, which carry the numbers a
+   `role="img"` chart cannot expose. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
 /* Skip link — offscreen until focused, then a normal panel chip at the top left. */
 .skip-link {
   position: fixed; z-index: 300; top: 12px; left: 12px;
@@ -1664,7 +1672,7 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, 1fr); } .u-mins, .u-cols { grid-template-columns: 1fr; } }
 .u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
-.u-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
+.u-eyebrow { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
 .u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
 .u-big s { color: var(--text-3); text-decoration: none; font-size: 15px; }
 .u-delta { font-size: 11.5px; color: var(--text-2); margin-top: 8px; }
@@ -1672,11 +1680,11 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-track { height: 6px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; margin-top: 11px; }
 .u-track i { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
 .u-track i.warn { background: var(--warn); }
-.u-ttl { font-size: 14.5px; font-weight: 600; }
+.u-ttl { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
 .u-hint { color: var(--text-2); font-size: 12px; margin-top: 2px; }
 .u-cardhead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
 .u-cardhead .useg { margin-left: auto; }
-.u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-2); margin: 10px 0 4px; }
+.u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); margin: 10px 0 4px; }
 .u-legend .lg { display: inline-flex; align-items: center; }
 .u-legend .d { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: currentColor; }
 /* The box the chart measures itself against; the svg inside is drawn at its exact pixel
@@ -1685,8 +1693,8 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-chart { display: block; max-width: 100%; }
 .u-grid { stroke: var(--border); }
 .u-limit { stroke: var(--danger); stroke-opacity: 0.55; }
-.u-limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--mono); font-size: 10px; }
-.u-axis { fill: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.u-limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--mono); font-size: 11px; }
+.u-axis { fill: var(--text-3); font-family: var(--mono); font-size: 11px; }
 .u-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .u-line.primary { stroke-width: 2.6; }
 .u-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
@@ -1699,35 +1707,46 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .u-meter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .u-meter:last-child { margin-bottom: 2px; }
-.u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11px; min-width: 74px; }
+.u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; min-width: 74px; }
 .u-meter .bar { flex: 1; height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .u-meter .bar i { display: block; height: 100%; border-radius: 4px; background: currentColor; }
 .u-meter .bar i.warn { background: var(--warn); }
 .u-meter .v { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); min-width: 46px; text-align: right; }
-.u-colh { display: grid; grid-template-columns: 156px 1fr 84px 76px; gap: 12px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.u-mrow { display: grid; grid-template-columns: 156px 1fr 84px 76px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
-.u-mrow:last-child { border-bottom: 0; }
-/* 156 + 84 + 76 of fixed track plus gaps leaves the rpm meter nothing under ~430px of card.
-   Drop the meter column and let the name take the room; the numbers still line up.
-   Must sit AFTER .u-colh/.u-mrow/.u-big — it was declared above them and lost on
-   equal specificity, so three of its four rules never applied and Usage scrolled
-   sideways at phone widths. */
+/* By-model table. Same look the div grid had — mono numerics, hairline rules, a fixed
+   name column — but as a real table, so each value keeps its column association. */
+.u-mtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.u-mtable th, .u-mtable td { padding: 11px 0; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; font-weight: 400; }
+.u-mtable tbody tr:last-child th, .u-mtable tbody tr:last-child td { border-bottom: 0; }
+.u-mtable thead th {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-3); padding-bottom: 8px; padding-top: 0; font-weight: 400;
+}
+.u-mtable th:first-child { width: 156px; }
+.u-mtable th:nth-child(3), .u-mtable td:nth-child(3) { width: 84px; }
+.u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: 76px; }
+.u-mtable .num, .u-mtable td.u-num { text-align: right; }
+.u-mtable td:not(:last-child) { padding-right: 12px; }
+/* 156 + 84 + 76 of fixed column plus padding leaves the rpm meter nothing under ~430px of
+   card. Drop the meter column and let the name take the room; the numbers still line up.
+   Placed after every rule it overrides — the previous version of this block sat above them
+   and lost on equal specificity, so three of its four rules never applied. */
 @media (max-width: 560px) {
-  .u-colh, .u-mrow { grid-template-columns: minmax(0, 1fr) 76px 68px; }
-  .u-colh > :nth-child(2), .u-mrow > .u-rpm { display: none; }
+  .u-mtable { table-layout: auto; }
+  .u-mtable th:first-child { width: auto; }
+  .u-mtable thead th:nth-child(2), .u-mtable tbody td:nth-child(2) { display: none; }
   .u-kpis { grid-template-columns: 1fr; }
   .u-big { font-size: 22px; }
 }
 .u-mname { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .u-mname .d { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .u-mname b { font-weight: 500; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.u-mname span { color: var(--text-3); font-size: 10.5px; flex: none; }
+.u-mname span { color: var(--text-3); font-size: 11.5px; flex: none; }
 .u-rpm { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
-.u-rpm .bar { flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
+.u-rpm .bar { display: block; flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
 .u-rpm .bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
 .u-rpm .bar i.warn { background: var(--warn); }
 .u-num { font-family: var(--mono); font-size: 12.5px; text-align: right; }
-.u-num s { color: var(--text-3); text-decoration: none; font-size: 10.5px; display: block; }
+.u-num s { color: var(--text-3); text-decoration: none; font-size: 11.5px; display: block; }
 .u-prow { margin-bottom: 13px; }
 .u-prow:last-child { margin-bottom: 2px; }
 .u-pl { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
@@ -1739,11 +1758,11 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-donut-track { stroke: var(--bg-inset); }
 .u-donut-seg { stroke: currentColor; }
 .u-donut-total { fill: var(--text); font-family: var(--mono); font-size: 22px; font-weight: 500; }
-.u-donut-sub { fill: var(--text-3); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; }
+.u-donut-sub { fill: var(--text-3); font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.09em; text-transform: uppercase; }
 .u-donut-legend { width: 100%; display: flex; flex-direction: column; gap: 9px; }
 .u-dl { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
 .u-dl .d { width: 9px; height: 9px; border-radius: 3px; background: currentColor; flex: none; }
 .u-dl .nm { color: var(--text); }
 .u-dl .v { margin-left: auto; font-family: var(--mono); color: var(--text-2); }
-.u-dl .pc { font-family: var(--mono); color: var(--text-3); font-size: 11px; min-width: 34px; text-align: right; }
+.u-dl .pc { font-family: var(--mono); color: var(--text-3); font-size: 11.5px; min-width: 34px; text-align: right; }
 .u-dl[data-tip] { cursor: help; }
