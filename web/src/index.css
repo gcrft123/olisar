@@ -416,14 +416,17 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   .page-head h1 { font-size: 20px; }
 }
 
-/* Danger zone — the same tint recipe as a .callout.danger, so irreversible destruction
-   reads as the system's red rather than as a card that happens to hold a red button. */
+/* Danger zone — the system's red, quietly. Enough tint to separate it from an ordinary
+   card, not enough to shout on a page you visit for other reasons; the weight belongs to
+   the confirm dialog, which is where the decision is actually made. Set apart from the
+   content above rather than continuing the 14px card rhythm. */
 .danger-zone {
-  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
-  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+  margin-top: 34px;
+  border-color: color-mix(in srgb, var(--danger) 22%, transparent);
+  background: color-mix(in srgb, var(--danger) 4%, var(--panel));
 }
 .danger-zone h2 { color: var(--danger); }
-.danger-zone .settings-muted { color: color-mix(in srgb, var(--danger) 20%, var(--text-2)); }
+.danger-zone .settings-muted { color: var(--text-2); }
 
 .field { margin-bottom: 17px; }
 .field:last-child { margin-bottom: 0; }
