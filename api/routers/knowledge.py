@@ -69,8 +69,10 @@ async def add_source(body: SourceIn, gctx: GuildContext = Depends(require_guild_
             uri=body.uri,
             title=body.uri,
             status=KBStatus.pending,
-            crawl_depth=max(0, min(body.crawl_depth, 3)),
-            max_pages=max(1, min(body.max_pages, 100)),
+            # Bounds are enforced by SourceIn now, so a bad request is refused with a reason
+            # rather than silently turned into a different one.
+            crawl_depth=body.crawl_depth,
+            max_pages=body.max_pages,
             added_by=gctx.admin.discord_user_id,
         )
         session.add(src)

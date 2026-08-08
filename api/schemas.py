@@ -194,8 +194,12 @@ class FactIn(BaseModel):
 class SourceIn(BaseModel):
     type: str  # url | website
     uri: str
-    crawl_depth: int = 1
-    max_pages: int = 25
+    # The router used to silently clamp these to 0-3 and 1-100, so a request asking to crawl
+    # 500 pages got 100 back and was told nothing. The console already prints exactly these
+    # bounds under each field; rejecting out-of-range values says what happened instead of
+    # quietly doing something else.
+    crawl_depth: int = Field(1, ge=0, le=3)
+    max_pages: int = Field(25, ge=1, le=100)
 
 
 class ExtensionToggleIn(BaseModel):
