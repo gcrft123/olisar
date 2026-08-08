@@ -400,8 +400,16 @@ export function Messages() {
         const m = data[key] || {}
         const placeholders: string[] = Array.isArray(m.placeholders) ? m.placeholders : []
         const fallback = typeof m.default === 'string' ? m.default : ''
+        const overridden = (edits[key] ?? '').trim().length > 0
         return (
-        <Card key={key} title={MSG_LABELS[key] ?? key}>
+        <Card
+          key={key}
+          title={MSG_LABELS[key] ?? key}
+          // Which replies you have actually rewritten was carried only by whether the box
+          // held grey placeholder text or real text — a distinction you have to read
+          // fourteen boxes to make.
+          badge={overridden ? <span className="badge preference">Custom</span> : undefined}
+        >
           {/* The card title is the only thing naming this box, and a card title is not a
               label — every one of these announced as an unnamed edit box, fourteen in a
               row. A placeholder is not a name either; it's the default text. */}
@@ -657,9 +665,9 @@ export function Access() {
       <PageHead icon="access" title="Access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
       <Card title="How access works">
         <div className="mode-legend">
-          <div><span className="tag">Allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
-          <div><span className="tag">Blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
-          <div><span className="tag">Open</span> unset — this role adds no restriction</div>
+          <div><span className="tag">allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
+          <div><span className="tag">blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
+          <div><span className="tag">open</span> unset — this role adds no restriction</div>
         </div>
         <div className={'access-summary' + (restrictive ? ' restrictive' : '')} role="status">
           {restrictive && <Icon.warn size={15} weight="Bold" />}
@@ -676,10 +684,10 @@ export function Access() {
             </div>
             {shown.map((r) => (
               <div className="list-row" key={r.role_id}>
-                <div className="grow">
+                <div className="grow rolename">
                   <div className="title"><RoleChip name={r.name} color={r.color} /></div>
                 </div>
-                <div style={{ width: 220 }}>
+                <div className="role-ctl">
                   <Select value={stateOf(r.role_id)} options={ACCESS_OPTS} onChange={(v) => setState(r.role_id, v)}
                     ariaLabel={`Access for the ${r.name} role`} />
                 </div>
@@ -945,8 +953,11 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   return (
     <>
       <PageHead icon="knowledge" title="Knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in; the glossary holds short facts about your server." />
+      {/* Full width, above the split: this is a fact about the whole server, not a sibling
+          of the two editors below it, and as a lone card in a column it left ~900px of
+          empty track beside them. */}
+      <SearchIndexCard />
       <div className="cols2">
-        <div className="col">
       <Card title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
         <div className="row">
           <Field label="Type"><Select value={type} onChange={setType} options={[{ value: 'url', label: 'single page' }, { value: 'website', label: 'crawl a website' }]} /></Field>
@@ -1048,10 +1059,6 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           </div>
         ))}
       </Card>
-        </div>
-        <div className="col">
-          <SearchIndexCard />
-        </div>
       </div>
       <ActivityCard />
       <ClearMemoryCard serverName={serverName} />
@@ -2355,7 +2362,9 @@ export function Members() {
                 </div>
               )}
               <div className="member-actions">
-                <button className="ghost" disabled={busy} onClick={() => build(p.user_id)}>
+                {/* The card's only action. As a ghost — transparent fill, transparent
+                    border, --text-2 — it read as caption text rather than a control. */}
+                <button disabled={busy} onClick={() => build(p.user_id)}>
                   {busy ? 'Building…' : impression ? 'Rebuild impression' : 'Create impression'}
                 </button>
                 {errs[p.user_id] && <span className="err sm">{errs[p.user_id]}</span>}
@@ -2430,11 +2439,13 @@ function KeyField(props: {
   // you type, so "a key is already saved" vanished exactly as you were about to overwrite
   // it. Status is a persistent line under the field instead.
   const placeholder = props.example || 'Paste your key'
+  // One statement of state per field. The badge already says "Saved"; repeating it in a
+  // sentence and again beside a trash icon said the same thing three ways, four fields over.
   const state = s.dashboard
-    ? 'Saved here. Leave the field blank to keep it.'
+    ? 'Leave blank to keep it.'
     : s.env
-      ? 'Coming from this machine’s environment. Paste a key to override it.'
-      : 'Not set.'
+      ? 'Coming from this machine’s environment — paste to override.'
+      : ''
   return (
     <Field label={props.label} desc={props.desc}>
       <KeyInput placeholder={placeholder} value={props.value} onChange={props.onChange} />
@@ -2450,9 +2461,9 @@ function KeyField(props: {
         ) : s.env ? (
           <span className="badge">From environment</span>
         ) : (
-          <span className="badge missing">Not set</span>
+          <span className="badge">Not set</span>
         )}
-        <span className="key-state">{state}</span>
+        {state && <span className="key-state">{state}</span>}
       </div>
     </Field>
   )
