@@ -785,6 +785,57 @@ track, and withhold it at widths where the content needs the room:
 
 ---
 
+## Documentation layout
+
+A docs surface is three roles: section nav, the article, page index. Three panes is the right
+topology — the mistake is letting the two rails be the constants and the article be whatever
+they leave over.
+
+**State the measure; derive everything else from it.** Before this rule the console's docs
+article was pure residue: 41 characters per line on a 900px window, 55 with a page index, 90
+*without* one at the same size, 106 at 1680px. None of those were chosen, and the widest came
+where the reader had the most screen.
+
+```css
+.docs-shell {
+  grid-template-columns: 230px minmax(0, 1fr) 212px;
+  --doc-measure: 445px;   /* ~73 characters at the 13.5px body */
+}
+/* Prose holds the measure. Tables and code are deliberately absent from this list and take
+   the full column — a reference table squeezed into a prose measure is just a horizontal
+   scrollbar, which is the reader doing the layout's job. */
+.docs-eyebrow, .docs-title, .docs-prevnext,
+.doc > p, .doc > ul, .doc > ol, .doc > h2, .doc > h3, .doc > .callout {
+  max-width: var(--doc-measure);
+}
+```
+
+Not `ch` — see the measure note under **Marketing site**: IBM Plex Sans's zero is 1.33× its
+average advance, so a `ch` value overstates a real line by a third.
+
+**Keep the page index's track even when the page has no index.** A section with no `##`
+headings renders no rail; reclaiming its 212px widens the article on exactly those pages, so
+the column jumps and re-wraps as the reader clicks through the set. Hold the track empty and
+the article's left edge and line length are identical on every page.
+
+**Rails yield in priority order, at the width where they start costing the measure.** The page
+index goes first, then the section nav becomes a band above the article. Pick each breakpoint
+by solving for the measure, not by round numbers: the index drops when the middle column can
+no longer hold `--doc-measure` plus its gutters, and the nav follows when a rail plus the
+app's own sidebar would push the article under ~65 characters. Verify by reading the realized
+line length at each step rather than trusting the arithmetic — and remember media queries do
+not zoom, so a breakpoint fires at `value / --ui-scale` of effective width.
+
+**A prev/next row wraps.** Two neighbour titles are content, not a fixed pair. `display: flex`
+with the default `nowrap` and `min-width: auto` let a long pair push the *document* sideways —
+"Create your own" beside "Slash commands & flows" wants 363px, and in a 248px column that was
+a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the children.
+
+```css
+.docs-prevnext { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+.docs-prevnext > button { min-width: 0; max-width: 100%; }
+```
+
 ## Do / Don't
 
 - **Do** lean on hairline borders + inset wells for structure; keep cards flat and shadowless.
@@ -809,6 +860,7 @@ by hand on the surface you touched:
 - The shell at 375px, and the widest table or chart on the surface. Assert `documentElement.scrollWidth === clientWidth` — a visually-hidden `<table>` and an unclamped `min-width: auto` grid child both overflow silently.
 - Every mutually exclusive group announces as one: `role="radiogroup"` + `role="radio"` + `aria-checked`, roving `tabIndex`, arrow keys. A styled `.sel` class is not a selected state.
 - Leave a dirty page by every route you shipped — tab, server switcher, deep link, reload.
+- Read the **realized** line length on a text surface, don't assume it. `scrollWidth` on a `overflow: visible` element is not an overflow oracle either — scroll the page and read `window.scrollX`.
 - Break the backend and look again: a dead poll must not render as an idle one, and a failed action must leave something on screen.
 
 ---

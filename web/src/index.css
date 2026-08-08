@@ -919,8 +919,23 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr) 212px;
   align-items: start;
+
+  /* The article's measure is the one stated width on this surface; everything else is
+     derived from it or yields to it. It used to be the residual after two fixed rails took
+     their cut, which meant the line length was decided by the window and by whether the
+     section happened to have subheadings: 41 characters on a 900px window, 55 with a page
+     index, 90 without one on the same window, 106 at 1680. None of those were chosen.
+     445px at the 13.5px body measures ~73 characters. Not `ch`: per the measure note in
+     DESIGN.md, IBM Plex Sans's zero is 1.33x its average advance, so a ch value overstates
+     a real line by a third. */
+  --doc-measure: 445px;
 }
-.docs-shell.no-toc { grid-template-columns: 230px minmax(0, 1fr); }
+/* A section without subheadings renders no page index — but it keeps the index's track.
+   Reclaiming those 212px used to widen the article on exactly those pages, so the column
+   moved and re-wrapped as the reader clicked between sections. Now that prose holds a fixed
+   measure the space buys nothing, and holding the track steady means the article's left
+   edge and line length are identical on every page in the set. */
+.docs-shell.no-toc { grid-template-columns: 230px minmax(0, 1fr) 212px; }
 
 .docs-nav {
   position: sticky; top: 0; align-self: start;
@@ -942,16 +957,31 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .docs-nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .docs-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 
-.docs-content { padding: 44px 48px; max-width: 760px; min-width: 0; }
+/* The pane fills its column up to a cap sized for the widest reference table in the docs
+   (~762px of content), not for the prose — the prose is capped separately below. */
+.docs-content { padding: 44px 48px; max-width: 880px; min-width: 0; }
+
+/* Prose holds the measure. Tables, code and anything else dense is deliberately absent from
+   this list and gets the full column: a reference table squeezed into a prose measure just
+   becomes a horizontal scrollbar, which is the reader doing the layout's job. */
+.docs-eyebrow, .docs-title, .docs-prevnext,
+.doc > p, .doc > ul, .doc > ol, .doc > h2, .doc > h3, .doc > .callout {
+  max-width: var(--doc-measure);
+}
 .docs-eyebrow {
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--accent); margin-bottom: 8px;
 }
 .docs-title { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 20px; }
+/* Wrap, and let each button shrink. Two neighbour titles are content, not a fixed pair —
+   "Create your own" next to "Slash commands & flows" needs 363px, and in a 248px column an
+   unwrapped nowrap row pushed the whole document 74px sideways: a real horizontal page
+   scroll on the docs page at a 900px window, on the pages with the longest neighbours. */
 .docs-prevnext {
-  display: flex; justify-content: space-between; gap: 12px;
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px;
   margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border);
 }
+.docs-prevnext > button { min-width: 0; max-width: 100%; }
 
 .docs-toc {
   position: sticky; top: 0; align-self: start;
@@ -971,18 +1001,34 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .docs-toc a.lvl2 { padding-left: 24px; }
 .docs-toc a.active { color: var(--text); font-weight: 600; border-left-color: var(--text); }
 
-@media (max-width: 1180px) {
+/* The page index is the first thing to yield, and it has to go earlier than it did. Below
+   this the middle column can no longer hold --doc-measure plus its gutters, so a 212px rail
+   is paid for out of the article — which is how a section with subheadings ended up reading
+   at 55 characters per line while a section without them, at the same window size, read at
+   90. The breakpoint is a physical width and the layout inside it is zoomed, so this fires
+   at 1360 / --ui-scale of effective width; it is picked against the effective one. */
+@media (max-width: 1360px) {
   .docs-shell, .docs-shell.no-toc { grid-template-columns: 220px minmax(0, 1fr); }
   .docs-toc { display: none; }
 }
-@media (max-width: 860px) {
+@media (max-width: 1180px) {
+  /* 48px of gutter is right for a wide pane and punitive on a narrow one — it was taking
+     28% of the column at the tightest two-rail width. */
+  .docs-content { padding: 40px 30px; }
+}
+/* Then the section nav yields the same way, and for the same reason — below this a 220px
+   rail plus the console's own 244px sidebar is 57% of the window spent on wayfinding, and
+   the article was down to 47 characters. It stops being a rail and becomes a band above the
+   article, which costs vertical space the reader can scroll past and returns the measure. */
+@media (max-width: 1010px) {
   .docs-shell, .docs-shell.no-toc { grid-template-columns: minmax(0, 1fr); }
-  /* The page index stops being a rail and becomes a band above the article. */
   .docs-nav {
     position: static; max-height: none; overflow: visible;
     border-right: 0; border-bottom: 1px solid var(--border); padding: 18px 16px 8px;
   }
   .docs-group { margin-bottom: 10px; }
+}
+@media (max-width: 860px) {
   .docs-content { padding: 26px 16px 56px; }
   .docs-title { font-size: 22px; }
 }
