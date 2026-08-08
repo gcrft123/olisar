@@ -1241,7 +1241,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3); padding: 0 8px 6px;
 }
+/* A real <button> now, so it inherits the global :focus-visible ring. It used to be a
+   div[role=button], which can never match `button:focus-visible` — leaving every one of the
+   ~30 documentation tab stops with no visible focus indicator at all. */
 .docs-nav-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; font: inherit;
   padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
   color: var(--text-2); font-size: 13px; line-height: 1.35; user-select: none;
   transition: background 0.12s, color 0.12s;
@@ -2211,3 +2216,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 input[type="number"].bad, input.bad { border-color: var(--danger); }
 input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: var(--danger); }
 .num-err { margin-top: 5px; font-size: 11.5px; color: var(--danger); }
+
+/* A docs search that matches nothing said nothing — an empty rail beside an article that
+   still showed the last section, which reads as a broken filter rather than no results. */
+.docs-nofind { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-3); line-height: 1.45; }
