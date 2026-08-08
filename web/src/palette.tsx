@@ -20,16 +20,13 @@ export type Command = {
   ic: IconName
   /** Extra words that should match this command without being displayed. */
   keywords?: string
+  /** Long-form text searched only as a whole phrase, ranked below everything else. */
+  body?: string
   run: () => void
 }
 
 /** Subsequence match: "cmr" finds "Command replies". Returns null when it doesn't match. */
-function score(needle: string, hay: string): number | null {
-  if (!needle) return 0
-  const n = needle.toLowerCase()
-  const h = hay.toLowerCase()
-  const direct = h.indexOf(n)
-  if (direct >= 0) return direct === 0 ? 0 : 1 + direct / 100   // prefix beats contains
+function subsequence(n: string, h: string): number | null {
   let i = 0
   let gaps = 0
   let last = -1
@@ -40,7 +37,31 @@ function score(needle: string, hay: string): number | null {
     last = at
     i = at + 1
   }
-  return 50 + gaps / 100   // subsequence ranks below a substring
+  return gaps / 100
+}
+
+// Scored in bands, so a weak match on a long body can never outrank a real one on a title.
+// Without this, indexing the docs' prose made "quiet hours" return four documentation pages
+// and not the Behavior page the setting actually lives on — every long body subsequence-
+// matches almost anything.
+const BAND = { titlePrefix: 0, titleSub: 10, titleSeq: 20, keyword: 40, body: 60 }
+
+function score(needle: string, c: { label: string; group: string; keywords?: string; body?: string }): number | null {
+  if (!needle) return 0
+  const n = needle.toLowerCase()
+  const label = c.label.toLowerCase()
+  const at = label.indexOf(n)
+  if (at === 0) return BAND.titlePrefix
+  if (at > 0) return BAND.titleSub + at / 100
+  const seq = subsequence(n, label)
+  if (seq !== null) return BAND.titleSeq + seq
+  const kw = (c.group + ' ' + (c.keywords ?? '')).toLowerCase()
+  if (kw.includes(n)) return BAND.keyword + kw.indexOf(n) / 1000
+  // Body text is a last resort and only on a whole-phrase match — never a subsequence,
+  // which on 700 characters of prose matches essentially everything.
+  const body = (c.body ?? '').toLowerCase()
+  if (body.includes(n)) return BAND.body + body.indexOf(n) / 10000
+  return null
 }
 
 export function CommandPalette(props: { commands: Command[]; open: boolean; onClose: () => void }) {
@@ -54,7 +75,7 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
   const hits = useMemo(() => {
     const out: { c: Command; s: number }[] = []
     for (const c of props.commands) {
-      const s = score(q, c.label + ' ' + c.group + ' ' + (c.keywords ?? ''))
+      const s = score(q, c)
       if (s !== null) out.push({ c, s })
     }
     return out.sort((a, b) => a.s - b.s).map((x) => x.c)
