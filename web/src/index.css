@@ -2249,3 +2249,7 @@ input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: 
   cursor: pointer; width: 100%; text-align: inherit;
 }
 th.num .th-sortbtn { text-align: right; }
+
+/* Filter + bulk setter on Access, mirroring the Channels toolbar. */
+.access-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+.access-toolbar input { flex: 1; min-width: 0; }
