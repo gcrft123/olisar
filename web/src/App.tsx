@@ -28,7 +28,10 @@ const NAV: { id: string; label: string; ic: IconName }[] = [
 
 // Every id the router may resolve. Developer is included even when the tab is hidden:
 // a non-developer landing on #/developer should be redirected, not shown a blank page.
-const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs', 'developer'])
+// Ids the router will resolve. `developer` is deliberately absent: it isn't a tab for most
+// operators, so a typed `#/developer` falls back to the current page and rewrites the URL
+// rather than rendering operator tooling to someone the rail hides it from.
+const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs'])
 
 // The settings each page owns, so "quiet hours" or "context window" reaches Behavior
 // rather than whichever documentation paragraph happens to mention it.
@@ -140,11 +143,16 @@ export default function App() {
     const wide = window.matchMedia('(min-width: 861px)')
     const onWide = () => { if (wide.matches) setNavOpen(false) }
     const main = document.getElementById('console-main')
+    // The topbar sits outside <main>, so inerting only the content left the hamburger
+    // tabbable behind the open drawer — Tab walked out of the drawer onto a control it
+    // covers. Everything that isn't the drawer goes inert.
+    const topbar = document.querySelector<HTMLElement>('.topbar')
     // Where focus came from, so closing puts it back. Without this, Escape left focus on a
     // control inside a drawer that is now visibility:hidden and translated off-canvas, and
     // the next Tab resumed from an element nobody can see.
     const openedFrom = document.activeElement as HTMLElement | null
     if (main) main.inert = true
+    if (topbar) topbar.inert = true
     const prevOverflow = document.documentElement.style.overflow
     document.documentElement.style.overflow = 'hidden'
     document.getElementById('console-nav')?.querySelector<HTMLElement>('button, [role="button"]')?.focus()
@@ -152,6 +160,7 @@ export default function App() {
     wide.addEventListener('change', onWide)
     return () => {
       if (main) main.inert = false
+      if (topbar) topbar.inert = false
       document.documentElement.style.overflow = prevOverflow
       window.removeEventListener('keydown', onKey)
       wide.removeEventListener('change', onWide)
@@ -218,7 +227,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const isTab = React.useCallback((id: string) => TAB_IDS.has(id), [])
+  const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
 
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
@@ -324,7 +333,10 @@ export default function App() {
     keys: <ApiKeys />,
     usage: <Usage />,
     docs: <Docs onNavigate={goTab} />,
-    developer: <Developer />,
+    // Gated here, not only in the rail: the rail hides the item for non-developers, but the
+    // route is reachable by typing the hash. The page is operator-tooling, so it renders the
+    // ordinary not-found path instead.
+    ...(isDev ? { developer: <Developer /> } : {}),
   }
   // The Developer tab only appears for whitelisted platform developers; Docs always sits
   // last in the rail, below Developer.

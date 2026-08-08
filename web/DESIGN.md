@@ -1,3 +1,69 @@
+---
+# Machine-readable head of this guide. Without it the detector locates DESIGN.md, finds no
+# frontmatter, and silently skips its four design-system rules — palette, type family,
+# radius and type ramp went unchecked for every scan. The values below are read straight
+# from :root in web/src/index.css; if you change a token there, change it here.
+typography:
+  body:
+    fontFamily: "IBM Plex Sans"
+  mono:
+    fontFamily: "JetBrains Mono"
+  display:
+    fontFamily: "IBM Plex Serif"   # marketing site only — see "Marketing site (site-only)"
+colors:
+  bg: "#020203"
+  bg-sidebar: "#040405"
+  panel: "#08080a"
+  bg-inset: "#0f0f12"
+  input-bg: "#0f0f12"
+  border: "#26262a"
+  border-strong: "#323237"
+  text: "#ededee"
+  text-2: "#9d9da7"
+  text-3: "#7f7f8a"
+  accent: "#5b9cf6"
+  accent-violet: "#8a8af2"
+  accent-blue: "#5b9cf6"
+  accent-teal: "#2dd4bf"
+  accent-green: "#43cf8e"
+  accent-amber: "#e0a458"
+  accent-rose: "#f2728a"
+  primary-bg: "#ededee"
+  primary-fg: "#18181b"
+  primary-hover: "#ffffff"
+  ok: "#43cf8e"
+  danger: "#ff6369"
+  warn: "#e3a13a"
+  info: "#5fc4f2"
+  neutral: "#9d9da7"
+  dc-bg: "#313338"
+  dc-head: "#f2f3f5"
+  dc-text: "#dbdee1"
+  dc-muted: "#949ba4"
+  dc-hash: "#80848e"
+  dc-brand: "#5865f2"
+  dc-brand-hover: "#4752e0"
+  # Code-preview syntax tokens, documented under "Content — InlineCode, CodeBlock…".
+  syntax-string: "#7fd1a0"
+  syntax-keyword: "#b69cff"
+  syntax-number: "#e0a458"
+rounded:
+  # The four surface radii. Cards and modals; buttons, inputs and nav items; tags and chips;
+  # and the pill.
+  card: "16px"
+  control: "12px"
+  chip: "8px"
+  pill: "999px"
+  # Sub-chip radii. The prose rule under "Verify before shipping" already allows these
+  # ("raw 0, 50%, ≤6px chips excepted") and design-lint.mjs enforces exactly that — they are
+  # the small square-ish corners on dots, meters, slot chips and syntax pills, where 8px
+  # would read as a lozenge rather than a corner.
+  micro-6: "6px"
+  micro-5: "5px"
+  micro-4: "4px"
+  micro-3: "3px"
+  micro-2: "2px"
+---
 # Olisar — Design Guide
 
 A dark-only design system for **Olisar**, a self-hosted AI Discord bot configured from a private admin console. The aesthetic is calm, near-monochrome, hairline-bordered — in the spirit of Resend's dashboard — with one fixed accent on a flat near-black ground and no ambient decoration behind it.
