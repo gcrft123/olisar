@@ -14,6 +14,12 @@ on:
   push:
     tags:
       - 'v*'
+  # A rehearsal: builds, signs, notarizes and staples the macOS .dmg and publishes nothing.
+  # Everything that uploads — the Windows job (electron-builder --publish always), the server
+  # image, the `gh release` step — is gated on a tag below, so a dispatch run can't create or
+  # touch a release. The finished .dmg comes back as a build artifact instead. This is how you
+  # prove the whole signing chain end to end without spending a version number on it.
+  workflow_dispatch:
 
 permissions:
   contents: write # create the release and upload assets
@@ -26,14 +32,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No tag on a dispatch run, so there's nothing to match against — an empty TAG makes the
+      # script check only that the three version files agree with each other.
       - name: Assert version files match the tag
-        run: python3 scripts/check_release_version.py "${{ github.ref_name }}"
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: python3 scripts/check_release_version.py
 
   # Build the server image here rather than from a `tags:` filter in image.yml: that
   # workflow's `paths` filter applies to the whole push event, so a tag whose diff touched
   # none of those paths would silently ship a release with no image for server-mode VMs
   # to pull. Releases are the channel `:latest` tracks, so this job must not be optional.
   server-image:
+    if: startsWith(github.ref, 'refs/tags/') # nothing to ship on a rehearsal run
     needs: version-check
     uses: ./.github/workflows/image.yml
     permissions:
@@ -119,6 +130,7 @@ jobs:
       # finished .dmg here. The Windows job may have created the release already — whichever
       # job gets there first wins, and the other just adds its asset.
       - name: Publish the .dmg to the release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -126,7 +138,20 @@ jobs:
           gh release create "$TAG" --title "$TAG" --notes '' || true
           gh release upload "$TAG" desktop/out/*.dmg --clobber
 
+      # A rehearsal run publishes nothing, so hand the .dmg back as an artifact — the same file
+      # a tag would have released, signed and stapled, there to be mounted and checked by hand.
+      - name: Keep the .dmg as an artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Olisar-macos-dmg
+          path: desktop/out/*.dmg
+          retention-days: 7
+
   windows:
+    # Skipped on a rehearsal run: it publishes through electron-builder --publish always, which
+    # would create a release — the one thing a rehearsal must not do.
+    if: startsWith(github.ref, 'refs/tags/')
     needs: version-check
     runs-on: windows-latest # x64 NSIS .exe
     defaults:
