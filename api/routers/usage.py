@@ -89,6 +89,10 @@ async def summary(days: int = Query(7, ge=0, le=3650), _: AdminUser = Depends(re
             "requests": 0,
             "tokens": 0,
             "requests_today": 0,
+            # The by-model table is a *today* view, and it was pairing today's requests with
+            # the whole window's tokens — 3.19M in the headline tile against 15.65M summed
+            # across the same table. Same loop, one more accumulator.
+            "tokens_today": 0,
             "peak_rpm_today": 0,
         }
 
@@ -106,6 +110,7 @@ async def summary(days: int = Query(7, ge=0, le=3650), _: AdminUser = Depends(re
         m["tokens"] += r.token_count
         if r.day == today:
             m["requests_today"] += r.request_count
+            m["tokens_today"] += r.token_count
             m["peak_rpm_today"] = max(m["peak_rpm_today"], r.peak_rpm)
 
     by_source: dict[str, int] = {}
