@@ -2237,3 +2237,7 @@ input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: 
 .page-doclink { margin-left: auto; flex: none; gap: 5px; color: var(--text-3); }
 .page-doclink:hover { color: var(--text); }
 .page-head .title-row { align-items: center; }
+
+/* The editor's validation/save line: always present so its live region announces. */
+.auth-status { display: flex; align-items: center; gap: 6px; min-height: 0; }
+.auth-status:empty { margin-top: 0; }
