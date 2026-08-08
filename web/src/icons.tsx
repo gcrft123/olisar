@@ -48,6 +48,8 @@ import {
   Eraser,
   Star,
   HamburgerMenu,
+  Eye,
+  EyeClosed,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -93,6 +95,8 @@ export const Icon = {
   eraser: Eraser,
   star: Star,
   menu: HamburgerMenu,
+  eye: Eye,
+  eyeOff: EyeClosed,
 } as const
 
 export type IconName = keyof typeof Icon

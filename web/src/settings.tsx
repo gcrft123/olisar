@@ -330,27 +330,40 @@ function BotSwitcher() {
                   {isDefault && <span className="badge">Default</span>}
                   {isActive && <span className="badge success">Active</span>}
                   {!isActive && <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
-                  {!isDefault && (
-                    <button className="ghost icon-btn sm" data-tip="Set as default" aria-label="Set as default" disabled={busy} onClick={() => makeDefault(p)}>
-                      <Icon.star size={14} />
-                    </button>
-                  )}
-                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label="Rename" disabled={busy} onClick={() => rename(p)}>
+                  {/* Fixed slots, so a given position means the same thing on every row.
+                      Before this, slot 1 was "Rename" on the active bot and "Set as default"
+                      on the others, and all four actions were identical grey squares — two
+                      of them irreversible. Position is muscle memory; muscle memory that
+                      moves between rows is a trap. Benign actions first, then a divider,
+                      then the destructive ones in red. */}
+                  <span className="row-slot">
+                    {!isDefault && (
+                      <button className="ghost icon-btn sm" data-tip="Set as default" aria-label={`Make ${p.name} the launch default`} disabled={busy} onClick={() => makeDefault(p)}>
+                        <Icon.star size={14} />
+                      </button>
+                    )}
+                  </span>
+                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
-                  {isActive && (
-                    <button className="ghost icon-btn sm" data-tip="Move / change hosting" aria-label="Move / change hosting" disabled={busy} onClick={() => setMoving(p)}>
-                      <Icon.remote size={14} />
-                    </button>
-                  )}
-                  <button className="ghost icon-btn sm" data-tip="Reset configuration" aria-label="Reset configuration" disabled={busy} onClick={() => reset(p)}>
+                  <span className="row-slot">
+                    {isActive && (
+                      <button className="ghost icon-btn sm" data-tip="Move / change hosting" aria-label={`Move ${p.name} or change its hosting`} disabled={busy} onClick={() => setMoving(p)}>
+                        <Icon.remote size={14} />
+                      </button>
+                    )}
+                  </span>
+                  <span className="row-divider" aria-hidden="true" />
+                  <button className="danger icon-btn sm" data-tip="Reset configuration" aria-label={`Reset ${p.name}'s configuration`} disabled={busy} onClick={() => reset(p)}>
                     <Icon.eraser size={14} />
                   </button>
-                  {!isActive && (
-                    <button className="ghost icon-btn sm" data-tip="Delete bot" aria-label="Delete bot" disabled={busy} onClick={() => del(p)}>
-                      <Icon.trash size={14} />
-                    </button>
-                  )}
+                  <span className="row-slot">
+                    {!isActive && (
+                      <button className="danger icon-btn sm" data-tip="Delete bot" aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => del(p)}>
+                        <Icon.trash size={14} />
+                      </button>
+                    )}
+                  </span>
                 </div>
               </div>
             )

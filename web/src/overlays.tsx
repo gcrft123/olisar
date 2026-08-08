@@ -176,7 +176,7 @@ type DialogOpts = {
   tone?: DialogTone
   icon?: IconName
   prompt?: { placeholder?: string; defaultValue?: string; multiline?: boolean }
-  // High-friction confirm: show the phrase in a CopyField and only arm the confirm
+  // High-friction confirm: show the phrase (not copyable) and only arm the confirm
   // button once the user types it back exactly (case/whitespace-insensitive).
   requirePhrase?: { phrase: string; placeholder?: string }
 }
@@ -199,25 +199,6 @@ export function promptDialog(
   })
 }
 
-// CopyField — a value in an inset box with a trailing copy button that flips to a
-// green check on click (DESIGN.md). Used by the requirePhrase confirm friction.
-function CopyField({ value }: { value: string }) {
-  const [done, setDone] = useState(false)
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(value); setDone(true); setTimeout(() => setDone(false), 1400) }
-    catch { /* clipboard blocked — the phrase is still selectable */ }
-  }
-  return (
-    <span className="copy">
-      <span className="val">{value}</span>
-      <button type="button" className={'btn' + (done ? ' done' : '')} onClick={copy}
-        data-tip={done ? 'Copied' : 'Copy'} aria-label="Copy phrase">
-        {done ? <Icon.check size={15} weight="Bold" /> : <Icon.copy size={15} />}
-      </button>
-    </span>
-  )
-}
-
 function ConfirmHost() {
   const [state, setState] = useState<{ opts: DialogOpts; resolve: (v: boolean | string | null) => void } | null>(null)
   const [value, setValue] = useState('')
@@ -236,6 +217,9 @@ function ConfirmHost() {
   const onConfirm = () => { if (!phraseOK) return; close(opts.prompt ? value : true) }
   const onCancel = () => close(opts.prompt ? null : false)
   const toneClass = opts.tone === 'danger' ? 'danger' : opts.tone === 'warning' ? 'warning' : ''
+  // "warning" is destructive too — it is the tone the leave guard uses to ask about
+  // discarding edits. Anything that loses work gets the destructive footer.
+  const destructive = opts.tone === 'danger' || opts.tone === 'warning'
   const Glyph = Icon[opts.icon ?? (opts.tone === 'danger' ? 'warn' : opts.tone === 'warning' ? 'warn' : 'info')]
   const inputLabel = phrase ? 'Type the confirmation phrase' : opts.prompt?.placeholder || opts.title
 
@@ -250,7 +234,10 @@ function ConfirmHost() {
       </div>
       {phrase && (
         <>
-          <div className="confirm-phrase"><span>Type</span> <CopyField value={phrase} /> <span>to confirm.</span></div>
+          {/* Shown, deliberately not copyable. `requirePhrase` exists to make the operator's
+              own hand prove intent; a copy button reduced it to a two-click confirm, which
+              is friction theatre. Retyping it is the entire mechanism. */}
+          <div className="confirm-phrase"><span>Type</span> <code className="phrase">{phrase}</code> <span>to confirm.</span></div>
           <div className="confirm-input">
             <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false} aria-label={inputLabel}
               placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
@@ -271,9 +258,15 @@ function ConfirmHost() {
           )}
         </div>
       )}
-      <div className="confirm-foot">
-        <button className="ghost" onClick={onCancel}>{opts.cancelLabel ?? 'Cancel'}</button>
-        <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
+      {/* On a destructive dialog the SAFE choice is the primary, and the confirm is the
+          plainly-marked destructive one. The leave guard passes tone "warning" and used to
+          render "Discard" as the bright primary — the dialog that exists to protect unsaved
+          work was pointing at throwing it away. Only a neutral dialog gets a primary confirm. */}
+      <div className={'confirm-foot' + (destructive ? ' destructive' : '')}>
+        <button className={destructive ? 'primary' : 'ghost'} onClick={onCancel}>
+          {opts.cancelLabel ?? 'Cancel'}
+        </button>
+        <button className={destructive ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
           {opts.confirmLabel ?? 'Confirm'}
         </button>
       </div>
