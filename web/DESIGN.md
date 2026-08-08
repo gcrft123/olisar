@@ -52,10 +52,12 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   /* Text ramp */
   --text: #ededee;          /* primary */
   --text-2: #9d9da7;        /* secondary */
-  --text-3: #6a6a73;        /* tertiary / muted / placeholders */
-  /* --text-3 clears 4.5:1 on --bg (#020203) but NOT on lighter grounds: it measures
-     3.5-3.7:1 on the marketing site's #08080a, which is a WCAG AA failure at any size.
-     Surfaces built on a lighter ground use #7f7f8a instead (4.7:1 or better). */
+  --text-3: #7f7f8a;        /* tertiary / muted / placeholders */
+  /* Size --text-3 against the LIGHTEST ground it lands on, not the darkest. It carries
+     placeholders, eyebrows, axis labels and hints — all body-size text, none of it eligible
+     for the 3:1 large-text allowance. The earlier #6a6a73 measured 3.87:1 on --bg and
+     3.57:1 on --bg-inset, an AA failure everywhere it was used; #7f7f8a measures 5.09 on
+     --bg, 4.70 on --bg-inset, and 4.7 on the marketing site's lighter #08080a ground. */
 
   /* The one accent (user-switchable at runtime; re-tints --accent-soft + glow) */
   --accent: #8a8af2;
@@ -97,9 +99,21 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
   --shadow-modal: 0 24px 70px rgba(0,0,0,.5);
   /* Focus. Two rings, not one: a gap in the page ground, then the accent. A single
-     accent-soft ring is invisible on --primary-bg (a near-white surface), which every
-     primary button is — solid accent on #ededee measures 2.38:1, and this is 16% of it. */
+     accent-soft ring measures 1.20-1.25:1 against every ground in the system — the floor
+     is 3:1 (WCAG 1.4.11 / 2.4.11) — and it is invisible on --primary-bg (a near-white
+     surface), which every primary button is: solid accent on #ededee measures 2.38:1, and
+     accent-soft is 16% of it. The gap ring is what makes the accent readable on a light
+     control; the accent ring is what makes it readable on a dark one. */
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+
+  /* Interface size. Everything here is px — 34px controls, a 244px rail, chart geometry —
+     so there is no single font-size to turn up. `zoom` scales the whole coordinate system
+     instead, which is what the browser's own Cmd +/− does. Operator-switchable at runtime. */
+  --ui-scale: 1.1;
+  zoom: var(--ui-scale);
+  --vh: calc(100vh / var(--ui-scale));
+  --vw: calc(100vw / var(--ui-scale));
+  --dvh: calc(100dvh / var(--ui-scale));
 
   /* Motion — quiet and quick */
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -113,15 +127,59 @@ The accent is a per-browser preference. To re-tint live, set `--accent`, `--acce
 
 ```js
 function setAccent(hex) {
-  const n = parseInt(hex.slice(1), 16);
+  const c = usableAccent(hex);                 // see below — never apply the raw pick
+  const n = parseInt(c.slice(1), 16);
   const rgb = `${(n>>16)&255}, ${(n>>8)&255}, ${n&255}`;
   const r = document.documentElement.style;
-  r.setProperty('--accent', hex);
+  r.setProperty('--accent', c);
   r.setProperty('--accent-soft', `rgba(${rgb}, 0.16)`);
   r.setProperty('--glow-a', `rgba(${rgb}, 0.18)`);
   r.setProperty('--glow-b', `rgba(${rgb}, 0.10)`);
+  return c;
 }
 ```
+
+**Clamp a free-form pick.** The accent is not decoration: it carries links, the focus ring, the
+toggle "on" track, meters, and chart series. A `<input type="color">` will happily hand back
+`#000000`, and on a near-black ground that makes all of them vanish with no warning and no
+route back but Reset. Lift the colour toward white — hue and saturation intact — until it
+clears **4.5:1 against `--bg`**, and have the picker echo the colour actually applied:
+
+> `#101014` was too dark to read against the console background, so it was lightened to `#6b6b80`.
+
+The eight preset hues all clear it already; the clamp only ever touches a custom pick.
+
+### Interface size (optional)
+
+`--ui-scale` is the second per-browser preference, offered as 100% / 110% / 125% and defaulting
+to **110%**. It is applied the same way as the accent — written to the root before first paint,
+persisted in `localStorage` — and needs no layout work, because `zoom` scales the coordinate
+system rather than any individual value.
+
+Three rules come with it:
+
+**Never write a bare viewport unit.** They resolve against the *un-zoomed* viewport and are then
+scaled, so `height: 100vh` renders `--ui-scale` taller than the window — at 1.1 that was 80px of
+phantom scroll below the sidebar. Use `--vh` / `--vw` / `--dvh`, which divide the factor back out:
+
+```css
+.sidebar   { height: var(--vh); }                          /* not 100vh */
+.some-modal{ width: min(560px, calc(var(--vw) * 0.94)); }  /* not 94vw  */
+```
+Decorative shapes are the exception — the ambient glow keeps raw `vw`, because a 10% size shift
+on a blurred blob is invisible.
+
+**Correct DOM geometry only when it crosses into CSS.** `offsetWidth`, `offsetLeft` and
+`ResizeObserver`'s `contentRect` are already element-local and scale-free — the Usage charts
+measure with one and draw 1:1 with no adjustment at all. `getBoundingClientRect()` is *viewport*
+px, so feeding it into a CSS `left`/`top` displaces the result by exactly the scale (the
+delegated tooltip landed 104px off its target at 1.1). Divide by `uiScale()` at that boundary,
+and scale any px constant you compare against a rect.
+
+**Media queries do not zoom.** A breakpoint fires at a physical width while the layout inside it
+is scaled, so at 1.1 the content sees `width / 1.1`. The breakpoints are content-driven and sit
+well clear of common desktop widths, so this shifts *where* the collapse happens, never whether
+it works — but pick new breakpoints against the effective width, not the raw one.
 
 ---
 
@@ -244,6 +302,14 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 
 **Tooltips are for icon-only controls only.** The hover tooltip (`data-tip`, or a `title` the host migrates to one) exists to name a control that has no visible text label — i.e. an **IconButton**. Do **not** put `data-tip`/`title` on text buttons, selectors, tabs, or other labelled controls: their label already says what they do, so a tooltip is redundant noise. Add one to a labelled control only when explicitly asked.
 
+**A tooltip is not a name.** `data-tip` is a styling hook with no accessibility semantics, and the tooltip host *removes* `title` on hover **and on focus** so the OS tooltip never doubles up — so a control named only by `title` loses its name the moment a keyboard user tabs to it. Every icon-only control carries an explicit `aria-label` as well:
+
+```jsx
+<button className="ghost icon-btn" data-tip="Export .olx" aria-label="Export extension">…</button>
+```
+
+The host sets `aria-label` from a stripped `title` as a backstop, but write it yourself: the backstop can only repeat the tooltip, and the two want different words — the tooltip is a hint (`Copy`), the label names the object (`Copy the public web address`).
+
 ### TextField, TextArea & Select
 
 `.input` = **TextField**, `.textarea` = **TextArea**, `.select` = **Select** (add a custom chevron via a background SVG; `appearance: none`).
@@ -271,17 +337,48 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 
 ### Field (label + description + control)
 
+The label, description, and control are three siblings — the label can't wrap the control, so
+it has to **point at** it. Mint one id per field and wire all three; without it the control is
+an unnamed edit box to a screen reader and clicking the label doesn't focus it.
+
 ```html
 <div class="field">
-  <label>Name triggers</label>
-  <div class="desc">Comma-separated. Including one addresses Olisar.</div>
-  <input class="input" placeholder="olisar, oli">
+  <label id="f1-label" for="f1">Name triggers</label>
+  <div class="desc" id="f1-desc">Comma-separated. Including one addresses Olisar.</div>
+  <input class="input" id="f1" aria-describedby="f1-desc" placeholder="olisar, oli">
 </div>
 ```
 ```css
 .field { margin-bottom: 17px; }
-.field > label { display: block; font-weight: 550; font-size: 12.5px; margin-bottom: 6px; }
+/* `.flabel` is the same treatment for a field whose body holds no focusable control (a
+   read-only key box, a copy row) — a <label for> there would point at nothing. */
+.field > label, .field > .flabel { display: block; font-weight: 550; font-size: 12.5px; margin-bottom: 6px; }
 .field .desc { color: var(--text-2); font-size: 12px; margin: -3px 0 8px; line-height: 1.5; }
+```
+
+A **Toggle** is a `div[role=switch]`, so `for` can't reach it: give it `aria-labelledby` pointing
+at the same label id. A toggle used **outside** a Field and without a visible `.lbl` must carry
+its own `aria-label` — otherwise it announces as "switch, on" with no subject.
+
+### Choice groups (mode cards, segmented pickers)
+
+A group of mutually exclusive cards is a **radiogroup**, not a row of clickable divs: `role="radiogroup"`
+on the container with an `aria-label`, `role="radio"` + `aria-checked` on each card, roving `tabIndex`
+(`0` on the selected one, `-1` on the rest), arrow keys to move, Space/Enter to pick. The same roving
+pattern covers a `role="tablist"`, whose panel takes `role="tabpanel"` + `aria-labelledby`. Styling is
+unchanged — `.mode-card.sel` and `.dev-tab.active` still carry the visual state.
+
+### Skip link
+
+Any surface with a nav rail ahead of its content opens with one. Offscreen until focused, then a
+normal `--panel` chip at the top left:
+
+```css
+.skip-link { position: fixed; z-index: 300; top: 12px; left: 12px; padding: 9px 14px;
+  border-radius: var(--radius-sm); background: var(--panel); border: 1px solid var(--border-strong);
+  color: var(--text); font-size: 13px; font-weight: 550; text-decoration: none; box-shadow: var(--shadow-pop);
+  transform: translateY(calc(-100% - 20px)); transition: transform var(--dur-mid) var(--ease-out); }
+.skip-link:focus-visible { transform: none; outline: none; box-shadow: var(--ring), var(--shadow-pop); }
 ```
 
 ### Card (the flat panel)
@@ -366,6 +463,20 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 - **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. A `--panel` pill, message + Reset/Save.
 - **ActionMenu** (click-to-open dropdown anchored to a trigger): a `--panel` menu (`--border-strong`, `--shadow-pop`, `--radius-sm`) that pops in with a `.14s` fade + scale from the top (`translateY(-6px) scale(.97)` → `0/1`). Items are `7px 9px` rows with a leading icon, optional right-aligned mono shortcut, hover → `--bg-inset`; a `danger` item is `--danger` (hover `--danger-soft`); thin `--border` dividers and uppercase section labels. Closes on outside-click / Escape / select.
 - **HoverCard** (expand-on-hover detail, e.g. a roles/members row): a `--panel` card (`--border-strong`, `--shadow-pop`, `--radius`) absolutely positioned above the trigger; fades + lifts in (`translateY(6px) scale(.98)` → `0/1`, `.15s`) **after a ~.18s delay**, closes immediately on leave. Make the trigger `tabindex=0` so `:focus-within` opens it too.
+
+**Every overlay goes through one shell.** Hand-rolling the backdrop per call site is how a
+system ends up with some dialogs that close on Escape and some that don't. The shell owns:
+
+| | |
+|---|---|
+| Semantics | `role="dialog"`, `aria-modal="true"`, `aria-labelledby` on the card's own `<h2>`/`.confirm-title` (or `aria-label` when there's no visible title) |
+| Focus | move to the first focusable on open — unless an `autoFocus` input already claimed it — trap Tab/Shift-Tab inside, and **return focus to the trigger** on close |
+| Escape | always closes, except while an irreversible action is in flight (`dismissable={false}` during a publish, a move, an install) |
+| Backdrop | closes on **`mousedown` on the backdrop itself** — an `onClick` handler fires when a text selection starts inside the card and releases outside it, closing the dialog mid-drag |
+
+The visual recipe above is unchanged; the shell only adds behaviour. A drawer that stays
+mounted while closed (so it slides rather than pops) sets `inert` while hidden — `aria-hidden`
+alone leaves its controls in the tab order, hidden from the screen reader that would name them.
 
 ### StepsDialog (the post-download popup)
 
@@ -526,9 +637,23 @@ track, and withhold it at widths where the content needs the room:
 - **Do** lean on hairline borders + inset wells for structure; keep cards flat and shadowless.
 - **Do** reserve the accent for selection, links, focus, and active state — never as a fill for big surfaces.
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
-- **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion`.
+- **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
+- **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
 - **Don't** use emoji, bluish-purple gradients, drop shadows on cards, or Title Case headings.
 - **Don't** introduce new hues — use the accent or a semantic state.
+- **Don't** let a control be named by `title` alone — the tooltip host strips it on focus. See **Button & IconButton**.
+
+### Verify before shipping
+
+The build gates on `npm run design-lint` — token use, the spacing scale, radius tokens, button
+variants, no native `alert/confirm/prompt`. It cannot see any of the following, so check them
+by hand on the surface you touched:
+
+- Body-size text ≥ 4.5:1 **against the lightest ground it lands on**. `--text-2` and `--text-3` both clear it; anything you tint yourself may not.
+- Focus visible on every interactive element, including the ones on `--primary-bg`.
+- Tab through the whole surface: no control skipped, none trapped, nothing focusable inside a hidden container.
+- Every icon-only control has an `aria-label`; every input has a label pointing at it; every switch has a subject.
+- The shell at 375px, and the widest table or chart on the surface.
 
 ---
 

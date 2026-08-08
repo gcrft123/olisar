@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Select, Text, Toggle } from './ui'
-import { toast, confirmDialog, promptDialog } from './overlays'
+import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
-import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
+import { ACCENTS, DEFAULT_ACCENT, SCALES, getAccent, getScale, setAccent, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
@@ -28,22 +28,17 @@ export function SettingsModal(
 ) {
   const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
   const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'appearance')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-        <nav className="settings-nav">
+    <Modal className="settings-modal" label="Settings" onClose={onClose}>
+        <nav className="settings-nav" aria-label="Settings sections">
           {visible.map((s) => {
             const Glyph = Icon[s.ic]
             return (
               <button
                 key={s.id}
                 className={'settings-nav-item' + (section === s.id ? ' active' : '')}
+                aria-current={section === s.id ? 'page' : undefined}
                 onClick={() => setSection(s.id)}
               >
                 <Glyph size={16} weight={section === s.id ? 'Bold' : 'Linear'} /> {s.label}
@@ -52,7 +47,7 @@ export function SettingsModal(
           })}
         </nav>
         <div className="settings-body">
-          <button className="settings-close" onClick={onClose} title="Close (Esc)">
+          <button className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
@@ -63,8 +58,7 @@ export function SettingsModal(
           {section === 'desktop' && <Desktop />}
           {section === 'feedback' && <Feedback />}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -201,11 +195,11 @@ function Feedback() {
       {files.length > 0 && (
         <div className="report-files">
           {files.map((f, i) => (
-            <span key={i} className="tag">{f.name}<button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove" title="Remove"><CloseX size={11} /></button></span>
+            <span key={i} className="tag">{f.name}<button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}><CloseX size={11} /></button></span>
           ))}
         </div>
       )}
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} aria-label="Add attachments" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
       <div className="settings-row end" style={{ marginTop: 18 }}>
         <button className="primary" onClick={submit} disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</button>
       </div>
@@ -384,6 +378,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
   const [showKey, setShowKey] = useState(false)
   const [moving, setMoving] = useState(false)
   const [err, setErr] = useState('')
+  const titleId = useId()
 
   const pk = usePubkey(target === 'server' && showKey)
 
@@ -397,12 +392,6 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
       .catch((e: any) => setErr(e?.message || 'Couldn’t read the bot’s current hosting.'))
       .finally(() => setLoading(false))
   }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !moving) onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [moving, onClose])
 
   const sameServer = target === 'server' && curMode === 'server' && host.trim() === curHost && !!curHost
   const canMove = !moving && !loading && !err && (target === 'local' || (host.trim().length > 0 && !sameServer))
@@ -420,12 +409,11 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
   const curLabel = curMode === 'server' ? `a server${curHost ? ` (${curHost})` : ''}` : 'this computer'
 
   return (
-    <div className="modal-backdrop" onClick={() => { if (!moving) onClose() }}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+    <Modal className="confirm-dialog" labelledBy={titleId} onClose={onClose} dismissable={!moving}>
         <div className="confirm-head">
-          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" /></div>
+          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" aria-hidden /></div>
           <div className="confirm-text">
-            <div className="confirm-title">Move {profile.name}</div>
+            <div className="confirm-title" id={titleId}>Move {profile.name}</div>
             <div className="confirm-msg">
               {loading ? 'Reading current hosting…' : <>Currently runs on <b>{curLabel}</b>.</>}
             </div>
@@ -484,8 +472,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
           <button className="ghost" disabled={moving} onClick={onClose}>Cancel</button>
           <button className="primary" disabled={!canMove} onClick={doMove}>{moving ? 'Moving…' : 'Move bot'}</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -539,7 +526,10 @@ function Bot() {
 // ── Appearance ──────────────────────────────────────────────────────────────
 function Appearance() {
   const [accent, setAccentState] = useState(getAccent())
-  const pick = (c: string) => { setAccent(c); setAccentState(c) }
+  // What the picker asked for, so we can say when it wasn't what got applied.
+  const [asked, setAsked] = useState('')
+  const pick = (c: string) => { const applied = setAccent(c); setAsked(c); setAccentState(applied) }
+  const lifted = !!asked && asked.toLowerCase() !== accent.toLowerCase()
   return (
     <>
       <Head title="Appearance" sub="Saved on this device, so everyone who signs in can pick their own." />
@@ -549,6 +539,8 @@ function Appearance() {
             key={a.value}
             className={'swatch' + (accent.toLowerCase() === a.value.toLowerCase() ? ' active' : '')}
             style={{ background: a.value }}
+            aria-label={a.name}
+            aria-pressed={accent.toLowerCase() === a.value.toLowerCase()}
             title={a.name}
             onClick={() => pick(a.value)}
           >
@@ -561,11 +553,59 @@ function Appearance() {
           <input type="color" value={accent} onChange={(e) => pick(e.target.value)} />
           <span>Custom — {accent}</span>
         </label>
-        <button className="ghost" onClick={() => pick(DEFAULT_ACCENT)} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
+        <button className="ghost" onClick={() => { setAsked(''); pick(DEFAULT_ACCENT) }} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
           Reset
         </button>
       </div>
+      {lifted && (
+        <p className="settings-foot">
+          {asked} was too dark to read against the console background, so it was lightened to {accent}.
+          The accent colours links, focus rings, and charts.
+        </p>
+      )}
+
+      <div className="settings-subhead">Size</div>
+      <div className="settings-row">
+        <SizeChoice />
+      </div>
+      <p className="settings-foot">
+        Scales the whole interface, the way your browser's zoom does. Applies to this browser only.
+      </p>
     </>
+  )
+}
+
+// Three exclusive options in a segmented control — a radiogroup, so Tab lands on the current
+// size and ←/→ move between them rather than costing three separate stops.
+function SizeChoice() {
+  const [scale, setScaleState] = useState(getScale)
+  const group = useRef<HTMLDivElement>(null)
+  const pick = (v: number) => { setScale(v); setScaleState(v) }
+  const onKey = (e: ReactKeyboardEvent) => {
+    const step = /^Arrow(Right|Down)$/.test(e.key) ? 1 : /^Arrow(Left|Up)$/.test(e.key) ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const i = SCALES.findIndex((s) => s.value === scale)
+    const next = SCALES[(Math.max(0, i) + step + SCALES.length) % SCALES.length]
+    pick(next.value)
+    group.current?.querySelector<HTMLElement>(`#size-${String(next.value).replace('.', '_')}`)?.focus()
+  }
+  return (
+    <div className="useg" ref={group} role="radiogroup" aria-label="Interface size" onKeyDown={onKey}>
+      {SCALES.map((s) => (
+        <button
+          key={s.value}
+          id={`size-${String(s.value).replace('.', '_')}`}
+          role="radio"
+          aria-checked={scale === s.value}
+          tabIndex={scale === s.value ? 0 : -1}
+          className={scale === s.value ? 'on' : ''}
+          onClick={() => pick(s.value)}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -619,8 +659,8 @@ function Remote() {
                 : <span className="settings-muted">{st?.running ? 'Starting…' : 'No public link yet.'}</span>}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button className="ghost" onClick={() => load(true)} title="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
-              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} />}
+              <button className="ghost icon-btn sm" onClick={() => load(true)} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
+              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
             </div>
           </div>
           {headless ? (
@@ -747,7 +787,7 @@ function Desktop() {
           <div className="opt-label">Show in the menu bar</div>
           <div className="settings-muted">Keep Olisar's tray icon for quick access and remote-access control.</div>
         </div>
-        {on === null ? <span className="settings-muted">…</span> : <Toggle value={on} onChange={toggle} />}
+        {on === null ? <span className="settings-muted">…</span> : <Toggle value={on} onChange={toggle} ariaLabel="Show in the menu bar" />}
       </div>
       {!isDesktop && (
         <p className="settings-foot">This applies to the installed desktop app, which picks it up on its next launch.</p>

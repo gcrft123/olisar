@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
-import { confirmDialog, promptDialog, toast } from './overlays'
-import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Select, Text, Toggle, headingsOf, useAsync, useEditable, useSaver } from './ui'
+import { Modal, confirmDialog, promptDialog, toast } from './overlays'
+import { uiScale } from './theme'
+import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Select, Text, Toggle, headingsOf, useAsync, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
   const Glyph = Icon[props.icon]
@@ -138,20 +139,25 @@ function SandboxChat() {
 // slides rather than pops and the transcript survives close/reopen.
 function TestChatDrawer() {
   const [open, setOpen] = useState(false)
+  const drawer = useRef<HTMLElement>(null)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+  // The drawer stays mounted so it slides rather than pops, which means while closed it sat
+  // off-screen with `aria-hidden` over a live textarea and three buttons — tabbable, but
+  // hidden from the screen reader describing them. `inert` takes them out of both.
+  useEffect(() => { if (drawer.current) drawer.current.inert = !open }, [open])
   return (
     <>
       <button className="testchat-fab" onClick={() => setOpen(true)} aria-label="Open test chat">
         <Icon.sandbox size={17} weight="Bold" /> Test chat
       </button>
       <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
-      <aside className={'chatdrawer' + (open ? ' open' : '')} role="dialog" aria-label="Test chat" aria-hidden={!open}>
+      <aside ref={drawer} className={'chatdrawer' + (open ? ' open' : '')} role="dialog" aria-label="Test chat">
         <div className="chatdrawer-head">
-          <div className="chatdrawer-titles">
+          <div>
             <div className="chatdrawer-title">Test chat</div>
             <div className="chatdrawer-sub">Uses the saved persona, knowledge base, and tools, but keeps no memory.</div>
           </div>
@@ -372,13 +378,18 @@ export function Channels() {
   const ed = useEditable<any[]>(api.getChannels)
   const [q, setQ] = useState('')
   const saver = useSaver(async () => {
+    // One patch per changed row carrying both fields, and rows in parallel. Retuning 30
+    // channels used to be 60 requests awaited one after another behind a single Save.
     const origById = new Map((ed.baseline() ?? []).map((c: any) => [c.channel_id, c]))
-    for (const c of ed.data ?? []) {
+    const changed = (ed.data ?? []).flatMap((c) => {
       const o = origById.get(c.channel_id)
-      if (!o) continue
-      if (c.mode !== o.mode) await api.putChannel({ channel_id: c.channel_id, mode: c.mode })
-      if (c.indexed !== o.indexed) await api.putChannel({ channel_id: c.channel_id, indexed: c.indexed })
-    }
+      if (!o) return []
+      const patch: any = { channel_id: c.channel_id }
+      if (c.mode !== o.mode) patch.mode = c.mode
+      if (c.indexed !== o.indexed) patch.indexed = c.indexed
+      return Object.keys(patch).length > 1 ? [patch] : []
+    })
+    await Promise.all(changed.map((patch) => api.putChannel(patch)))
     ed.markSaved()
   })
   const patchRow = (id: number, patch: any) =>
@@ -409,7 +420,7 @@ export function Channels() {
         ) : (
           <>
             <div style={{ marginBottom: 12 }}>
-              <Text value={q} onChange={setQ} placeholder="Filter channels…" />
+              <Text value={q} onChange={setQ} placeholder="Filter channels…" ariaLabel="Filter channels" />
             </div>
             {shown.map((c) => (
               <div className="list-row" key={c.channel_id}>
@@ -498,7 +509,7 @@ export function Access() {
         ) : (
           <>
             <div style={{ marginBottom: 12 }}>
-              <Text value={q} onChange={setQ} placeholder="Filter roles…" />
+              <Text value={q} onChange={setQ} placeholder="Filter roles…" ariaLabel="Filter roles" />
             </div>
             {shown.map((r) => (
               <div className="list-row" key={r.role_id}>
@@ -533,13 +544,10 @@ export function Access() {
 function SearchIndexCard() {
   const [data, setData] = useState<any>(null)
   const [busy, setBusy] = useState(false)
-  useEffect(() => {
-    let alive = true
-    const load = () => api.reindexStatus().then((d) => { if (alive) setData(d) }).catch(() => {})
-    load()
-    const id = setInterval(load, 3500)
-    return () => { alive = false; clearInterval(id) }
-  }, [])
+  // Poll fast while a backfill is in flight, then once a minute — a settled index doesn't
+  // change on its own, and this used to hit the backend every 3.5s for the life of the page.
+  const working = !data || !!data.running || (data.channels || []).some((c: any) => c.status !== 'done')
+  usePoll(() => { api.reindexStatus().then(setData).catch(() => {}) }, working ? 3500 : 60000)
   const start = async () => {
     setBusy(true)
     try { await api.reindex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
@@ -580,7 +588,12 @@ function SearchIndexCard() {
             </div>
           </div>
           {/* The overall bar only while there's work in flight; hidden once complete. */}
-          {data.running && <div className="progress"><div className="progress-fill" style={{ width: pct + '%' }} /></div>}
+          {data.running && (
+            <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
+              aria-label="Channels indexed">
+              <div className="progress-fill" style={{ transform: `scaleX(${pct / 100})` }} />
+            </div>
+          )}
           {channels.length > 0 && (
             <div className="reindex-list">
               {channels.map((c: any) => (
@@ -924,7 +937,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             {marketplace && ref && (
               <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
             )}
-            <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} />
+            <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} ariaLabel={`Enable ${e.name}`} />
           </div>
         </div>
         {reporting && ref && (
@@ -1010,6 +1023,7 @@ function ConsentModal(props: {
   onInstall: (granted: string[]) => void
 }) {
   const { preview } = props
+  const titleId = useId()
   const reqPerms: string[] = preview?.requested_permissions ?? []
   // Host secrets (gemini/cloudflare/uex) are barred from installed (third-party) extensions
   // server-side — show them as unavailable and never grant them.
@@ -1023,10 +1037,9 @@ function ConsentModal(props: {
     setGranted((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n })
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose} dismissable={!props.busy}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
-        <div className="settings-head"><h2>{props.title}</h2><p>{props.subtitle}</p></div>
+        <div className="settings-head"><h2 id={titleId}>{props.title}</h2><p>{props.subtitle}</p></div>
 
         <div className="import-review">
           <div className="import-title">{preview.name} <span className="import-ver">v{preview.version}</span></div>
@@ -1123,8 +1136,7 @@ function ConsentModal(props: {
             {props.busy ? 'Installing…' : granted.size ? `Install · grant ${granted.size}` : 'Install'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1151,6 +1163,7 @@ function ReportModal(props: {
   const [err, setErr] = useState<string | null>(null)
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const titleId = useId()
 
   const addFiles = async (list: FileList) => {
     setErr(null)
@@ -1179,11 +1192,10 @@ function ReportModal(props: {
   }
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose} dismissable={!busy}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head">
-          <h2>Report extension</h2>
+          <h2 id={titleId}>Report extension</h2>
           <p>{props.target.id || `${props.target.namespace}/${props.target.name}`}</p>
         </div>
         {done ? (
@@ -1232,8 +1244,7 @@ function ReportModal(props: {
             </div>
           </>
         )}
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1296,17 +1307,16 @@ function PublishReviewModal(props: {
   onPublish: () => void; onClose: () => void;
 }) {
   const r = props.result
+  const titleId = useId()
   if (!r) {
     return (
-      <div className="modal-backdrop" onClick={props.onClose}>
-        <div className="deny-modal scan" onClick={(e) => e.stopPropagation()}>
+      <Modal className="deny-modal scan" labelledBy={titleId} onClose={props.onClose}>
           <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
-          <h2 className="deny-title">Security review</h2>
+          <h2 className="deny-title" id={titleId}>Security review</h2>
           <div className="deny-sub">{props.subject}</div>
           <RiskMeter score={0} band="ok" scanning />
           <div className="deny-verdict" style={{ textAlign: 'center' }}>Checking the source for risky behavior…</div>
-        </div>
-      </div>
+      </Modal>
     )
   }
   const score = Number(r.risk_score ?? 0)
@@ -1331,10 +1341,10 @@ function PublishReviewModal(props: {
     </div>
   )
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className={'deny-modal ' + (unavailable ? '' : 'split ') + tone} onClick={(e) => e.stopPropagation()}>
+    <Modal className={'deny-modal ' + (unavailable ? '' : 'split ') + tone} labelledBy={titleId}
+      onClose={props.onClose} dismissable={!props.publishing}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
-        <h2 className="deny-title">{title}</h2>
+        <h2 className="deny-title" id={titleId}>{title}</h2>
         <div className="deny-sub">{props.subject}</div>
 
         {unavailable ? (
@@ -1381,8 +1391,7 @@ function PublishReviewModal(props: {
             </>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1393,6 +1402,7 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const titleId = useId()
 
   const onFile = async (file: File) => {
     setErr(null); setBusy(true)
@@ -1419,11 +1429,10 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
     )
   }
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="import-modal" onClick={(ev) => ev.stopPropagation()}>
+    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose} dismissable={!busy}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head">
-          <h2>Import extension</h2>
+          <h2 id={titleId}>Import extension</h2>
           <p>Install an <code>.olx</code> bundle exported from Olisar.</p>
         </div>
         <div className="import-drop">
@@ -1435,10 +1444,10 @@ function ImportDialog(props: { onClose: () => void; onImported: (key: string) =>
         {err && <div className="settings-err" style={{ marginTop: 14 }}>{err}</div>}
         <input
           ref={fileRef} type="file" accept=".olx,application/json" style={{ display: 'none' }}
+          aria-label="Choose an .olx file"
           onChange={(ev) => { const f = ev.target.files?.[0]; if (f) onFile(f); ev.target.value = '' }}
         />
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1507,7 +1516,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
       <div className="mkt-head">
         <button className="ghost" onClick={props.onBack}><Icon.arrowLeft size={15} /> Back</button>
         <form className="mkt-search" onSubmit={(e) => { e.preventDefault(); runSearch() }}>
-          <Text value={q} onChange={setQ} placeholder="Search the marketplace…" />
+          <Text value={q} onChange={setQ} placeholder="Search the marketplace…" ariaLabel="Search the marketplace" />
           <button type="submit">Search</button>
         </form>
       </div>
@@ -1569,8 +1578,8 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   )
 }
 
-// The code editor ("Build" mode) is heavy (Monaco + esbuild-wasm) and operator-only,
-// so it loads only when an operator drills in to create or edit an extension.
+// The code editor ("Build" mode) is heavy (Monaco) and operator-only, so it loads only
+// when an operator drills in to create or edit an extension.
 const ExtensionEditor = lazy(() => import('./authoring'))
 
 export function Extensions(props: { isOperator?: boolean } = {}) {
@@ -1605,9 +1614,8 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   useEffect(() => { reloadMktStatus(); reloadPubStatus() }, [])
   const saver = useSaver(async () => {
     const orig = new Map((ed.baseline() ?? []).map((e: any) => [e.key, e.enabled]))
-    for (const e of ed.data ?? []) {
-      if (e.enabled !== orig.get(e.key)) await api.putExtension({ key: e.key, enabled: e.enabled })
-    }
+    const changed = (ed.data ?? []).filter((e) => e.enabled !== orig.get(e.key))
+    await Promise.all(changed.map((e) => api.putExtension({ key: e.key, enabled: e.enabled })))
     ed.markSaved()
   })
   const toggle = (key: string, v: boolean) =>
@@ -1671,9 +1679,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
     >
       <span className="dot" />
       <span className="nm">{e.name}</span>
-      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} title="Update available"><Icon.update size={13} /></span>}
-      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} title="Removed from marketplace"><Icon.warn size={13} /></span>}
-      {pubStatus[e.key]?.has_changes && <span className="dot" style={{ background: 'var(--warn)', boxShadow: 'none' }} title="Unpublished changes" />}
+      {mktStatus[e.key]?.update_available && <span className="cust" style={{ color: 'var(--accent)' }} role="img" aria-label="Update available" data-tip="Update available"><Icon.update size={13} /></span>}
+      {mktStatus[e.key]?.yanked && <span className="cust" style={{ color: 'var(--warn)' }} role="img" aria-label="Removed from marketplace" data-tip="Removed from marketplace"><Icon.warn size={13} /></span>}
+      {pubStatus[e.key]?.has_changes && <span className="dot" style={{ background: 'var(--warn)', boxShadow: 'none' }} role="img" aria-label="Unpublished changes" data-tip="Unpublished changes" />}
       {e.editable && <span className="cust">{e.origin === 'marketplace' ? 'Market' : 'Custom'}</span>}
     </button>
   )
@@ -1710,7 +1718,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
       <div className="ext-wrap">
         <aside className="ext-rail">
-          <div className="ext-rail-head"><Text value={q} onChange={setQ} placeholder="Search extensions…" /></div>
+          <div className="ext-rail-head"><Text value={q} onChange={setQ} placeholder="Search extensions…" ariaLabel="Search extensions" /></div>
           <div className="ext-seg">
             {(['all', 'on', 'custom'] as const).map((f) => (
               <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
@@ -1804,12 +1812,13 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
 
   return (
     <div className={'docs-shell' + (headings.length ? '' : ' no-toc')}>
-      <aside className="docs-nav">
+      <nav className="docs-nav" aria-label="Documentation">
         <input
           className="docs-search"
           type="text"
           value={q}
           placeholder="Search docs…"
+          aria-label="Search docs"
           onChange={(e) => setQ(e.target.value)}
         />
         {DOC_GROUPS.map((g) => {
@@ -1824,7 +1833,11 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
                 <div
                   key={s.id}
                   className={'docs-nav-item' + (s.id === active ? ' active' : '')}
+                  role="button"
+                  tabIndex={0}
+                  aria-current={s.id === active ? 'page' : undefined}
                   onClick={() => setActive(s.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(s.id) } }}
                 >
                   {s.title}
                 </div>
@@ -1832,9 +1845,11 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
             </div>
           )
         })}
-      </aside>
+      </nav>
 
-      <main className="docs-content">
+      {/* A plain div, not <main>: the console already has one <main> around the whole page,
+          and a nested second one leaves assistive tech two "main content" targets. */}
+      <div className="docs-content">
         <h1 className="docs-title">{section.title}</h1>
         <Markdown md={section.body} onDocLink={goLink} />
         <div className="docs-prevnext">
@@ -1845,10 +1860,10 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
             <button className="ghost" onClick={() => setActive(next.id)}>{next.title} <Icon.arrowRight size={15} /></button>
           ) : <span />}
         </div>
-      </main>
+      </div>
 
       {headings.length > 0 && (
-        <aside className="docs-toc">
+        <aside className="docs-toc" aria-label="On this page">
           <div className="docs-toc-label">On this page</div>
           <div className="docs-toc-rail">
             {headings.map((h) => (
@@ -1876,12 +1891,16 @@ const MAX_ROLES = 3  // cap role chips per card so they don't overflow
 function RolesChip({ count, roles }: { count: number; roles: string[] }) {
   const [open, setOpen] = useState(false)
   const [up, setUp] = useState(false)
+  const [right, setRight] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)
   const show = () => {
     const r = ref.current?.getBoundingClientRect()
     if (r) {
       const below = window.innerHeight - r.bottom
       setUp(below < 280 && r.top > below)  // open upward only when there's more room above
+      // …and to the left when the 300px card would run off the right edge. The card's width
+      // is a CSS length so it scales with --ui-scale; the rect and innerWidth do not.
+      setRight(r.left + 300 * uiScale() > window.innerWidth - 16)
     }
     setOpen(true)
   }
@@ -1890,7 +1909,7 @@ function RolesChip({ count, roles }: { count: number; roles: string[] }) {
       onMouseEnter={show} onMouseLeave={() => setOpen(false)} onFocus={show} onBlur={() => setOpen(false)}>
       +{count}
       {open && (
-        <span className={'rolepop ' + (up ? 'up' : 'down')} role="tooltip">
+        <span className={'rolepop ' + (up ? 'up' : 'down') + (right ? ' right' : '')} role="tooltip">
           <span className="rolepop-head">All roles ({roles.length})</span>
           <span className="rolepop-list">{roles.map((r) => <span className="tag" key={r}>{r}</span>)}</span>
         </span>
@@ -1944,7 +1963,7 @@ export function Members() {
         sub="The private impression Olisar forms of each member. Anyone can wipe theirs with /forget-me."
       />
       <Card title={`${rows.length} known · ${learned} with an impression`}>
-        <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" />
+        <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" ariaLabel="Filter members by name, role, or impression" />
       </Card>
       {rows.length === 0 && <Card title="Profiles"><div className="empty">No member profiles yet. Olisar builds them as people talk in channels it remembers.</div></Card>}
       {rows.length > 0 && shown.length === 0 && <Card title="Profiles"><div className="empty">No members match “{q}”.</div></Card>}
@@ -1993,6 +2012,26 @@ export function Members() {
 // (the backend only sends it over loopback) — same as the first-run wizard.
 type KeyStatus = { dashboard: boolean; env: boolean; value?: string }
 
+// A key input is a plain <input> rather than <Text> because it carries autoComplete/spellCheck
+// of its own — so it has to claim the enclosing Field's ids by hand.
+function KeyInput(props: { value: string; placeholder: string; onChange: (v: string) => void }) {
+  const f = useFieldIds()
+  return (
+    <input
+      type="text"
+      id={f?.id}
+      aria-labelledby={f?.labelId}
+      aria-describedby={f?.descId}
+      autoComplete="off"
+      spellCheck={false}
+      className="mono"
+      placeholder={props.placeholder}
+      value={props.value}
+      onChange={(e) => props.onChange(e.target.value)}
+    />
+  )
+}
+
 function KeyField(props: {
   fieldKey: string
   label: string
@@ -2013,15 +2052,7 @@ function KeyField(props: {
       : props.example || 'Paste your key'
   return (
     <Field label={props.label} desc={props.desc}>
-      <input
-        type="text"
-        autoComplete="off"
-        spellCheck={false}
-        className="mono"
-        placeholder={placeholder}
-        value={props.value}
-        onChange={(e) => props.onChange(e.target.value)}
-      />
+      <KeyInput placeholder={placeholder} value={props.value} onChange={props.onChange} />
       <div className="key-status">
         {s.dashboard ? (
           <>
@@ -2161,8 +2192,41 @@ function uSmooth(pts: { x: number; y: number }[]) {
   return d
 }
 
+// Both charts used to draw into a fixed 940-unit viewBox stretched to the card with
+// `preserveAspectRatio="none"`, which scales x and y independently — so every label, tick and
+// caption inside them condensed as the card narrowed. Measure the box and draw at its real
+// size instead: one unit of viewBox is one CSS pixel, so nothing is scaled at all.
+function useChartWidth(fallback: number) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [w, setW] = useState(fallback)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => {
+      const next = Math.round(e.contentRect.width)
+      if (next > 0) setW(next)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  return [ref, w] as const
+}
+
+// Endpoint value tags sit at their series' last y, so two series that finish close together
+// print on top of each other. Walk them in y order and push apart to a minimum gap.
+function spread(ys: number[], min = 13): number[] {
+  const order = ys.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y)
+  for (let k = 1; k < order.length; k++) {
+    if (order[k].y - order[k - 1].y < min) order[k].y = order[k - 1].y + min
+  }
+  const out = ys.slice()
+  for (const { y, i } of order) out[i] = y
+  return out
+}
+
 function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: string; values: number[] }[]; labels: string[]; limit: number }) {
-  const W = 940, H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
+  const [box, W] = useChartWidth(940)
+  const H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
   const n = labels.length
   const dataMax = Math.max(1, ...series.flatMap((s) => s.values))
   // Zoom to the data with headroom above the top point; only let the limit lift the scale
@@ -2174,9 +2238,13 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
   const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
   const primary = series[0]
   const ticks = [yMax * 0.33, yMax * 0.66].map((v) => Math.round(v / 100) * 100)
-  const stride = Math.max(1, Math.ceil(n / 8))
+  // Roughly 46px per label before they start colliding at this type size.
+  const stride = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((x1 - x0) / 46))))
+  const tagY = spread(series.map((s) => yAt(s.values[n - 1] || 0)))
   return (
-    <svg className="u-chart" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: H }}>
+    <div className="u-chartbox" ref={box}>
+    <svg className="u-chart" viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img"
+      aria-label={`Daily requests per model over the last ${n} days`}>
       <line className="u-grid" x1={x0} y1={y0} x2={x1} y2={y0} />
       {ticks.map((v, i) => (
         <g key={i}>
@@ -2197,22 +2265,24 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
       {series.slice().reverse().map((s) => (
         <path key={s.key} className={'u-line ' + s.cls + (s === primary ? ' primary' : '')} d={uSmooth(s.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} />
       ))}
-      {series.map((s) => {
+      {series.map((s, si) => {
         const v = s.values[n - 1] || 0
         return (
           <g key={s.key} className={s.cls}>
             <circle className="u-dot" cx={x1} cy={yAt(v)} r={s === primary ? 4.5 : 4} />
-            <text className="u-tag" x={x1 + 8} y={yAt(v) + 3}>{uReq(v)}</text>
+            <text className="u-tag" x={x1 + 8} y={tagY[si] + 3}>{uReq(v)}</text>
           </g>
         )
       })}
       {labels.map((l, i) => (i % stride === 0 || i === n - 1 ? <text key={i} className="u-axis" x={xAt(i)} y={y0 + 18} textAnchor="middle">{l}</text> : null))}
     </svg>
+    </div>
   )
 }
 
 function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit: number; limitLabel: string; cls: string }) {
-  const W = 440, H = 138, x0 = 8, x1 = W - 8, y0 = H - 16, y1 = 22
+  const [box, W] = useChartWidth(440)
+  const H = 138, x0 = 8, x1 = W - 8, y0 = H - 16, y1 = 22
   const n = values.length
   const dataMax = Math.max(1, ...values)
   let yMax = dataMax * 1.2
@@ -2222,7 +2292,9 @@ function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit:
   const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
   const pts = values.map((v, i) => ({ x: xAt(i), y: yAt(v) }))
   return (
-    <svg className={'u-chart ' + cls} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ height: H }}>
+    <div className="u-chartbox" ref={box}>
+    <svg className={'u-chart ' + cls} viewBox={`0 0 ${W} ${H}`} width={W} height={H} role="img"
+      aria-label={`Daily peak tokens per minute, against ${limitLabel}`}>
       <line className="u-grid" x1={x0} y1={y0} x2={x1} y2={y0} />
       {limitInRange ? (
         <>
@@ -2235,6 +2307,7 @@ function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit:
       <path className="u-area" d={`${uSmooth(pts)} L${x1} ${y0} L${x0} ${y0} Z`} />
       <path className="u-line" d={uSmooth(pts)} />
     </svg>
+    </div>
   )
 }
 
@@ -2306,13 +2379,7 @@ export function Usage() {
   const [days, setDays] = useState(7)
   const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
   const [live, setLive] = useState<any>(null)
-  useEffect(() => {
-    let on = true
-    const pull = () => api.getUsageLive().then((d: any) => { if (on) setLive(d) }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 4000)
-    return () => { on = false; clearInterval(id) }
-  }, [])
+  usePoll(() => { api.getUsageLive().then(setLive).catch(() => {}) }, 4000)
   if (loading || !data) return <Spinner />
 
   const models: any[] = data.by_model || []

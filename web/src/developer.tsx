@@ -4,10 +4,10 @@
 // developer (App gates the nav item on api.devStatus()). All data is proxied to the
 // registry behind the bot's publisher token.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { api } from './api'
 import { Icon, CloseX } from './icons'
-import { toast, confirmDialog } from './overlays'
+import { Modal, toast, confirmDialog } from './overlays'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -49,6 +49,15 @@ export function Developer() {
     const el = barRef.current?.querySelector('.dev-tab.active') as HTMLElement | null
     if (el) setInd({ left: el.offsetLeft, width: el.offsetWidth })
   }, [tab, counts])
+  const onTabKey = (e: ReactKeyboardEvent) => {
+    const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : e.key === 'Home' ? -TABS.length : e.key === 'End' ? TABS.length : 0
+    if (!step) return
+    e.preventDefault()
+    const i = TABS.findIndex((t) => t.id === tab)
+    const next = TABS[Math.min(TABS.length - 1, Math.max(0, i + step))]
+    setTab(next.id)
+    barRef.current?.querySelector<HTMLElement>(`#devtab-${next.id}`)?.focus()
+  }
   return (
     <div className="dev">
       <div className="page-head">
@@ -58,22 +67,35 @@ export function Developer() {
         </div>
         <p>Marketplace management, reports, and moderation for the Olisar platform.</p>
       </div>
-      <div className="dev-tabs" ref={barRef}>
+      {/* A real tablist: roving tabindex, so Tab lands on the selected tab and ←/→ move
+          between them, rather than the seven stops a plain button row would cost. */}
+      <div className="dev-tabs" ref={barRef} role="tablist" aria-label="Developer sections" onKeyDown={onTabKey}>
         {TABS.map((t) => (
-          <button key={t.id} className={'dev-tab' + (tab === t.id ? ' active' : '')} onClick={() => setTab(t.id)}>
+          <button
+            key={t.id}
+            id={`devtab-${t.id}`}
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls="devtab-panel"
+            tabIndex={tab === t.id ? 0 : -1}
+            className={'dev-tab' + (tab === t.id ? ' active' : '')}
+            onClick={() => setTab(t.id)}
+          >
             {t.label}
             {COUNTED[t.id] && counts[t.id] != null && <span className="dev-tab-count">{counts[t.id]}</span>}
           </button>
         ))}
-        <span className="dev-tab-ind" style={{ left: ind.left, width: ind.width }} />
+        <span className="dev-tab-ind" style={{ transform: `translateX(${ind.left}px) scaleX(${ind.width})` }} />
       </div>
-      {tab === 'extensions' && <DevExtensions />}
-      {tab === 'reports' && <DevReports />}
-      {tab === 'blocked' && <DevBlocked />}
-      {tab === 'moderation' && <DevModeration />}
-      {tab === 'logs' && <DevLogs kind="bot" />}
-      {tab === 'funnel' && <DevLogs kind="funnel" />}
-      {tab === 'policy' && <DevPolicy />}
+      <div id="devtab-panel" role="tabpanel" aria-labelledby={`devtab-${tab}`}>
+        {tab === 'extensions' && <DevExtensions />}
+        {tab === 'reports' && <DevReports />}
+        {tab === 'blocked' && <DevBlocked />}
+        {tab === 'moderation' && <DevModeration />}
+        {tab === 'logs' && <DevLogs kind="bot" />}
+        {tab === 'funnel' && <DevLogs kind="funnel" />}
+        {tab === 'policy' && <DevPolicy />}
+      </div>
     </div>
   )
 }
@@ -141,11 +163,11 @@ function DevExtensions() {
       <div className="dev-toolbar">
         <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '0 1 320px' }}>
           <Icon.search size={15} style={{ position: 'absolute', left: 11, color: 'var(--text-3)', pointerEvents: 'none' }} />
-          <input type="text" className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search name, publisher, or Discord ID…" style={{ paddingLeft: 32, width: '100%' }} />
+          <input type="text" className="dev-search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search extensions by name, publisher, or Discord ID" placeholder="Search name, publisher, or Discord ID…" style={{ paddingLeft: 32, width: '100%' }} />
         </span>
         <span className="settings-muted">{filtered.length} of {rows.length}</span>
         <span className="grow" />
-        <button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
+        <button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       <div className="dev-table-wrap">
         <table className="dev-table">
@@ -170,10 +192,10 @@ function DevExtensions() {
                 <td className="muted">{fmtDate(r.published_at)}</td>
                 <td className="dev-perms">{(r.permissions || []).map((p: string) => <span key={p} className="tag">{p}</span>)}</td>
                 <td className="dev-row-actions">
-                  <button className="ghost icon-btn sm" onClick={() => viewCode(r)} title="View code"><Icon.code size={15} /></button>
-                  <button className="danger icon-btn sm" onClick={() => yank(r)} title="Yank" aria-label="Yank"><Icon.trash size={15} /></button>
-                  <button className="caution icon-btn sm" onClick={() => moderate(r, 'warn')} title="Warn publisher" aria-label="Warn publisher"><Icon.warn size={15} /></button>
-                  <button className="danger icon-btn sm" onClick={() => moderate(r, 'ban')} title="Ban publisher" aria-label="Ban publisher"><Icon.ban size={15} /></button>
+                  <button className="ghost icon-btn sm" onClick={() => viewCode(r)} data-tip="View code" aria-label={`View source of ${r.id}`}><Icon.code size={15} /></button>
+                  <button className="danger icon-btn sm" onClick={() => yank(r)} data-tip="Yank" aria-label={`Yank ${r.id}`}><Icon.trash size={15} /></button>
+                  <button className="caution icon-btn sm" onClick={() => moderate(r, 'warn')} data-tip="Warn publisher" aria-label={`Warn ${r.publisher || "publisher"}`}><Icon.warn size={15} /></button>
+                  <button className="danger icon-btn sm" onClick={() => moderate(r, 'ban')} data-tip="Ban publisher" aria-label={`Ban ${r.publisher || "publisher"}`}><Icon.ban size={15} /></button>
                 </td>
               </tr>
             ))}
@@ -187,14 +209,14 @@ function DevExtensions() {
 }
 
 function CodeModal(props: { code: { id: string; source?: string; version?: string }; onClose: () => void }) {
+  const titleId = useId()
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="dev-code-modal" onClick={(e) => e.stopPropagation()}>
+    <Modal className="dev-code-modal" labelledBy={titleId} onClose={props.onClose}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
-        <div className="settings-head"><h2>{props.code.id}</h2><p>v{props.code.version} · source</p></div>
-        <pre className="dev-code">{props.code.source || '(no source)'}</pre>
-      </div>
-    </div>
+        <div className="settings-head"><h2 id={titleId}>{props.code.id}</h2><p>v{props.code.version} · source</p></div>
+        {/* tabIndex so a keyboard user can scroll a long listing. */}
+        <pre className="dev-code" tabIndex={0}>{props.code.source || '(no source)'}</pre>
+    </Modal>
   )
 }
 
@@ -223,7 +245,7 @@ function DevReports() {
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -267,7 +289,7 @@ function DevBlocked() {
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
     <div className="card">
-      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
+      <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
           <div key={r.id} className="dev-report">
@@ -315,8 +337,8 @@ function DevModeration() {
     <div className="card">
       <div className="settings-subhead">Warn or ban a Discord ID</div>
       <div className="dev-mod-form">
-        <input type="text" className="dev-search" value={id} onChange={(e) => setId(e.target.value)} placeholder="Discord user ID" />
-        <input type="text" className="dev-search" value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Message (shown to the user, optional)" />
+        <input type="text" className="dev-search" value={id} onChange={(e) => setId(e.target.value)} aria-label="Discord user ID" placeholder="Discord user ID" />
+        <input type="text" className="dev-search" value={msg} onChange={(e) => setMsg(e.target.value)} aria-label="Message shown to the user (optional)" placeholder="Message (shown to the user, optional)" />
         <button className="caution" onClick={() => act(id, 'warn', msg)}>Warn</button>
         <button className="danger" onClick={() => act(id, 'ban', msg)}>Ban</button>
       </div>
@@ -359,7 +381,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
       <div className="dev-toolbar">
         <span className="settings-muted">{kind === 'bot' ? 'Backend (bot + API) logs' : 'Remote-access (Tailscale Funnel) logs'}</span>
         <span className="grow" />
-        <button className="ghost icon-btn sm" onClick={load} title="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
+        <button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
       {err && <div className="settings-err">{err}</div>}
       <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
@@ -389,7 +411,9 @@ function DevPolicy() {
       </div>
       {err && <div className="settings-err">{err}</div>}
       <div className="dev-policy-row">
-        <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))} className="dev-range" style={{ '--fill': `${v ?? 70}%` } as any} />
+        <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))}
+          aria-label="Publish risk threshold" aria-valuetext={`${v ?? 70} of 100`}
+          className="dev-range" style={{ '--fill': `${v ?? 70}%` } as any} />
         <span className={'risk-pill ' + riskCls(v ?? 70)} style={{ minWidth: 38, textAlign: 'center' }}>{v ?? 70}</span>
         <button className="primary" onClick={save}>{saved ? <><Icon.check size={14} weight="Bold" /> Saved</> : 'Save'}</button>
       </div>
