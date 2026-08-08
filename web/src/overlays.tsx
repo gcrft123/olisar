@@ -5,7 +5,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Icon, type IconName } from './icons'
+import { Icon, CloseX, type IconName } from './icons'
 import { uiScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
@@ -26,19 +26,39 @@ export function toast(message: string, tone: Tone = 'neutral') {
   else pending.push(item)
 }
 
+// Success is a confirmation and can expire. A failure is information the operator may need
+// to act on or quote, and putting it on a 3.6s timer meant "Publish failed: <reason>" and
+// "Couldn't power down the bot" removed themselves before they could be read twice — with
+// no history anywhere. Errors and warnings now wait to be dismissed, and are selectable.
+const STICKY: Record<Tone, boolean> = {
+  success: false, neutral: false, info: false, danger: true, warning: true,
+}
+
 function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
   const [show, setShow] = useState(false)
+  const sticky = STICKY[item.tone]
   useEffect(() => {
     const a = requestAnimationFrame(() => setShow(true))
+    if (sticky) return () => cancelAnimationFrame(a)
     const hide = setTimeout(() => setShow(false), 3600)
     const done = setTimeout(() => onDone(item.id), 3920)
     return () => { cancelAnimationFrame(a); clearTimeout(hide); clearTimeout(done) }
-  }, [item.id, onDone])
+  }, [item.id, onDone, sticky])
+  const dismiss = () => { setShow(false); setTimeout(() => onDone(item.id), 320) }
   const Glyph = Icon[TOAST_ICON[item.tone]]
   return (
-    <div className={'toast ' + item.tone + (show ? ' show' : '')} role="status">
+    // alert, not status: a failure should interrupt rather than queue behind whatever is
+    // currently being read.
+    <div className={'toast ' + item.tone + (show ? ' show' : '') + (sticky ? ' sticky' : '')}
+      role={sticky ? 'alert' : 'status'}>
       <span className="ic"><Glyph size={20} weight="Bold" /></span>
       <span className="toast-msg">{item.message}</span>
+      {sticky && (
+        <button className="ghost icon-btn sm toast-x" onClick={dismiss}
+          data-tip="Dismiss" aria-label="Dismiss">
+          <CloseX size={14} />
+        </button>
+      )}
     </div>
   )
 }

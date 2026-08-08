@@ -424,6 +424,24 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   .page-head h1 { font-size: 20px; }
 }
 
+/* Activity log. A ledger, so the columns line up and the eye can scan down the times. */
+.activity { display: flex; flex-direction: column; }
+.act-row {
+  display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; align-items: baseline; gap: 14px;
+  padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.act-row:last-child { border-bottom: 0; }
+.act-when { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+.act-what { color: var(--text); min-width: 0; }
+.act-row.destructive .act-what { color: var(--danger); }
+/* The receipt — the counts the toast used to show for 3.6s and then discard. */
+.act-receipt { display: block; color: var(--text-2); font-size: 12px; margin-top: 2px; }
+.act-who { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); justify-self: end; }
+@media (max-width: 560px) {
+  .act-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .act-when { grid-column: 1 / -1; }
+}
+
 /* Danger zone — the system's red, quietly. Enough tint to separate it from an ordinary
    card, not enough to shout on a page you visit for other reasons; the weight belongs to
    the confirm dialog, which is where the decision is actually made. Set apart from the
@@ -1593,6 +1611,10 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
 .toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; }
+/* A sticky toast is there to be read and quoted, so its text is selectable — the rest of
+   the console suppresses selection on chrome, and a failure message is not chrome. */
+.toast.sticky .toast-msg { user-select: text; cursor: text; }
+.toast-x { flex: none; margin: -4px -4px -4px 0; color: var(--text-3); }
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
@@ -1705,6 +1727,9 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .us-mut { color: var(--neutral); }
 .u-livehead { display: flex; align-items: center; gap: 7px; }
 .u-livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+/* Amber, not green, once the poll stops landing — a green dot over numbers that have
+   stopped moving is the most misleading thing this page could show. */
+.u-livedot.stale { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 .u-meter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .u-meter:last-child { margin-bottom: 2px; }
 .u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; min-width: 74px; }

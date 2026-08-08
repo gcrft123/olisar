@@ -185,6 +185,7 @@ export const api = {
 
   getUsage: (days: number) => req(`/api/usage/summary?days=${days}`),
   getUsageLive: () => req('/api/usage/live'),
+  getAudit: (limit = 100) => req(`/api/audit?limit=${limit}`),
 
   getFacts: () => req('/api/facts'),
   addFact: (b: any) => req('/api/facts', { method: 'POST', body: JSON.stringify(b) }),

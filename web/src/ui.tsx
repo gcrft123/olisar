@@ -243,10 +243,13 @@ export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: str
       <button className="primary" disabled={s.busy} onClick={s.run}>
         {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
       </button>
-      {s.saved && (
-        <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
-      )}
-      {s.error && <span className="err">{s.error}</span>}
+      {/* The outcome of a save was announced to nobody — role="status" appeared exactly
+          once in the console, on the toast. A live region that is always present (rather
+          than mounted with its message) is what actually gets announced. */}
+      <span role="status">
+        {s.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>}
+        {s.error && <span className="err">{s.error}</span>}
+      </span>
     </div>
   )
 }
@@ -323,7 +326,9 @@ export function SaveDock(props: {
   return (
     <div className={'savedock' + (show ? ' show' : '')} aria-hidden={!show}>
       <div className="savedock-inner">
-        <span className="savedock-msg">
+        {/* "unsaved changes" -> "Saved" -> an error is the product's core state machine,
+            and none of it reached a screen reader. */}
+        <span className="savedock-msg" role="status">
           {s.error ? <span className="err">{s.error}</span>
             : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
             : <>You have unsaved changes.</>}
@@ -618,13 +623,34 @@ export class PageBoundary extends React.Component<
  * Hidden tab: nothing runs, and the first poll fires immediately on return. `active: false`
  * (e.g. the re-index finished) stops it entirely without unmounting the caller.
  */
-export function usePoll(load: () => void, everyMs: number, active = true) {
+export function usePoll(load: () => void | Promise<unknown>, everyMs: number, active = true) {
   const latest = React.useRef(load)
   latest.current = load
+  // Every caller wrapped its own poll in `.catch(() => {})`, so a backend that had gone
+  // away rendered as one that simply had nothing to say: live meters froze at their last
+  // value with the green "live" dot still pulsing. Count consecutive failures instead and
+  // let the caller show it. Two in a row, so one dropped request isn't an outage.
+  const [failures, setFailures] = React.useState(0)
   React.useEffect(() => {
     if (!active) return
     let timer: ReturnType<typeof setTimeout> | undefined
-    const tick = () => { latest.current(); timer = setTimeout(tick, everyMs) }
+    const tick = () => {
+      let settled = false
+      try {
+        const r = latest.current()
+        if (r && typeof (r as Promise<unknown>).then === 'function') {
+          settled = true
+          ;(r as Promise<unknown>).then(
+            () => setFailures(0),
+            () => setFailures((n) => n + 1),
+          )
+        }
+      } catch {
+        setFailures((n) => n + 1)
+      }
+      if (!settled) setFailures(0)
+      timer = setTimeout(tick, everyMs)
+    }
     const start = () => { if (timer === undefined) tick() }
     const stop = () => { clearTimeout(timer); timer = undefined }
     const onVisible = () => (document.hidden ? stop() : start())
@@ -632,6 +658,7 @@ export function usePoll(load: () => void, everyMs: number, active = true) {
     document.addEventListener('visibilitychange', onVisible)
     return () => { stop(); document.removeEventListener('visibilitychange', onVisible) }
   }, [everyMs, active])
+  return { failures, stale: failures >= 2 }
 }
 
 export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {
