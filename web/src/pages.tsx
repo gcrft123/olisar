@@ -911,6 +911,16 @@ function SearchIndexCard() {
           </div>
         : <Spinner label="Reading the index…" />) : (
         <>
+          {/* Staleness was only surfaced *before* the first payload, so once numbers had
+              arrived a dead backend froze a running backfill at its last reading with no
+              marker — a dead poll rendering as an idle one, which DESIGN.md names outright.
+              After first load the card keeps its figures (they were true once) and says so. */}
+          {poll.stale && (
+            <div className="callout warning" role="status">
+              <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+              <div className="callout-body">Can’t reach the bot. These are the last figures it reported, not the current ones.</div>
+            </div>
+          )}
           <div className="reindex-top">
             <div className="reindex-stat">
               {/* `done / total` is BACKFILL progress, not what the index holds — so with no
@@ -2530,6 +2540,7 @@ const MAX_ROLES = 3  // cap role chips per card so they don't overflow
 type MemberRole = { id: string; name: string }
 
 function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRole[]; colourOf: (r: MemberRole) => string }) {
+  const popId = useId()
   const [open, setOpen] = useState(false)
   const [up, setUp] = useState(false)
   const [right, setRight] = useState(false)
@@ -2551,12 +2562,16 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
     // killed the UA outline without providing a replacement, making it the one control in
     // the console you could focus with no indication you had.
     <button ref={ref} type="button" className="tag more rolepop-wrap"
-      aria-label={`Show all ${roles.length} roles`} aria-expanded={open}
+      // The label named the control but overrode the subtree, so the role names inside the
+      // popup existed nowhere a screen reader could reach — and they appear nowhere else in
+      // the DOM. Name the button by what it hides, and point at the list for the detail.
+      aria-label={`${count} more: ${roles.map((r) => r.name).join(', ')}`}
+      aria-expanded={open} aria-describedby={open ? popId : undefined}
       onMouseEnter={show} onMouseLeave={() => setOpen(false)} onFocus={show} onBlur={() => setOpen(false)}
       onClick={() => (open ? setOpen(false) : show())}>
       +{count}
       {open && (
-        <span className={'rolepop ' + (up ? 'up' : 'down') + (right ? ' right' : '')} role="tooltip">
+        <span id={popId} className={'rolepop ' + (up ? 'up' : 'down') + (right ? ' right' : '')} role="tooltip">
           <span className="rolepop-head">All roles ({roles.length})</span>
           <span className="rolepop-list">{roles.map((r) => <RoleChip key={r.id || r.name} name={r.name} color={colourOf(r)} />)}</span>
         </span>
