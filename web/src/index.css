@@ -687,6 +687,43 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .member-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; }
 .member-actions .err.sm { font-size: 11px; }
 .member-meta { color: var(--text-3); font-size: 11px; margin-top: 7px; }
+/* Disclosure — native <details>, so it is keyboard-operable and announced as expandable
+   with no ARIA of our own. Quiet by default: it is a way in, not a section heading. */
+.disclosure { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 14px; }
+.disclosure > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  color: var(--text-2); font-size: 12.5px; font-weight: 550; user-select: none;
+  padding: 3px 4px; margin: -3px -4px; border-radius: var(--radius-xs);
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary:hover { color: var(--text); }
+.disclosure > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.disclosure-chev { display: inline-flex; color: var(--text-3); transition: transform var(--dur-mid) var(--ease-out); }
+.disclosure[open] > summary .disclosure-chev { transform: rotate(90deg); }
+.disclosure-hint { color: var(--text-3); font-weight: 400; font-size: 12px; }
+.disclosure-body { padding-top: 15px; }
+@media (prefers-reduced-motion: reduce) { .disclosure-chev { transition-duration: 0.4s; } }
+
+/* Keyboard reference (Settings → Appearance). */
+.shortcuts { margin: 0; display: flex; flex-direction: column; }
+.shortcut {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; align-items: baseline;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.shortcut:last-child { border-bottom: 0; }
+.shortcut dt { display: flex; gap: 4px; }
+.shortcut dd { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.shortcut dd span { color: var(--text-2); font-size: 12px; }
+kbd {
+  font-family: var(--mono); font-size: 11px; color: var(--text-2); line-height: 1.6;
+  padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  background: var(--bg-inset); white-space: nowrap;
+}
+
+/* Idle rows in the fallback chain, folded away by default. */
+.u-idle-toggle { margin-top: 12px; height: 28px; font-size: 12px; color: var(--text-2); border-color: transparent; }
+.u-idle-toggle:hover { color: var(--text); background: var(--bg-inset); }
+
 /* Numeric field: the unit sits in the box, the range and default sit under it. Both were
    invisible before — the browser enforced min/max nobody could see, and nothing said what
    a reasonable value looks like, so every threshold was a guess. */
