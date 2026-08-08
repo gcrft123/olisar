@@ -230,7 +230,10 @@ export function Behavior() {
           <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
-        <Field label="Don't let Olisar ping" desc="Olisar won't ping these in its replies even if it writes the mention.">
+        {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
+            point at nothing — which is exactly what it was doing. `.flabel` is the same
+            treatment without the false promise. */}
+        <Field plain label="Don't let Olisar ping" desc="Olisar won't ping these in its replies even if it writes the mention.">
           <div className="choice-row">
             {MENTION_OPTS.map((o) => {
               const on = (data.blocked_mentions || []).includes(o.value)
