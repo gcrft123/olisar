@@ -92,8 +92,22 @@ async def models(admin: AdminUser = Depends(require_admin)):
     return [{"name": m.name, "label": m.label} for m in RANKED]
 
 
+def _bot_avatar_url(request: Request) -> str:
+    """The running bot's own avatar URL, or "" when it isn't up. Same source as the
+    guild icon (``guild.icon.url``), just read live rather than synced to a column —
+    there is one bot per install, so there is nothing to key a cache on."""
+    supervisor = getattr(request.app.state, "bot_supervisor", None)
+    bot = getattr(supervisor, "bot", None) if supervisor is not None else None
+    if bot is None or not bot.is_ready() or bot.user is None:
+        return ""
+    try:
+        return str(bot.user.display_avatar.url)
+    except Exception:  # pragma: no cover — never break the persona read over an avatar
+        return ""
+
+
 @router.get("/persona")
-async def get_persona(gctx: GuildContext = Depends(require_guild_admin)):
+async def get_persona(request: Request, gctx: GuildContext = Depends(require_guild_admin)):
     async with session_scope() as session:
         p = await session.get(Persona, gctx.guild_id)
         if p is None:
@@ -103,6 +117,10 @@ async def get_persona(gctx: GuildContext = Depends(require_guild_admin)):
             "system_prompt": p.system_prompt,
             "tone_notes": p.tone_notes,
             "desired_bio": p.desired_bio,
+            # The console previews command replies as they appear in Discord, which needs
+            # the bot's real avatar. Read live off the in-process client (nothing stores
+            # it); "" whenever the bot isn't running, and the UI falls back.
+            "bot_avatar": _bot_avatar_url(request),
         }
 
 
@@ -161,7 +179,6 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
         return {
             "name_triggers": c.name_triggers,
             "reply_in_dms": c.reply_in_dms,
-            "loose_msg_enabled": c.loose_msg_enabled,
             "default_model": c.default_model,
             "grounding_enabled": c.grounding_enabled,
             "grounding_daily_cap": c.grounding_daily_cap,
@@ -514,7 +531,14 @@ async def get_profiles(gctx: GuildContext = Depends(require_guild_admin)):
         out.append({
             "user_id": str(p.user_id),
             "display_name": p.display_name or str(p.user_id),
-            "roles": [r.get("name") for r in (p.roles or []) if r.get("name")],
+            "avatar": p.avatar or "",
+            # id as well as name: the dashboard joins these against /api/roles to colour
+            # each chip, and names are not unique in a Discord guild.
+            "roles": [
+                {"id": str(r.get("id") or ""), "name": r.get("name")}
+                for r in (p.roles or [])
+                if r.get("name")
+            ],
             "impression": p.persona_summary or "",
             "messages_since_persona": p.messages_since_persona,
             "first_seen": p.first_seen.isoformat() if p.first_seen else None,

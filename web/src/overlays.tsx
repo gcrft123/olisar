@@ -3,8 +3,10 @@
 // anywhere by the exported toast() / confirmDialog() / promptDialog() helpers.
 // These replace the native alert/confirm/prompt, which break the calm aesthetic.
 
-import React, { useCallback, useEffect, useState } from 'react'
-import { Icon, type IconName } from './icons'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Icon, CloseX, type IconName } from './icons'
+import { uiScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
@@ -24,19 +26,39 @@ export function toast(message: string, tone: Tone = 'neutral') {
   else pending.push(item)
 }
 
+// Success is a confirmation and can expire. A failure is information the operator may need
+// to act on or quote, and putting it on a 3.6s timer meant "Publish failed: <reason>" and
+// "Couldn't power down the bot" removed themselves before they could be read twice — with
+// no history anywhere. Errors and warnings now wait to be dismissed, and are selectable.
+const STICKY: Record<Tone, boolean> = {
+  success: false, neutral: false, info: false, danger: true, warning: true,
+}
+
 function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
   const [show, setShow] = useState(false)
+  const sticky = STICKY[item.tone]
   useEffect(() => {
     const a = requestAnimationFrame(() => setShow(true))
+    if (sticky) return () => cancelAnimationFrame(a)
     const hide = setTimeout(() => setShow(false), 3600)
     const done = setTimeout(() => onDone(item.id), 3920)
     return () => { cancelAnimationFrame(a); clearTimeout(hide); clearTimeout(done) }
-  }, [item.id, onDone])
+  }, [item.id, onDone, sticky])
+  const dismiss = () => { setShow(false); setTimeout(() => onDone(item.id), 320) }
   const Glyph = Icon[TOAST_ICON[item.tone]]
   return (
-    <div className={'toast ' + item.tone + (show ? ' show' : '')} role="status">
+    // alert, not status: a failure should interrupt rather than queue behind whatever is
+    // currently being read.
+    <div className={'toast ' + item.tone + (show ? ' show' : '') + (sticky ? ' sticky' : '')}
+      role={sticky ? 'alert' : 'status'}>
       <span className="ic"><Glyph size={20} weight="Bold" /></span>
       <span className="toast-msg">{item.message}</span>
+      {sticky && (
+        <button className="ghost icon-btn sm toast-x" onClick={dismiss}
+          data-tip="Dismiss" aria-label="Dismiss">
+          <CloseX size={14} />
+        </button>
+      )}
     </div>
   )
 }
@@ -50,7 +72,137 @@ function ToastStack() {
   }, [])
   const remove = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), [])
   if (!items.length) return null
-  return <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>
+  // Portalled to <body> for the same reason the modal card is: `Overlays` renders inside
+  // #root, and an open dialog marks #root inert. A toast raised from inside Settings — every
+  // "Couldn't rename the bot" / "Couldn't send" path — painted but could not be clicked shut
+  // and was hidden from assistive tech until the dialog closed.
+  return createPortal(
+    <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>,
+    document.body,
+  )
+}
+
+// ── Modal shell ──────────────────────────────────────────────────────────────
+// Every overlay in the console goes through this. Hand-rolled backdrops drifted: some
+// closed on Escape and some didn't, none announced as a dialog, and focus stayed on the
+// trigger behind the overlay with the whole page still tabbable underneath.
+const FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+// Dialogs nest (Settings ▸ Bot ▸ Move bot), so the inert flag is refcounted.
+let openModals = 0
+// Mount order of the open modals. The last one is the top-most and owns Escape.
+const escStack: symbol[] = []
+
+export function Modal(props: {
+  /** Class on the dialog card itself — `.settings-modal`, `.import-modal`, `.confirm-dialog`, … */
+  className: string
+  /** id of the element that titles this dialog (its <h2> / .confirm-title). */
+  labelledBy?: string
+  label?: string
+  onClose?: () => void
+  /** Set false while an irreversible action is in flight, so a stray Escape can't abandon it. */
+  dismissable?: boolean
+  children: React.ReactNode
+}) {
+  const card = useRef<HTMLDivElement>(null)
+  const dismissable = props.dismissable !== false
+  const close = props.onClose
+
+  // Captured during RENDER, not in the effect below. React applies a child's `autoFocus`
+  // while committing — before effects run — so reading activeElement in the effect returned
+  // the dialog's own input on every modal that has one. It then unmounted with the dialog,
+  // `isConnected` was false, and the restore silently did nothing: open the ⌘K palette,
+  // press Escape, and focus was on <body>. Modals without an autoFocus child (Settings)
+  // restored correctly, which is exactly why this hid.
+  const returnTo = useRef<HTMLElement | null>(null)
+  if (returnTo.current === null) returnTo.current = document.activeElement as HTMLElement | null
+
+  useEffect(() => {
+    const el = card.current
+    // Don't fight an autoFocus'd input — React has already focused it by now.
+    if (el && !el.contains(document.activeElement)) {
+      (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus()
+    }
+    // aria-modal alone is a promise, not a mechanism: the page behind stayed in the
+    // accessibility tree and the skip link stayed focusable. `inert` is the mechanism.
+    // Counted, because dialogs nest (Settings ▸ Bot ▸ Move bot).
+    const app = document.getElementById('root')
+    if (app) {
+      openModals += 1
+      app.inert = true
+    }
+    return () => {
+      if (app && --openModals <= 0) { openModals = 0; app.inert = false }
+      const back = returnTo.current
+      if (back?.isConnected) back.focus()
+    }
+  }, [])
+
+  // Which modal owns Escape. Every instance listens on `document` in capture, and
+  // stopPropagation does NOT stop other listeners on the same node — so one Escape inside
+  // a nested dialog used to fire the parent's handler too: Settings ▸ Delete bot ▸ Escape
+  // closed the confirm *and* Settings. A non-dismissable modal was worse, because it fell
+  // straight through to the parent and unmounted the window that says "keep this open".
+  // Only the top of the stack reacts, and it always consumes the key either way.
+  const idRef = useRef<symbol>(null as unknown as symbol)
+  if (idRef.current == null) idRef.current = Symbol('modal')
+  useEffect(() => {
+    escStack.push(idRef.current)
+    return () => {
+      const i = escStack.indexOf(idRef.current)
+      if (i >= 0) escStack.splice(i, 1)
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (escStack[escStack.length - 1] !== idRef.current) return
+        e.stopPropagation()
+        if (dismissable) close?.()
+        return
+      }
+      if (e.key !== 'Tab') return
+      const el = card.current
+      if (!el) return
+      const items = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((n) => n.offsetParent !== null || n === document.activeElement)
+      if (!items.length) { e.preventDefault(); el.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      // Wrap at both ends, and pull focus back in if it escaped to the page behind.
+      if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus() }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [dismissable, close])
+
+  // Portalled to <body>, outside #root — otherwise marking the app inert above would
+  // take the dialog with it. React context still flows through a portal, so callers
+  // are unaffected, and the backdrop was already fixed-positioned.
+  return createPortal(
+    <div
+      className="modal-backdrop"
+      // mousedown, not click: a text selection that starts inside the card and releases on
+      // the backdrop fires a click on this element and used to close the dialog mid-drag.
+      onMouseDown={(e) => { if (e.target === e.currentTarget && dismissable) close?.() }}
+    >
+      <div
+        ref={card}
+        className={props.className}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={props.labelledBy}
+        aria-label={props.labelledBy ? undefined : props.label}
+        tabIndex={-1}
+      >
+        {props.children}
+      </div>
+    </div>,
+    document.body,
+  )
 }
 
 // ── Confirm / prompt dialog ──────────────────────────────────────────────────
@@ -63,16 +215,20 @@ type DialogOpts = {
   tone?: DialogTone
   icon?: IconName
   prompt?: { placeholder?: string; defaultValue?: string; multiline?: boolean }
-  // High-friction confirm: show the phrase in a CopyField and only arm the confirm
+  // High-friction confirm: show the phrase (not copyable) and only arm the confirm
   // button once the user types it back exactly (case/whitespace-insensitive).
   requirePhrase?: { phrase: string; placeholder?: string }
+  /** A third button between cancel and confirm; resolves the dialog with 'extra'. */
+  extraLabel?: string
 }
 
 let dialogShow: ((o: DialogOpts, resolve: (v: boolean | string | null) => void) => void) | null = null
 
-export function confirmDialog(opts: DialogOpts): Promise<boolean> {
+// Resolves true (confirmed), false (cancelled), or 'extra' when the optional third action
+// was taken — so a caller offering "Save and leave" can tell it apart from a plain confirm.
+export function confirmDialog(opts: DialogOpts): Promise<boolean | 'extra'> {
   return new Promise((resolve) => {
-    if (dialogShow) dialogShow(opts, (v) => resolve(v === true))
+    if (dialogShow) dialogShow(opts, (v) => resolve(v === 'extra' ? 'extra' : v === true))
     else resolve(false)
   })
 }
@@ -86,41 +242,15 @@ export function promptDialog(
   })
 }
 
-// CopyField — a value in an inset box with a trailing copy button that flips to a
-// green check on click (DESIGN.md). Used by the requirePhrase confirm friction.
-function CopyField({ value }: { value: string }) {
-  const [done, setDone] = useState(false)
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(value); setDone(true); setTimeout(() => setDone(false), 1400) }
-    catch { /* clipboard blocked — the phrase is still selectable */ }
-  }
-  return (
-    <span className="copy">
-      <span className="val">{value}</span>
-      <button type="button" className={'btn' + (done ? ' done' : '')} onClick={copy}
-        data-tip={done ? 'Copied' : 'Copy'} aria-label="Copy phrase">
-        {done ? <Icon.check size={15} weight="Bold" /> : <Icon.copy size={15} />}
-      </button>
-    </span>
-  )
-}
-
 function ConfirmHost() {
   const [state, setState] = useState<{ opts: DialogOpts; resolve: (v: boolean | string | null) => void } | null>(null)
   const [value, setValue] = useState('')
+  const titleId = React.useId()
 
   useEffect(() => {
     dialogShow = (opts, resolve) => { setValue(opts.prompt?.defaultValue ?? ''); setState({ opts, resolve }) }
     return () => { dialogShow = null }
   }, [])
-
-  useEffect(() => {
-    if (!state) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(state.opts.prompt ? null : false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state])
 
   if (!state) return null
   const { opts, resolve } = state
@@ -130,49 +260,63 @@ function ConfirmHost() {
   const onConfirm = () => { if (!phraseOK) return; close(opts.prompt ? value : true) }
   const onCancel = () => close(opts.prompt ? null : false)
   const toneClass = opts.tone === 'danger' ? 'danger' : opts.tone === 'warning' ? 'warning' : ''
+  // "warning" is destructive too — it is the tone the leave guard uses to ask about
+  // discarding edits. Anything that loses work gets the destructive footer.
+  const destructive = opts.tone === 'danger' || opts.tone === 'warning'
   const Glyph = Icon[opts.icon ?? (opts.tone === 'danger' ? 'warn' : opts.tone === 'warning' ? 'warn' : 'info')]
+  const inputLabel = phrase ? 'Type the confirmation phrase' : opts.prompt?.placeholder || opts.title
 
   return (
-    <div className="modal-backdrop" onClick={onCancel}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="confirm-head">
-          <div className={'confirm-icon ' + toneClass}><Glyph size={22} weight="Bold" /></div>
-          <div className="confirm-text">
-            <div className="confirm-title">{opts.title}</div>
-            {opts.message && <div className="confirm-msg">{opts.message}</div>}
-          </div>
-        </div>
-        {phrase && (
-          <>
-            <div className="confirm-phrase"><span>Type</span> <CopyField value={phrase} /> <span>to confirm.</span></div>
-            <div className="confirm-input">
-              <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false}
-                placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
-            </div>
-          </>
-        )}
-        {opts.prompt && (
-          <div className="confirm-input">
-            {opts.prompt.multiline ? (
-              <textarea autoFocus value={value} placeholder={opts.prompt.placeholder}
-                onChange={(e) => setValue(e.target.value)} />
-            ) : (
-              <input type="text" autoFocus value={value} placeholder={opts.prompt.placeholder}
-                onChange={(e) => setValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
-            )}
-          </div>
-        )}
-        <div className="confirm-foot">
-          <button className="ghost" onClick={onCancel}>{opts.cancelLabel ?? 'Cancel'}</button>
-          <button className={opts.tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
-            {opts.confirmLabel ?? 'Confirm'}
-          </button>
+    <Modal className="confirm-dialog" labelledBy={titleId} onClose={onCancel}>
+      <div className="confirm-head">
+        <div className={'confirm-icon ' + toneClass}><Glyph size={22} weight="Bold" aria-hidden /></div>
+        <div className="confirm-text">
+          <div className="confirm-title" id={titleId}>{opts.title}</div>
+          {opts.message && <div className="confirm-msg">{opts.message}</div>}
         </div>
       </div>
-    </div>
+      {phrase && (
+        <>
+          {/* Shown, deliberately not copyable. `requirePhrase` exists to make the operator's
+              own hand prove intent; a copy button reduced it to a two-click confirm, which
+              is friction theatre. Retyping it is the entire mechanism. */}
+          <div className="confirm-phrase"><span>Type</span> <code className="phrase">{phrase}</code> <span>to confirm.</span></div>
+          <div className="confirm-input">
+            <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false} aria-label={inputLabel}
+              placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+          </div>
+        </>
+      )}
+      {opts.prompt && (
+        <div className="confirm-input">
+          {opts.prompt.multiline ? (
+            <textarea autoFocus value={value} placeholder={opts.prompt.placeholder} aria-label={inputLabel}
+              onChange={(e) => setValue(e.target.value)} />
+          ) : (
+            <input type="text" autoFocus value={value} placeholder={opts.prompt.placeholder} aria-label={inputLabel}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+          )}
+        </div>
+      )}
+      {/* On a destructive dialog the SAFE choice is the primary, and the confirm is the
+          plainly-marked destructive one. The leave guard passes tone "warning" and used to
+          render "Discard" as the bright primary — the dialog that exists to protect unsaved
+          work was pointing at throwing it away. Only a neutral dialog gets a primary confirm. */}
+      <div className={'confirm-foot' + (destructive ? ' destructive' : '')}>
+        <button className={destructive ? 'primary' : 'ghost'} onClick={onCancel}>
+          {opts.cancelLabel ?? 'Cancel'}
+        </button>
+        {opts.extraLabel && (
+          <button onClick={() => close('extra')}>{opts.extraLabel}</button>
+        )}
+        <button className={destructive ? 'danger' : 'primary'} onClick={onConfirm} disabled={!phraseOK}>
+          {opts.confirmLabel ?? 'Confirm'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -191,7 +335,15 @@ function TooltipHost() {
       if (!t && el.hasAttribute('title')) {
         t = el.getAttribute('title')
         el.setAttribute('data-tip', t || '')
-        el.removeAttribute('title')   // suppress the native tooltip
+        // Stripping `title` suppresses the native tooltip — but on a control whose ONLY name
+        // was that title, it also deletes the accessible name, and this runs on focusin, so
+        // merely tabbing to the control silenced it. Carry the name over first. Only when the
+        // element has no name of its own: an <a title={url}>host</a> keeps its link text.
+        if (t && !el.getAttribute('aria-label') && !el.getAttribute('aria-labelledby')
+            && !(el.textContent || '').trim()) {
+          el.setAttribute('aria-label', t)
+        }
+        el.removeAttribute('title')
       }
       return t || null
     }
@@ -203,7 +355,16 @@ function TooltipHost() {
       current = el
       const r = el.getBoundingClientRect()
       const below = r.top < 52
-      setTip({ text, x: Math.round(r.left + r.width / 2), y: Math.round(below ? r.bottom + 8 : r.top - 8), below })
+      // getBoundingClientRect is in viewport px; `left`/`top` below are read back in the
+      // zoomed coordinate space, so divide the scale out or the tip lands scale-1 × its
+      // distance from the origin away from its target (104px at 1.1, near the right edge).
+      const k = uiScale()
+      setTip({
+        text,
+        x: Math.round((r.left + r.width / 2) / k),
+        y: Math.round((below ? r.bottom + 8 : r.top - 8) / k),
+        below,
+      })
     }
     const onOver = (e: Event) => {
       const el = (e.target as Element)?.closest?.('[data-tip],[title]')
@@ -234,10 +395,11 @@ function TooltipHost() {
     }
   }, [])
   if (!tip) return null
-  return (
+  return createPortal(
     <div className={'tooltip' + (tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
       {tip.text}
-    </div>
+    </div>,
+    document.body,
   )
 }
 
