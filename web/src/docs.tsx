@@ -417,9 +417,13 @@ token. You *do* need a separate token per bot.
 The **Settings** button in the sidebar footer, next to **Log out**, opens an app-wide settings popup.
 Unlike the tabs above it, nothing here is per-server.
 
-## Appearance
+## General
 **Size** scales the whole console — text, controls, charts and all — the way your browser's zoom does.
 Pick 100%, 110% or 125%. It's saved on this device, so everyone who signs in can set their own.
+
+Below it, a **keyboard reference**: <kbd>⌘K</kbd> opens the command palette, which jumps to any page,
+switches server, and runs the current page's actions; <kbd>⌘S</kbd> saves. On Windows and Linux,
+<kbd>Ctrl</kbd> stands in for <kbd>⌘</kbd>.
 
 ## Bot
 The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this

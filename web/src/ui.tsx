@@ -398,25 +398,33 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const base = React.useRef<string>('')
+  // `base` is a ref, and a ref mutation does not re-run a memo. `markSaved()` moved the
+  // baseline forward and `dirty` kept its stale `true`, so a page that had just saved
+  // successfully went on reporting "You have unsaved changes." and the leave guard fired on
+  // work that was already committed — training the operator to click Discard on the dialog
+  // that exists to protect real edits. This counter is what the memo can actually depend on.
+  const [baseVersion, setBaseVersion] = useState(0)
   const reload = React.useCallback(() => {
     setLoading(true)
     loader()
-      .then((d) => { base.current = JSON.stringify(d); setData(d); setLoading(false) })
+      .then((d) => { base.current = JSON.stringify(d); setBaseVersion((n) => n + 1); setData(d); setLoading(false) })
       .catch(() => setLoading(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   React.useEffect(() => { reload() }, [reload])
-  // Memoized on `data`: this used to re-serialize the whole page state on every render, so
-  // typing one character into a filter box re-stringified every channel, role or extension row.
+  // Memoized on `data` (and the baseline): this used to re-serialize the whole page state on
+  // every render, so typing one character into a filter box re-stringified every channel,
+  // role or extension row.
   const dirty = React.useMemo(
     () => data != null && JSON.stringify(data) !== base.current,
-    [data],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, baseVersion],
   )
   useDirtyGuard(() => dirty)
   return {
     data, setData, loading, reload, dirty,
     reset: () => { if (base.current) setData(JSON.parse(base.current)) },
-    markSaved: () => { if (data != null) base.current = JSON.stringify(data) },
+    markSaved: () => { if (data != null) { base.current = JSON.stringify(data); setBaseVersion((n) => n + 1) } },
     baseline: (): T | null => (base.current ? JSON.parse(base.current) : null),
   }
 }

@@ -1071,8 +1071,10 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
 const SOURCE_STATUS: Record<string, string> = {
   ready: 'Ready', ingesting: 'Ingesting', queued: 'Queued', error: 'Error',
 }
+// Abbreviated so the three memory chips are the same size and never wrap — "Preference"
+// rendered 60x40 beside 23px siblings and broke mid-word into "Prefere / nce".
 const MEMORY_KIND: Record<string, string> = {
-  fact: 'Fact', preference: 'Preference', event: 'Event',
+  fact: 'Fact', preference: 'Pref.', event: 'Event',
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
@@ -2971,13 +2973,18 @@ export function Usage() {
               <tbody>
                 {shownModels.map((m) => (
                   <tr key={m.model}>
+                    {/* The flex row lives in a div inside the cell — a table cell set to
+                        `display: flex` leaves the table layout, and every value in the row
+                        slid one column left of its header. */}
                     <th scope="row" className={'u-mname ' + clsFor[m.model]}>
-                      <span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span>
+                      <div className="cell"><span className="d" /><b>{uShort(m.model)}</b><span>{m.role}</span></div>
                     </th>
                     <td className={'u-rpm ' + clsFor[m.model]}>
-                      {m.peak_rpm_today}
-                      <span className="bar"><i className={m.peak_rpm_today / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.peak_rpm_today / Math.max(m.cap, 1)) * 100)}%` }} /></span>
-                      <span>{m.cap}</span>
+                      <div className="cell">
+                        {m.peak_rpm_today}
+                        <span className="bar"><i className={m.peak_rpm_today / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.peak_rpm_today / Math.max(m.cap, 1)) * 100)}%` }} /></span>
+                        <span>{m.cap}</span>
+                      </div>
                     </td>
                     <td className="u-num">{uReq(m.requests_today)}</td>
                     <td className="u-num">{uTok(m.tokens)}</td>

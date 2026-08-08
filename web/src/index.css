@@ -366,7 +366,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    grid itself still has to carry the card rhythm, or the next card butts straight against
    the columns above with no gap at all. */
 .cols2, .grid2 { margin-bottom: 14px; }
-@media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1120px) { .cols2, .grid2 { grid-template-columns: minmax(0, 1fr); } }
 /* A page head with trailing actions, and any free-standing row of buttons. Both wrap —
    a nowrap button row is the single most common way content ends up outside the viewport
    with nothing able to scroll to it. */
@@ -405,7 +405,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 /* ── Narrow widths: the rail becomes a drawer ───────────────────────────── */
 /* Placed after every base rule it overrides — .main, .card, .page-head and .nav-item
    are all defined above, and an equal-specificity rule declared later would win. */
-@media (max-width: 860px) {
+@media (max-width: 1000px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .topbar {
     position: sticky; top: 0; z-index: 90;
@@ -637,10 +637,13 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2);
+  /* A pill that wraps is a broken pill: "Preference" rendered 60x40 beside 23px siblings,
+     split mid-word as "Prefere / nce". */
+  white-space: nowrap;
 }
 .badge.ready, .badge.success, .badge.done { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
 .badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
-.badge.pending, .badge.crawling, .badge.chunking, .badge.missing, .badge.event { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
+.badge.pending, .badge.crawling, .badge.chunking, .badge.missing { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 .badge.preference { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
 /* Marketplace publisher chip — the violet accent, regardless of the active theme accent. */
@@ -651,8 +654,8 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 
 .member-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 620px) { .member-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1180px) { .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .member-grid { grid-template-columns: minmax(0, 1fr); } }
 .member-card {
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
@@ -694,6 +697,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .member-none { color: var(--text-3); font-size: 12px; font-style: italic; margin-top: 9px; }
 .member-memories { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; }
 .member-card .mem { font-size: 11.5px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; }
+/* One width for the three memory kinds, so the content beside them starts at the same x
+   down the card instead of stepping in and out with the label length. */
+.member-card .mem > .badge { flex: none; min-width: 52px; justify-content: center; }
 .member-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; }
 .member-actions .err.sm { font-size: 11px; }
 .member-meta { color: var(--text-3); font-size: 11px; margin-top: 7px; }
@@ -779,7 +785,7 @@ kbd {
   color: var(--text-3); font-size: 12.5px; font-weight: 400;
 }
 .cmdk-hint:hover { background: var(--bg-inset); color: var(--text-2); border-color: var(--border-strong); }
-.cmdk-hint kbd { margin-left: auto; font-size: 10.5px; padding: 0 5px; }
+.cmdk-hint kbd { margin-left: auto; font-size: 11px; padding: 0 5px; }
 
 /* ── Command palette (⌘K) ───────────────────────────────────────────────── */
 /* Sits high rather than centred: the list grows downward, and a centred sheet would walk
@@ -1036,10 +1042,16 @@ kbd {
 
 /* Bot switcher (Settings ▸ Bot): one row per bot, the active one highlighted. */
 .bot-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+/* One grid, so every row's badges and actions line up in the same columns instead of each
+   row packing its own flex differently. The badge track is reserved whether or not a row
+   has badges — that is what was making the spacing look inconsistent from row to row. */
 .bot-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; column-gap: 12px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-inset);
 }
+.bot-row + .bot-row { margin-top: 8px; }
+.bot-row .bot-badges { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 .bot-row.on { border-color: var(--border-strong); }
 .bot-row .bot-ic { display: inline-flex; color: var(--text-2); }
 .bot-row.on .bot-ic { color: var(--accent); }
@@ -1047,6 +1059,14 @@ kbd {
 .bot-row .bot-sub { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
 .bot-row .grow { flex: 1; }
 .bot-row .bot-actions { display: flex; align-items: center; gap: 6px; }
+/* A disabled control still has to be readable — it is saying "not available here", which
+   is information. The default .55 opacity on a ghost icon over an inset well is not. */
+.bot-row .bot-actions button:disabled { opacity: 0.4; }
+.bot-row .bot-actions .icon-btn:disabled { opacity: 0.35; }
+@media (max-width: 640px) {
+  .bot-row { grid-template-columns: auto minmax(0, 1fr); row-gap: 10px; }
+  .bot-row .bot-badges, .bot-row .bot-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+}
 
 /* Collapsible "add this key to the VM" fallback on the reconnect/connect screens. */
 .setup .disclosure { margin-bottom: 16px; }
@@ -1894,6 +1914,14 @@ kbd {
 /* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
    about the thing the operator just did there — landed on top of it. Sit above it instead. */
 body:has(.testchat-fab) .toast-stack { bottom: 76px; }
+/* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
+   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
+   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
+   aside while it is up. */
+body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
+@media (max-width: 720px) {
+  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+}
 .toast {
   display: flex; align-items: center; gap: 12px; min-width: 280px; max-width: 420px;
   padding: 13px 15px; border-radius: var(--radius); pointer-events: auto;
@@ -2000,7 +2028,7 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .u-mins { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
 .u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
-@media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1120px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
 .u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
 /* `.card h2` (0,1,1) beat this (0,1,0), so the four Usage stat eyebrows silently rendered
    at 13.5px/600 — and inherited `letter-spacing: -0.014em` from the heading base, which is
@@ -2070,18 +2098,33 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
    card. Drop the meter column and let the name take the room; the numbers still line up.
    Placed after every rule it overrides — the previous version of this block sat above them
    and lost on equal specificity, so three of its four rules never applied. */
-@media (max-width: 560px) {
+/* The rpm meter is the first thing to go — it needs real width to mean anything, and the
+   two numeric columns beside it are the ones an operator is actually reading. Dropping it at
+   560 was too late: with the rail gone the card is much narrower than the viewport, so the
+   model name was ellipsising to nothing well before that. */
+@media (max-width: 820px) {
   .u-mtable { table-layout: auto; }
   .u-mtable th:first-child { width: auto; }
   .u-mtable thead th:nth-child(2), .u-mtable tbody td:nth-child(2) { display: none; }
+  .u-mtable th:nth-child(3), .u-mtable td:nth-child(3),
+  .u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: auto; }
+  .u-mname b { font-size: 11px; }
+}
+@media (max-width: 560px) {
   .u-kpis { grid-template-columns: minmax(0, 1fr); }
   .u-big { font-size: 22px; }
 }
-.u-mname { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* NOT `display: flex` — that removes a table cell from the table layout algorithm and every
+   value in the row shifts one column left, so the meter sat under "Model", the request count
+   under "Peak rpm vs cap", and the "Tokens" header labelled an empty column. The flex box
+   goes inside the cell. */
+.u-mname > .cell, .u-rpm > .cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.u-mname { min-width: 0; }
 .u-mname .d { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .u-mname b { font-weight: 500; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .u-mname span { color: var(--text-3); font-size: 11.5px; flex: none; }
-.u-rpm { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.u-rpm { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.u-rpm > .cell { gap: 8px; }
 .u-rpm .bar { display: block; flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
 .u-rpm .bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
 .u-rpm .bar i.warn { background: var(--warn); }

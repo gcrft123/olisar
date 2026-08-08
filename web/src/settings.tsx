@@ -8,9 +8,9 @@ import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+type SectionId = 'general' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
 const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
-  { id: 'appearance', label: 'Appearance', ic: 'palette' },
+  { id: 'general', label: 'General', ic: 'settings' },
   { id: 'bot', label: 'Bot', ic: 'bolt' },
   { id: 'logs', label: 'Logs', ic: 'docs' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
@@ -26,7 +26,7 @@ export function SettingsModal(
   { onClose: () => void; sections?: SectionId[] },
 ) {
   const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
-  const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'appearance')
+  const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'general')
 
   return (
     <Modal className="settings-modal" label="Settings" onClose={onClose}>
@@ -49,7 +49,7 @@ export function SettingsModal(
           <button className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
           </button>
-          {section === 'appearance' && <Appearance />}
+          {section === 'general' && <General />}
           {section === 'bot' && <Bot />}
           {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
@@ -325,48 +325,43 @@ function BotSwitcher() {
                   {p.name}
                   {!p.created && <span className="bot-sub">not set up yet</span>}
                 </div>
-                <span className="grow" />
-                <div className="bot-actions">
+                <div className="bot-badges">
                   {isDefault && <span className="badge">Default</span>}
                   {isActive && <span className="badge success">Active</span>}
-                  {!isActive && <button disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
-                  {/* Fixed slots, so a given position means the same thing on every row.
-                      Before this, slot 1 was "Rename" on the active bot and "Set as default"
-                      on the others, and all four actions were identical grey squares — two
-                      of them irreversible. Position is muscle memory; muscle memory that
-                      moves between rows is a trap. Benign actions first, then a divider,
-                      then the destructive ones in red. */}
-                  <span className="row-slot">
-                    {!isDefault && (
-                      <button className="ghost icon-btn sm" data-tip="Set as default" aria-label={`Make ${p.name} the launch default`} disabled={busy} onClick={() => makeDefault(p)}>
-                        <Icon.star size={14} />
-                      </button>
-                    )}
-                  </span>
+                </div>
+                <div className="bot-actions">
+                  {/* Disabled, not hidden. Every row shows the same five controls in the
+                      same order, so a position always means the same action and the row
+                      never reflows as state changes — the reserved-but-empty slots this
+                      replaced kept the columns but left the operator guessing why an
+                      action was missing. A disabled control says "not available here";
+                      an absent one says nothing. */}
+                  <button disabled={busy || isActive} onClick={() => switchTo(p)}
+                    title={isActive ? 'Already the active bot' : undefined}>
+                    Switch
+                  </button>
+                  <button className="ghost icon-btn sm" data-tip={isDefault ? 'Already the launch default' : 'Set as default'}
+                    aria-label={isDefault ? `${p.name} is already the launch default` : `Make ${p.name} the launch default`}
+                    disabled={busy || isDefault} onClick={() => makeDefault(p)}>
+                    <Icon.star size={14} weight={isDefault ? 'Bold' : 'Linear'} />
+                  </button>
                   <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
-                  <span className="row-slot">
-                    {isActive && (
-                      <button className="ghost icon-btn sm" data-tip="Move / change hosting" aria-label={`Move ${p.name} or change its hosting`} disabled={busy} onClick={() => setMoving(p)}>
-                        <Icon.remote size={14} />
-                      </button>
-                    )}
-                  </span>
+                  <button className="ghost icon-btn sm" data-tip={isActive ? 'Move / change hosting' : 'Only the active bot can be moved'}
+                    aria-label={`Move ${p.name} or change its hosting`}
+                    disabled={busy || !isActive} onClick={() => setMoving(p)}>
+                    <Icon.remote size={14} />
+                  </button>
                   <span className="row-divider" aria-hidden="true" />
-                  {/* Two irreversible actions of different scope, both red, both wordless,
-                      6px apart, is a misclick waiting to happen. "Delete" carries its word;
-                      the icon-only one beside it is the reversible-ish reset. */}
                   <button className="danger icon-btn sm" data-tip="Reset configuration" aria-label={`Reset ${p.name}'s configuration`} disabled={busy} onClick={() => reset(p)}>
                     <Icon.eraser size={14} />
                   </button>
-                  <span className="row-slot wide">
-                    {!isActive && (
-                      <button className="danger" aria-label={`Delete ${p.name}`} disabled={busy} onClick={() => del(p)}>
-                        <Icon.trash size={14} /> Delete
-                      </button>
-                    )}
-                  </span>
+                  <button className="danger" aria-label={`Delete ${p.name}`}
+                    title={isActive ? 'Switch to another bot before deleting this one' : undefined}
+                    disabled={busy || isActive} onClick={() => del(p)}>
+                    <Icon.trash size={14} /> Delete
+                  </button>
                 </div>
               </div>
             )
@@ -500,11 +495,11 @@ function Bot() {
   return <BotSwitcher />
 }
 
-// ── Appearance ──────────────────────────────────────────────────────────────
-function Appearance() {
+// ── General ────────────────────────────────────────────────────────────────
+function General() {
   return (
     <>
-      <Head title="Appearance" sub="Saved on this device, so everyone who signs in sets their own." />
+      <Head title="General" sub="Saved on this device, so everyone who signs in sets their own." />
       <div className="settings-subhead">Size</div>
       <div className="settings-row">
         <SizeChoice />

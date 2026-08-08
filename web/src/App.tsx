@@ -122,6 +122,10 @@ export default function App() {
     const wide = window.matchMedia('(min-width: 861px)')
     const onWide = () => { if (wide.matches) setNavOpen(false) }
     const main = document.getElementById('console-main')
+    // Where focus came from, so closing puts it back. Without this, Escape left focus on a
+    // control inside a drawer that is now visibility:hidden and translated off-canvas, and
+    // the next Tab resumed from an element nobody can see.
+    const openedFrom = document.activeElement as HTMLElement | null
     if (main) main.inert = true
     const prevOverflow = document.documentElement.style.overflow
     document.documentElement.style.overflow = 'hidden'
@@ -133,6 +137,10 @@ export default function App() {
       document.documentElement.style.overflow = prevOverflow
       window.removeEventListener('keydown', onKey)
       wide.removeEventListener('change', onWide)
+      const back = openedFrom?.isConnected
+        ? openedFrom
+        : document.querySelector<HTMLElement>('[aria-label="Open navigation"]')
+      back?.focus()
     }
   }, [navOpen])
 
@@ -499,7 +507,7 @@ function Login() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
+          sections={['general', 'bot', 'updates', 'desktop', 'feedback']}
           onClose={() => setSettingsOpen(false)}
         />
       )}
