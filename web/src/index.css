@@ -619,11 +619,14 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 
 /* ── Badges & lists ─────────────────────────────────────────────────────── */
+/* No `text-transform: capitalize` here. It manufactured Title Case for every multi-word
+   badge — "Set In Dashboard", "Not Set", "Built-In" — against DESIGN.md's sentence-case
+   rule, from CSS, where no amount of copy review could see it. Badge text is written in
+   the case it should render. */
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2);
-  text-transform: capitalize;
 }
 .badge.ready, .badge.success, .badge.done { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
 .badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
@@ -661,7 +664,11 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .member-roles .tag.more { color: var(--text-3); cursor: default; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
-.rolepop-wrap { position: relative; outline: none; }
+/* The trigger is a button now, so it inherits the system's focus ring. `outline: none`
+   without a replacement is why this was the one focusable control in the console that
+   showed nothing at all when focused. */
+.rolepop-wrap { position: relative; font: inherit; cursor: pointer; }
+.rolepop-wrap:focus-visible { outline: none; box-shadow: var(--ring); }
 /* `left: 0` on a card near the right edge ran the 300px popup off the viewport. Anchor it
    to whichever side has room — .rolepop.right flips it to the trigger's right edge. */
 .rolepop { position: absolute; left: 0; z-index: 30;
@@ -1830,7 +1837,14 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
 .u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
-.u-eyebrow { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
+/* `.card h2` (0,1,1) beat this (0,1,0), so the four Usage stat eyebrows silently rendered
+   at 13.5px/600 — and inherited `letter-spacing: -0.014em` from the heading base, which is
+   negative tracking on uppercase monospace, the worst possible setting for all-caps. Raised
+   to match the element it lands on, and the tracking stated rather than inherited. */
+.card h2.u-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 2px;
+}
 .u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
 .u-big s { color: var(--text-3); text-decoration: none; font-size: 15px; }
 .u-delta { font-size: 11.5px; color: var(--text-2); margin-top: 8px; }
