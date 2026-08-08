@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
-import { toast } from './overlays'
+import { Modal, confirmDialog, toast } from './overlays'
 import { Icon, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
@@ -8,7 +8,10 @@ import {
 import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { SettingsModal } from './settings'
+import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
+import { PageBoundary, currentPageActions, hasUnsavedChanges, usePoll } from './ui'
+import { DOCS } from './docs'
+import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -23,9 +26,78 @@ const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'usage', label: 'Usage', ic: 'usage' },
 ]
 
+// Every id the router may resolve. Developer is included even when the tab is hidden:
+// a non-developer landing on #/developer should be redirected, not shown a blank page.
+// Ids the router will resolve. `developer` is deliberately absent: it isn't a tab for most
+// operators, so a typed `#/developer` falls back to the current page and rewrites the URL
+// rather than rendering operator tooling to someone the rail hides it from.
+const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs'])
+
+// The settings each page owns, so "quiet hours" or "context window" reaches Behavior
+// rather than whichever documentation paragraph happens to mention it.
+const PAGE_KEYWORDS: Record<string, string> = {
+  persona: 'name system prompt style notes about me bio character tone test chat',
+  behavior: 'triggers dms mentions ping everyone here model web search context window summary threshold glossary mine persona rebuild proactivity eagerness confidence cooldown quiet hours reactions presence voice',
+  messages: 'command replies ping watch unwatch status learn url site doc forget me dm indexing proactive privacy rate limited blank access denied placeholders',
+  channels: 'mode memory respond both resource feed off indexing search index category forum',
+  access: 'roles allowed blocked open restrict lock out permissions',
+  knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',
+  members: 'profiles impressions remembered facts roles avatars',
+  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator',
+  keys: 'gemini cloudflare uex api key token secret credentials',
+  usage: 'quota rate limits requests tokens rpm tpm by model by process free tier',
+  docs: 'documentation help guide reference',
+}
+
 type Guild = { id: string; name: string; icon: string }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
+
+// The console lives at one URL, so Back left the app entirely, a refresh always landed on
+// Persona, and no view could be linked to or bookmarked. The tab is in the hash: cheap
+// (no server routing needed for a file-served SPA), survives a reload, and gives the
+// browser's own Back/Forward something real to move through.
+function useTabRouting(
+  tab: string,
+  setTab: (id: string) => void,
+  guard: (what: string) => Promise<boolean>,
+  isTab: (id: string) => boolean,
+) {
+  // An unknown id renders nothing — `pages[id]` is simply undefined, so no boundary catches
+  // it and the operator gets a blank console with no active nav item. Treat anything that
+  // isn't a real tab as "no route" and rewrite the URL to match what's on screen.
+  const hashTab = () => {
+    const raw = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
+    return isTab(raw) ? raw : ''
+  }
+  // Adopt the hash on first paint, so a bookmarked or shared link opens its page.
+  useEffect(() => {
+    const initial = hashTab()
+    if (initial && initial !== tab) setTab(initial)
+    else if (!initial) history.replaceState(null, '', '#/' + tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Publish tab changes without adding history noise for the initial adopt.
+  useEffect(() => {
+    if (hashTab() !== tab) history.pushState(null, '', '#/' + tab)
+  }, [tab])
+  // Back/Forward runs through the same unsaved-work guard as a nav click; if the operator
+  // keeps editing, put the hash back so the URL never disagrees with the screen.
+  useEffect(() => {
+    const onPop = async () => {
+      const next = hashTab()
+      // An unrecognised hash resolves to '' — keep the screen where it is and rewrite the
+      // URL, so a stale bookmark or a stray anchor never leaves the address bar describing
+      // a page that isn't showing.
+      if (!next) { history.replaceState(null, '', '#/' + tab); return }
+      if (next === tab) return
+      if (await guard('this page')) setTab(next)
+      else history.pushState(null, '', '#/' + tab)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [tab, setTab, guard])
+}
 
 export default function App() {
   const [setup, setSetup] = useState<'checking' | 'needed' | 'done'>('checking')
@@ -37,13 +109,67 @@ export default function App() {
   const [guild, setGuildState] = useState<string | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   const [isDev, setIsDev] = useState(false)
   const [standing, setStanding] = useState<{ status: string; message?: string; acknowledged?: boolean } | null>(null)
   const [warnDismissed, setWarnDismissed] = useState(false)
+  // Below 860px the rail is a drawer rather than a column (see index.css).
+  const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
   useEffect(() => { setOnUnauthorized(() => setAuth('out')) }, [])
+
+  // Closing the window is the third way to lose a draft, and the only one the browser
+  // owns. The prompt text is the browser's, not ours — returnValue just has to be set.
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onLeave)
+    return () => window.removeEventListener('beforeunload', onLeave)
+  }, [])
+
+  // The drawer covers the page but wasn't modal: the content behind stayed focusable and
+  // the body still scrolled, so tabbing out of the drawer landed on controls the operator
+  // couldn't see. The Settings modal gets this right through the Modal shell; the drawer
+  // is hand-rolled, so it has to do the same work itself.
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    const wide = window.matchMedia('(min-width: 861px)')
+    const onWide = () => { if (wide.matches) setNavOpen(false) }
+    const main = document.getElementById('console-main')
+    // The topbar sits outside <main>, so inerting only the content left the hamburger
+    // tabbable behind the open drawer — Tab walked out of the drawer onto a control it
+    // covers. Everything that isn't the drawer goes inert.
+    const topbar = document.querySelector<HTMLElement>('.topbar')
+    // Where focus came from, so closing puts it back. Without this, Escape left focus on a
+    // control inside a drawer that is now visibility:hidden and translated off-canvas, and
+    // the next Tab resumed from an element nobody can see.
+    const openedFrom = document.activeElement as HTMLElement | null
+    if (main) main.inert = true
+    if (topbar) topbar.inert = true
+    const prevOverflow = document.documentElement.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.getElementById('console-nav')?.querySelector<HTMLElement>('button, [role="button"]')?.focus()
+    window.addEventListener('keydown', onKey)
+    wide.addEventListener('change', onWide)
+    return () => {
+      if (main) main.inert = false
+      if (topbar) topbar.inert = false
+      document.documentElement.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+      wide.removeEventListener('change', onWide)
+      const back = openedFrom?.isConnected
+        ? openedFrom
+        : document.querySelector<HTMLElement>('[aria-label="Open navigation"]')
+      back?.focus()
+    }
+  }, [navOpen])
 
   // Landing back from the marketplace Discord-verification round-trip.
   useEffect(() => {
@@ -77,15 +203,62 @@ export default function App() {
   // web link. Polled lightly since the operator can toggle it from the menu-bar tray.
   useEffect(() => {
     if (auth !== 'in') return
-    let alive = true
-    const pull = () => api.tunnelStatus().then((t: TunnelInfo) => { if (alive) setTunnel(t) }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 20000)
     // Refresh immediately when the funnel is toggled from Settings, so the sidebar
     // card flips on/off right away instead of waiting for the next poll.
+    const pull = () => api.tunnelStatus().then(setTunnel).catch(() => {})
     window.addEventListener('olisar:tunnel-changed', pull)
-    return () => { alive = false; clearInterval(id); window.removeEventListener('olisar:tunnel-changed', pull) }
+    return () => window.removeEventListener('olisar:tunnel-changed', pull)
   }, [auth])
+  usePoll(() => { api.tunnelStatus().then(setTunnel).catch(() => {}) }, 20000, auth === 'in')
+
+  usePaletteHotkey(React.useCallback(() => setPaletteOpen(true), []))
+
+  // ⌘S / Ctrl-S. Every page is built around Save and it was mouse-only; the browser's own
+  // "save page" is meaningless inside an app whose whole contract is an explicit save.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 's' || !(e.metaKey || e.ctrlKey)) return
+      // Always consume it. Settings advertises ⌘S as a console shortcut, and returning
+      // early on a page with nothing to save handed the key to the browser's Save-Page-As
+      // dialog — the one outcome an operator pressing it here never wants.
+      e.preventDefault()
+      const save = currentPageActions().find((a) => a.id === 'save')
+      if (save) save.run()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
+
+  // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
+  // only on the renders that get past the loading gates is a different hook count than the
+  // render before it — which React treats as fatal rather than degraded.
+  const leaveGuard = async (what: string) => {
+    if (!hasUnsavedChanges()) return true
+    // "Discard or stay" is a false choice: the operator's actual intent, almost always, is
+    // to keep the work AND go. The page already publishes its save action, so offer it.
+    const save = currentPageActions().find((a) => a.id === 'save')
+    const r = await confirmDialog({
+      title: 'You have unsaved changes',
+      message: <>Leaving {what} discards them.</>,
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      extraLabel: save ? 'Save and leave' : undefined,
+      tone: 'warning',
+    })
+    if (r === 'extra' && save) {
+      // Awaited: the operator picked the option that protects their work, and if the PUT
+      // fails the dock that would show the error unmounts with the page. On failure, stay
+      // put with the draft and the message intact.
+      const ok = await save.run()
+      if (ok === false) return false
+      toast('Saved', 'success')
+      return true
+    }
+    return r === true
+  }
+  useTabRouting(tab, setTab, leaveGuard, isTab)
 
   // Is this operator a whitelisted platform developer? Gates the Developer tab.
   useEffect(() => {
@@ -95,14 +268,7 @@ export default function App() {
 
   // Poll the operator's own moderation standing — a ban locks the console, a warning shows
   // once. Checked continuously (not just at login), so it takes effect within ~a poll.
-  useEffect(() => {
-    if (auth !== 'in') return
-    let alive = true
-    const pull = () => api.devStanding().then((s) => { if (alive) setStanding(s) }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 20000)
-    return () => { alive = false; clearInterval(id) }
-  }, [auth])
+  usePoll(() => { api.devStanding().then(setStanding).catch(() => {}) }, 20000, auth === 'in')
 
   useEffect(() => {
     if (auth !== 'in') return
@@ -122,7 +288,7 @@ export default function App() {
   // Bounced here by the OAuth callback because the Discord account isn't an admin of
   // any server Olisar is in. Takes precedence over the normal auth flow.
   if (new URLSearchParams(window.location.search).has('denied')) return <AccessDenied />
-  if (setup === 'checking') return <div className="loading">Loading…</div>
+  if (setup === 'checking') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
   if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} initialConnectMode={setupInfo.hosting_mode === 'server'} onDone={async () => {
     // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
     // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
@@ -134,17 +300,24 @@ export default function App() {
   // Server hosting: the bot lives on the operator's VM. This local install is the loopback
   // control panel (start/stop over SSH) — no Discord login, no local console.
   if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />
-  if (auth === 'loading') return <div className="loading">Loading…</div>
+  if (auth === 'loading') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
   if (auth === 'out') return <Login />
-  if (guilds === null) return <div className="loading">Loading your servers…</div>
+  if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
   if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
-  const changeGuild = (id: string) => {
+  // Both `tab` and `guild` key a remount below, which throws away whatever the page was
+  // holding. Ask first. Gated here rather than on the nav item because Docs reaches
+  // setTab directly through its `tab:` deep links and would otherwise slip past.
+  const goTab = async (id: string) => { if (id !== tab && await leaveGuard('this page')) setTab(id) }
+  const changeGuild = async (id: string) => {
+    if (id === guild || !(await leaveGuard('this server'))) return
     apiSetGuild(id)
     localStorage.setItem(GUILD_KEY, id)
     setGuildState(id)
   }
   const current = guilds.find((g) => g.id === guild) ?? guilds[0]
+
+
 
   // Authoring extension code is operator-only; the merged Extensions tab shows the
   // editor drill-in only to operators (everyone else just sees the toggles).
@@ -156,20 +329,61 @@ export default function App() {
     messages: <Messages />,
     channels: <Channels />,
     access: <Access />,
-    knowledge: <Knowledge />,
+    knowledge: <Knowledge serverName={current.name} />,
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
     keys: <ApiKeys />,
     usage: <Usage />,
-    docs: <Docs onNavigate={setTab} />,
-    developer: <Developer />,
+    docs: <Docs onNavigate={goTab} />,
+    // Gated here, not only in the rail: the rail hides the item for non-developers, but the
+    // route is reachable by typing the hash. The page is operator-tooling, so it renders the
+    // ordinary not-found path instead.
+    ...(isDev ? { developer: <Developer /> } : {}),
   }
   // The Developer tab only appears for whitelisted platform developers; Docs always sits
   // last in the rail, below Developer.
-  const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName }
+  // Everything above the rule configures this server; Developer and Docs don't. A hairline
+  // rather than named groups — eleven items don't need taxonomy, but the two items that
+  // aren't configuration shouldn't sit in the same run as the nine that are.
+  const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName, rule: true }
   const nav = isDev
-    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName }, docsNav]
+    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
     : [...NAV, docsNav]
+
+  // Everything the rail can reach, plus the server switcher, plus whatever the page in
+  // front of the operator is currently offering. A palette that can only do what the
+  // always-visible rail does is a slower way to click something you can already see.
+  const commands: Command[] = [
+    ...currentPageActions().map((a) => ({
+      id: 'action:' + a.id, label: a.label, group: 'This page', ic: 'bolt' as IconName,
+      keywords: 'action save', run: a.run,
+    })),
+    ...nav.map((n) => ({
+      id: 'tab:' + n.id, label: n.label, group: 'Page', ic: n.ic,
+      // What the page actually contains, so a setting's own name finds its page.
+      keywords: n.id + ' ' + (PAGE_KEYWORDS[n.id] ?? ''),
+      run: () => { void goTab(n.id) },
+    })),
+    ...guilds.map((g) => ({
+      id: 'guild:' + g.id, label: g.name, group: 'Server', ic: 'members' as IconName,
+      keywords: 'switch server guild', run: () => { void changeGuild(g.id) },
+    })),
+    // Every settings pane and every documentation section, not just the eleven things the
+    // rail already shows. An operator who types "quiet hours" should land somewhere, and
+    // "Search" is a promise the palette has to keep.
+    ...SETTINGS_SECTIONS.map((sec) => ({
+      id: 'settings:' + sec.id, label: sec.label, group: 'Settings', ic: sec.ic,
+      keywords: 'settings preferences ' + sec.id,
+      run: () => { setSettingsPane(sec.id); setSettingsOpen(true) },
+    })),
+    ...DOCS.map((d) => ({
+      id: 'doc:' + d.id, label: d.title, group: 'Docs', ic: 'docs' as IconName,
+      // The body is searchable but never displayed, so typing a phrase from a page finds it.
+      keywords: d.id,
+      body: d.body,
+      run: () => { void goTab('docs'); window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: d.id })) },
+    })),
+  ]
 
   // A banned account is locked out of the console entirely (re-checked every poll).
   if (standing?.status === 'banned') {
@@ -178,7 +392,34 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {/* ~16 controls sit between the top of the page and the content on every tab. */}
+      {/* Moves focus rather than navigating: the router reads the hash as a tab id, so
+          `href="#console-main"` left the URL at a tab that doesn't exist — a blank console
+          with no active nav item and no route back. `<main>` takes tabindex="-1" below so
+          the focus actually lands (Firefox and Safari won't focus a bare container). */}
+      <a
+        className="skip-link"
+        href="#console-main"
+        onClick={(e) => {
+          e.preventDefault()
+          const m = document.getElementById('console-main')
+          m?.focus()
+          m?.scrollIntoView({ block: 'start' })
+        }}
+      >
+        Skip to content
+      </a>
+      {/* Narrow widths only — CSS hides it once the rail is back in the flow. */}
+      <header className="topbar">
+        <button className="ghost icon-btn sm" aria-label="Open navigation" aria-expanded={navOpen}
+          aria-controls="console-nav" onClick={() => setNavOpen(true)}>
+          <Icon.menu size={18} />
+        </button>
+        <img className="brand-logo" src="/logo.png" alt="" />
+        <span className="name">Olisar</span>
+      </header>
+      <div className={'nav-backdrop' + (navOpen ? ' open' : '')} onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <aside id="console-nav" className={'sidebar' + (navOpen ? ' open' : '')}>
         <div className="brand">
           <img className="brand-logo" src="/logo.png" alt="Olisar" />
           <div>
@@ -189,25 +430,47 @@ export default function App() {
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
-        {nav.map((n) => {
+        {/* An accelerator nobody can discover isn't one. This is the only thing in the
+            console that advertises the palette; it's also a real button, so the feature is
+            reachable without knowing the chord at all. */}
+        <button className="cmdk-hint" onClick={() => setPaletteOpen(true)}>
+          <Icon.search size={14} />
+          <span>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
+
+        <nav aria-label="Console sections">
+        {nav.map((n, i) => {
           const Glyph = Icon[n.ic]
           const active = tab === n.id
+          const firstAfterRule = (n as any).rule && !(nav[i - 1] as any)?.rule
           return (
-            <div
-              key={n.id}
+            <React.Fragment key={n.id}>
+            {firstAfterRule && <div className="nav-rule" role="separator" />}
+            {/* A real anchor now that the tab lives in the hash: middle-click and
+                open-in-new-tab work, the status bar shows where the row goes, and a screen
+                reader hears a link in a nav rather than a button. The click is still
+                intercepted so the unsaved-work guard runs — but a modified click (new tab,
+                new window) is left to the browser, because it isn't leaving this page. */}
+            <a
               className={'nav-item' + (active ? ' active' : '')}
-              role="button"
-              tabIndex={0}
+              href={'#/' + n.id}
               data-tab={n.id}
               aria-current={active ? 'page' : undefined}
-              onClick={() => setTab(n.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id) } }}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return
+                e.preventDefault()
+                void goTab(n.id)
+                setNavOpen(false)
+              }}
             >
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}
-            </div>
+            </a>
+            </React.Fragment>
           )
         })}
+        </nav>
         <div className="spacer" />
         <div className="sidebar-foot">
           <BotPower />
@@ -229,7 +492,8 @@ export default function App() {
           </div>
         </div>
       </aside>
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsModal initialSection={settingsPane} onClose={() => { setSettingsOpen(false); setSettingsPane(undefined) }} />}
+      <CommandPalette commands={commands} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {standing?.status === 'warned' && !standing.acknowledged && !warnDismissed && (
         <WarnModal
           message={standing.message}
@@ -237,7 +501,10 @@ export default function App() {
         />
       )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} id="console-main" tabIndex={-1} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
+        {/* Keyed by tab too, so moving to another page clears a failed one. */}
+        <PageBoundary key={tab}>{pages[tab]}</PageBoundary>
+      </main>
     </div>
   )
 }
@@ -309,8 +576,7 @@ function Login() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
-          botSwitcherOnly
+          sections={['general', 'bot', 'updates', 'desktop', 'feedback']}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -382,10 +648,10 @@ function Banned(props: { message?: string; onLogout: () => void }) {
 
 // A one-time warning notice (acknowledged on close, so it doesn't reappear).
 function WarnModal(props: { message?: string; onClose: () => void }) {
+  const titleId = useId()
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="import-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-head"><h2>A note from the Olisar team</h2></div>
+    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose}>
+        <div className="settings-head"><h2 id={titleId}>A note from the Olisar team</h2></div>
         <div className="callout warning" style={{ marginTop: 4 }}>
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
@@ -393,8 +659,7 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
           </div>
         </div>
         <div className="import-foot"><button className="primary" onClick={props.onClose}>I understand</button></div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -460,17 +725,41 @@ function BotPower() {
   // before the early return below, or the hook order changes when the card appears.)
   const didPowerDown = useRef(false)
 
-  const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
-  useEffect(() => {
-    let alive = true
-    const tick = () => api.botStatus().then((s: BotState) => { if (alive) setSt(s) }).catch(() => {})
-    tick()
-    const id = setInterval(tick, 5000)
-    return () => { alive = false; clearInterval(id) }
-  }, [])
+  const [cooling, setCooling] = useState(false)
+  // No `.catch` here: usePoll counts consecutive rejections, and swallowing them was why
+  // a dead backend could never be distinguished from a quiet one.
+  const pull = () => api.botStatus().then((s: BotState) => setSt(s))
+  // 5s is the right cadence while the operator is watching a power cycle land, but this ran
+  // forever, on every tab, backgrounded or not — 12 requests a minute for a status dot.
+  const poll = usePoll(pull, 5000)
+  // "Online" isn't the whole truth: a bot that has exhausted a model's free-tier quota is
+  // connected and silent. The rate limiter already reports that per model, so surface it
+  // here rather than only on the Usage page, which is tab ten.
+  usePoll(() => {
+    api.getUsageLive()
+      .then((d: any) => setCooling(((d?.models) || []).some((m: any) => m.cooldown)))
+      .catch(() => {})
+  }, 15000)
 
   if (st && st.available && st.can_power) seen.current = true
-  if (!st || !seen.current) return null
+  // Returning null deleted the bot-status control from the sidebar whenever the backend was
+  // unreachable — the one moment an operator most wants to know the bot's state, answered by
+  // an absence. Hold the row and say what is actually known.
+  if (!st || !seen.current) {
+    return (
+      <div className="botpower unknown" role="status">
+        <span className="power-btn" aria-hidden="true"><Icon.bolt size={15} /></span>
+        <div className="botpower-text">
+          <div className="bp-status">Bot status unknown</div>
+          {/* `stale` (two consecutive failures), not `seen` — gating the honest message on
+              "we once had a good reading" meant a backend that was down at page load said
+              "checking…" forever, which is exactly the dead-poll-as-idle-poll failure the
+              design guide warns about. */}
+          <div className="bp-hint">{poll.stale ? "can't reach the backend" : 'checking…'}</div>
+        </div>
+      </div>
+    )
+  }
 
   const busy = phase === 'stopping' || phase === 'starting'
   const online = st.running && st.ready && !busy
@@ -509,20 +798,25 @@ function BotPower() {
     if (offline) powerUp()
   }
 
+  // Up but resting a rate-limited model is its own state - neither healthy nor broken.
+  const limited = online && cooling
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
-    : starting ? 'starting' : online ? 'online' : 'offline'
+    : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
     : starting ? 'Starting up…'
+    : limited ? 'Rate-limited'
     : online ? 'Bot online' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
+    : limited ? 'resting a model — see Usage'
     : online ? 'hold to power down'
-    : offline ? 'tap to power on' : ' '
+    : offline ? 'tap to power on' : ' '
 
   return (
     <div className={'botpower ' + cls}>
       <button
         className="power-btn"
+        aria-label={online ? 'Power the bot down (press and hold)' : offline ? 'Power the bot on' : label}
         disabled={busy}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}
@@ -580,8 +874,8 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
         <span className="weblink-label">{tunnel.running ? 'Open from the web' : 'Reconnecting…'}</span>
       </div>
       <div className="weblink-row">
-        <a href={url} target="_blank" rel="noreferrer" title={url}>{host}</a>
-        <button className="ghost icon-btn sm" onClick={copy} title="Copy link" aria-label="Copy link">
+        <a href={url} target="_blank" rel="noreferrer" data-tip={url}>{host}</a>
+        <button className="ghost icon-btn sm" onClick={copy} data-tip="Copy link" aria-label="Copy link">
           {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>
       </div>

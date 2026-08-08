@@ -17,6 +17,7 @@ from api.routers.admin import router as admin_router
 from api.routers.bot import router as bot_router
 from api.routers.bots import router as bots_router
 from api.routers.extensions import router as extensions_router
+from api.routers.audit import router as audit_router
 from api.routers.knowledge import router as knowledge_router
 from api.routers.dev import router as dev_router
 from api.routers.marketplace import router as marketplace_router
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(tunnel_router)
     app.include_router(settings_router)
     app.include_router(usage_router)
+    app.include_router(audit_router)
 
     @app.get("/api/health")
     async def health(request: Request):

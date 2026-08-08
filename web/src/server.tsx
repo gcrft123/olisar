@@ -296,8 +296,7 @@ export function ServerControlPanel() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['appearance', 'bot', 'logs', 'updates', 'desktop', 'feedback']}
-          botSwitcherOnly
+          sections={['general', 'bot', 'logs', 'updates', 'desktop', 'feedback']}
           onClose={() => setSettingsOpen(false)}
         />
       )}

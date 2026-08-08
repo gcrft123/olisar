@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
 import { SettingsModal } from './settings'
@@ -78,6 +78,48 @@ export function PubkeyBox({ state }: { state: ReturnType<typeof usePubkey> }) {
     )
   }
   return <Cb file="app SSH public key" code={state.pubkey && !state.loading ? state.pubkey : 'generating…'} />
+}
+
+// The hosting choice — the one decision in the wizard that can't be changed later without a
+// move. It was three click-only <div>s, so a keyboard or screen-reader operator was stuck on
+// the 'local' default and could never reach shared or server hosting at all. A radiogroup:
+// Tab reaches the selected card, ←/↑ and →/↓ move between them, Space/Enter picks.
+const MODES: { id: Mode; title: string; blurb: string }[] = [
+  { id: 'local', title: 'Local unshared hosting', blurb: 'Runs on this machine, reachable only from here.' },
+  { id: 'tunnel', title: 'Local shared hosting', blurb: 'Runs on this machine, shared online over Tailscale so other admins can sign in. Free, no domain.' },
+  { id: 'server', title: 'Server shared hosting', blurb: 'Runs 24/7 on a free cloud server, even with this computer off.' },
+]
+
+function ModeChoice({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => void }) {
+  const group = useRef<HTMLDivElement>(null)
+  const onKey = (e: ReactKeyboardEvent) => {
+    const step = /^Arrow(Right|Down)$/.test(e.key) ? 1 : /^Arrow(Left|Up)$/.test(e.key) ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    const i = MODES.findIndex((m) => m.id === mode)
+    const next = MODES[(i + step + MODES.length) % MODES.length]
+    onPick(next.id)
+    group.current?.querySelector<HTMLElement>(`#mode-${next.id}`)?.focus()
+  }
+  return (
+    <div className="mode-grid" ref={group} role="radiogroup" aria-label="Where Olisar runs" onKeyDown={onKey}>
+      {MODES.map((m) => (
+        <div
+          key={m.id}
+          id={`mode-${m.id}`}
+          className={'mode-card' + (mode === m.id ? ' sel' : '')}
+          role="radio"
+          aria-checked={mode === m.id}
+          tabIndex={mode === m.id ? 0 : -1}
+          onClick={() => onPick(m.id)}
+          onKeyDown={(e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); onPick(m.id) } }}
+        >
+          <b>{m.title}</b>
+          <p>{m.blurb}</p>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 /** First-run wizard, shown full-screen when the backend reports the app is
@@ -272,8 +314,7 @@ export function SetupWizard(
         </button>
         {settingsOpen && (
           <SettingsModal
-            sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
-            botSwitcherOnly
+            sections={['general', 'bot', 'updates', 'desktop', 'feedback']}
             onClose={() => setSettingsOpen(false)}
           />
         )}
@@ -368,20 +409,7 @@ export function SetupWizard(
 
         {step === 2 && (
           <>
-            <div className="mode-grid">
-              <div className={'mode-card' + (mode === 'local' ? ' sel' : '')} onClick={() => setMode('local')}>
-                <b>Local unshared hosting</b>
-                <p>Runs on this machine, reachable only from here.</p>
-              </div>
-              <div className={'mode-card' + (mode === 'tunnel' ? ' sel' : '')} onClick={() => setMode('tunnel')}>
-                <b>Local shared hosting</b>
-                <p>Runs on this machine, shared online over Tailscale so other admins can sign in. Free, no domain.</p>
-              </div>
-              <div className={'mode-card' + (mode === 'server' ? ' sel' : '')} onClick={() => setMode('server')}>
-                <b>Server shared hosting</b>
-                <p>Runs 24/7 on a free cloud server, even with this computer off.</p>
-              </div>
-            </div>
+            <ModeChoice mode={mode} onPick={setMode} />
 
             {mode === 'tunnel' && (
               <>
@@ -432,6 +460,7 @@ export function SetupWizard(
 
             {mode !== 'server' && (
               <Field
+                plain
                 label="Add this redirect URL in the Developer Portal"
                 desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add.{mode === 'tunnel' ? ' Add both, so login works locally and remotely.' : ''}</>}
               >
@@ -502,11 +531,10 @@ export function SetupWizard(
               </div>
             )}
 
-            <div className="field">
-              <label>SSH public key — paste this when creating the VM</label>
-              <div className="desc">The matching private key never leaves this machine.</div>
+            <Field plain label="SSH public key — paste this when creating the VM"
+              desc="The matching private key never leaves this machine.">
               <PubkeyBox state={pk} />
-            </div>
+            </Field>
 
             <Field label="VM public IP address" desc="From the instance's details page.">
               <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
@@ -542,7 +570,9 @@ export function SetupWizard(
           {step < last
             ? (step === 0
                 ? <div className="cta-reveal">
-                    <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>
+                    <div className="reveal-slot">
+                      <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>
+                    </div>
                     <button className="primary" onClick={next}>Continue</button>
                   </div>
                 : <button className="primary" onClick={next}>Continue</button>)
