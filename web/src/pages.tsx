@@ -631,10 +631,12 @@ function SearchIndexCard() {
   // Poll fast while a backfill is in flight, then once a minute — a settled index doesn't
   // change on its own, and this used to hit the backend every 3.5s for the life of the page.
   const working = !data || !!data.running || (data.channels || []).some((c: any) => c.status !== 'done')
-  usePoll(() => { api.reindexStatus().then(setData).catch(() => {}) }, working ? 3500 : 60000)
+  const poll = usePoll(() => api.reindexStatus().then(setData), working ? 3500 : 60000)
   const start = async () => {
     setBusy(true)
-    try { await api.reindex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
+    try { await api.reindex(); setData(await api.reindexStatus()) }
+    catch (e: any) { toast(e?.message || 'Couldn’t start re-indexing', 'danger') }
+    finally { setBusy(false) }
   }
   const clear = async () => {
     if (!(await confirmDialog({
@@ -645,7 +647,9 @@ function SearchIndexCard() {
       requirePhrase: { phrase: 'clear index' },
     }))) return
     setBusy(true)
-    try { await api.clearIndex(); setData(await api.reindexStatus()) } catch { /* ignore */ } finally { setBusy(false) }
+    try { await api.clearIndex(); setData(await api.reindexStatus()); toast('Search index cleared', 'neutral') }
+    catch (e: any) { toast(e?.message || 'Couldn’t clear the index', 'danger') }
+    finally { setBusy(false) }
   }
   const pct = data && data.total ? Math.round((data.done / data.total) * 100) : 0
   // Active (queued/indexing) first, then done — channels stay listed with their count.
@@ -655,18 +659,26 @@ function SearchIndexCard() {
   )
   return (
     <Card title="Message search index" hint="Lets Olisar search back through your server's history.">
-      {!data ? <div className="empty">Loading…</div> : (
+      {poll.stale && !data && (
+        <div className="callout warning">
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">Can't reach the backend, so the index status is unknown.</div>
+        </div>
+      )}
+      {!data ? (poll.stale ? null : <div className="empty">Loading…</div>) : (
         <>
           <div className="reindex-top">
             <div className="reindex-stat">
-              <b>{data.done}</b> / {data.total} channels indexed
-              <span className="rx-dim"> · {data.indexed_messages.toLocaleString()} messages</span>
+              {/* Coerced rather than read straight: a drifted or partial payload used to
+                  throw here and take the whole page to the error boundary. */}
+              <b>{data.done ?? 0}</b> / {data.total ?? 0} channels indexed
+              <span className="rx-dim"> · {Number(data.indexed_messages ?? 0).toLocaleString()} messages</span>
             </div>
             <div className="reindex-actions">
               <button className="primary" onClick={start} disabled={busy}>
                 <Icon.refresh size={14} /> {busy ? 'Working…' : 'Re-index all'}
               </button>
-              <button className="danger icon-btn" onClick={clear} disabled={busy || data.indexed_messages === 0} data-tip="Clear index" aria-label="Clear index">
+              <button className="danger icon-btn" onClick={clear} disabled={busy || !data.indexed_messages} data-tip="Clear index" aria-label="Clear index">
                 <Icon.trash size={16} />
               </button>
             </div>
@@ -749,6 +761,56 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
         </button>
       </div>
     </div>
+  )
+}
+
+// The counts a destructive action reports are the most consequential receipt in the
+// product, and until now they existed for 3.6 seconds inside a toast. record_audit has
+// been writing them to audit_log all along; this reads it back.
+function ActivityCard() {
+  const { data, loading, reload } = useAsync<any>(() => api.getAudit(60))
+  const entries: any[] = data?.entries ?? []
+  const when = (ts: string | null) => {
+    if (!ts) return ''
+    const d = new Date(ts)
+    return isNaN(+d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  }
+  // clear_memory stores its deleted-row counts in `after`; other actions carry other
+  // shapes, so render whatever numbers are there rather than assuming a schema.
+  const receipt = (after: any): string => {
+    const counts = after?.counts
+    if (!counts || typeof counts !== 'object') return ''
+    return Object.entries(counts)
+      .filter(([, v]) => typeof v === 'number' && v > 0)
+      .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
+      .join(' · ')
+  }
+  return (
+    <Card
+      title="Activity"
+      hint={<>What has been changed on this install, newest first. {data?.install_wide && 'Covers every server this install manages.'}</>}
+    >
+      {loading ? <div className="empty">Loading…</div>
+        : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
+        <>
+          <div className="activity">
+            {entries.map((e) => (
+              <div className={'act-row' + (e.destructive ? ' destructive' : '')} key={e.id}>
+                <span className="act-when">{when(e.ts)}</span>
+                <span className="act-what">
+                  {e.label}
+                  {receipt(e.after) && <span className="act-receipt">{receipt(e.after)}</span>}
+                </span>
+                <span className="act-who">{e.actor}</span>
+              </div>
+            ))}
+          </div>
+          <div className="savebar">
+            <button className="ghost" onClick={reload}><Icon.refresh size={14} /> Refresh</button>
+          </div>
+        </>
+      )}
+    </Card>
   )
 }
 
@@ -867,6 +929,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           <SearchIndexCard />
         </div>
       </div>
+      <ActivityCard />
       <ClearMemoryCard serverName={serverName} />
     </>
   )
@@ -2573,7 +2636,8 @@ export function Usage() {
   const [days, setDays] = useState(7)
   const { data, loading } = useAsync<any>(() => api.getUsage(days), [days])
   const [live, setLive] = useState<any>(null)
-  usePoll(() => { api.getUsageLive().then(setLive).catch(() => {}) }, 4000)
+  // No .catch here on purpose: usePoll needs the rejection to know the backend is gone.
+  const livePoll = usePoll(() => api.getUsageLive().then(setLive), 4000)
   if (loading || !data) return <Spinner />
 
   const models: any[] = data.by_model || []
@@ -2660,9 +2724,21 @@ export function Usage() {
       <div className="u-mins">
         <Card>
           <div className="u-cardhead"><div><h2 className="u-ttl">Requests / min</h2><div className="u-hint">live · per model against its cap</div></div>
-            <div className="u-livehead" style={{ marginLeft: 'auto' }}><span className="u-livedot" /><span className="u-hint">live</span></div></div>
+            <div className="u-livehead" style={{ marginLeft: 'auto' }}>
+              <span className={'u-livedot' + (livePoll.stale ? ' stale' : '')} />
+              <span className="u-hint">{livePoll.stale ? 'not responding' : 'live'}</span>
+            </div></div>
           <div style={{ marginTop: 14 }}>
-            {liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
+            {livePoll.stale && (
+              <div className="callout warning" style={{ marginBottom: 12 }}>
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  These numbers stopped updating — the console can't reach the backend.
+                  What's shown is the last reading, not the current one.
+                </div>
+              </div>
+            )}
+            {!livePoll.stale && liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
             {liveModels.map((m) => (
               <div className={'u-meter ' + (clsFor[m.model] || 'us0')} key={m.model}><b>{uShort(m.model)}</b>
                 <div className="bar"><i className={m.rpm / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.rpm / Math.max(m.cap, 1)) * 100)}%` }} /></div>
