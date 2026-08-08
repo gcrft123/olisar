@@ -234,6 +234,9 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   color: var(--text-2); font-weight: 400; font-size: 13.5px; user-select: none;
   transition: background 0.12s, color 0.12s;
 }
+/* Separates the configuration items from Developer / Docs, which aren't configuration.
+   Its own element rather than a border on the row, so the active row keeps its radius. */
+.nav-rule { height: 1px; background: var(--border); margin: 10px 10px 9px; }
 .nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .nav-item:focus-visible { outline: none; box-shadow: var(--ring); }
 .nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
@@ -345,15 +348,6 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    gains empty space below so it matches the taller one beside it. */
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .cols2 .card, .grid2 > .card { margin: 0; min-width: 0; }
-/* A `.col.fill` (Knowledge's Index) lets the OTHER column define the row height and pins its
-   single card to fill that height, scrolling its own list — so a long list doesn't make the
-   right side taller than the two cards on the left; the columns end level. Only while the
-   grid is actually two columns (below, it collapses to one and the card goes back in flow). */
-@media (min-width: 901px) {
-  .cols2 > .col.fill { position: relative; }
-  .cols2 > .col.fill > .card { position: absolute; inset: 0; display: flex; flex-direction: column; }
-  .cols2 > .col.fill > .card .reindex-list { flex: 1 1 0; min-height: 0; max-height: none; }
-}
 @media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
@@ -421,6 +415,15 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   .main { padding: 20px 14px 72px; }
   .page-head h1 { font-size: 20px; }
 }
+
+/* Danger zone — the same tint recipe as a .callout.danger, so irreversible destruction
+   reads as the system's red rather than as a card that happens to hold a red button. */
+.danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel));
+}
+.danger-zone h2 { color: var(--danger); }
+.danger-zone .settings-muted { color: color-mix(in srgb, var(--danger) 20%, var(--text-2)); }
 
 .field { margin-bottom: 17px; }
 .field:last-child { margin-bottom: 0; }

@@ -699,7 +699,60 @@ function SearchIndexCard() {
   )
 }
 
-export function Knowledge() {
+// Erasing everything Olisar has learned is per-*server* destruction, and it used to sit in
+// the per-install Settings modal with no server named anywhere on screen. It now lives under
+// the glossary and the search index it wipes — and names the server in the dialog, which the
+// modal structurally could not do.
+function ClearMemoryCard({ serverName }: { serverName?: string }) {
+  const [busy, setBusy] = useState(false)
+  const clearMemory = async () => {
+    const ok = await confirmDialog({
+      tone: 'danger',
+      title: serverName ? `Clear Olisar's memory of ${serverName}?` : 'Clear memory',
+      message: (
+        <>
+          This erases everything Olisar has learned about this server: conversation memory, summaries, the
+          search index, remembered facts, the glossary, usage stats, its read on each member, and the
+          knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
+          <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
+        </>
+      ),
+      requirePhrase: { phrase: 'clear olisar memory' },
+      confirmLabel: 'Clear memory',
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const r = await api.clearMemory()
+      const c = (r && r.counts) || {}
+      toast(`Memory cleared. Forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t clear memory', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="card danger-zone">
+      <h2>Danger zone</h2>
+      <div className="settings-row between" style={{ marginTop: 0 }}>
+        <div>
+          <div className="opt-label">Clear memory</div>
+          <div className="settings-muted">
+            Erases everything on this page and everything Olisar remembers about this server —
+            the glossary, the search index, and its read on each member. Persona, behavior,
+            channel modes and command replies are kept. This can't be undone.
+          </div>
+        </div>
+        <button className="danger" onClick={clearMemory} disabled={busy}>
+          {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const { data, loading, reload } = useAsync<any[]>(api.getKnowledge)
   const [type, setType] = useState('url')
   const [uri, setUri] = useState('')
@@ -810,10 +863,11 @@ export function Knowledge() {
         ))}
       </Card>
         </div>
-        <div className="col fill">
+        <div className="col">
           <SearchIndexCard />
         </div>
       </div>
+      <ClearMemoryCard serverName={serverName} />
     </>
   )
 }
@@ -2197,7 +2251,7 @@ export function ApiKeys() {
       <PageHead
         icon="keys"
         title="API keys"
-        sub="Your own keys, stored for this server. Once saved, a key is never shown again."
+        sub="One set of keys powers every server on this install. Once saved, a key is never shown again."
       />
 
       <div className="cols2">
@@ -2505,7 +2559,7 @@ export function Usage() {
 
   return (
     <>
-      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call Olisar makes: by model, by day, and what's driving it." />
+      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call this install makes, across all servers: by model, by day, and what's driving it." />
       <div className="u-tfrow">
         <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays}
           options={tf.map(([l, d]) => ({ value: d, label: l }))} />
