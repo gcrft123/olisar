@@ -305,7 +305,9 @@ export function useSaver(save: () => Promise<void>) {
     try {
       await save()
       setSaved(true)
-      setTimeout(() => setSaved(false), 2500)
+      // Long enough to actually use the Undo beside it — 2.5s was sized for a
+      // confirmation nobody had to act on.
+      setTimeout(() => setSaved(false), 7000)
     } catch (e: any) {
       setError(e?.message || 'save failed')
     } finally {
@@ -398,6 +400,7 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const base = React.useRef<string>('')
+  const prev = React.useRef<string | null>(null)
   // `base` is a ref, and a ref mutation does not re-run a memo. `markSaved()` moved the
   // baseline forward and `dirty` kept its stale `true`, so a page that had just saved
   // successfully went on reporting "You have unsaved changes." and the leave guard fired on
@@ -424,7 +427,17 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
   return {
     data, setData, loading, reload, dirty,
     reset: () => { if (base.current) setData(JSON.parse(base.current)) },
-    markSaved: () => { if (data != null) { base.current = JSON.stringify(data); setBaseVersion((n) => n + 1) } },
+    // Keep the state we just replaced. A save was the one irreversible thing in a console
+    // whose entire promise is that nothing is irreversible until you commit it — the
+    // ActivityLedger recorded what happened but nothing could put it back.
+    markSaved: () => {
+      if (data == null) return
+      prev.current = base.current || null
+      base.current = JSON.stringify(data)
+      setBaseVersion((n) => n + 1)
+    },
+    /** The state as it was before the last save, or null if there isn't one. */
+    previous: (): T | null => (prev.current ? JSON.parse(prev.current) : null),
     baseline: (): T | null => (base.current ? JSON.parse(base.current) : null),
   }
 }
@@ -436,6 +449,8 @@ export function SaveDock(props: {
   saver: ReturnType<typeof useSaver>
   onReset?: () => void
   label?: string
+  /** Restore the state as it was before the last save. Renders an Undo while "Saved" shows. */
+  onUndo?: () => void
 }) {
   const s = props.saver
   const show = props.dirty || s.busy || s.saved || !!s.error
@@ -454,7 +469,12 @@ export function SaveDock(props: {
             : <>You have unsaved changes.</>}
         </span>
         <div className="savedock-actions">
-          {props.onReset && (
+          {/* The one moment undo is both cheap and wanted: the draft that was replaced is
+              still in memory, and the operator is looking straight at the confirmation. */}
+          {s.saved && props.onUndo && (
+            <button className="ghost" onClick={props.onUndo}>Undo</button>
+          )}
+          {props.onReset && !s.saved && (
             <button className="ghost" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
           )}
           <button className="primary" disabled={s.busy || !props.dirty} onClick={s.run}>

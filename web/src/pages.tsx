@@ -50,7 +50,7 @@ export function Persona() {
           <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} ariaLabel="About me — the bot's public Discord bio" />
         </Card>
       </div>
-      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
+      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
       <TestChatDrawer />
     </>
   )
@@ -310,7 +310,19 @@ export function Behavior() {
       </Card>
         </div>
       </div>
-      <SaveDock dirty={configEd.dirty || proEd.dirty} saver={saver} onReset={() => { configEd.reset(); proEd.reset() }} />
+      <SaveDock
+        dirty={configEd.dirty || proEd.dirty}
+        saver={saver}
+        onReset={() => { configEd.reset(); proEd.reset() }}
+        onUndo={() => {
+          // Two resources save together here, so both go back together.
+          const c = configEd.previous(); const pr = proEd.previous()
+          if (c == null && pr == null) return
+          if (c != null) configEd.setData(c)
+          if (pr != null) proEd.setData(pr)
+          setTimeout(() => saver.run(), 0)
+        }}
+      />
     </>
   )
 }
@@ -376,6 +388,7 @@ export function Messages() {
   const { data: persona } = useAsync<any>(api.getPersona)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const base = useRef('')
+  const prevEdits = useRef<string | null>(null)
   useEffect(() => {
     if (data) {
       const init: Record<string, string> = {}
@@ -386,7 +399,7 @@ export function Messages() {
   }, [data])
   const dirty = base.current !== '' && JSON.stringify(edits) !== base.current
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
-  const saver = useSaver(async () => { await api.putMessages(edits); base.current = JSON.stringify(edits) })
+  const saver = useSaver(async () => { await api.putMessages(edits); prevEdits.current = base.current; base.current = JSON.stringify(edits) })
   if (loading || !data) return <Spinner />
 
   return (
@@ -434,9 +447,27 @@ export function Messages() {
         )
       })}
       </div>
-      <SaveDock dirty={dirty} saver={saver} onReset={() => base.current && setEdits(JSON.parse(base.current))} />
+      <SaveDock
+        dirty={dirty}
+        saver={saver}
+        onReset={() => base.current && setEdits(JSON.parse(base.current))}
+        onUndo={prevEdits.current ? () => { setEdits(JSON.parse(prevEdits.current as string)); setTimeout(() => saver.run(), 0) } : undefined}
+      />
     </>
   )
+}
+
+// Undo a save: put the pre-save state back into the draft and commit it. The console never
+// had a way back from a save — the only irreversible step in a product whose entire promise
+// is that nothing is irreversible until you press Save.
+function undoOf(ed: { previous: () => any; setData: (d: any) => void }, saver: { run: () => void }) {
+  return () => {
+    const before = ed.previous()
+    if (before == null) return
+    ed.setData(before)
+    // Commit on the next tick, once setData has flushed into the saver's closure.
+    setTimeout(() => saver.run(), 0)
+  }
 }
 
 // ── Channels ────────────────────────────────────────────────────────────────
@@ -593,7 +624,7 @@ export function Channels() {
           </>
         )}
       </Card>
-      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
+      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
   )
 }
@@ -697,7 +728,7 @@ export function Access() {
           </>
         )}
       </Card>
-      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
+      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
   )
 }
@@ -745,7 +776,11 @@ function SearchIndexCard() {
           <div className="callout-body">Can't reach the backend, so the index status is unknown.</div>
         </div>
       )}
-      {!data ? (poll.stale ? null : <div className="empty">Loading…</div>) : (
+      {!data ? (poll.stale
+        ? <div className="callout warning"><span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">Can't reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
+          </div>
+        : <Spinner label="Reading the index…" />) : (
         <>
           <div className="reindex-top">
             <div className="reindex-stat">
@@ -885,7 +920,7 @@ function ActivityCard() {
       title="Activity"
       hint={<>What has been changed on this install, newest first. {data?.install_wide && 'Covers every server this install manages.'}</>}
     >
-      {loading ? <div className="empty">Loading…</div>
+      {loading ? <Spinner label="Loading recent activity…" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
         <>
           <div className="activity">
@@ -1047,7 +1082,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             </div>
             <button className="danger" onClick={async () => {
               if (!(await confirmDialog({
-                title: 'Delete this fact?',
+                title: `Delete “${(f.subject || f.fact).slice(0, 48)}”?`,
                 message: <>“{f.fact}” — Olisar stops carrying this into replies. It may mine it again later if it comes up in conversation.</>,
                 confirmLabel: 'Delete fact',
                 tone: 'danger',
@@ -2102,7 +2137,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         </section>
       </div>
 
-      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} />
+      <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
   )
 }
@@ -2111,6 +2146,16 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
 export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const [active, setActive] = useState(DOCS[0].id)
+  // The palette can name a section directly; jumping there is the whole point of indexing
+  // the docs body rather than only its title.
+  useEffect(() => {
+    const go = (e: Event) => {
+      const id = (e as CustomEvent).detail
+      if (DOCS.some((d) => d.id === id)) setActive(id)
+    }
+    window.addEventListener('olisar:goto-doc', go)
+    return () => window.removeEventListener('olisar:goto-doc', go)
+  }, [])
   const [q, setQ] = useState('')
   const [activeHeading, setActiveHeading] = useState('')
   useEffect(() => { window.scrollTo({ top: 0 }) }, [active])

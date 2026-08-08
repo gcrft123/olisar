@@ -8,8 +8,8 @@ import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'general' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
-const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
+export type SectionId = 'general' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
   { id: 'bot', label: 'Bot', ic: 'bolt' },
   { id: 'logs', label: 'Logs', ic: 'docs' },
@@ -22,11 +22,13 @@ const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
 // gears show a subset.
 export function SettingsModal(
-  { onClose, sections }:
-  { onClose: () => void; sections?: SectionId[] },
+  { onClose, sections, initialSection }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId },
 ) {
   const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
-  const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'general')
+  const [section, setSection] = useState<SectionId>(
+    (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
+  )
 
   return (
     <Modal className="settings-modal" label="Settings" onClose={onClose}>
@@ -279,7 +281,7 @@ function BotSwitcher() {
           settings, and memory. <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
-      requirePhrase: { phrase: 'delete' },
+      requirePhrase: { phrase: p.name },
       confirmLabel: 'Delete bot',
     })
     if (!ok) return
@@ -299,7 +301,7 @@ function BotSwitcher() {
           <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
-      requirePhrase: { phrase: 'reset' },
+      requirePhrase: { phrase: p.name },
       confirmLabel: 'Reset configuration',
     })
     if (!ok) return
