@@ -57,8 +57,12 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
       const s = score(q, c.label + ' ' + c.group + ' ' + (c.keywords ?? ''))
       if (s !== null) out.push({ c, s })
     }
-    return out.sort((a, b) => a.s - b.s).slice(0, 12).map((x) => x.c)
+    return out.sort((a, b) => a.s - b.s).map((x) => x.c)
   }, [q, props.commands])
+  // Show a bounded list but say what's behind it — silently dropping matches makes the
+  // palette look like it doesn't know about things it does.
+  const LIMIT = 40
+  const shown = hits.slice(0, LIMIT)
 
   // Keep the highlighted row in view when arrowing past the fold.
   useEffect(() => {
@@ -67,7 +71,7 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
   }, [sel, hits])
 
   if (!props.open) return null
-  const clamped = Math.min(sel, Math.max(0, hits.length - 1))
+  const clamped = Math.min(sel, Math.max(0, shown.length - 1))
   const choose = (c: Command | undefined) => { if (!c) return; props.onClose(); c.run() }
 
   return (
@@ -78,25 +82,28 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
         <input
           autoFocus
           type="text"
+          role="combobox"
+          aria-expanded="true"
+          aria-autocomplete="list"
           value={q}
           placeholder="Go to a page or switch server…"
           aria-label="Search commands"
           aria-controls="cmdk-list"
-          aria-activedescendant={hits[clamped] ? 'cmdk-' + hits[clamped].id : undefined}
+          aria-activedescendant={shown[clamped] ? 'cmdk-' + shown[clamped].id : undefined}
           autoComplete="off"
           spellCheck={false}
           onChange={(e) => { setQ(e.target.value); setSel(0) }}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, hits.length - 1)) }
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => Math.min(s + 1, shown.length - 1)) }
             else if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)) }
-            else if (e.key === 'Enter') { e.preventDefault(); choose(hits[clamped]) }
+            else if (e.key === 'Enter') { e.preventDefault(); choose(shown[clamped]) }
           }}
         />
         <kbd className="cmdk-esc">esc</kbd>
       </div>
       <div className="cmdk-list" id="cmdk-list" role="listbox" aria-label="Commands" ref={listRef}>
-        {hits.length === 0 && <div className="cmdk-empty">Nothing matches “{q}”.</div>}
-        {hits.map((c, i) => (
+        {shown.length === 0 && <div className="cmdk-empty">Nothing matches “{q}”.</div>}
+        {shown.map((c, i) => (
           <div
             key={c.id}
             id={'cmdk-' + c.id}
@@ -111,6 +118,9 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
             <span className="cmdk-group">{c.group}</span>
           </div>
         ))}
+        {hits.length > shown.length && (
+          <div className="cmdk-empty">Showing {shown.length} of {hits.length} — keep typing to narrow.</div>
+        )}
       </div>
     </Modal>
   )

@@ -329,7 +329,7 @@ function BotSwitcher() {
                 <div className="bot-actions">
                   {isDefault && <span className="badge">Default</span>}
                   {isActive && <span className="badge success">Active</span>}
-                  {!isActive && <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
+                  {!isActive && <button disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
                   {/* Fixed slots, so a given position means the same thing on every row.
                       Before this, slot 1 was "Rename" on the active bot and "Set as default"
                       on the others, and all four actions were identical grey squares — two
