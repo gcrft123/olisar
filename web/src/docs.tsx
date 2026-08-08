@@ -13,7 +13,7 @@ export const DOC_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'replies', 'keys'] },
   { label: 'Knowledge & memory', ids: ['knowledge', 'memory', 'members', 'images'] },
   { label: 'Extend', ids: ['extensions', 'ext-build', 'ext-sdk', 'ext-flows', 'ext-share', 'ext-marketplace', 'ext-security'] },
-  { label: 'Reference', ids: ['privacy', 'troubleshooting'] },
+  { label: 'Reference', ids: ['usage', 'privacy', 'troubleshooting'] },
 ]
 
 export const DOCS: DocSection[] = [
@@ -107,8 +107,8 @@ Members can reach Olisar a few ways:
 - **@mention or reply** to one of its messages.
 - **DM it** — direct messages work if DMs are enabled.
 - \`/ask\` — a slash command that works anywhere, like a one-off question.
-- **Loose mode** — if an admin turns it on, Olisar joins ordinary conversation in talk-enabled channels
-  even without being addressed.
+- **Or don't** — if an admin has turned **proactivity** on, Olisar occasionally chimes into an active
+  conversation on its own, without being addressed (see [Behavior & proactivity](#behavior)).
 
 :::note Example
 "olisar, what's the plan for the raid tonight?" — or just reply to its last message with a follow-up.
@@ -417,8 +417,8 @@ Pick 100%, 110% or 125%. It's saved on this device, so everyone who signs in can
 
 ## Bot
 The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this
-app runs (see [Running multiple bots](#bots)). Below it, **Clear memory** wipes everything the active bot
-has learned about the current server, keeping its persona and settings.
+app runs (see [Running multiple bots](#bots)). **Clear memory** is not here — it lives at the bottom of
+[Knowledge](tab:knowledge), under the things it erases.
 
 ## Logs
 Recent log lines, for when something isn't behaving. **This app** is the local console's own log; **Bot**
@@ -487,13 +487,10 @@ How Olisar decides a message is for it:
 - **Name triggers** — comma-separated words that, at the **start** of a message, address Olisar
   (matching is case-insensitive). An @mention or a reply to one of its messages always counts too.
 - **Reply in DMs** — whether it answers direct messages at all.
-- **Loose messages** — when on, Olisar will join ordinary conversation in talk-enabled channels even
-  without a trigger, if it judges a message is worth responding to.
 
-:::warning Loose mode can get chatty
-Loose messages make Olisar feel present but can be noisy in busy channels. Pair it with proactivity
-cooldowns, or limit which channels are talk-enabled.
-:::
+Those are the only two ways a message is treated as addressed to Olisar. For it to speak **without**
+being addressed, turn on **proactivity** below — that path has its own gate, cooldown and hourly cap,
+so it stays sparse.
 
 ## Mentions
 
@@ -633,7 +630,12 @@ see slower replies or the occasional "my mind went blank." It clears on its own 
     id: 'channels',
     title: 'Channels & modes',
     body: `
-Each channel gets a **role** on the [Channels](tab:channels) tab. The modes:
+Each channel gets a **role** on the [Channels](tab:channels) tab. They're listed under their **categories**,
+in the same order as your Discord sidebar, and each row spells out what its current settings actually add up
+to — "Reads, remembers and replies when addressed · may chime in unprompted · searchable" — so you can read
+down the list without translating two dropdowns per row.
+
+The modes:
 - **off** — ignored entirely.
 - **memory** — reads & remembers, but never speaks.
 - **respond** — talks, but doesn't store history.
@@ -726,6 +728,9 @@ fallback in character.
 The [API keys](tab:keys) tab is where you give Olisar its own keys for the outside services it uses. You
 first enter these in the [setup wizard](#hosting), and you can add or change them here any time.
 
+Unlike almost everything else in this console, keys are **not per server**: one set powers every server on
+this install. Changing a key here changes it everywhere Olisar runs.
+
 :::tip Built for handing off
 This is how you give Olisar to someone else: they never touch a config file or the server, they just open
 the console and paste their own keys.
@@ -798,6 +803,29 @@ glossary isn't searched on demand; it's always in context (it's small and high-v
 :::note Example
 "MN → Movie Night, our Friday watch-party in #cinema", "The Council → the server's moderator team". Now
 Olisar understands those references everywhere, without you explaining them each time.
+:::
+
+## Activity
+
+A running log of what has been changed in this console and when — config saves, glossary edits, channel
+changes, and every destructive action, each with the numbers it reported at the time. It's the record a
+success message can't be: "Cleared memory — 12,481 messages, 340 facts, 96 member profiles" is still
+there tomorrow.
+
+The log covers **this whole install**, not just the server you have selected — one line per action, newest
+first, with the admin who ran it.
+
+## Danger zone
+
+At the bottom of the page, **Clear memory** erases everything Olisar has learned about the **currently
+selected server**: conversation memory, summaries, the search index, remembered facts, the glossary, usage
+stats, its read on each member, and the knowledge base above. Its persona, behavior, channel modes and
+command replies are kept.
+
+:::warning There's no undo
+You'll be asked to type \`clear olisar memory\` to confirm, and the dialog names the server it's about to
+wipe — check that name, since the server switcher is a different part of the screen. Members can clear
+just their own data at any time with \`/forget-me\`.
 :::
 `,
   },
@@ -1629,6 +1657,43 @@ A quick checklist before installing third-party code:
 - Read the **capabilities** it asks for — does a dice roller really need \`fetch\`?
 - Grant the **minimum** that makes it work; you can leave capabilities unchecked.
 - Remember it can't reach your **host secrets** or anything outside the sandbox no matter what.
+`,
+  },
+  {
+    id: 'usage',
+    title: 'Usage & rate limits',
+    body: `
+The [Usage](tab:usage) tab shows how much of the free Gemini quota Olisar is actually spending, and how
+close it is to being throttled. Everything here counts **every call this install makes, across all
+servers** — unlike the configuration tabs, it isn't filtered by the server switcher.
+
+## Today's numbers
+The four tiles at the top are always **today**: requests, tokens, and the highest requests-per-minute and
+tokens-per-minute you've hit, each against the free tier's cap. The bars turn amber past 75% of a cap —
+that's the point where a busy minute starts falling back down the [model chain](#models).
+
+## Requests over time
+The chart breaks requests down by model over a window you choose: **7 days**, **30 days**, or **Forever**.
+Longer windows group the points automatically — daily up to two months, then weekly, then monthly — and the
+dashed line is the daily request limit. The window also governs the **Tokens / min** and **By process**
+cards beside it; the tiles above stay on today.
+
+## Requests / min (live)
+Per-model meters, refreshed every few seconds, showing the current minute against each model's cap; \`cd\`
+marks a model that's resting after hitting its limit. If the console loses contact with the bot, the dot
+turns amber and reads **not responding** — the numbers you're seeing are the last reading, not the current
+one.
+
+## By model & by process
+**By model** is today's spend per model with its peak minute against its own cap. **By process** answers
+"what's using the quota?" — conversation, summaries, memory writes, embeddings, image descriptions and so
+on, as a share of the window's requests.
+
+:::note Limits reset daily
+Free-tier limits reset at **00:00 UTC**. When a model hits its limit Olisar rests it for two minutes and
+drops to the next one in its chain, so heavy use shows up as slower, lower-tier replies rather than
+failures. See [Models](#models).
+:::
 `,
   },
   {
