@@ -10,6 +10,7 @@ import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SettingsModal } from './settings'
 import { PageBoundary, hasUnsavedChanges, usePoll } from './ui'
+import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -28,6 +29,37 @@ type Guild = { id: string; name: string; icon: string }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
 
+// The console lives at one URL, so Back left the app entirely, a refresh always landed on
+// Persona, and no view could be linked to or bookmarked. The tab is in the hash: cheap
+// (no server routing needed for a file-served SPA), survives a reload, and gives the
+// browser's own Back/Forward something real to move through.
+function useTabRouting(tab: string, setTab: (id: string) => void, guard: (what: string) => Promise<boolean>) {
+  const hashTab = () => decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
+  // Adopt the hash on first paint, so a bookmarked or shared link opens its page.
+  useEffect(() => {
+    const initial = hashTab()
+    if (initial && initial !== tab) setTab(initial)
+    else if (!initial) history.replaceState(null, '', '#/' + tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Publish tab changes without adding history noise for the initial adopt.
+  useEffect(() => {
+    if (hashTab() !== tab) history.pushState(null, '', '#/' + tab)
+  }, [tab])
+  // Back/Forward runs through the same unsaved-work guard as a nav click; if the operator
+  // keeps editing, put the hash back so the URL never disagrees with the screen.
+  useEffect(() => {
+    const onPop = async () => {
+      const next = hashTab()
+      if (!next || next === tab) return
+      if (await guard('this page')) setTab(next)
+      else history.pushState(null, '', '#/' + tab)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [tab, setTab, guard])
+}
+
 export default function App() {
   const [setup, setSetup] = useState<'checking' | 'needed' | 'done'>('checking')
   const [setupInfo, setSetupInfo] = useState<SetupStatus | null>(null)
@@ -43,6 +75,7 @@ export default function App() {
   const [warnDismissed, setWarnDismissed] = useState(false)
   // Below 860px the rail is a drawer rather than a column (see index.css).
   const [navOpen, setNavOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
 
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
@@ -110,6 +143,23 @@ export default function App() {
   }, [auth])
   usePoll(() => { api.tunnelStatus().then(setTunnel).catch(() => {}) }, 20000, auth === 'in')
 
+  usePaletteHotkey(React.useCallback(() => setPaletteOpen(true), []))
+
+  // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
+  // only on the renders that get past the loading gates is a different hook count than the
+  // render before it — which React treats as fatal rather than degraded.
+  const leaveGuard = async (what: string) => {
+    if (!hasUnsavedChanges()) return true
+    return confirmDialog({
+      title: 'Discard your unsaved changes?',
+      message: <>You have edits that haven't been saved. Leaving {what} discards them.</>,
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      tone: 'warning',
+    })
+  }
+  useTabRouting(tab, setTab, leaveGuard)
+
   // Is this operator a whitelisted platform developer? Gates the Developer tab.
   useEffect(() => {
     if (auth !== 'in') { setIsDev(false); return }
@@ -158,16 +208,6 @@ export default function App() {
   // Both `tab` and `guild` key a remount below, which throws away whatever the page was
   // holding. Ask first. Gated here rather than on the nav item because Docs reaches
   // setTab directly through its `tab:` deep links and would otherwise slip past.
-  const leaveGuard = async (what: string) => {
-    if (!hasUnsavedChanges()) return true
-    return confirmDialog({
-      title: 'Discard your unsaved changes?',
-      message: <>You have edits that haven't been saved. Leaving {what} discards them.</>,
-      confirmLabel: 'Discard',
-      cancelLabel: 'Keep editing',
-      tone: 'warning',
-    })
-  }
   const goTab = async (id: string) => { if (id !== tab && await leaveGuard('this page')) setTab(id) }
   const changeGuild = async (id: string) => {
     if (id === guild || !(await leaveGuard('this server'))) return
@@ -176,6 +216,8 @@ export default function App() {
     setGuildState(id)
   }
   const current = guilds.find((g) => g.id === guild) ?? guilds[0]
+
+
 
   // Authoring extension code is operator-only; the merged Extensions tab shows the
   // editor drill-in only to operators (everyone else just sees the toggles).
@@ -204,6 +246,21 @@ export default function App() {
   const nav = isDev
     ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
     : [...NAV, docsNav]
+
+  // Everything the rail can reach, plus the server switcher — the two things an operator
+  // does most, one keystroke away instead of a trip to the sidebar.
+  const commands: Command[] = [
+    ...nav.map((n) => ({
+      id: 'tab:' + n.id, label: n.label, group: 'Page', ic: n.ic,
+      keywords: n.id, run: () => { void goTab(n.id) },
+    })),
+    ...guilds.map((g) => ({
+      id: 'guild:' + g.id, label: g.name, group: 'Server', ic: 'members' as IconName,
+      keywords: 'switch server guild', run: () => { void changeGuild(g.id) },
+    })),
+    { id: 'settings', label: 'Settings', group: 'App', ic: 'settings' as IconName,
+      keywords: 'preferences appearance logs updates bot feedback', run: () => setSettingsOpen(true) },
+  ]
 
   // A banned account is locked out of the console entirely (re-checked every poll).
   if (standing?.status === 'banned') {
@@ -281,6 +338,7 @@ export default function App() {
         </div>
       </aside>
       {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      <CommandPalette commands={commands} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {standing?.status === 'warned' && !standing.acknowledged && !warnDismissed && (
         <WarnModal
           message={standing.message}

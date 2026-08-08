@@ -514,7 +514,20 @@ export function Channels() {
             </div>
             {groupByCategory(shown).map((g) => (
               <div className="chan-group" key={g.category || '__none'}>
-                <div className="chan-cat">{g.category || 'No category'}</div>
+                {/* Setting a mode on ten channels was ten identical decisions with no way to
+                    express "this whole category behaves the same" — which is how operators
+                    actually think about a Discord server. Applies to the rows currently
+                    shown, so it respects the filter above. */}
+                <div className="chan-cat-row">
+                  <div className="chan-cat">{g.category || 'No category'}</div>
+                  <Select
+                    className="chan-bulk"
+                    value=""
+                    options={[{ value: '', label: `Set all ${g.rows.length}…` }, ...MODE_OPTS]}
+                    ariaLabel={`Set the mode for all ${g.rows.length} channels in ${g.category || 'no category'}`}
+                    onChange={(v) => { if (v) g.rows.forEach((c: any) => patchRow(c.channel_id, { mode: v })) }}
+                  />
+                </div>
                 {g.rows.map((c) => (
                   <div className="list-row" key={c.channel_id}>
                     <div className="grow">
