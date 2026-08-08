@@ -1,0 +1,33 @@
+# Proves the macOS signing certificate and notarization credentials — without building
+# anything, and without needing a release tag to do it.
+#
+# release.yml only runs on `v*`, so until this existed the only way to find out whether a
+# signing secret was right was to tag a release and watch. v1.4.0 took four attempts that way,
+# each dying ~10 minutes in on `⨯ <repo>/desktop not a file` — electron-builder reading an
+# empty CSC_LINK as a path. Run this from the Actions tab after touching any of the secrets
+# below and it answers the same question in about a minute.
+#
+# Release builds call it as their first job (see release.yml), so a bad secret now fails
+# before the Go/uv/PyInstaller chain rather than after it.
+name: macOS signing preflight
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  preflight:
+    runs-on: macos-14 # same runner image the release builds on
+    steps:
+      - uses: actions/checkout@v4
+
+      # Nothing here is required: with no secrets set the script reports that the release
+      # would build unsigned and exits 0, which is the documented fork/no-certificate path.
+      - name: Check the signing certificate and notarization credentials
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/check_mac_signing.sh
