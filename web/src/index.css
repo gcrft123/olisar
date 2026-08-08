@@ -1058,7 +1058,13 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .doc-table th { color: var(--text); font-weight: 600; border-bottom-color: var(--border-strong); }
 .doc-table tr:last-child td { border-bottom: none; }
 .doc-table td { color: var(--text-2); }
-.doc-table td:first-child { color: var(--text); white-space: nowrap; }
+/* The first column is emphasized, and it must not break an identifier like
+   `gemini-flash-latest` across lines — but `nowrap` on the whole cell is the wrong tool:
+   the troubleshooting table's first column is a sentence, and it claimed 69% of the width
+   and pushed the Fix column (the one the reader came for) off the scroll edge. Wrap prose,
+   hold code together. */
+.doc-table td:first-child { color: var(--text); }
+.doc-table td:first-child code, .doc-table th:first-child code { white-space: nowrap; }
 .doc h2 { color: var(--text); font-size: 15px; font-weight: 600; margin: 18px 0 8px; letter-spacing: -0.01em; }
 .doc h2:first-child, .doc h3:first-child { margin-top: 0; }
 .doc h3 { color: var(--text); font-size: 13.5px; font-weight: 600; margin: 15px 0 6px; letter-spacing: 0; }
