@@ -412,9 +412,8 @@ The **Settings** button in the sidebar footer, next to **Log out**, opens an app
 Unlike the tabs above it, nothing here is per-server.
 
 ## Appearance
-The **accent color** used across the console, for selection, links, focus rings, and active state. Pick a
-swatch, dial in a **custom** color, or **Reset** to the default blue. It's saved on this device, so
-everyone who signs in can pick their own.
+**Size** scales the whole console — text, controls, charts and all — the way your browser's zoom does.
+Pick 100%, 110% or 125%. It's saved on this device, so everyone who signs in can set their own.
 
 ## Bot
 The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this
