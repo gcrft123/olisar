@@ -878,7 +878,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
         <span className="weblink-label">{tunnel.running ? 'Open from the web' : 'Reconnecting…'}</span>
       </div>
       <div className="weblink-row">
-        <a href={url} target="_blank" rel="noreferrer" data-tip={url}>{host}</a>
+        <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${url} in a new tab`}>{host}</a>
         <button className="ghost icon-btn sm" onClick={copy} data-tip="Copy link" aria-label="Copy link">
           {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>

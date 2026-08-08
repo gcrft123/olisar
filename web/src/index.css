@@ -1742,7 +1742,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .riskmeter-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .rm-score { font-family: var(--mono); font-weight: 600; font-size: 52px; line-height: 1; color: var(--rm); font-variant-numeric: tabular-nums; }
 .rm-of { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 3px; }
-.rm-label { font-size: 10px; letter-spacing: 0.3em; color: var(--text-3); margin-top: 9px; }
+.rm-label { font-size: 11px; letter-spacing: 0.24em; color: var(--text-3); margin-top: 9px; }
 .riskmeter.danger { animation: rmPulse 2.6s ease-in-out infinite; }
 @keyframes rmPulse { 0%, 100% { filter: none; } 50% { filter: brightness(1.07); } }
 
@@ -1820,7 +1820,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .risk-pill.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .risk-pill.danger { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .dev-perms { max-width: 220px; }
-.dev-perms .tag { margin: 1px 3px 1px 0; font-size: 10.5px; }
+.dev-perms .tag { margin: 1px 3px 1px 0; font-size: 11px; }
 /* Stay a normal table cell (keeps the row's vertical-align: middle); space the icon
    buttons with margins since JSX strips the whitespace between them. */
 .dev-row-actions { white-space: nowrap; text-align: right; }
@@ -2055,7 +2055,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
   display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 18px;
   padding: 0 5px; border-radius: var(--radius-pill);
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-3);
-  font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .dev-tab.active .dev-tab-count { color: var(--text-2); border-color: var(--border-strong); }
 
