@@ -356,6 +356,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    gains empty space below so it matches the taller one beside it. */
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .cols2 .card, .grid2 > .card { margin: 0; min-width: 0; }
+/* The grid zeroes its children's margins because `gap` owns the spacing inside it — but the
+   grid itself still has to carry the card rhythm, or the next card butts straight against
+   the columns above with no gap at all. */
+.cols2, .grid2 { margin-bottom: 14px; }
 @media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
@@ -447,7 +451,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    the confirm dialog, which is where the decision is actually made. Set apart from the
    content above rather than continuing the 14px card rhythm. */
 .danger-zone {
-  margin-top: 34px;
+  /* One clear step above the 14px card rhythm — enough to read as set apart from the page's
+     ordinary content, not so much that it looks detached from it. (Margins collapse with the
+     preceding card's 14px, so this value is the gap.) */
+  margin-top: 24px;
   border-color: color-mix(in srgb, var(--danger) 22%, transparent);
   background: color-mix(in srgb, var(--danger) 4%, var(--panel));
 }
