@@ -315,7 +315,6 @@ export function SetupWizard(
         {settingsOpen && (
           <SettingsModal
             sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
-            botSwitcherOnly
             onClose={() => setSettingsOpen(false)}
           />
         )}

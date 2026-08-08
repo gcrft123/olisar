@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
 import { Icon, type IconName } from './icons'
@@ -187,7 +187,7 @@ export default function App() {
     messages: <Messages />,
     channels: <Channels />,
     access: <Access />,
-    knowledge: <Knowledge />,
+    knowledge: <Knowledge serverName={current.name} />,
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
     keys: <ApiKeys />,
@@ -197,9 +197,12 @@ export default function App() {
   }
   // The Developer tab only appears for whitelisted platform developers; Docs always sits
   // last in the rail, below Developer.
-  const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName }
+  // Everything above the rule configures this server; Developer and Docs don't. A hairline
+  // rather than named groups — eleven items don't need taxonomy, but the two items that
+  // aren't configuration shouldn't sit in the same run as the nine that are.
+  const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName, rule: true }
   const nav = isDev
-    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName }, docsNav]
+    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
     : [...NAV, docsNav]
 
   // A banned account is locked out of the console entirely (re-checked every poll).
@@ -233,12 +236,14 @@ export default function App() {
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
         <nav aria-label="Console sections">
-        {nav.map((n) => {
+        {nav.map((n, i) => {
           const Glyph = Icon[n.ic]
           const active = tab === n.id
+          const firstAfterRule = (n as any).rule && !(nav[i - 1] as any)?.rule
           return (
+            <React.Fragment key={n.id}>
+            {firstAfterRule && <div className="nav-rule" role="separator" />}
             <div
-              key={n.id}
               className={'nav-item' + (active ? ' active' : '')}
               role="button"
               tabIndex={0}
@@ -250,6 +255,7 @@ export default function App() {
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}
             </div>
+            </React.Fragment>
           )
         })}
         </nav>
@@ -358,7 +364,6 @@ function Login() {
       {settingsOpen && (
         <SettingsModal
           sections={['appearance', 'bot', 'updates', 'desktop', 'feedback']}
-          botSwitcherOnly
           onClose={() => setSettingsOpen(false)}
         />
       )}

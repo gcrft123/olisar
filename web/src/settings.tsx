@@ -20,11 +20,10 @@ const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
 ]
 
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
-// gears show a subset. `botSwitcherOnly` renders just the bot switcher under Bot (no
-// per-server "Clear memory" danger zone, which needs a configured server).
+// gears show a subset.
 export function SettingsModal(
-  { onClose, sections, botSwitcherOnly }:
-  { onClose: () => void; sections?: SectionId[]; botSwitcherOnly?: boolean },
+  { onClose, sections }:
+  { onClose: () => void; sections?: SectionId[] },
 ) {
   const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
   const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'appearance')
@@ -51,7 +50,7 @@ export function SettingsModal(
             <CloseX size={18} />
           </button>
           {section === 'appearance' && <Appearance />}
-          {section === 'bot' && (botSwitcherOnly ? <BotSwitcher /> : <Bot />)}
+          {section === 'bot' && <Bot />}
           {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
@@ -478,50 +477,11 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
 }
 
 // ── Bot (switcher + what Olisar remembers for the active server) ───────────────
+// The Bot section is the bot switcher. "Clear memory" used to hang off the bottom of it,
+// but it is per-*server* destruction sitting in a per-install modal with no server named
+// anywhere on screen — it now lives on Knowledge, under the things it erases.
 function Bot() {
-  const [busy, setBusy] = useState(false)
-  const clearMemory = async () => {
-    const ok = await confirmDialog({
-      tone: 'danger',
-      title: 'Clear memory',
-      message: (
-        <>
-          This erases everything Olisar has learned about this server: conversation memory, summaries, the
-          search index, remembered facts, the glossary, usage stats, its read on each member, and the
-          knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
-          <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
-        </>
-      ),
-      requirePhrase: { phrase: 'clear olisar memory' },
-      confirmLabel: 'Clear memory',
-    })
-    if (!ok) return
-    setBusy(true)
-    try {
-      const r = await api.clearMemory()
-      const c = (r && r.counts) || {}
-      toast(`Memory cleared. Forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
-    } catch (e: any) {
-      toast(e?.message || 'Couldn’t clear memory', 'danger')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <>
-      <BotSwitcher />
-      <div className="settings-subhead">Danger zone</div>
-      <div className="settings-row between">
-        <div>
-          <div className="opt-label">Clear memory</div>
-          <div className="settings-muted">Erase everything the active bot has learned about this server. It keeps its persona and your settings. This can't be undone.</div>
-        </div>
-        <button className="danger" onClick={clearMemory} disabled={busy}>
-          {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
-        </button>
-      </div>
-    </>
-  )
+  return <BotSwitcher />
 }
 
 // ── Appearance ──────────────────────────────────────────────────────────────
