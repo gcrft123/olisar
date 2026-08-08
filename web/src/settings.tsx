@@ -4,7 +4,7 @@ import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
-import { ACCENTS, DEFAULT_ACCENT, SCALES, getAccent, getScale, setAccent, setScale } from './theme'
+import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
@@ -526,45 +526,9 @@ function Bot() {
 
 // ── Appearance ──────────────────────────────────────────────────────────────
 function Appearance() {
-  const [accent, setAccentState] = useState(getAccent())
-  // What the picker asked for, so we can say when it wasn't what got applied.
-  const [asked, setAsked] = useState('')
-  const pick = (c: string) => { const applied = setAccent(c); setAsked(c); setAccentState(applied) }
-  const lifted = !!asked && asked.toLowerCase() !== accent.toLowerCase()
   return (
     <>
-      <Head title="Appearance" sub="Saved on this device, so everyone who signs in can pick their own." />
-      <div className="swatches">
-        {ACCENTS.map((a) => (
-          <button
-            key={a.value}
-            className={'swatch' + (accent.toLowerCase() === a.value.toLowerCase() ? ' active' : '')}
-            style={{ background: a.value }}
-            aria-label={a.name}
-            aria-pressed={accent.toLowerCase() === a.value.toLowerCase()}
-            title={a.name}
-            onClick={() => pick(a.value)}
-          >
-            {accent.toLowerCase() === a.value.toLowerCase() && <Icon.check size={15} weight="Bold" />}
-          </button>
-        ))}
-      </div>
-      <div className="settings-row">
-        <label className="custom-color">
-          <input type="color" value={accent} onChange={(e) => pick(e.target.value)} />
-          <span>Custom — {accent}</span>
-        </label>
-        <button className="ghost" onClick={() => { setAsked(''); pick(DEFAULT_ACCENT) }} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
-          Reset
-        </button>
-      </div>
-      {lifted && (
-        <p className="settings-foot">
-          {asked} was too dark to read against the console background, so it was lightened to {accent}.
-          The accent colours links, focus rings, and charts.
-        </p>
-      )}
-
+      <Head title="Appearance" sub="Saved on this device, so everyone who signs in sets their own." />
       <div className="settings-subhead">Size</div>
       <div className="settings-row">
         <SizeChoice />

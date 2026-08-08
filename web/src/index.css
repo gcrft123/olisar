@@ -46,17 +46,16 @@
      everywhere it was used. #7f7f8a measures 5.09 / 4.70. */
   --text-3: #7f7f8a;
 
-  /* The one accent (re-tinted at runtime from theme.ts; drives --accent-soft + the glow).
-     Default is Blue; theme.ts overrides per-browser on load. */
+  /* The one accent. Fixed, not user-switchable: colour carries state here, and a picker
+     that could land on --ok / --warn / --danger made an enabled toggle read as an error. */
   --accent: #5b9cf6;
   --accent-soft: rgba(91, 156, 246, 0.16);
-  --glow-a: rgba(91, 156, 246, 0.18);  /* ambient background blobs */
-  --glow-b: rgba(91, 156, 246, 0.10);
 
-  /* Selectable accent hues */
-  --accent-violet: #8a8af2; --accent-iris: #7c6cf0; --accent-blue: #5b9cf6;
+  /* Chart series palette (.us0–.us5) and the marketplace publisher chip. Distinct hues
+     for categorical data — never UI state, which is what the semantic tokens below are. */
+  --accent-violet: #8a8af2; --accent-blue: #5b9cf6;
   --accent-teal: #2dd4bf;   --accent-green: #43cf8e; --accent-amber: #e0a458;
-  --accent-rose: #f2728a;   --accent-red: #ff6369;
+  --accent-rose: #f2728a;
 
   /* "Primary" action surface — a bright neutral, NOT the accent. One per view. */
   --primary-bg: #ededee;
@@ -67,7 +66,9 @@
   --ok: #43cf8e;     --ok-soft: rgba(67, 207, 142, 0.14);   --ok-border: rgba(67, 207, 142, 0.34);
   --danger: #ff6369; --danger-soft: rgba(255, 99, 105, 0.13); --danger-border: rgba(255, 99, 105, 0.34);
   --warn: #e3a13a;   --warn-soft: rgba(227, 161, 58, 0.14);  --warn-border: rgba(227, 161, 58, 0.34);
-  --info: #5b9cf6;   --info-soft: rgba(91, 156, 246, 0.14);  --info-border: rgba(91, 156, 246, 0.34);
+  /* Sky, not the accent's periwinkle. These were byte-identical (#5b9cf6) — survivable
+     while the accent was switchable, permanent once it wasn't. ΔE 32 apart now. */
+  --info: #5fc4f2;   --info-soft: rgba(95, 196, 242, 0.14); --info-border: rgba(95, 196, 242, 0.34);
   --neutral: #9d9da7; --neutral-soft: rgba(157, 157, 167, 0.12); --neutral-border: rgba(157, 157, 167, 0.28);
   --success: var(--ok); --error: var(--danger); --warning: var(--warn);
 
@@ -119,47 +120,6 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 ::selection { background: var(--accent-soft); }
-
-/* ── Ambient background glow ─────────────────────────────────────────────── */
-/* Two large, very soft accent blobs that drift slowly behind everything. They sit
-   above the flat --bg fill but below all content (z-index: -1), so they show through
-   the transparent gutters of .main and fill the login / setup screens. Kept low-alpha
-   and slow on purpose — atmosphere, not decoration. */
-body::before,
-body::after {
-  content: "";
-  position: fixed;
-  z-index: -1;
-  pointer-events: none;
-  filter: blur(56px);
-  /* No `will-change`: the transform animation promotes these anyway, and the hint kept two
-     blurred layers on the compositor for the whole session, on every page, animating or not.
-     The vw sizes are capped too — unclamped, 54vw is a ~2070px blurred square on a 4K
-     display, and there are two of them behind every view. */
-}
-body::before {
-  width: min(54vw, 860px); height: min(54vw, 860px);
-  top: -16vw; left: 4vw;
-  background: radial-gradient(circle, var(--glow-a), transparent 60%);
-  animation: glow-a 28s ease-in-out infinite alternate;
-}
-body::after {
-  width: min(48vw, 760px); height: min(48vw, 760px);
-  bottom: -18vw; right: -6vw;
-  background: radial-gradient(circle, var(--glow-b), transparent 60%);
-  animation: glow-b 36s ease-in-out infinite alternate;
-}
-@keyframes glow-a {
-  from { transform: translate3d(0, 0, 0) scale(1);      opacity: 0.65; }
-  to   { transform: translate3d(6vw, 4vw, 0) scale(1.18); opacity: 1; }
-}
-@keyframes glow-b {
-  from { transform: translate3d(0, 0, 0) scale(1.12);   opacity: 0.55; }
-  to   { transform: translate3d(-5vw, -4vw, 0) scale(1); opacity: 0.9; }
-}
-@media (prefers-reduced-motion: reduce) {
-  body::before, body::after { animation: none; }
-}
 
 /* ── Scrollbars: slim, floating, no chrome ──────────────────────────────── */
 * {
@@ -1224,17 +1184,6 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .settings-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
 .settings-row.end { justify-content: flex-end; }
 .settings-row.between { justify-content: space-between; align-items: flex-start; }
-
-/* Appearance */
-.swatches { display: flex; flex-wrap: wrap; gap: 11px; }
-.swatch {
-  width: 38px; height: 38px; border-radius: 50%; padding: 0; cursor: pointer;
-  border: 2px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center;
-  color: #fff;
-}
-.swatch.active { border-color: var(--text); box-shadow: 0 0 0 3px var(--bg-inset); }
-.custom-color { display: inline-flex; align-items: center; gap: 9px; color: var(--text-2); font-size: 13px; cursor: pointer; }
-.custom-color input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-xs); background: none; cursor: pointer; }
 
 /* Log views */
 .logview {
