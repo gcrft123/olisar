@@ -144,7 +144,6 @@ class TunnelEnableIn(BaseModel):
 class ConfigIn(BaseModel):
     name_triggers: list[str] | None = None
     reply_in_dms: bool | None = None
-    loose_msg_enabled: bool | None = None
     default_model: str | None = None
     grounding_enabled: bool | None = None
     grounding_daily_cap: int | None = None
