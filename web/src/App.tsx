@@ -507,10 +507,19 @@ function BotPower() {
   // before the early return below, or the hook order changes when the card appears.)
   const didPowerDown = useRef(false)
 
+  const [cooling, setCooling] = useState(false)
   const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
   // 5s is the right cadence while the operator is watching a power cycle land, but this ran
   // forever, on every tab, backgrounded or not — 12 requests a minute for a status dot.
   usePoll(pull, 5000)
+  // "Online" isn't the whole truth: a bot that has exhausted a model's free-tier quota is
+  // connected and silent. The rate limiter already reports that per model, so surface it
+  // here rather than only on the Usage page, which is tab ten.
+  usePoll(() => {
+    api.getUsageLive()
+      .then((d: any) => setCooling(((d?.models) || []).some((m: any) => m.cooldown)))
+      .catch(() => {})
+  }, 15000)
 
   if (st && st.available && st.can_power) seen.current = true
   if (!st || !seen.current) return null
@@ -552,15 +561,19 @@ function BotPower() {
     if (offline) powerUp()
   }
 
+  // Up but resting a rate-limited model is its own state - neither healthy nor broken.
+  const limited = online && cooling
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
-    : starting ? 'starting' : online ? 'online' : 'offline'
+    : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
     : starting ? 'Starting up…'
+    : limited ? 'Rate-limited'
     : online ? 'Bot online' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
+    : limited ? 'resting a model — see Usage'
     : online ? 'hold to power down'
-    : offline ? 'tap to power on' : ' '
+    : offline ? 'tap to power on' : ' '
 
   return (
     <div className={'botpower ' + cls}>

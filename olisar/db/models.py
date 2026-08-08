@@ -338,6 +338,9 @@ class UserProfile(Base):
     user_id: Mapped[int] = mapped_column(BigInteger, index=True)
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
     display_name: Mapped[str] = mapped_column(String(128), default="")
+    # Resolved CDN URL, not a hash — same shape and same reason as Guild.icon: the
+    # dashboard renders it directly and the bot is the only thing that can see it.
+    avatar: Mapped[str] = mapped_column(String(256), default="")
     # Snapshot of the member's Discord roles, kept fresh by the members cog.
     # Stored as [{"id": "<snowflake-as-str>", "name": "..."}] — strings so JSON
     # consumers (the dashboard) don't lose precision on 64-bit ids.
