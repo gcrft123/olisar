@@ -4,27 +4,63 @@ import { Icon } from './icons'
 export function Card(props: { title?: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card">
-      {props.title && <h3>{props.title}</h3>}
+      {/* h2, not h3: the page's <h1> is the only heading above it, and a level skip is a
+          1.3.1 failure that also breaks heading-jump navigation. */}
+      {props.title && <h2>{props.title}</h2>}
       {props.hint && <div className="hint">{props.hint}</div>}
       {props.children}
     </div>
   )
 }
 
-export function Field(props: { label: string; desc?: React.ReactNode; children: React.ReactNode }) {
+// A field's label, description, and control are three siblings, so the label can't wrap the
+// control — it has to point at it. Field mints one id per instance and hands it down; the
+// primitives below claim it. Without this every input in the console is an unnamed edit box
+// to a screen reader, and clicking a label doesn't focus its input.
+type FieldIds = { id: string; labelId: string; descId?: string }
+const FieldCtx = React.createContext<FieldIds | null>(null)
+
+/** The ids of the enclosing <Field>, for a hand-rolled control that isn't one of the
+ *  primitives below. Returns null outside a Field. */
+export function useFieldIds(): FieldIds | null {
+  return React.useContext(FieldCtx)
+}
+
+// Wire a control to its Field: the label names it, the description describes it. Outside a
+// Field (a bare filter box, a toolbar search) fall back to the caller's own aria-label.
+function labelled(f: FieldIds | null, ariaLabel?: string) {
+  return {
+    id: f?.id,
+    'aria-labelledby': f ? f.labelId : undefined,
+    'aria-label': f ? undefined : ariaLabel,
+    'aria-describedby': f?.descId,
+  }
+}
+
+export function Field(
+  props: { label: string; desc?: React.ReactNode; children: React.ReactNode; plain?: boolean },
+) {
+  const uid = React.useId()
+  const ids: FieldIds = { id: `${uid}c`, labelId: `${uid}l`, descId: props.desc ? `${uid}d` : undefined }
   return (
-    <div className="field">
-      <label>{props.label}</label>
-      {props.desc && <div className="desc">{props.desc}</div>}
-      {props.children}
-    </div>
+    <FieldCtx.Provider value={ids}>
+      <div className="field">
+        {props.plain
+          ? <div className="flabel" id={ids.labelId}>{props.label}</div>
+          : <label id={ids.labelId} htmlFor={ids.id}>{props.label}</label>}
+        {props.desc && <div className="desc" id={ids.descId}>{props.desc}</div>}
+        {props.children}
+      </div>
+    </FieldCtx.Provider>
   )
 }
 
-export function Text(props: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
+export function Text(props: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean; ariaLabel?: string }) {
+  const f = useFieldIds()
   return (
     <input
       type="text"
+      {...labelled(f, props.ariaLabel)}
       className={props.mono ? 'mono' : ''}
       value={props.value ?? ''}
       placeholder={props.placeholder}
@@ -33,20 +69,29 @@ export function Text(props: { value: string; onChange: (v: string) => void; plac
   )
 }
 
-export function Area(props: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; maxLength?: number }) {
+export function Area(props: { value: string; onChange: (v: string) => void; rows?: number; placeholder?: string; maxLength?: number; ariaLabel?: string }) {
+  const f = useFieldIds()
   const ref = React.useRef<HTMLTextAreaElement>(null)
   // Auto-grow to fit content (no manual resize handle) — reset to auto first so it
-  // shrinks back when text is removed, then size to the scroll height + border.
+  // shrinks back when text is removed, then size to the scroll height + border. Reading
+  // scrollHeight right after writing height forces a synchronous reflow, so coalesce it
+  // into one frame rather than paying for it on every keystroke.
+  const frame = React.useRef(0)
   const grow = React.useCallback(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = el.scrollHeight + (el.offsetHeight - el.clientHeight) + 'px'
+    cancelAnimationFrame(frame.current)
+    frame.current = requestAnimationFrame(() => {
+      const el = ref.current
+      if (!el) return
+      el.style.height = 'auto'
+      el.style.height = el.scrollHeight + (el.offsetHeight - el.clientHeight) + 'px'
+    })
   }, [])
   React.useEffect(() => { grow() }, [props.value, grow])
+  React.useEffect(() => () => cancelAnimationFrame(frame.current), [])
   return (
     <textarea
       ref={ref}
+      {...labelled(f, props.ariaLabel)}
       rows={props.rows ?? 3}
       value={props.value ?? ''}
       placeholder={props.placeholder}
@@ -57,10 +102,12 @@ export function Area(props: { value: string; onChange: (v: string) => void; rows
   )
 }
 
-export function Num(props: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number }) {
+export function Num(props: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; ariaLabel?: string }) {
+  const f = useFieldIds()
   return (
     <input
       type="number"
+      {...labelled(f, props.ariaLabel)}
       value={props.value ?? 0}
       min={props.min}
       max={props.max}
@@ -70,9 +117,10 @@ export function Num(props: { value: number; onChange: (v: number) => void; min?:
   )
 }
 
-export function Select(props: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
+export function Select(props: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel?: string }) {
+  const f = useFieldIds()
   return (
-    <select value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+    <select {...labelled(f, props.ariaLabel)} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
       {props.options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
@@ -80,7 +128,11 @@ export function Select(props: { value: string; onChange: (v: string) => void; op
   )
 }
 
-export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string; disabled?: boolean }) {
+// A switch is a div, so it can't be the target of a <label for>; it takes the Field's label
+// by reference instead. Standalone toggles (no Field, no visible `label`) MUST pass
+// `ariaLabel` — otherwise the control announces as "switch, on" with no subject.
+export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string; disabled?: boolean }) {
+  const f = useFieldIds()
   const dis = !!props.disabled
   return (
     <div
@@ -88,6 +140,9 @@ export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; 
       role="switch"
       aria-checked={props.value}
       aria-disabled={dis}
+      aria-label={props.label ? undefined : (props.ariaLabel ?? undefined)}
+      aria-labelledby={!props.label && !props.ariaLabel && f ? f.labelId : undefined}
+      aria-describedby={f?.descId}
       tabIndex={dis ? -1 : 0}
       onClick={() => { if (!dis) props.onChange(!props.value) }}
       onKeyDown={(e) => {
@@ -151,7 +206,12 @@ export function useEditable<T>(loader: () => Promise<T>, deps: any[] = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
   React.useEffect(() => { reload() }, [reload])
-  const dirty = data != null && JSON.stringify(data) !== base.current
+  // Memoized on `data`: this used to re-serialize the whole page state on every render, so
+  // typing one character into a filter box re-stringified every channel, role or extension row.
+  const dirty = React.useMemo(
+    () => data != null && JSON.stringify(data) !== base.current,
+    [data],
+  )
   return {
     data, setData, loading, reload, dirty,
     reset: () => { if (base.current) setData(JSON.parse(base.current)) },
@@ -390,16 +450,18 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
     }
 
     if (!line) { flushList(k); flushPara(k); i++; continue }
+    // ## / ### map to h2 / h3: the doc page's own title is the h1, so ## must be the next
+    // level down. Rendering it as h3 skipped a level on every documentation page.
     if (line.startsWith('### ')) {
       flushList(k); flushPara(k)
       const t = line.slice(4)
-      out.push(<h4 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h4>)
+      out.push(<h3 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h3>)
       i++; continue
     }
     if (line.startsWith('## ')) {
       flushList(k); flushPara(k)
       const t = line.slice(3)
-      out.push(<h3 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h3>)
+      out.push(<h2 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h2>)
       i++; continue
     }
     if (line.startsWith('- ')) { flushPara(k); list.push(line.slice(2)); i++; continue }
@@ -412,6 +474,74 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
 
 export function Markdown(props: { md: string; onDocLink?: (id: string) => void }) {
   return <div className="doc">{renderBlocks(props.md.trim().split('\n'), '', props.onDocLink)}</div>
+}
+
+// One page throwing used to unmount the whole console — sidebar, navigation and the toast
+// host with it — leaving a blank window and no way back but a reload. The backend and this
+// frontend update independently, so a payload that drifted shape is a real case, not a
+// hypothetical. Keep the shell up and let the operator retry or move to another tab.
+export class PageBoundary extends React.Component<
+  { children: React.ReactNode; onReset?: () => void },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error) { console.error('[olisar] page render failed', error) }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <>
+        <div className="page-head">
+          <div className="title-row">
+            <div className="title-ic"><Icon.warn size={19} weight="Linear" /></div>
+            <h1>This page didn't load</h1>
+          </div>
+          <p>The rest of the console still works — pick another tab, or try this one again.</p>
+        </div>
+        <div className="card">
+          <div className="callout danger">
+            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">
+              <div className="callout-title">{this.state.error.name}</div>
+              {this.state.error.message || 'No further detail.'}
+            </div>
+          </div>
+          <div className="savebar">
+            <button className="primary" onClick={() => { this.setState({ error: null }); this.props.onReset?.() }}>
+              <Icon.refresh size={14} /> Try again
+            </button>
+          </div>
+        </div>
+      </>
+    )
+  }
+}
+
+/**
+ * Poll `load` every `everyMs`, but only while the tab is actually being looked at.
+ *
+ * The console used to run five independent `setInterval`s — bot status every 5s, tunnel and
+ * moderation standing every 20s, live usage every 4s, re-index every 3.5s — none of which
+ * stopped when the window went to the background. A console left open in a tab kept the
+ * backend busy indefinitely, and in server-hosting mode each poll is an SSH round-trip.
+ *
+ * Hidden tab: nothing runs, and the first poll fires immediately on return. `active: false`
+ * (e.g. the re-index finished) stops it entirely without unmounting the caller.
+ */
+export function usePoll(load: () => void, everyMs: number, active = true) {
+  const latest = React.useRef(load)
+  latest.current = load
+  React.useEffect(() => {
+    if (!active) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const tick = () => { latest.current(); timer = setTimeout(tick, everyMs) }
+    const start = () => { if (timer === undefined) tick() }
+    const stop = () => { clearTimeout(timer); timer = undefined }
+    const onVisible = () => (document.hidden ? stop() : start())
+    if (!document.hidden) start()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisible) }
+  }, [everyMs, active])
 }
 
 export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {

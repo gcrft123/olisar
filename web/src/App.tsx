@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
-import { toast } from './overlays'
+import { Modal, toast } from './overlays'
 import { Icon, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
@@ -9,6 +9,7 @@ import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SettingsModal } from './settings'
+import { PageBoundary, usePoll } from './ui'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -40,10 +41,22 @@ export default function App() {
   const [isDev, setIsDev] = useState(false)
   const [standing, setStanding] = useState<{ status: string; message?: string; acknowledged?: boolean } | null>(null)
   const [warnDismissed, setWarnDismissed] = useState(false)
+  // Below 860px the rail is a drawer rather than a column (see index.css).
+  const [navOpen, setNavOpen] = useState(false)
 
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
   useEffect(() => { setOnUnauthorized(() => setAuth('out')) }, [])
+
+  useEffect(() => {
+    if (!navOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    const wide = window.matchMedia('(min-width: 861px)')
+    const onWide = () => { if (wide.matches) setNavOpen(false) }
+    window.addEventListener('keydown', onKey)
+    wide.addEventListener('change', onWide)
+    return () => { window.removeEventListener('keydown', onKey); wide.removeEventListener('change', onWide) }
+  }, [navOpen])
 
   // Landing back from the marketplace Discord-verification round-trip.
   useEffect(() => {
@@ -77,15 +90,13 @@ export default function App() {
   // web link. Polled lightly since the operator can toggle it from the menu-bar tray.
   useEffect(() => {
     if (auth !== 'in') return
-    let alive = true
-    const pull = () => api.tunnelStatus().then((t: TunnelInfo) => { if (alive) setTunnel(t) }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 20000)
     // Refresh immediately when the funnel is toggled from Settings, so the sidebar
     // card flips on/off right away instead of waiting for the next poll.
+    const pull = () => api.tunnelStatus().then(setTunnel).catch(() => {})
     window.addEventListener('olisar:tunnel-changed', pull)
-    return () => { alive = false; clearInterval(id); window.removeEventListener('olisar:tunnel-changed', pull) }
+    return () => window.removeEventListener('olisar:tunnel-changed', pull)
   }, [auth])
+  usePoll(() => { api.tunnelStatus().then(setTunnel).catch(() => {}) }, 20000, auth === 'in')
 
   // Is this operator a whitelisted platform developer? Gates the Developer tab.
   useEffect(() => {
@@ -95,14 +106,7 @@ export default function App() {
 
   // Poll the operator's own moderation standing — a ban locks the console, a warning shows
   // once. Checked continuously (not just at login), so it takes effect within ~a poll.
-  useEffect(() => {
-    if (auth !== 'in') return
-    let alive = true
-    const pull = () => api.devStanding().then((s) => { if (alive) setStanding(s) }).catch(() => {})
-    pull()
-    const id = setInterval(pull, 20000)
-    return () => { alive = false; clearInterval(id) }
-  }, [auth])
+  usePoll(() => { api.devStanding().then(setStanding).catch(() => {}) }, 20000, auth === 'in')
 
   useEffect(() => {
     if (auth !== 'in') return
@@ -178,7 +182,19 @@ export default function App() {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      {/* ~16 controls sit between the top of the page and the content on every tab. */}
+      <a className="skip-link" href="#console-main">Skip to content</a>
+      {/* Narrow widths only — CSS hides it once the rail is back in the flow. */}
+      <header className="topbar">
+        <button className="ghost icon-btn sm" aria-label="Open navigation" aria-expanded={navOpen}
+          aria-controls="console-nav" onClick={() => setNavOpen(true)}>
+          <Icon.menu size={18} />
+        </button>
+        <img className="brand-logo" src="/logo.png" alt="" />
+        <span className="name">Olisar</span>
+      </header>
+      <div className={'nav-backdrop' + (navOpen ? ' open' : '')} onClick={() => setNavOpen(false)} aria-hidden="true" />
+      <aside id="console-nav" className={'sidebar' + (navOpen ? ' open' : '')}>
         <div className="brand">
           <img className="brand-logo" src="/logo.png" alt="Olisar" />
           <div>
@@ -189,6 +205,7 @@ export default function App() {
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
+        <nav aria-label="Console sections">
         {nav.map((n) => {
           const Glyph = Icon[n.ic]
           const active = tab === n.id
@@ -200,14 +217,15 @@ export default function App() {
               tabIndex={0}
               data-tab={n.id}
               aria-current={active ? 'page' : undefined}
-              onClick={() => setTab(n.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id) } }}
+              onClick={() => { setTab(n.id); setNavOpen(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id); setNavOpen(false) } }}
             >
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}
             </div>
           )
         })}
+        </nav>
         <div className="spacer" />
         <div className="sidebar-foot">
           <BotPower />
@@ -237,7 +255,10 @@ export default function App() {
         />
       )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
-      <main key={guild ?? ''} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>{pages[tab]}</main>
+      <main key={guild ?? ''} id="console-main" className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
+        {/* Keyed by tab too, so moving to another page clears a failed one. */}
+        <PageBoundary key={tab}>{pages[tab]}</PageBoundary>
+      </main>
     </div>
   )
 }
@@ -382,10 +403,10 @@ function Banned(props: { message?: string; onLogout: () => void }) {
 
 // A one-time warning notice (acknowledged on close, so it doesn't reappear).
 function WarnModal(props: { message?: string; onClose: () => void }) {
+  const titleId = useId()
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="import-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="settings-head"><h2>A note from the Olisar team</h2></div>
+    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose}>
+        <div className="settings-head"><h2 id={titleId}>A note from the Olisar team</h2></div>
         <div className="callout warning" style={{ marginTop: 4 }}>
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
@@ -393,8 +414,7 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
           </div>
         </div>
         <div className="import-foot"><button className="primary" onClick={props.onClose}>I understand</button></div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -461,13 +481,9 @@ function BotPower() {
   const didPowerDown = useRef(false)
 
   const pull = () => api.botStatus().then((s: BotState) => setSt(s)).catch(() => {})
-  useEffect(() => {
-    let alive = true
-    const tick = () => api.botStatus().then((s: BotState) => { if (alive) setSt(s) }).catch(() => {})
-    tick()
-    const id = setInterval(tick, 5000)
-    return () => { alive = false; clearInterval(id) }
-  }, [])
+  // 5s is the right cadence while the operator is watching a power cycle land, but this ran
+  // forever, on every tab, backgrounded or not — 12 requests a minute for a status dot.
+  usePoll(pull, 5000)
 
   if (st && st.available && st.can_power) seen.current = true
   if (!st || !seen.current) return null
@@ -523,6 +539,7 @@ function BotPower() {
     <div className={'botpower ' + cls}>
       <button
         className="power-btn"
+        aria-label={online ? 'Power the bot down (press and hold)' : offline ? 'Power the bot on' : label}
         disabled={busy}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}
@@ -580,8 +597,8 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
         <span className="weblink-label">{tunnel.running ? 'Open from the web' : 'Reconnecting…'}</span>
       </div>
       <div className="weblink-row">
-        <a href={url} target="_blank" rel="noreferrer" title={url}>{host}</a>
-        <button className="ghost icon-btn sm" onClick={copy} title="Copy link" aria-label="Copy link">
+        <a href={url} target="_blank" rel="noreferrer" data-tip={url}>{host}</a>
+        <button className="ghost icon-btn sm" onClick={copy} data-tip="Copy link" aria-label="Copy link">
           {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>
       </div>
