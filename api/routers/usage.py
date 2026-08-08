@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from api.auth.deps import require_admin
 from olisar.db.engine import session_scope
@@ -30,15 +30,25 @@ TPM_LIMIT = 1_000_000
 
 
 @router.get("/summary")
-async def summary(days: int = Query(7, ge=1, le=30), _: AdminUser = Depends(require_admin)):
+async def summary(days: int = Query(7, ge=0, le=3650), _: AdminUser = Depends(require_admin)):
     """Daily usage over the last ``days`` days: per-day requests/tokens (with per-model
     split), per-process request share, per-model totals + today's peak RPM, and today's
-    peaks. Everything the Usage page needs except the live per-minute snapshot."""
-    days = max(1, min(days, 30))
+    peaks. Everything the Usage page needs except the live per-minute snapshot.
+
+    ``days=0`` means all-time: the window starts at the earliest recorded day. A long
+    window is bucketed (weekly past ~10 weeks, monthly past ~2 years) so the response
+    stays a chart's worth of points rather than one row per day since install."""
+    all_time = days == 0
+    if not all_time:
+        days = max(1, min(days, 3650))
     today = datetime.now(timezone.utc).date()
-    start = today - timedelta(days=days - 1)
 
     async with session_scope() as session:
+        if all_time:
+            earliest = await session.scalar(select(func.min(GeminiUsage.day)))
+            start = earliest or today
+        else:
+            start = today - timedelta(days=days - 1)
         usage = (
             await session.scalars(select(GeminiUsage).where(GeminiUsage.day >= start))
         ).all()
@@ -48,6 +58,9 @@ async def summary(days: int = Query(7, ge=1, le=30), _: AdminUser = Depends(requ
         peaks = (
             await session.scalars(select(UsageMinutePeak).where(UsageMinutePeak.day >= start))
         ).all()
+
+    if all_time:
+        days = (today - start).days + 1
 
     # Zero-filled daily buckets, chronological, so the chart never has gaps.
     day_list = [start + timedelta(days=i) for i in range(days)]
@@ -109,8 +122,34 @@ async def summary(days: int = Query(7, ge=1, le=30), _: AdminUser = Depends(requ
         default=None,
     )
 
+    # Collapse a long window so the client gets a chart, not a ledger. Requests and tokens
+    # sum across the bucket; peak_tpm is a peak, so it takes the max.
+    series = [daily[d] for d in day_list]
+    step = 1 if days <= 70 else (7 if days <= 730 else 30)
+    if step > 1:
+        bucketed: list[dict] = []
+        for i in range(0, len(series), step):
+            chunk = series[i : i + step]
+            merged_models: dict[str, int] = {}
+            for c in chunk:
+                for name, n in c["by_model"].items():
+                    merged_models[name] = merged_models.get(name, 0) + n
+            bucketed.append({
+                "day": chunk[0]["day"],
+                "requests": sum(c["requests"] for c in chunk),
+                "tokens": sum(c["tokens"] for c in chunk),
+                "peak_tpm": max(c["peak_tpm"] for c in chunk),
+                "by_model": merged_models,
+            })
+        series = bucketed
+
     return {
         "window_days": days,
+        "all_time": all_time,
+        "start": start.isoformat(),
+        # 1 = one point per day, 7 = per week, 30 = per month. The axis labels itself
+        # from this rather than guessing from the point count.
+        "bucket_days": step,
         "today": {
             "requests": today_bucket["requests"],
             "tokens": today_bucket["tokens"],
@@ -125,7 +164,7 @@ async def summary(days: int = Query(7, ge=1, le=30), _: AdminUser = Depends(requ
             "tpm": peak_by_day.get(today, 0),
             "tpm_limit": TPM_LIMIT,
         },
-        "daily": [daily[d] for d in day_list],
+        "daily": series,
         "by_model": by_model,
         "by_source": sorted(
             ({"source": k, "requests": v} for k, v in by_source.items()),
