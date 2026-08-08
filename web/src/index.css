@@ -264,7 +264,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 }
 .weblink-head { display: flex; align-items: center; gap: 7px; }
 .weblink-label {
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3);
 }
 .weblink .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
@@ -301,7 +301,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 }
 .botpower-text { min-width: 0; }
 .bp-status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--text); }
-.bp-hint { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+.bp-hint { font-size: 11px; color: var(--text-3); margin-top: 1px; }
 
 .botpower.online .power-btn { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); box-shadow: 0 0 0 3px var(--ok-soft); }
 
@@ -485,7 +485,10 @@ select { appearance: none; cursor: pointer;
 .row > * { flex: 1; min-width: 0; }   /* shrink to share — never let a wide row force its column wider */
 
 /* ── Toggle ─────────────────────────────────────────────────────────────── */
-.toggle { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; }
+/* The 38x22 track is the visible mark; the hit area is the whole row and gets the 24px
+   minimum (WCAG 2.5.8). Keeping the target bigger than the mark costs nothing visually
+   and is the difference between a comfortable tap and a near miss. */
+.toggle { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; min-height: 24px; }
 .toggle .track {
   width: 38px; height: 22px; border-radius: var(--radius-pill); background: var(--border-strong);
   position: relative; transition: background 0.16s; flex: none;
@@ -538,7 +541,11 @@ button.danger:hover { background: var(--danger-soft); border-color: transparent;
 button.caution { color: var(--warn); }
 button.caution:hover { background: var(--warn-soft); border-color: transparent; }
 button.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
-button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+/* `flex: none` because these are square by contract. As a flex child with the default
+   `flex-shrink: 1` the width is a suggestion: in the test-chat header the title pushed the
+   close button from 28px down to 20px at 390px — the control shrank precisely where the
+   target needs to be biggest. */
+button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; flex: none; }
 button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* Inline spinner for the "acting" button state (Saving…). */
@@ -632,7 +639,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .rolepop.right { left: auto; right: 0; }
 .rolepop.down { top: calc(100% + 8px); }
 .rolepop.up { bottom: calc(100% + 8px); }
-.rolepop-head { display: block; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+.rolepop-head { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
 .rolepop-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .member-impression { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin-top: 9px; }
 .member-none { color: var(--text-3); font-size: 12px; font-style: italic; margin-top: 9px; }
@@ -712,8 +719,12 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: flex; flex-direction: column; gap: 1px;
   max-height: calc(var(--vh) - 232px); overflow-y: auto; margin: 0 -4px; padding: 0 4px;
 }
+/* The system's eyebrow treatment, same as .chan-cat and the docs nav labels — 11px sans.
+   This was 10px mono at 0.09em: a third eyebrow style, below the type scale's floor, and
+   monospace worn as a costume on words like "Community" and "Games" that are neither code
+   nor data. */
 .ext-glabel {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3); padding: 13px 8px 5px;
 }
 .ext-glabel:first-child { padding-top: 2px; }
@@ -727,7 +738,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .ext-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: none; transition: background 0.16s; }
 .ext-item.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .ext-item .nm { flex: 1; min-width: 0; font-weight: 550; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ext-item .cust { font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); flex: none; }
+/* Marks a user-authored extension in the rail. Was 9px mono — the smallest type anywhere
+   in the console, three steps under the floor, for a word that is neither code nor a
+   number. Same eyebrow scale as everything else that labels rather than reads. */
+.ext-item .cust { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); flex: none; }
 .ext-empty-rail { color: var(--text-3); font-size: 12px; padding: 16px 10px; text-align: center; }
 @keyframes extIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ext-item { animation: none; } }
@@ -747,7 +761,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .ext-overview { text-align: center; color: var(--text-2); padding: 30px 16px; }
 .ext-stats { display: flex; justify-content: center; gap: 30px; margin-bottom: 20px; }
 .ext-stat .n { font-size: 24px; font-weight: 600; color: var(--text); line-height: 1; }
-.ext-stat .l { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.ext-stat .l { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 15px 16px; }

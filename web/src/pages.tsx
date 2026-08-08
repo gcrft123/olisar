@@ -122,6 +122,7 @@ function SandboxChat() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
           placeholder="Message Olisar…"
+          aria-label="Message Olisar"
           rows={2}
           disabled={busy}
         />
@@ -376,21 +377,38 @@ export function Messages() {
     <>
       <PageHead icon="messages" title="Command replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
       <div className="grid2">
-      {Object.keys(data).filter((key) => key !== 'privacy').map((key) => (
+      {Object.keys(data).filter((key) => key !== 'privacy').map((key) => {
+        // Read defensively: this page renders whatever `/api/messages` returns, and a key
+        // that arrives without `placeholders` used to take the whole page to the error
+        // boundary. The backend and this frontend ship independently.
+        const m = data[key] || {}
+        const placeholders: string[] = Array.isArray(m.placeholders) ? m.placeholders : []
+        const fallback = typeof m.default === 'string' ? m.default : ''
+        return (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
-          <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={2} placeholder={data[key].default} />
+          {/* The card title is the only thing naming this box, and a card title is not a
+              label — every one of these announced as an unnamed edit box, fourteen in a
+              row. A placeholder is not a name either; it's the default text. */}
+          <Area
+            value={edits[key] ?? ''}
+            onChange={(v) => setEdits({ ...edits, [key]: v })}
+            rows={2}
+            placeholder={fallback}
+            ariaLabel={`${MSG_LABELS[key] ?? key} — reply text`}
+          />
           {/* The effective message — your override if you've written one, otherwise the
               default that would actually be sent. Updates as you type. */}
           <DiscordPreview
             name={persona?.name || 'Olisar'}
             avatar={persona?.bot_avatar}
-            text={(edits[key] ?? '').trim() || data[key].default}
+            text={(edits[key] ?? '').trim() || fallback}
           />
-          {data[key].placeholders.length > 0 && (
-            <div className="placeholders">placeholders: {data[key].placeholders.map((p: string) => <code key={p}>{`{${p}}`} </code>)}</div>
+          {placeholders.length > 0 && (
+            <div className="placeholders">placeholders: {placeholders.map((p: string) => <code key={p}>{`{${p}}`} </code>)}</div>
           )}
         </Card>
-      ))}
+        )
+      })}
       </div>
       <SaveDock dirty={dirty} saver={saver} onReset={() => base.current && setEdits(JSON.parse(base.current))} />
     </>
@@ -2299,6 +2317,13 @@ export function ApiKeys() {
     setEdits({})
     reload()
   })
+  // Both of these must run before the loading return: a hook called only on the render
+  // where data has arrived is a different hook count than the render before it, which is
+  // a hard React crash rather than a degraded page. `edits` exists from the first render,
+  // so there is nothing to wait for.
+  const dirty = Object.values(edits).some((v) => v.trim() !== '')
+  useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
+
   if (loading || !data) return <Spinner />
   const set = (k: string, v: string) => setEdits({ ...edits, [k]: v })
   // Autofilled from the environment (local-only) unless the operator has edited the field.
@@ -2306,8 +2331,6 @@ export function ApiKeys() {
   const clear = async (k: string) => { await api.clearKey(k); reload() }
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
-  const dirty = Object.values(edits).some((v) => v.trim() !== '')
-  useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
 
   return (
     <>
