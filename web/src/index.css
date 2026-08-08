@@ -704,6 +704,20 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .disclosure-body { padding-top: 15px; }
 @media (prefers-reduced-motion: reduce) { .disclosure-chev { transition-duration: 0.4s; } }
 
+/* The access policy in one sentence, and a warning tint once it is a lock-out rather than
+   a preference — the difference between "some roles are set" and "everyone else is out". */
+.access-summary {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 15px;
+  color: var(--text-2); font-size: 12.5px; line-height: 1.5;
+}
+.access-summary.restrictive {
+  color: color-mix(in srgb, var(--warn) 24%, var(--text));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.access-summary.restrictive svg { color: var(--warn); flex: none; margin-top: 1px; }
+
 /* Keyboard reference (Settings → Appearance). */
 .shortcuts { margin: 0; display: flex; flex-direction: column; }
 .shortcut {

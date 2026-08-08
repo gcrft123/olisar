@@ -628,11 +628,18 @@ export function Access() {
   const rows = roles ?? []
   const term = q.trim().toLowerCase()
   const shown = term ? rows.filter((r) => (r.name || r.role_id).toLowerCase().includes(term)) : rows
+  // Naming the roles, not just the state. Marking one role allowed silently flips the whole
+  // server from open to locked, and the sentence that says so lived in a card ABOVE the rows
+  // — scrolled away by the time you were changing row four, with no live region, so a
+  // screen-reader user got no signal at all.
+  const namesOf = (ids: string[]) =>
+    ids.map((id) => rows.find((r: any) => String(r.role_id) === String(id))?.name).filter(Boolean).join(', ')
   const summary = allowed.length
-    ? 'Restricted: only allowed roles (and server admins) can use Olisar.'
+    ? `Restricted — only ${namesOf(allowed) || `${allowed.length} role(s)`} and server admins can use Olisar. Everyone else is locked out.`
     : blocked.length
-      ? 'Open except blocked: everyone can use Olisar except the blocked roles.'
+      ? `Open except ${namesOf(blocked) || `${blocked.length} blocked role(s)`} — everyone else can use Olisar.`
       : 'Open to everyone. No role restrictions are set.'
+  const restrictive = allowed.length > 0
 
   return (
     <>
@@ -643,7 +650,10 @@ export function Access() {
           <div><span className="tag">Blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
           <div><span className="tag">Open</span> unset — this role adds no restriction</div>
         </div>
-        <div className="hint">{summary}</div>
+        <div className={'access-summary' + (restrictive ? ' restrictive' : '')} role="status">
+          {restrictive && <Icon.warn size={15} weight="Bold" />}
+          <span>{summary}</span>
+        </div>
       </Card>
       <Card title={`Roles (${rows.length})`}>
         {rows.length === 0 ? (
