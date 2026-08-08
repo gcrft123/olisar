@@ -247,8 +247,21 @@ function ConfirmHost() {
   const [value, setValue] = useState('')
   const titleId = React.useId()
 
+  // One host serves every dialog, so a second `confirmDialog()` opened while the first is
+  // still up used to replace `state` wholesale — dropping the first `resolve` on the floor and
+  // leaving its `await` pending forever. In `leaveGuard` that means the navigation promise
+  // never settles and the guard is stuck. Two fast Back presses reach it. Settle the one
+  // being displaced as *cancelled*, which is the safe answer to a question nobody answered:
+  // it declines to proceed rather than discarding anything.
+  const current = React.useRef<{ opts: DialogOpts; resolve: (v: boolean | string | null) => void } | null>(null)
+  current.current = state
   useEffect(() => {
-    dialogShow = (opts, resolve) => { setValue(opts.prompt?.defaultValue ?? ''); setState({ opts, resolve }) }
+    dialogShow = (opts, resolve) => {
+      const prev = current.current
+      if (prev) prev.resolve(prev.opts.prompt ? null : false)
+      setValue(opts.prompt?.defaultValue ?? '')
+      setState({ opts, resolve })
+    }
     return () => { dialogShow = null }
   }, [])
 
