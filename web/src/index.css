@@ -2241,3 +2241,11 @@ input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: 
 /* The editor's validation/save line: always present so its live region announces. */
 .auth-status { display: flex; align-items: center; gap: 6px; min-height: 0; }
 .auth-status:empty { margin-top: 0; }
+
+/* A sortable column header is a control, so it is a real button — keyboard-reachable and
+   named — with the cell carrying aria-sort. */
+.th-sortbtn {
+  background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; width: 100%; text-align: inherit;
+}
+th.num .th-sortbtn { text-align: right; }

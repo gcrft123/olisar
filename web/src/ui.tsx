@@ -483,6 +483,20 @@ export function usePageActions(get: () => PageAction[]): void {
   }, [])
 }
 
+/**
+ * The console's one loading treatment. It lived privately in pages.tsx, so Settings grew a
+ * bare grey "Loading…" and the Developer page an `.empty` div — reintroducing the exact
+ * "no spinner reads as empty, not working" failure this component exists to prevent.
+ */
+export function Spinner({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="page-loading" role="status">
+      <span className="spinner" />
+      <span>{label}</span>
+    </div>
+  )
+}
+
 /** Register a dirty-flag source for a page that doesn't use `useEditable`. */
 export function useDirtyGuard(isDirty: () => boolean): void {
   const latest = React.useRef(isDirty)

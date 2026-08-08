@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Segmented, Select, Text, Toggle, hasDraft, useDraft } from './ui'
+import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
@@ -117,7 +117,7 @@ function Logs() {
           <Icon.refresh size={14} />
         </button>
       </div>
-      {loading ? <div className="settings-muted">Loading…</div>
+      {loading ? <Spinner />
         : err ? <div className="settings-err">{err}</div>
         : <pre className="srv-logs">{text || '(no logs)'}</pre>}
     </>
@@ -336,7 +336,7 @@ function BotSwitcher() {
   return (
     <>
       <Head title="Bots" sub="Each bot has its own token, settings, and memory. Only one runs on this machine at a time." />
-      {profiles === null ? <div className="settings-muted">Loading…</div> : (
+      {profiles === null ? <Spinner /> : (
         <div className="bot-list">
           {profiles.map((p) => {
             const isActive = p.id === activeId
@@ -627,7 +627,7 @@ function Remote() {
     <>
       <Head title="Remote access" sub="Reach this console from anywhere, over Tailscale." />
       {err && <div className="settings-err">{err}</div>}
-      {!data ? <div className="settings-muted">Loading…</div> : (
+      {!data ? <Spinner /> : (
         <>
           <div className="status-card">
             <span className={'dot' + (st?.running ? ' on' : ' warn')} />

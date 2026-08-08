@@ -5,7 +5,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
-import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Spinner, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -249,7 +249,11 @@ const MENTION_OPTS = [
   { value: 'roles', label: 'All roles' },
 ]
 export function Behavior() {
+  const [triggerText, setTriggerText] = useState<string | null>(null)
   const configEd = useEditable<any>(api.getConfig)
+  // Once the page is clean again (saved, reset or undone) the box should render the committed
+  // array, not the keystrokes that produced it.
+  useEffect(() => { if (!configEd.dirty) setTriggerText(null) }, [configEd.dirty])
   const modelsQ = useAsync<any[]>(api.models)
   const { data: models } = modelsQ
   const proEd = useEditable<any>(api.getProactivity)
@@ -279,7 +283,15 @@ export function Behavior() {
   const pro = proEd.data
   const set = (k: string, v: any) => configEd.setData({ ...data, [k]: v })
   const setP = (k: string, v: any) => proEd.setData({ ...pro, [k]: v })
-  const triggers = Array.isArray(data.name_triggers) ? data.name_triggers.join(', ') : data.name_triggers
+  // `data.name_triggers` must stay an array, because `dirty` is a JSON compare against the
+  // loaded baseline: writing the raw string back on the first keystroke changed the *type*,
+  // so the page reported unsaved changes forever — even after retyping the identical value —
+  // and the leave guard then fired on work identical to what was saved. That is exactly the
+  // "training the operator to click Discard" failure the guard exists to prevent.
+  //
+  // The input still needs to hold the literal text, or typing "oli, " would lose the comma
+  // the moment it round-tripped through the array. So: text here, array in the draft.
+  const triggers = triggerText ?? (Array.isArray(data.name_triggers) ? data.name_triggers.join(', ') : (data.name_triggers ?? ''))
   const modelOpts = (models ?? []).map((m) => ({ value: m.name, label: `${m.name} — ${m.label}` }))
   const qh = pro.quiet_hours || {}
   const quietOn = 'start' in qh
@@ -292,7 +304,11 @@ export function Behavior() {
         <div className="col">
       <Card title="Engagement" hint="When and where Olisar joins the conversation.">
         <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
-          <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
+          <Text
+            value={triggers}
+            onChange={(v) => { setTriggerText(v); set('name_triggers', v.split(',').map((t) => t.trim()).filter(Boolean)) }}
+            placeholder="olisar, oli"
+          />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
         {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
@@ -2870,7 +2886,13 @@ export function ApiKeys() {
 // ── Usage ───────────────────────────────────────────────────────────────────
 // ── Usage & rate limits ─────────────────────────────────────────────────────
 const U_SERIES = ['us0', 'us1', 'us2', 'us3', 'us4', 'us5']
-const U_RPD_LIMIT = 1500 // free-tier requests-per-day, per model — the daily limit line
+// There is no requests-per-day cap anywhere in this system: `api/routers/usage.py` returns
+// only per-minute limits, and `olisar/gemini/models.py` gives each model its own rpm
+// (10/15/30) — so the models demonstrably do not share one daily ceiling. A dashed red
+// rule labelled "RPD limit · 1,500 / model" was a number this console invented, and under
+// a bucketed window it compared weekly or monthly sums against a supposed *daily* line.
+// The chart shows what the server actually measured; when a real per-model daily cap
+// arrives in the payload, pass it as `limit` and the rule draws itself again.
 const U_SOURCE_LABEL: Record<string, string> = {
   conversation: 'Conversation', summary: 'Summaries', persona: 'Personas', glossary: 'Glossary',
   embed: 'Embeddings', vision: 'Vision', grounding: 'Grounding', proactivity: 'Proactivity',
@@ -2955,7 +2977,7 @@ function ChartTable({ caption, columns, rows }: {
   )
 }
 
-function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: string; values: number[] }[]; labels: string[]; limit: number }) {
+function DailyReqChart({ series, labels, limit = 0 }: { series: { key: string; cls: string; values: number[] }[]; labels: string[]; limit?: number }) {
   const [box, W] = useChartWidth(940)
   const H = 250, x0 = 46, x1 = W - 66, y0 = H - 26, y1 = 18
   const n = labels.length
@@ -2984,14 +3006,14 @@ function DailyReqChart({ series, labels, limit }: { series: { key: string; cls: 
         </g>
       ))}
       <text className="u-axis" x={x0 - 8} y={y0 + 3} textAnchor="end">0</text>
-      {limitInRange ? (
+      {limit > 0 && (limitInRange ? (
         <>
           <line className="u-limit" x1={x0} y1={yAt(limit)} x2={x1} y2={yAt(limit)} strokeDasharray="5 4" />
-          <text className="u-limit-txt" x={x0 + 4} y={yAt(limit) - 5}>RPD limit · {limit.toLocaleString()} / model</text>
+          <text className="u-limit-txt" x={x0 + 4} y={yAt(limit) - 5}>Limit · {limit.toLocaleString()} / model</text>
         </>
       ) : (
-        <text className="u-limit-txt" x={x1} y={y1 + 9} textAnchor="end">RPD limit · {limit.toLocaleString()} / model</text>
-      )}
+        <text className="u-limit-txt" x={x1} y={y1 + 9} textAnchor="end">Limit · {limit.toLocaleString()} / model</text>
+      ))}
       {primary && <path className={'u-area ' + primary.cls} d={`${uSmooth(primary.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} L${x1} ${y0} L${x0} ${y0} Z`} />}
       {series.slice().reverse().map((s) => (
         <path key={s.key} className={'u-line ' + s.cls + (s === primary ? ' primary' : '')} d={uSmooth(s.values.map((v, i) => ({ x: xAt(i), y: yAt(v) })))} />
@@ -3202,13 +3224,13 @@ export function Usage() {
             KPI tiles that are always today's. */}
         <div className="u-cardhead">
           <div><h2 className="u-ttl">Requests over time</h2>
-            <div className="u-hint">per model · {bucketLabel} · {windowLabel} · dashed line = daily request limit</div></div>
+            <div className="u-hint">per model · {bucketLabel} · {windowLabel}</div></div>
           <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays} options={U_RANGES} />
         </div>
         <div className="u-legend">{chartSeries.map((s) => (<span key={s.key} className={'lg ' + s.cls}><span className="d" />{uShort(s.key)}</span>))}</div>
         {daily.length ? (
           <>
-            <DailyReqChart series={chartSeries} labels={labels} limit={U_RPD_LIMIT} />
+            <DailyReqChart series={chartSeries} labels={labels} />
             <ChartTable
               caption={`Requests per model, ${bucketLabel}, ${windowLabel}`}
               columns={['Period', ...chartSeries.map((x) => uShort(x.key))]}
@@ -3352,11 +3374,4 @@ export function Loading(props: { of: { loading: boolean; error?: string | null; 
   )
 }
 
-function Spinner({ label = 'Loading…' }: { label?: string }) {
-  return (
-    <div className="page-loading" role="status">
-      <span className="spinner" />
-      <span>{label}</span>
-    </div>
-  )
-}
+
