@@ -1630,15 +1630,7 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-mins { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .u-cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }
 @media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, 1fr); } .u-mins, .u-cols { grid-template-columns: 1fr; } }
-/* 156 + 84 + 76 of fixed track plus gaps leaves the rpm meter nothing under ~430px of card.
-   Drop the meter column and let the name take the room; the numbers still line up. */
-@media (max-width: 560px) {
-  .u-colh, .u-mrow { grid-template-columns: minmax(0, 1fr) 76px 68px; }
-  .u-colh > :nth-child(2), .u-mrow > .u-rpm { display: none; }
-  .u-kpis { grid-template-columns: 1fr; }
-  .u-big { font-size: 22px; }
-}
-.u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; }
+.u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
 .u-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
 .u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
 .u-big s { color: var(--text-3); text-decoration: none; font-size: 15px; }
@@ -1682,6 +1674,17 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .u-colh { display: grid; grid-template-columns: 156px 1fr 84px 76px; gap: 12px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 .u-mrow { display: grid; grid-template-columns: 156px 1fr 84px 76px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .u-mrow:last-child { border-bottom: 0; }
+/* 156 + 84 + 76 of fixed track plus gaps leaves the rpm meter nothing under ~430px of card.
+   Drop the meter column and let the name take the room; the numbers still line up.
+   Must sit AFTER .u-colh/.u-mrow/.u-big — it was declared above them and lost on
+   equal specificity, so three of its four rules never applied and Usage scrolled
+   sideways at phone widths. */
+@media (max-width: 560px) {
+  .u-colh, .u-mrow { grid-template-columns: minmax(0, 1fr) 76px 68px; }
+  .u-colh > :nth-child(2), .u-mrow > .u-rpm { display: none; }
+  .u-kpis { grid-template-columns: 1fr; }
+  .u-big { font-size: 22px; }
+}
 .u-mname { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .u-mname .d { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .u-mname b { font-weight: 500; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

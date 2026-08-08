@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
-import { Modal, toast } from './overlays'
+import { Modal, confirmDialog, toast } from './overlays'
 import { Icon, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SettingsModal } from './settings'
-import { PageBoundary, usePoll } from './ui'
+import { PageBoundary, hasUnsavedChanges, usePoll } from './ui'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -47,6 +47,18 @@ export default function App() {
   // Any 401 (e.g. the session was revoked because the account lost Manage Server)
   // drops straight back to the login screen, so a now-powerless page can't linger.
   useEffect(() => { setOnUnauthorized(() => setAuth('out')) }, [])
+
+  // Closing the window is the third way to lose a draft, and the only one the browser
+  // owns. The prompt text is the browser's, not ours — returnValue just has to be set.
+  useEffect(() => {
+    const onLeave = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedChanges()) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onLeave)
+    return () => window.removeEventListener('beforeunload', onLeave)
+  }, [])
 
   useEffect(() => {
     if (!navOpen) return
@@ -143,7 +155,22 @@ export default function App() {
   if (guilds === null) return <div className="loading">Loading your servers…</div>
   if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
-  const changeGuild = (id: string) => {
+  // Both `tab` and `guild` key a remount below, which throws away whatever the page was
+  // holding. Ask first. Gated here rather than on the nav item because Docs reaches
+  // setTab directly through its `tab:` deep links and would otherwise slip past.
+  const leaveGuard = async (what: string) => {
+    if (!hasUnsavedChanges()) return true
+    return confirmDialog({
+      title: 'Discard your unsaved changes?',
+      message: <>You have edits that haven't been saved. Leaving {what} discards them.</>,
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      tone: 'warning',
+    })
+  }
+  const goTab = async (id: string) => { if (id !== tab && await leaveGuard('this page')) setTab(id) }
+  const changeGuild = async (id: string) => {
+    if (id === guild || !(await leaveGuard('this server'))) return
     apiSetGuild(id)
     localStorage.setItem(GUILD_KEY, id)
     setGuildState(id)
@@ -165,7 +192,7 @@ export default function App() {
     extensions: <Extensions isOperator={isOperator} />,
     keys: <ApiKeys />,
     usage: <Usage />,
-    docs: <Docs onNavigate={setTab} />,
+    docs: <Docs onNavigate={goTab} />,
     developer: <Developer />,
   }
   // The Developer tab only appears for whitelisted platform developers; Docs always sits
@@ -217,8 +244,8 @@ export default function App() {
               tabIndex={0}
               data-tab={n.id}
               aria-current={active ? 'page' : undefined}
-              onClick={() => { setTab(n.id); setNavOpen(false) }}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(n.id); setNavOpen(false) } }}
+              onClick={() => { void goTab(n.id); setNavOpen(false) }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void goTab(n.id); setNavOpen(false) } }}
             >
               <span className="ic"><Glyph size={18} weight={active ? 'Bold' : 'Linear'} /></span>
               {n.label}

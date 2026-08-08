@@ -4,6 +4,7 @@
 // These replace the native alert/confirm/prompt, which break the calm aesthetic.
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Icon, type IconName } from './icons'
 import { uiScale } from './theme'
 
@@ -61,6 +62,9 @@ function ToastStack() {
 const FOCUSABLE =
   'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
 
+// Dialogs nest (Settings ▸ Bot ▸ Move bot), so the inert flag is refcounted.
+let openModals = 0
+
 export function Modal(props: {
   /** Class on the dialog card itself — `.settings-modal`, `.import-modal`, `.confirm-dialog`, … */
   className: string
@@ -83,7 +87,18 @@ export function Modal(props: {
     if (el && !el.contains(document.activeElement)) {
       (el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus()
     }
-    return () => { if (returnTo?.isConnected) returnTo.focus() }
+    // aria-modal alone is a promise, not a mechanism: the page behind stayed in the
+    // accessibility tree and the skip link stayed focusable. `inert` is the mechanism.
+    // Counted, because dialogs nest (Settings ▸ Bot ▸ Move bot).
+    const app = document.getElementById('root')
+    if (app) {
+      openModals += 1
+      app.inert = true
+    }
+    return () => {
+      if (app && --openModals <= 0) { openModals = 0; app.inert = false }
+      if (returnTo?.isConnected) returnTo.focus()
+    }
   }, [])
 
   useEffect(() => {
@@ -105,7 +120,10 @@ export function Modal(props: {
     return () => document.removeEventListener('keydown', onKey, true)
   }, [dismissable, close])
 
-  return (
+  // Portalled to <body>, outside #root — otherwise marking the app inert above would
+  // take the dialog with it. React context still flows through a portal, so callers
+  // are unaffected, and the backdrop was already fixed-positioned.
+  return createPortal(
     <div
       className="modal-backdrop"
       // mousedown, not click: a text selection that starts inside the card and releases on
@@ -123,7 +141,8 @@ export function Modal(props: {
       >
         {props.children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

@@ -4,7 +4,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
-import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Select, Text, Toggle, headingsOf, useAsync, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
   const Glyph = Icon[props.icon]
@@ -212,9 +212,6 @@ export function Behavior() {
           <Text value={triggers} onChange={(v) => set('name_triggers', v)} placeholder="olisar, oli" />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
-        <Field label="Loose messages" desc="Reply to all messages in talk-enabled channels without a trigger.">
-          <Toggle value={data.loose_msg_enabled} onChange={(v) => set('loose_msg_enabled', v)} label="Join freely" />
-        </Field>
         <Field label="Don't let Olisar ping" desc="Olisar won't ping these in its replies even if it writes the mention.">
           <div className="choice-row">
             {MENTION_OPTS.map((o) => {
@@ -337,6 +334,7 @@ export function Messages() {
     }
   }, [data])
   const dirty = base.current !== '' && JSON.stringify(edits) !== base.current
+  useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
   const saver = useSaver(async () => { await api.putMessages(edits); base.current = JSON.stringify(edits) })
   if (loading || !data) return <Spinner />
 
@@ -1719,13 +1717,12 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
       <div className="ext-wrap">
         <aside className="ext-rail">
           <div className="ext-rail-head"><Text value={q} onChange={setQ} placeholder="Search extensions…" ariaLabel="Search extensions" /></div>
-          <div className="ext-seg">
-            {(['all', 'on', 'custom'] as const).map((f) => (
-              <button key={f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
-                {f === 'all' ? 'All' : f === 'on' ? 'Enabled' : 'Custom'}
-              </button>
-            ))}
-          </div>
+          <Segmented className="ext-seg" ariaLabel="Filter extensions" value={filter} onChange={setFilter}
+            options={[
+              { value: 'all' as const, label: 'All' },
+              { value: 'on' as const, label: 'Enabled' },
+              { value: 'custom' as const, label: 'Custom' },
+            ]} />
           <div className="ext-list">
             {shown.length === 0 && <div className="ext-empty-rail">No extensions match.</div>}
             {cats.map((cat) => (
@@ -2089,6 +2086,7 @@ export function ApiKeys() {
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
   const dirty = Object.values(edits).some((v) => v.trim() !== '')
+  useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
 
   return (
     <>
@@ -2405,7 +2403,8 @@ export function Usage() {
     <>
       <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call Olisar makes: by model, by day, and what's driving it." />
       <div className="u-tfrow">
-        <div className="useg">{tf.map(([l, d]) => (<button key={d} className={days === d ? 'on' : ''} onClick={() => setDays(d)}>{l}</button>))}</div>
+        <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays}
+          options={tf.map(([l, d]) => ({ value: d, label: l }))} />
       </div>
 
       <div className="u-kpis">
