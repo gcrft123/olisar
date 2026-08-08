@@ -3,7 +3,7 @@ dashboard can send partial updates (only the fields the admin changed)."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PersonaIn(BaseModel):
@@ -142,15 +142,19 @@ class TunnelEnableIn(BaseModel):
 
 
 class ConfigIn(BaseModel):
+    # The bounds match what the console prints under each field ("3-100 . default 12").
+    # Without them the UI was the only thing enforcing a range it advertised, so anything
+    # that wasn't the console -- a stale tab, a script, a replayed request -- could write a
+    # context window of 0 and quietly break every reply.
     name_triggers: list[str] | None = None
     reply_in_dms: bool | None = None
     default_model: str | None = None
     grounding_enabled: bool | None = None
-    grounding_daily_cap: int | None = None
-    summary_token_threshold: int | None = None
-    glossary_mine_token_threshold: int | None = None
-    user_persona_msg_threshold: int | None = None
-    context_message_limit: int | None = None
+    grounding_daily_cap: int | None = Field(None, ge=0)
+    summary_token_threshold: int | None = Field(None, ge=500)
+    glossary_mine_token_threshold: int | None = Field(None, ge=300)
+    user_persona_msg_threshold: int | None = Field(None, ge=5)
+    context_message_limit: int | None = Field(None, ge=3, le=100)
     presence_tools_enabled: bool | None = None
     # Mention types the bot may not ping: any of "everyone", "here", "roles".
     blocked_mentions: list[str] | None = None
@@ -162,17 +166,18 @@ class ConfigIn(BaseModel):
 class ProactivityIn(BaseModel):
     enabled: bool | None = None
     level: str | None = None
-    channel_cooldown_sec: int | None = None
-    user_cooldown_sec: int | None = None
-    global_cooldown_sec: int | None = None
-    confidence_threshold: float | None = None
-    max_per_hour: int | None = None
+    channel_cooldown_sec: int | None = Field(None, ge=0)
+    user_cooldown_sec: int | None = Field(None, ge=0)
+    global_cooldown_sec: int | None = Field(None, ge=0)
+    # The console renders this as "0-1" with a 0.05 step; it is a probability, not a count.
+    confidence_threshold: float | None = Field(None, ge=0, le=1)
+    max_per_hour: int | None = Field(None, ge=0)
     quiet_hours: dict | None = None
     allowed_channels: list | None = None
     reaction_enabled: bool | None = None
-    reaction_threshold: float | None = None
-    reaction_cooldown_sec: int | None = None
-    reaction_max_per_hour: int | None = None
+    reaction_threshold: float | None = Field(None, ge=0, le=1)
+    reaction_cooldown_sec: int | None = Field(None, ge=0)
+    reaction_max_per_hour: int | None = Field(None, ge=0)
 
 
 class ChannelModeIn(BaseModel):

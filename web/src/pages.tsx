@@ -1,10 +1,11 @@
 import React, { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
-import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string }) {
   const Glyph = Icon[props.icon]
@@ -162,6 +163,43 @@ function TestChatDrawer() {
   // off-screen with `aria-hidden` over a live textarea and three buttons — tabbable, but
   // hidden from the screen reader describing them. `inert` takes them out of both.
   useEffect(() => { if (drawer.current) drawer.current.inert = !open }, [open])
+
+  // It calls itself a dialog and lays a blocking backdrop over the page, but it was the one
+  // overlay in the console that never behaved like one: focus stayed on the page behind, Tab
+  // walked straight out of it, and the shell underneath stayed in the a11y tree. Everything
+  // else goes through Modal; this can't (it slides, and it must stay mounted), so it does the
+  // same three things itself.
+  const returnTo = useRef<HTMLElement | null>(null)
+  useEffect(() => {
+    const shell = document.getElementById('console-main')
+    const top = document.querySelector<HTMLElement>('.topbar')
+    if (!open) {
+      if (shell) shell.inert = false
+      if (top) top.inert = false
+      const back = returnTo.current
+      returnTo.current = null
+      if (back?.isConnected) back.focus()
+      return
+    }
+    returnTo.current = document.activeElement as HTMLElement | null
+    if (shell) shell.inert = true
+    if (top) top.inert = true
+    const el = drawer.current
+    const first = el?.querySelector<HTMLElement>('textarea, input, button')
+    ;(first ?? el)?.focus()
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !el) return
+      const items = [...el.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')]
+        .filter((n) => n.offsetParent !== null || n === document.activeElement)
+      if (!items.length) return
+      const [f, l] = [items[0], items[items.length - 1]]
+      if (!el.contains(document.activeElement)) { e.preventDefault(); f.focus() }
+      else if (e.shiftKey && document.activeElement === f) { e.preventDefault(); l.focus() }
+      else if (!e.shiftKey && document.activeElement === l) { e.preventDefault(); f.focus() }
+    }
+    document.addEventListener('keydown', onTab, true)
+    return () => document.removeEventListener('keydown', onTab, true)
+  }, [open])
   return (
     <>
       {/* CSS hides this below 720px while the save dock is up, and an `opacity: 0` control
@@ -172,17 +210,25 @@ function TestChatDrawer() {
         ref={(el) => { if (el) el.inert = dockHidesFab }}>
         <Icon.sandbox size={17} weight="Bold" /> Test chat
       </button>
-      <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
-      <aside ref={drawer} className={'chatdrawer' + (open ? ' open' : '')} role="dialog" aria-label="Test chat">
-        <div className="chatdrawer-head">
-          <div>
-            <div className="chatdrawer-title">Test chat</div>
-            <div className="chatdrawer-sub">Uses the saved persona, knowledge base, and tools, but keeps no memory.</div>
-          </div>
-          <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
-        </div>
-        <SandboxChat />
-      </aside>
+      {/* Portalled to <body> for the reason Modal is: the drawer used to render inside
+          #console-main, so marking the shell inert while it was open took the drawer with it
+          and focus could not enter its own dialog. */}
+      {createPortal(
+        <>
+          <div className={'chatdrawer-backdrop' + (open ? ' open' : '')} onClick={() => setOpen(false)} aria-hidden="true" />
+          <aside ref={drawer} className={'chatdrawer' + (open ? ' open' : '')} role="dialog" aria-modal={open || undefined} aria-label="Test chat">
+            <div className="chatdrawer-head">
+              <div>
+                <div className="chatdrawer-title">Test chat</div>
+                <div className="chatdrawer-sub">Uses the saved persona, knowledge base, and tools, but keeps no memory.</div>
+              </div>
+              <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
+            </div>
+            <SandboxChat />
+          </aside>
+        </>,
+        document.body,
+      )}
     </>
   )
 }
@@ -1181,8 +1227,19 @@ function SettingsForm(props: { extKey: string; schema: any }) {
   const { data: loaded } = useAsync<any>(() => api.getExtensionSettings(props.extKey), [props.extKey])
   const [vals, setVals] = useState<Record<string, any>>({})
   const [init, setInit] = useState(false)
-  useEffect(() => { if (loaded && !init) { setVals({ ...(loaded.settings || {}) }); setInit(true) } }, [loaded, init])
-  const saver = useSaver(async () => { await api.putExtensionSettings(props.extKey, vals) })
+  // This form is not useEditable-backed, so it has to join the dirty registry by hand.
+  // Without it, the enable toggle one card up was guarded and the values typed into this
+  // one were not — the same page losing work through one control and protecting it through
+  // the other.
+  const base = useRef('')
+  useEffect(() => {
+    if (loaded && !init) { const v = { ...(loaded.settings || {}) }; base.current = JSON.stringify(v); setVals(v); setInit(true) }
+  }, [loaded, init])
+  useDirtyGuard(() => init && JSON.stringify(vals) !== base.current)
+  const saver = useSaver(async () => {
+    await api.putExtensionSettings(props.extKey, vals)
+    base.current = JSON.stringify(vals)
+  })
   const set = (k: string, v: any) => setVals((p) => ({ ...p, [k]: v }))
   const chanOpts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
   if (!fields.length) return null
@@ -1600,6 +1657,19 @@ function ReportModal(props: {
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const titleId = useId()
+  // A described-but-unsent report is work; Escape used to bin it silently.
+  useDraft(() => !done && desc.trim() !== '')
+  const guardedClose = async () => {
+    if (!done && desc.trim()) {
+      const ok = await confirmDialog({
+        title: 'Discard this report?',
+        message: 'You’ve described the problem but haven’t sent it yet.',
+        confirmLabel: 'Discard', cancelLabel: 'Keep writing', tone: 'warning',
+      })
+      if (ok !== true) return
+    }
+    props.onClose()
+  }
 
   const addFiles = async (list: FileList) => {
     setErr(null)
@@ -1628,8 +1698,8 @@ function ReportModal(props: {
   }
 
   return (
-    <Modal className="import-modal" labelledBy={titleId} onClose={props.onClose} dismissable={!busy}>
-        <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
+    <Modal className="import-modal" labelledBy={titleId} onClose={guardedClose} dismissable={!busy}>
+        <button className="settings-close" onClick={guardedClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <div className="settings-head">
           <h2 id={titleId}>Report extension</h2>
           <p>{props.target.id || `${props.target.namespace}/${props.target.name}`}</p>
@@ -2974,8 +3044,14 @@ export function Usage() {
     : `last ${data.window_days} ${data.window_days === 1 ? 'day' : 'days'}`
   const bucketLabel = bucket === 1 ? 'per day' : bucket === 7 ? 'per week' : 'per month'
   const chartSeries = models.filter((m) => m.requests > 0).slice(0, 6).map((m) => ({ key: m.model, cls: clsFor[m.model], values: daily.map((d) => d.by_model[m.model] || 0) }))
-  const last = daily[daily.length - 1] || { requests: 0, tokens: 0 }
-  const prev = daily[daily.length - 2] || { requests: 0, tokens: 0 }
+  // These two tiles say "today", so they read today's own totals — not the last bucket of a
+  // series the server may have collapsed to weeks or months. Under "Forever" the last bucket
+  // is a whole month, and the tiles were labelling it "today" and comparing it "vs yesterday".
+  const today = data.today || { requests: 0, tokens: 0 }
+  // A day-over-day delta only exists when the series is still daily; at weekly or monthly
+  // buckets there is no "yesterday" to compare against, so the line is dropped rather than
+  // computed from the wrong pair.
+  const yday = bucket === 1 ? (daily[daily.length - 2] || null) : null
   const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : 0)
   const peak = data.peak || { rpm: {}, tpm: 0, tpm_limit: 1000000 }
   const tpmLimit = peak.tpm_limit || 1000000
@@ -2998,13 +3074,13 @@ export function Usage() {
       <div className="u-kpis">
         <Card>
           <h2 className="u-eyebrow">Requests · today</h2>
-          <div className="u-big">{uReq(last.requests)}</div>
-          <div className="u-delta">{delta(pct(last.requests, prev.requests))} vs yesterday</div>
+          <div className="u-big">{uReq(today.requests)}</div>
+          <div className="u-delta">{yday ? <>{delta(pct(today.requests, yday.requests))} vs yesterday</> : <>so far today</>}</div>
         </Card>
         <Card>
           <h2 className="u-eyebrow">Tokens · today</h2>
-          <div className="u-big">{uTok(last.tokens)}</div>
-          <div className="u-delta">{delta(pct(last.tokens, prev.tokens))} vs yesterday</div>
+          <div className="u-big">{uTok(today.tokens)}</div>
+          <div className="u-delta">{yday ? <>{delta(pct(today.tokens, yday.tokens))} vs yesterday</> : <>so far today</>}</div>
         </Card>
         <Card>
           <h2 className="u-eyebrow">Peak · requests / min</h2>
