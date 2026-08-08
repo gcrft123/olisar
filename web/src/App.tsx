@@ -137,6 +137,27 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onLeave)
   }, [])
 
+  // Opening a doc has to work whether or not the Docs page is already mounted: write the hash
+  // (which is what a freshly-mounted Docs reads) *and* fire the event (which is what an
+  // already-mounted one listens for). Dispatching alone raced the mount and silently landed
+  // the reader on the first section.
+  //
+  // Declared here, above every early return: these are hooks, and a hook that runs only on
+  // the renders that get past the loading gates is a different hook count than the render
+  // before it — which React treats as fatal, not degraded. `goTab` is a plain function
+  // defined further down; the ref is filled in there by assignment, which is not a hook.
+  const goTabRef = React.useRef<(id: string) => Promise<void>>(async () => {})
+  const openDoc = React.useCallback((id: string) => {
+    history.pushState(null, '', '#/docs/' + id)
+    void goTabRef.current('docs')
+    window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: id }))
+  }, [])
+  useEffect(() => {
+    const onOpen = (e: Event) => openDoc((e as CustomEvent).detail)
+    window.addEventListener('olisar:open-doc', onOpen)
+    return () => window.removeEventListener('olisar:open-doc', onOpen)
+  }, [openDoc])
+
   // The drawer covers the page but wasn't modal: the content behind stayed focusable and
   // the body still scrolled, so tabbing out of the drawer landed on controls the operator
   // couldn't see. The Settings modal gets this right through the Modal shell; the drawer
@@ -235,6 +256,7 @@ export default function App() {
 
   const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
 
+
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
   // render before it — which React treats as fatal rather than degraded.
@@ -313,6 +335,8 @@ export default function App() {
   // holding. Ask first. Gated here rather than on the nav item because Docs reaches
   // setTab directly through its `tab:` deep links and would otherwise slip past.
   const goTab = async (id: string) => { if (id !== tab && await leaveGuard('this page')) setTab(id) }
+  goTabRef.current = goTab
+
   const changeGuild = async (id: string) => {
     if (id === guild || !(await leaveGuard('this server'))) return
     apiSetGuild(id)
@@ -385,7 +409,7 @@ export default function App() {
       // The body is searchable but never displayed, so typing a phrase from a page finds it.
       keywords: d.id,
       body: d.body,
-      run: () => { void goTab('docs'); window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: d.id })) },
+      run: () => openDoc(d.id),
     })),
   ]
 

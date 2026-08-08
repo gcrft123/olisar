@@ -7,13 +7,21 @@ import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { uiScale } from './theme'
 import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
-function PageHead(props: { icon: IconName; title: string; sub: string }) {
+function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
   return (
     <div className="page-head">
       <div className="title-row">
         <div className="title-ic"><Glyph size={19} weight="Linear" /></div>
         <h1>{props.title}</h1>
+        {/* Help ran one way: 46 links took a reader from a doc into the page it describes,
+            and nothing went the other way. An operator stuck on Behavior had to know the
+            Docs tab existed, open it, and find the section themselves. */}
+        {props.doc && (
+          <button className="ghost page-doclink" onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-doc', { detail: props.doc }))}>
+            <Icon.docs size={14} /> Docs
+          </button>
+        )}
       </div>
       <p>{props.sub}</p>
     </div>
@@ -29,7 +37,7 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" sub="Who Olisar is and how it behaves in your server." />
+      <PageHead icon="persona" title="Persona" doc="persona" sub="Who Olisar is and how it behaves in your server." />
       <Card title="Identity">
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
         <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
@@ -242,7 +250,8 @@ const MENTION_OPTS = [
 ]
 export function Behavior() {
   const configEd = useEditable<any>(api.getConfig)
-  const { data: models } = useAsync<any[]>(api.models)
+  const modelsQ = useAsync<any[]>(api.models)
+  const { data: models } = modelsQ
   const proEd = useEditable<any>(api.getProactivity)
   const saver = useSaver(async () => {
     const cfg = configEd.data
@@ -278,7 +287,7 @@ export function Behavior() {
 
   return (
     <>
-      <PageHead icon="behavior" title="Behavior" sub="How and when Olisar joins in." />
+      <PageHead icon="behavior" title="Behavior" doc="behavior" sub="How and when Olisar joins in." />
       <div className="cols2">
         <div className="col">
       <Card title="Engagement" hint="When and where Olisar joins the conversation.">
@@ -312,7 +321,15 @@ export function Behavior() {
         </Field>
       </Card>
       <Card title="Model & tools">
-        <Field label="Primary model" desc="If this model is busy, Olisar falls back to the next one down the chain.">
+        <Field
+          label="Primary model"
+          desc={modelsQ.error
+            // The picker used to collapse to a single option holding the raw model id, with
+            // nothing saying the model list had failed to load — the operator was left to
+            // recall what the alternatives were.
+            ? <>Couldn’t load the model list ({modelsQ.error}) — only the current setting is shown. <button className="linklike" onClick={() => modelsQ.reload()}>Try again</button></>
+            : 'If this model is busy, Olisar falls back to the next one down the chain.'}
+        >
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
         <Field label="Web search" desc="Let Olisar look things up on the web.">
@@ -481,7 +498,7 @@ export function Messages() {
 
   return (
     <>
-      <PageHead icon="messages" title="Command replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
+      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
       <div className="grid2">
       {Object.keys(data).filter((key) => key !== 'privacy').map((key) => {
         // Read defensively: this page renders whatever `/api/messages` returns, and a key
@@ -625,7 +642,7 @@ export function Channels() {
 
   return (
     <>
-      <PageHead icon="channels" title="Channels" sub="Customize how Olisar treats each of your channels." />
+      <PageHead icon="channels" title="Channels" doc="channels" sub="Customize how Olisar treats each of your channels." />
       <Card title="What the modes mean">
         <div className="mode-legend">
           <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
@@ -739,7 +756,8 @@ function RoleChip({ name, color }: { name: string; color?: string }) {
 
 export function Access() {
   const ed = useEditable<any>(api.getConfig)
-  const { data: roles, loading: lr } = useAsync<any[]>(api.getRoles)
+  const rolesQ = useAsync<any[]>(api.getRoles)
+  const { data: roles, loading: lr } = rolesQ
   const [q, setQ] = useState('')
   const config = ed.data
   const setConfig = ed.setData
@@ -783,7 +801,7 @@ export function Access() {
 
   return (
     <>
-      <PageHead icon="access" title="Access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
+      <PageHead icon="access" title="Access" doc="access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
       <Card title="How access works">
         <div className="mode-legend">
           <div><span className="tag">allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
@@ -796,7 +814,18 @@ export function Access() {
         </div>
       </Card>
       <Card title={`Roles (${rows.length})`}>
-        {rows.length === 0 ? (
+        {/* An empty list and a failed request are different facts. This used to blame the
+            bot for not having synced yet when the console simply never got an answer. */}
+        {rolesQ.error ? (
+          <div className="loadfail" role="alert">
+            <Icon.warn size={22} />
+            <div className="lf-body">
+              <strong>Couldn’t load the roles.</strong>
+              <p>{rolesQ.error}</p>
+            </div>
+            <button onClick={() => rolesQ.reload()}>Try again</button>
+          </div>
+        ) : rows.length === 0 ? (
           <div className="empty">No roles synced yet. The bot populates this list shortly after it starts.</div>
         ) : (
           <>
@@ -860,12 +889,6 @@ function SearchIndexCard() {
   )
   return (
     <Card title="Message search index" hint="Lets Olisar search back through your server's history.">
-      {poll.stale && !data && (
-        <div className="callout warning">
-          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-          <div className="callout-body">Can't reach the backend, so the index status is unknown.</div>
-        </div>
-      )}
       {!data ? (poll.stale
         ? <div className="callout warning"><span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">Can't reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
@@ -1058,6 +1081,11 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
 export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const kb = useAsync<any[]>(api.getKnowledge)
   const { data, loading, reload } = kb
+  // A crawl walks pending -> crawling -> chunking -> ready, and this list fetched once. A
+  // multi-minute ingest sat frozen on its first badge, looking stalled. Watch only while
+  // something is actually moving, then stop.
+  const ingesting = (data ?? []).some((r: any) => SOURCE_BUSY.has(r.status))
+  usePoll(reload, 4000, ingesting)
   const [type, setType] = useState('url')
   const [uri, setUri] = useState('')
   const [depth, setDepth] = useState(1)
@@ -1068,7 +1096,8 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
     reload()
   })
 
-  const { data: facts, loading: lf, reload: reloadFacts } = useAsync<any[]>(api.getFacts)
+  const factsQ = useAsync<any[]>(api.getFacts)
+  const { data: facts, loading: lf, reload: reloadFacts } = factsQ
   const [subject, setSubject] = useState('')
   const [fact, setFact] = useState('')
   const factAdder = useSaver(async () => {
@@ -1100,7 +1129,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const factRows = facts ?? []
   return (
     <>
-      <PageHead icon="knowledge" title="Knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in; the glossary holds short facts about your server." />
+      <PageHead icon="knowledge" title="Knowledge" doc="knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in; the glossary holds short facts about your server." />
       {/* Full width, above the split: this is a fact about the whole server, not a sibling
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
@@ -1183,11 +1212,22 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           </button>
         </div>
         <div className="settings-subhead">Glossary ({factRows.length})</div>
-        {factRows.length === 0 && <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>}
+        {factsQ.error ? (
+          <div className="loadfail" role="alert">
+            <Icon.warn size={22} />
+            <div className="lf-body">
+              <strong>Couldn’t load the glossary.</strong>
+              <p>{factsQ.error}</p>
+            </div>
+            <button onClick={() => reloadFacts()}>Try again</button>
+          </div>
+        ) : factRows.length === 0 ? (
+          <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>
+        ) : null}
         {factRows.map((f) => (
           <div className="list-row" key={f.id}>
             <div className="grow">
-              <div className="title" data-tip={f.fact} title={f.fact}>{f.fact}</div>
+              <div className="title" data-tip={f.fact}>{f.fact}</div>
               <div className="meta">
                 {f.subject && <span className="tag">{f.subject}</span>}
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}
@@ -1217,8 +1257,10 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
 // Badge text is written in the case it renders (the stylesheet no longer capitalizes),
 // and these two come off the API as lowercase enum values.
 const SOURCE_STATUS: Record<string, string> = {
-  ready: 'Ready', ingesting: 'Ingesting', queued: 'Queued', error: 'Error',
+  pending: 'Queued', crawling: 'Reading', chunking: 'Indexing', ready: 'Ready', error: 'Error',
 }
+/** Statuses the backend will still move on its own — worth watching. */
+const SOURCE_BUSY = new Set(['pending', 'crawling', 'chunking'])
 // Abbreviated so the three memory chips are the same size and never wrap — "Preference"
 // rendered 60x40 beside 23px siblings and broke mid-word into "Prefere / nce".
 const MEMORY_KIND: Record<string, string> = {
@@ -1437,7 +1479,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button className="ghost icon-btn" onClick={() => props.onEdit(e.key)} data-tip="Edit code" aria-label="Edit extension code"><Icon.edit size={16} /></button>
             )}
             {marketplace && ref && (
-              <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
+              <button className="danger icon-btn sm" data-tip="Report this extension" onClick={() => setReporting(true)} aria-label="Report"><Icon.flag size={15} /></button>
             )}
             <Toggle value={e.enabled} onChange={(v) => props.onToggle(e.key, v)} ariaLabel={`Enable ${e.name}`} />
           </div>
@@ -2072,7 +2114,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
               )}
               <div className="mkt-card-foot">
-                <button className="danger icon-btn sm" title="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
+                <button className="danger icon-btn sm" data-tip="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
                   <button className="danger" onClick={() => doYank(r)}>Yank</button>
                 )}
@@ -2235,7 +2277,7 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   return (
     <>
       <div className="head-row">
-        <PageHead icon="extensions" title="Extensions" sub="Optional packages of extra features." />
+        <PageHead icon="extensions" title="Extensions" doc="extensions" sub="Optional packages of extra features." />
         {props.isOperator && (
           <div className="head-actions">
             <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
@@ -2557,6 +2599,7 @@ export function Members() {
       <PageHead
         icon="members"
         title="Members"
+        doc="members"
         sub="The private impression Olisar forms of each member. Anyone can wipe theirs with /forget-me."
       />
       <Card title={`${rows.length} known · ${learned} with an impression`}>
@@ -2728,14 +2771,31 @@ export function ApiKeys() {
   const set = (k: string, v: string) => setEdits({ ...edits, [k]: v })
   // Autofilled from the environment (local-only) unless the operator has edited the field.
   const val = (k: string) => edits[k] ?? (data[k]?.value ?? '')
-  const clear = async (k: string) => { await api.clearKey(k); reload() }
+  // Removing a saved key is the only unrecoverable action on this page — the header says
+  // outright that a key is never shown again — and it was the one destructive control in the
+  // console with no guard at all. One stray click on the Gemini row took the bot mute with
+  // nothing to undo. Removing a knowledge source, which is re-addable in a minute, has always
+  // had a full confirm.
+  const clear = async (k: string, label: string) => {
+    const ok = await confirmDialog({
+      title: `Remove the saved ${label}?`,
+      message: 'The stored value is erased and cannot be shown or recovered from the console. You’ll need to paste the key again to restore it.',
+      confirmLabel: 'Remove key',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+    })
+    if (ok !== true) return
+    await api.clearKey(k)
+    reload()
+    toast(`${label} removed.`, 'neutral')
+  }
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
 
   return (
     <>
       <PageHead
-        icon="keys"
+        icon="keys" doc="keys"
         title="API keys"
         sub="One set of keys powers every server on this install. Once saved, a key is never shown again."
       />
@@ -2754,7 +2814,7 @@ export function ApiKeys() {
           value={val('gemini_api_key')}
           example="AIza…"
           onChange={(v) => set('gemini_api_key', v)}
-          onClear={() => clear('gemini_api_key')}
+          onClear={() => clear('gemini_api_key', 'Gemini API key')}
         />
       </Card>
       <Card
@@ -2769,7 +2829,7 @@ export function ApiKeys() {
           value={val('uex_api_key')}
           example="uex token"
           onChange={(v) => set('uex_api_key', v)}
-          onClear={() => clear('uex_api_key')}
+          onClear={() => clear('uex_api_key', 'UEX API key')}
         />
       </Card>
         </div>
@@ -2786,7 +2846,7 @@ export function ApiKeys() {
           value={val('cloudflare_account_id')}
           example="cloudflare account id"
           onChange={(v) => set('cloudflare_account_id', v)}
-          onClear={() => clear('cloudflare_account_id')}
+          onClear={() => clear('cloudflare_account_id', 'Cloudflare account ID')}
         />
         <KeyField
           fieldKey="cloudflare_api_token"
@@ -2796,7 +2856,7 @@ export function ApiKeys() {
           value={val('cloudflare_api_token')}
           example="cloudflare api token"
           onChange={(v) => set('cloudflare_api_token', v)}
-          onClear={() => clear('cloudflare_api_token')}
+          onClear={() => clear('cloudflare_api_token', 'Cloudflare API token')}
         />
       </Card>
         </div>
@@ -3111,7 +3171,7 @@ export function Usage() {
 
   return (
     <>
-      <PageHead icon="usage" title="Usage & rate limits" sub="Every Gemini call this install makes, across all servers: by model, by day, and what's driving it." />
+      <PageHead icon="usage" title="Usage & rate limits" doc="usage" sub="Every Gemini call this install makes, across all servers: by model, by day, and what's driving it." />
       <div className="u-kpis">
         <Card>
           <h2 className="u-eyebrow">Requests · today</h2>
