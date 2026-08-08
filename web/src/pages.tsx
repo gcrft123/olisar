@@ -1486,7 +1486,10 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         {perms.length > 0 && (
           <div className="ext-block">
             <div className="ext-block-l">Capabilities it uses</div>
-            <div className="ext-caps">{perms.map((p) => <span key={p} className="tag">{p}</span>)}</div>
+            {/* The consent screen translates these same strings; the panel showed the raw
+                keys — `model.generate`, `discord.send` — and made the operator recall what
+                the install flow had just spelled out. */}
+            <div className="ext-caps">{perms.map((p) => <span key={p} className="tag" title={p}>{permLabel(p)}</span>)}</div>
           </div>
         )}
 
@@ -2293,7 +2296,25 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 // ── Docs (OpenClaw-style: left nav · content · on-this-page) ─────────────────
 
 export function Docs(props: { onNavigate?: (tab: string) => void }) {
-  const [active, setActive] = useState(DOCS[0].id)
+  // The open section lives in the URL (#/docs/<id>), so it can be bookmarked, shared and
+  // survive a reload. It used to be component state only: every reload — and every click on
+  // a "On this page" anchor, which overwrote the route with a bare #slug — landed the reader
+  // back on "What Olisar is".
+  const docFromHash = () => {
+    const seg = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0].split('/')[1]
+    return seg && DOCS.some((d) => d.id === seg) ? seg : DOCS[0].id
+  }
+  const [active, setActive] = useState(docFromHash)
+  useEffect(() => {
+    const cur = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
+    if (cur !== 'docs/' + active) history.replaceState(null, '', '#/docs/' + active)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active])
+  useEffect(() => {
+    const onPop = () => setActive(docFromHash())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
   // The palette can name a section directly; jumping there is the whole point of indexing
   // the docs body rather than only its title.
   useEffect(() => {
@@ -2361,6 +2382,9 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
           aria-label="Search docs"
           onChange={(e) => setQ(e.target.value)}
         />
+        {term && !DOCS.some(matches) && (
+          <p className="docs-nofind">No section mentions “{q.trim()}”.</p>
+        )}
         {DOC_GROUPS.map((g) => {
           const items = g.ids
             .map((id) => DOCS.find((s) => s.id === id))
@@ -2370,17 +2394,15 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
             <div className="docs-group" key={g.label}>
               <div className="docs-nav-label">{g.label}</div>
               {items.map((s) => (
-                <div
+                <button
                   key={s.id}
+                  type="button"
                   className={'docs-nav-item' + (s.id === active ? ' active' : '')}
-                  role="button"
-                  tabIndex={0}
                   aria-current={s.id === active ? 'page' : undefined}
                   onClick={() => setActive(s.id)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(s.id) } }}
                 >
                   {s.title}
-                </div>
+                </button>
               ))}
             </div>
           )
@@ -2411,7 +2433,14 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
                 key={h.slug}
                 href={`#${h.slug}`}
                 className={'lvl' + h.level + (activeHeading === h.slug ? ' active' : '')}
-                onClick={() => setActiveHeading(h.slug)}
+                // Scroll without letting the browser rewrite the address bar to a bare
+                // fragment the router doesn't recognise — that used to strand a reload on
+                // the first doc page.
+                onClick={(e) => {
+                  e.preventDefault()
+                  setActiveHeading(h.slug)
+                  document.getElementById(h.slug)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
               >
                 {inlineCode(h.text)}
               </a>
