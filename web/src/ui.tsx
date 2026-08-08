@@ -117,10 +117,10 @@ export function Num(props: { value: number; onChange: (v: number) => void; min?:
   )
 }
 
-export function Select(props: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel?: string }) {
+export function Select(props: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel?: string; className?: string }) {
   const f = useFieldIds()
   return (
-    <select {...labelled(f, props.ariaLabel)} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+    <select {...labelled(f, props.ariaLabel)} className={props.className} value={props.value} onChange={(e) => props.onChange(e.target.value)}>
       {props.options.map((o) => (
         <option key={o.value} value={o.value}>{o.label}</option>
       ))}
