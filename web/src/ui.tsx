@@ -389,9 +389,13 @@ export function useSaver(save: () => Promise<void>) {
 
 export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string; variant?: 'primary' | 'secondary' }) {
   const s = props.saver
-  const invalid = useHasInvalidFields()
+  // Re-render whenever any field's validity changes, then answer the narrower question:
+  // is anything invalid *in this bar's own card*? The page-wide answer belongs to SaveDock.
+  const anyInvalid = useHasInvalidFields()
+  const box = React.useRef<HTMLDivElement>(null)
+  const invalid = anyInvalid && !!box.current?.closest('.card')?.querySelector('[aria-invalid="true"]')
   return (
-    <div className="savebar">
+    <div className="savebar" ref={box}>
       {/* A page gets one primary. On Knowledge three SaveBars and a SaveDock were all
           bright at once, so the loudest control on the page was whichever you looked at
           first. */}
@@ -927,7 +931,15 @@ export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {
       .catch((e: any) => { setError(e?.message || 'Could not reach the backend.'); setLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
+  // A quiet re-fetch: same request, but it leaves `loading` and `error` alone so a page
+  // gated on those isn't torn down and rebuilt (losing focus and caret) every few seconds.
+  // The rejection is deliberately not caught — usePoll needs it to count staleness.
+  const refresh = React.useCallback(
+    () => loader().then((d) => { setData(d) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    deps,
+  )
   React.useEffect(() => { reload() }, [reload])
-  return { data, loading, error, reload, setData }
+  return { data, loading, error, reload, refresh, setData }
 }
 
