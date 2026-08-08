@@ -100,8 +100,16 @@ export function Modal(props: {
   const dismissable = props.dismissable !== false
   const close = props.onClose
 
+  // Captured during RENDER, not in the effect below. React applies a child's `autoFocus`
+  // while committing — before effects run — so reading activeElement in the effect returned
+  // the dialog's own input on every modal that has one. It then unmounted with the dialog,
+  // `isConnected` was false, and the restore silently did nothing: open the ⌘K palette,
+  // press Escape, and focus was on <body>. Modals without an autoFocus child (Settings)
+  // restored correctly, which is exactly why this hid.
+  const returnTo = useRef<HTMLElement | null>(null)
+  if (returnTo.current === null) returnTo.current = document.activeElement as HTMLElement | null
+
   useEffect(() => {
-    const returnTo = document.activeElement as HTMLElement | null
     const el = card.current
     // Don't fight an autoFocus'd input — React has already focused it by now.
     if (el && !el.contains(document.activeElement)) {
@@ -117,7 +125,8 @@ export function Modal(props: {
     }
     return () => {
       if (app && --openModals <= 0) { openModals = 0; app.inert = false }
-      if (returnTo?.isConnected) returnTo.focus()
+      const back = returnTo.current
+      if (back?.isConnected) back.focus()
     }
   }, [])
 
