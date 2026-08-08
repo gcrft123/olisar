@@ -424,13 +424,17 @@ export function Behavior() {
         )}
       </Card>
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
+        {/* Named for reactions, not repeated from the card above. "Confidence threshold",
+            "Channel cooldown (s)" and "Max per hour" appeared identically in both cards, so
+            six distinct settings had three accessible names between them — and a card title
+            is not part of a field's name. */}
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
+        <Field label="Reaction confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
           <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} def={0} />
         </Field>
         <div className="row">
-          <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
-          <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} unit="reactions" def={6} /></Field>
+          <Field label="Reaction cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
+          <Field label="Reactions per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} unit="reactions" def={6} /></Field>
         </div>
       </Card>
         </div>
@@ -745,8 +749,8 @@ export function Channels() {
                           if (v === 'off' && c.indexed !== false) {
                             if (!(await confirmDialog({
                               title: `Stop indexing #${c.name}?`,
-                              message: <>This also <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Re-enabling it indexes new posts from that point on; <code>/olisar reindex</code> reads the history back.</>,
-                              confirmLabel: 'Stop indexing and erase',
+                              message: <>When you save, this <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Nothing changes until you save — Reset still undoes it. Re-enabling indexes new posts from that point on; <code>/olisar reindex</code> reads the history back.</>,
+                              confirmLabel: 'Set to off',
                               tone: 'danger',
                             }))) return
                           }
@@ -818,6 +822,24 @@ export function Access() {
   const rows = roles ?? []
   const term = q.trim().toLowerCase()
   const shown = term ? rows.filter((r) => (r.name || r.role_id).toLowerCase().includes(term)) : rows
+
+  // Channels has a per-filter bulk setter; Access — the page where one wrong row locks the
+  // whole server out — had none, so restricting twenty roles meant twenty dropdowns. Acts on
+  // exactly what the filter is showing, and says how many it touched.
+  const setAll = (v: string) => {
+    if (!v || !shown.length) return
+    const a = new Set(allowed)
+    const b = new Set(blocked)
+    for (const r of shown) {
+      const id = String(r.role_id)
+      a.delete(id); b.delete(id)
+      if (v === 'allow') a.add(id)
+      if (v === 'block') b.add(id)
+    }
+    setConfig({ ...config, allowed_role_ids: [...a], blocked_role_ids: [...b] })
+    const label = ACCESS_OPTS.find((o) => o.value === v)?.label ?? v
+    toast(`Set ${shown.length} role${shown.length === 1 ? '' : 's'} to ${label}.`, 'neutral')
+  }
   // Naming the roles, not just the state. Marking one role allowed silently flips the whole
   // server from open to locked, and the sentence that says so lived in a card ABOVE the rows
   // — scrolled away by the time you were changing row four, with no live region, so a
@@ -861,8 +883,15 @@ export function Access() {
           <div className="empty">No roles synced yet. The bot populates this list shortly after it starts.</div>
         ) : (
           <>
-            <div style={{ marginBottom: 12 }}>
+            <div className="access-toolbar">
               <Text value={q} onChange={setQ} placeholder="Filter roles…" ariaLabel="Filter roles" />
+              <Select
+                className="chan-bulk"
+                value=""
+                onChange={setAll}
+                ariaLabel={`Set all ${shown.length} shown role${shown.length === 1 ? '' : 's'} at once`}
+                options={[{ value: '', label: `Set all ${shown.length}…` }, ...ACCESS_OPTS]}
+              />
             </div>
             {shown.map((r) => (
               <div className="list-row" key={r.role_id}>

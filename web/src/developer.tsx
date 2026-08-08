@@ -8,7 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { api } from './api'
 import { Icon, CloseX } from './icons'
 import { Modal, toast, confirmDialog } from './overlays'
-import { Spinner } from './ui'
+import { Spinner, useDirtyGuard } from './ui'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -409,12 +409,21 @@ function DevPolicy() {
   const [v, setV] = useState<number | null>(null)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  useEffect(() => { api.marketplacePolicy().then((d) => setV(d.risk_threshold)).catch((e) => setErr(e.message)) }, [])
+  // This pane holds an edit until Save like every configuration page, but it was outside the
+  // dirty registry — so moving the threshold and switching tabs discarded it silently, on the
+  // one setting that decides what the whole marketplace is allowed to publish.
+  const base = useRef<number | null>(null)
+  useDirtyGuard(() => v != null && base.current != null && v !== base.current)
+  useEffect(() => {
+    api.marketplacePolicy()
+      .then((d) => { base.current = d.risk_threshold; setV(d.risk_threshold) })
+      .catch((e) => setErr(e.message))
+  }, [])
 
   const save = async () => {
     if (v == null) return
     setErr(null); setSaved(false)
-    try { const d = await api.setMarketplacePolicy(v); setV(d.risk_threshold); setSaved(true); setTimeout(() => setSaved(false), 1800) }
+    try { const d = await api.setMarketplacePolicy(v); base.current = d.risk_threshold; setV(d.risk_threshold); setSaved(true); setTimeout(() => setSaved(false), 1800) }
     catch (e: any) { setErr(e.message) }
   }
   if (v == null && !err) return <Loading />
