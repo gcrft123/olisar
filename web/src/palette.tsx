@@ -116,11 +116,20 @@ export function CommandPalette(props: { commands: Command[]; open: boolean; onCl
   )
 }
 
-/** ⌘K / Ctrl-K anywhere, except while typing into a field. */
+/** ⌘K anywhere; Ctrl-K everywhere except inside a text field. */
 export function usePaletteHotkey(open: () => void) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() !== 'k' || !(e.metaKey || e.ctrlKey)) return
+      // Ctrl-K is "kill to end of line" in every macOS text field, and this hook was
+      // swallowing it globally — in the system prompt, all fourteen command-reply boxes,
+      // the test-chat composer and the extension editor. ⌘K is unambiguous and still works
+      // everywhere; Ctrl-K yields to the field the operator is typing in.
+      if (!e.metaKey && e.ctrlKey) {
+        const el = document.activeElement as HTMLElement | null
+        const tag = el?.tagName
+        if (tag === 'TEXTAREA' || tag === 'INPUT' || el?.isContentEditable) return
+      }
       e.preventDefault()
       open()
     }
