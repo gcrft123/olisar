@@ -171,7 +171,7 @@ function DevExtensions() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   return (
     <div className="card">
@@ -255,7 +255,7 @@ function DevReports() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
@@ -299,7 +299,7 @@ function DevBlocked() {
     catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
@@ -360,7 +360,7 @@ function DevModeration() {
       <div className="import-warn">A ban de-lists the publisher’s extensions and blocks them from Olisar entirely, taking effect on every bot within about a minute. A warning shows once in their console.</div>
 
       <div className="settings-subhead" style={{ marginTop: 18 }}>Current standing</div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       {!entries ? <Loading /> : entries.length === 0 ? <div className="empty">No warned or banned users.</div> : (
         <div className="dev-mod-list">
           {entries.map((m) => (
@@ -398,7 +398,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
         <span className="grow" />
         <button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
     </div>
   )
@@ -424,7 +424,7 @@ function DevPolicy() {
       <div className="settings-muted" style={{ marginBottom: 12 }}>
         Publishing is blocked when an extension's risk score reaches this value. The same review is shown to anyone installing it.
       </div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       <div className="dev-policy-row">
         <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))}
           aria-label="Publish risk threshold" aria-valuetext={`${v ?? 70} of 100`}

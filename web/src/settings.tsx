@@ -118,7 +118,7 @@ function Logs() {
         </button>
       </div>
       {loading ? <Spinner />
-        : err ? <div className="settings-err">{err}</div>
+        : err ? <div className="settings-err" role="alert">{err}</div>
         : <pre className="srv-logs">{text || '(no logs)'}</pre>}
     </>
   )
@@ -626,7 +626,7 @@ function Remote() {
   return (
     <>
       <Head title="Remote access" sub="Reach this console from anywhere, over Tailscale." />
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       {!data ? <Spinner /> : (
         <>
           <div className="status-card">
@@ -687,7 +687,9 @@ function Updates() {
   const load = (notify = false) => {
     setChecking(true)
     Promise.all([
-      api.getUpdates().catch(() => ({ error: "couldn't check" })),
+      // Keep the reason. Replacing it with a fixed string left the operator with nothing to
+      // act on and nothing to quote — "couldn't check" is true of every possible cause.
+      api.getUpdates().catch((e: any) => ({ error: e?.message || "couldn't check for updates" })),
       du ? du.check().catch(() => null) : Promise.resolve(null),
     ])
       .then(([backend, desk]: [any, any]) => {
