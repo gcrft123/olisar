@@ -115,9 +115,9 @@ if [[ -z "$identity" && ${#problems[@]} -eq 0 ]]; then
   else
     warn "no \"Developer ID Application\" identity in the login keychain — a local build here would be unsigned."
   fi
-  echo
-  echo "nothing to notarize with; stopping here."
-  exit 0
+  have_cert=false
+else
+  have_cert=true
 fi
 
 # ── the team id ──────────────────────────────────────────────────────────────────────────
@@ -130,9 +130,9 @@ if [[ -n "$identity" ]]; then
   ok "certificate: $(sed -n 's/.*"\(.*\)".*/\1/p' <<<"$identity")"
 fi
 
-if [[ -z "$pinned_team" ]]; then
+if [[ -z "$pinned_team" && "$have_cert" == true ]]; then
   problem "desktop/package.json has no build.mac.notarize.teamId, so electron-builder won't notarize the .app — and notarize-dmg.js then refuses to ship a .dmg with no stapled ticket."
-elif [[ -n "$cert_team" && "$cert_team" != "$pinned_team" ]]; then
+elif [[ -n "$cert_team" && -n "$pinned_team" && "$cert_team" != "$pinned_team" ]]; then
   problem "the certificate belongs to team $cert_team but desktop/package.json pins build.mac.notarize.teamId=$pinned_team. Apple rejects a submission from a team that didn't sign it."
 fi
 
@@ -170,8 +170,10 @@ elif [[ -n "${APPLE_KEYCHAIN_PROFILE:-}" ]]; then
   # notarize-dmg.js accepts a stored profile, but the .app half can't use one: electron-builder
   # always passes mac.notarize.teamId through, and @electron/notarize rejects a teamId and
   # keychain credentials together. See RELEASING.md §2.
-  problem "APPLE_KEYCHAIN_PROFILE is the only notarization credential set. It can't notarize the .app — electron-builder passes build.mac.notarize.teamId alongside it and @electron/notarize refuses both at once. Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD instead."
-else
+  if [[ "$have_cert" == true ]]; then
+    problem "APPLE_KEYCHAIN_PROFILE is the only notarization credential set. It can't notarize the .app — electron-builder passes build.mac.notarize.teamId alongside it and @electron/notarize refuses both at once. Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD instead."
+  fi
+elif [[ "$have_cert" == true ]]; then
   problem "a signing certificate is configured but no notarization credentials are. The .app would be signed and left un-notarized, and notarize-dmg.js fails the release when it finds no stapled ticket. Set APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD (RELEASING.md §2)."
 fi
 
@@ -191,5 +193,11 @@ if [[ ${#problems[@]} -gt 0 ]]; then
   for p in "${problems[@]}"; do printf '  ✗ %s\n' "$p"; done
   echo
   exit 1
+fi
+if [[ "$have_cert" != true ]]; then
+  # Exit 0: an unsigned build is the documented path for a fork, and failing here would stop
+  # one from cutting a release at all. The warning above is what says this isn't the good case.
+  echo "no certificate — the build would be unsigned, and notarization never runs."
+  exit 0
 fi
 echo "ready — these credentials produce a signed, notarized and stapled .dmg."
