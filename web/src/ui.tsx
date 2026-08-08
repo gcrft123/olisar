@@ -134,6 +134,21 @@ export function Num(props: {
 }) {
   const f = useFieldIds()
   const hintId = React.useId()
+  const unitRef = React.useRef<HTMLSpanElement>(null)
+  // Reserve exactly the unit's width, not a fixed guess. A flat 96px reserve left 2px of
+  // room for the value in Behavior's three-across rows — the number you were editing was
+  // invisible — and still burned 96px on the fields that have no unit at all.
+  const [reserve, setReserve] = React.useState(0)
+  React.useLayoutEffect(() => {
+    if (!props.unit) { setReserve(0); return }
+    const el = unitRef.current
+    if (!el) return
+    const measure = () => setReserve(Math.ceil(el.offsetWidth) + 18)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [props.unit])
   const bits: string[] = []
   if (props.min !== undefined && props.max !== undefined) bits.push(`${props.min}–${props.max}`)
   else if (props.min !== undefined) bits.push(`${props.min} or more`)
@@ -150,15 +165,24 @@ export function Num(props: {
           min={props.min}
           max={props.max}
           step={props.step}
+          style={reserve ? { paddingRight: reserve } : undefined}
           onChange={(e) => props.onChange(Number(e.target.value))}
         />
-        {props.unit && <span className="num-unit">{props.unit}</span>}
+        {props.unit && <span className="num-unit" ref={unitRef}>{props.unit}</span>}
       </div>
-      {!!bits.length && (
-        <div className="num-hint" id={hintId}>
-          {bits.join(' · ')}
+      {(!!bits.length || !atDefault) && (
+        <div className="num-hint">
+          {/* The id sits on the text alone: with the button inside it, aria-describedby
+              resolved to "0 or more · default 100Reset" and the field's description
+              carried a control's label. */}
+          {!!bits.length && <span id={hintId}>{bits.join(' · ')}</span>}
           {!atDefault && (
-            <button type="button" className="ghost num-reset" onClick={() => props.onChange(props.def as number)}>
+            <button
+              type="button"
+              className="ghost num-reset"
+              aria-label={`Reset to the default of ${props.def}`}
+              onClick={() => props.onChange(props.def as number)}
+            >
               Reset
             </button>
           )}
@@ -287,11 +311,14 @@ export function useSaver(save: () => Promise<void>) {
   return { busy, saved, error, run }
 }
 
-export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string }) {
+export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string; variant?: 'primary' | 'secondary' }) {
   const s = props.saver
   return (
     <div className="savebar">
-      <button className="primary" disabled={s.busy} onClick={s.run}>
+      {/* A page gets one primary. On Knowledge three SaveBars and a SaveDock were all
+          bright at once, so the loudest control on the page was whichever you looked at
+          first. */}
+      <button className={props.variant === 'secondary' ? '' : 'primary'} disabled={s.busy} onClick={s.run}>
         {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
       </button>
       {/* The outcome of a save was announced to nobody — role="status" appeared exactly

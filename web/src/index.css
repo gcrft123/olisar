@@ -342,6 +342,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    shrink-wrap its content (so content-light pages render narrow, and pages widen once
    their data loads). A definite width makes every page the same 1180px, centered. */
 .main { padding: 40px 44px 96px; width: 100%; max-width: 1180px; margin: 0 auto; }
+.main:focus-visible { outline: none; }
 /* Monaco names some of its own internal nodes with generic classes that collide with our
    layout classes above — notably `.main`, which Monaco gives each autocomplete row's
    content box. Our page `.main` padding/width then leaked into the editor and pushed every
@@ -393,7 +394,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   margin-bottom: 14px;
   box-shadow: var(--shadow-card);
 }
-.card h2 { font-size: 13.5px; font-weight: 600; margin-bottom: 2px; letter-spacing: -0.01em; }
+/* 15px, per DESIGN.md's type table. At 13.5 a card title and a field label (12.5/550) were
+   separated by 1px and half a weight step — the group heading read as another control
+   label, so nothing said where one group ended and the next began. */
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 3px; letter-spacing: -0.012em; }
 .card .hint { color: var(--text-2); font-size: 12.5px; margin-bottom: 15px; line-height: 1.5; }
 
 /* ── Narrow widths: the rail becomes a drawer ───────────────────────────── */
@@ -536,6 +540,10 @@ select { appearance: none; cursor: pointer;
 .choice:hover { background: var(--bg-inset); color: var(--text); }
 .choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+/* The real checkbox is a 0x0 box, so the UA ring paints on nothing — the chip has to carry
+   the focus itself. Without this, Behavior's three mention chips were invisible tab stops,
+   and a focused chip was byte-identical to a selected one. */
+.choice:focus-within { outline: none; box-shadow: var(--ring); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 button {
@@ -742,13 +750,23 @@ kbd {
    invisible before — the browser enforced min/max nobody could see, and nothing said what
    a reasonable value looks like, so every threshold was a guess. */
 .num-wrap { position: relative; display: flex; align-items: center; }
-.num-wrap input { padding-right: 96px; }
+/* The right reserve is written per instance by <Num> from the unit's measured width, and is
+   absent entirely when there is no unit. A flat reserve here left 2px for the value in a
+   three-across row. */
 .num-unit {
   position: absolute; right: 12px; pointer-events: none;
-  font-size: 12px; color: var(--text-3); max-width: 80px; overflow: hidden; white-space: nowrap;
+  font-size: 12px; color: var(--text-3); white-space: nowrap;
 }
-.num-hint { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11.5px; color: var(--text-3); }
-.num-reset { height: 20px; padding: 0 7px; font-size: 11px; color: var(--text-2); border-color: transparent; }
+.num-hint { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11.5px; color: var(--text-3); flex-wrap: wrap; }
+/* Below this a three-column .row gives each field ~110px, which is narrower than the value
+   it holds. Stack instead — a tall page beats an unreadable one. */
+@media (max-width: 620px) {
+  .row { flex-direction: column; gap: 0; }
+  .row > * { width: 100%; }
+}
+/* 24px, so it clears WCAG 2.5.8 outright rather than leaning on the spacing exception —
+   this is my own control in my own hint line, there is no reason for it to be borderline. */
+.num-reset { height: 24px; padding: 0 8px; font-size: 11px; color: var(--text-2); border-color: transparent; }
 .num-reset:hover { color: var(--text); background: var(--bg-inset); }
 
 /* ── Command palette (⌘K) ───────────────────────────────────────────────── */
@@ -784,6 +802,8 @@ kbd {
 /* A reserved slot for a conditional row action: it holds the column even when the action
    isn't available, so every row's icons line up under each other. */
 .row-slot { display: inline-flex; width: 28px; flex: none; }
+/* Holds the column for a labelled action rather than an icon. */
+.row-slot.wide { width: 96px; justify-content: flex-end; }
 .row-slot:empty { display: inline-block; }
 /* Separates benign row actions from destructive ones. */
 .row-divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); flex: none; }
@@ -814,6 +834,12 @@ kbd {
 .list-row .title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .meta { color: var(--text-2); font-size: 12px; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
 .meta-warn { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
+/* A row whose text needs reading: identifier full width, error beneath it, actions after.
+   The alternative was three controls compressing the URL to an ellipsis. */
+.list-row.stacked { flex-wrap: wrap; align-items: flex-start; }
+.list-row.stacked .grow { flex: 1 0 100%; }
+.list-row.stacked .title { white-space: normal; overflow-wrap: anywhere; }
+.list-row.stacked .meta-warn { margin-top: 4px; font-size: 12px; }
 
 /* Below this the row cannot hold text and two controls side by side. Stacking is what
    keeps them reachable: unwrapped, the row's min-content width inflated the grid track
@@ -1222,6 +1248,9 @@ kbd {
 @media (max-width: 860px) {
   .docs-content { padding: 26px 16px 56px; }
   .docs-title { font-size: 22px; }
+  /* The save dock is fixed over the page; leave it room rather than letting it sit on
+     top of the last field for as long as the page is dirty. */
+  .main { padding: 26px 16px 128px; }
 }
 
 .doc { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
@@ -1353,6 +1382,12 @@ kbd {
   background: color-mix(in srgb, var(--dc-brand) 26%, transparent); color: #fff;
 }
 .dcp-empty { color: var(--dc-muted); font-style: italic; }
+/* Discord's inline code, in Discord's treatment — the preview simulates its chrome, so it
+   uses its conventions rather than the console's. */
+.dcp-code {
+  font-family: var(--mono); font-size: 0.86em; padding: 1px 4px; border-radius: 4px;
+  background: color-mix(in srgb, #000 26%, var(--dc-bg)); color: var(--dc-text);
+}
 
 /* ── Test chat (enclosed sandbox) ───────────────────────────────────────── */
 /* flex:1 + min-height:0 so the panel fills its card (matching Identity's height) and
@@ -1938,6 +1973,13 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
 .useg button { font: inherit; font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
 .useg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); font-weight: 500; }
+
+/* The selected segment carries a resting drop shadow at (0,2,1), which outranked the
+   global `button:focus-visible` at (0,1,1) and silently ate the focus ring — on the one
+   element in a roving-tabindex radiogroup that Tab actually lands on. Restated at matching
+   specificity, keeping the shadow underneath the ring. */
+.ext-seg button.on:focus-visible,
+.useg button.on:focus-visible { outline: none; box-shadow: var(--ring), 0 1px 2px rgba(0, 0, 0, 0.3); }
 .u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .u-mins { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
 .u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
