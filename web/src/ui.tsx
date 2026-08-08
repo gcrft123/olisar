@@ -210,28 +210,37 @@ export function Select(props: { value: string; onChange: (v: string) => void; op
 // A switch is a div, so it can't be the target of a <label for>; it takes the Field's label
 // by reference instead. Standalone toggles (no Field, no visible `label`) MUST pass
 // `ariaLabel` — otherwise the control announces as "switch, on" with no subject.
+// A <button>, not a <div>. `Field` renders `<label htmlFor={id}>`, and a label can only
+// activate a *labelable* element — so against a div the `for` pointed at nothing: seven
+// labels on Behavior alone were dead click targets. A button is labelable, so the id
+// resolves, clicking the field label works, and Enter/Space come from the platform instead
+// of a hand-rolled key handler.
+//
+// It is also named by BOTH its field label and its own text. With only the inner text, two
+// rows whose field label reads "Enabled" announced as "Let Olisar speak up on its own" and
+// "React with emoji" with no clue which card they belonged to.
 export function Toggle(props: { value: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string; disabled?: boolean }) {
   const f = useFieldIds()
   const dis = !!props.disabled
+  const uid = React.useId()
+  const lblId = props.label ? uid + 'tl' : undefined
+  const names = [f?.labelId, lblId].filter(Boolean).join(' ')
   return (
-    <div
+    <button
+      type="button"
+      id={f?.id}
       className={'toggle' + (props.value ? ' on' : '') + (dis ? ' disabled' : '')}
       role="switch"
       aria-checked={props.value}
-      aria-disabled={dis}
-      aria-label={props.label ? undefined : (props.ariaLabel ?? undefined)}
-      aria-labelledby={!props.label && !props.ariaLabel && f ? f.labelId : undefined}
+      disabled={dis}
+      aria-label={names ? undefined : (props.ariaLabel ?? undefined)}
+      aria-labelledby={names || undefined}
       aria-describedby={f?.descId}
-      tabIndex={dis ? -1 : 0}
       onClick={() => { if (!dis) props.onChange(!props.value) }}
-      onKeyDown={(e) => {
-        if (dis) return
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); props.onChange(!props.value) }
-      }}
     >
-      <div className="track"><div className="knob" /></div>
-      {props.label && <span className="lbl">{props.label}</span>}
-    </div>
+      <span className="track"><span className="knob" /></span>
+      {props.label && <span className="lbl" id={lblId}>{props.label}</span>}
+    </button>
   )
 }
 
