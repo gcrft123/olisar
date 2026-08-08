@@ -102,18 +102,51 @@ export function Area(props: { value: string; onChange: (v: string) => void; rows
   )
 }
 
-export function Num(props: { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; ariaLabel?: string }) {
+// A bare number box asks the operator to invent a value. `min`/`max` were already being
+// passed and were invisible — the browser enforced a range nobody could see, and nothing
+// said what a sane setting looks like. The range and the default are now on screen, and the
+// default is one click away when the current value has drifted from it.
+export function Num(props: {
+  value: number; onChange: (v: number) => void
+  min?: number; max?: number; step?: number; ariaLabel?: string
+  /** What the number counts — "seconds", "messages", "tokens". */
+  unit?: string
+  /** The backend's default for this setting. */
+  def?: number
+}) {
   const f = useFieldIds()
+  const hintId = React.useId()
+  const bits: string[] = []
+  if (props.min !== undefined && props.max !== undefined) bits.push(`${props.min}–${props.max}`)
+  else if (props.min !== undefined) bits.push(`${props.min} or more`)
+  if (props.def !== undefined) bits.push(`default ${props.def}`)
+  const atDefault = props.def === undefined || props.value === props.def
   return (
-    <input
-      type="number"
-      {...labelled(f, props.ariaLabel)}
-      value={props.value ?? 0}
-      min={props.min}
-      max={props.max}
-      step={props.step}
-      onChange={(e) => props.onChange(Number(e.target.value))}
-    />
+    <>
+      <div className="num-wrap">
+        <input
+          type="number"
+          {...labelled(f, props.ariaLabel)}
+          aria-describedby={[f?.descId, bits.length ? hintId : null].filter(Boolean).join(' ') || undefined}
+          value={props.value ?? 0}
+          min={props.min}
+          max={props.max}
+          step={props.step}
+          onChange={(e) => props.onChange(Number(e.target.value))}
+        />
+        {props.unit && <span className="num-unit">{props.unit}</span>}
+      </div>
+      {!!bits.length && (
+        <div className="num-hint" id={hintId}>
+          {bits.join(' · ')}
+          {!atDefault && (
+            <button type="button" className="ghost num-reset" onClick={() => props.onChange(props.def as number)}>
+              Reset
+            </button>
+          )}
+        </div>
+      )}
+    </>
   )
 }
 
