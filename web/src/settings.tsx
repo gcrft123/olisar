@@ -2,15 +2,17 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
+import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-export type SectionId = 'general' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+export type SectionId = 'general' | 'activity' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
 export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
+  { id: 'activity', label: 'Activity', ic: 'docs' },
   { id: 'bot', label: 'Bot', ic: 'bolt' },
   { id: 'logs', label: 'Logs', ic: 'docs' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
@@ -52,6 +54,7 @@ export function SettingsModal(
             <CloseX size={18} />
           </button>
           {section === 'general' && <General />}
+          {section === 'activity' && <Activity />}
           {section === 'bot' && <Bot />}
           {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
@@ -496,6 +499,18 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
 // anywhere on screen — it now lives on Knowledge, under the things it erases.
 function Bot() {
   return <BotSwitcher />
+}
+
+// ── Activity ───────────────────────────────────────────────────────────────
+// The same ledger Knowledge shows beside its danger zone, reachable from anywhere. Every
+// page can change something durable; only one of them could show you what it changed.
+function Activity() {
+  return (
+    <>
+      <Head title="Activity" sub="What has been changed in this console, newest first." />
+      <ActivityCard bare />
+    </>
+  )
 }
 
 // ── General ────────────────────────────────────────────────────────────────

@@ -600,7 +600,18 @@ export function Channels() {
                     value=""
                     options={[{ value: '', label: `Set all ${g.rows.length}…` }, ...MODE_OPTS]}
                     ariaLabel={`Set the mode for all ${g.rows.length} channels in ${g.category || 'no category'}`}
-                    onChange={(v) => { if (v) g.rows.forEach((c: any) => patchRow(c.channel_id, { mode: v })) }}
+                    onChange={(v) => {
+                      if (!v) return
+                      g.rows.forEach((c: any) => patchRow(c.channel_id, { mode: v }))
+                      // A receipt. Changing four rows from one control and saying nothing
+                      // leaves the operator to verify it by eye — and the label resets, so
+                      // the control itself doesn't record what it did either.
+                      const label = MODE_OPTS.find((o) => o.value === v)?.label ?? v
+                      toast(
+                        `${g.rows.length} channel${g.rows.length === 1 ? '' : 's'} in ${g.category || 'no category'} set to ${label}. Save to apply.`,
+                        'neutral',
+                      )
+                    }}
                   />
                 </div>
                 {g.rows.map((c) => (
@@ -918,7 +929,11 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
 // The counts a destructive action reports are the most consequential receipt in the
 // product, and until now they existed for 3.6 seconds inside a toast. record_audit has
 // been writing them to audit_log all along; this reads it back.
-function ActivityCard() {
+// Exported: the ledger exists because "a destructive action that confirms itself in a
+// toast has left no record three seconds later" — and that is true of every page, not just
+// the one it happened to be built on. It is install-wide already; it just wasn't reachable
+// from anywhere else.
+export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   const { data, loading, reload } = useAsync<any>(() => api.getAudit(60))
   const entries: any[] = data?.entries ?? []
   const when = (ts: string | null) => {
@@ -936,11 +951,8 @@ function ActivityCard() {
       .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
       .join(' · ')
   }
-  return (
-    <Card
-      title="Activity"
-      hint={<>What has been changed on this install, newest first. {data?.install_wide && 'Covers every server this install manages.'}</>}
-    >
+  const body = (
+    <>
       {loading ? <Spinner label="Loading recent activity…" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
         <>
@@ -961,6 +973,15 @@ function ActivityCard() {
           </div>
         </>
       )}
+    </>
+  )
+  if (bare) return body
+  return (
+    <Card
+      title="Activity"
+      hint={<>What has been changed on this install, newest first. {data?.install_wide && 'Covers every server this install manages.'}</>}
+    >
+      {body}
     </Card>
   )
 }
