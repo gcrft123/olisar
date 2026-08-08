@@ -188,7 +188,7 @@ export default function App() {
   // Bounced here by the OAuth callback because the Discord account isn't an admin of
   // any server Olisar is in. Takes precedence over the normal auth flow.
   if (new URLSearchParams(window.location.search).has('denied')) return <AccessDenied />
-  if (setup === 'checking') return <div className="loading">Loading…</div>
+  if (setup === 'checking') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
   if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} initialConnectMode={setupInfo.hosting_mode === 'server'} onDone={async () => {
     // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
     // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
@@ -200,9 +200,9 @@ export default function App() {
   // Server hosting: the bot lives on the operator's VM. This local install is the loopback
   // control panel (start/stop over SSH) — no Discord login, no local console.
   if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />
-  if (auth === 'loading') return <div className="loading">Loading…</div>
+  if (auth === 'loading') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
   if (auth === 'out') return <Login />
-  if (guilds === null) return <div className="loading">Loading your servers…</div>
+  if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
   if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
   // Both `tab` and `guild` key a remount below, which throws away whatever the page was

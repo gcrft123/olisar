@@ -243,7 +243,7 @@ export function Behavior() {
           <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" />
         </Field>
         <Field label="Web searches per day" desc="The most lookups Olisar will run in a day.">
-          <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} />
+          <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
         </Field>
         <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
@@ -251,16 +251,16 @@ export function Behavior() {
       </Card>
       <Card title="Memory & summaries">
         <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">
-          <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} />
+          <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} unit="messages" def={12} />
         </Field>
         <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens.">
-          <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} />
+          <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} unit="tokens" def={4000} />
         </Field>
         <Field label="Glossary mine threshold" desc="Mine the server glossary for new facts after this many new tokens.">
-          <Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} />
+          <Num value={data.glossary_mine_token_threshold} onChange={(v) => set('glossary_mine_token_threshold', v)} min={300} step={250} unit="tokens" def={1500} />
         </Field>
         <Field label="Persona rebuild (messages)" desc="Rebuild a member's persona after this many new messages from them.">
-          <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} />
+          <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} unit="messages" def={15} />
         </Field>
       </Card>
         </div>
@@ -276,12 +276,12 @@ export function Behavior() {
           ]} />
         </Field>
         <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it speaks up.">
-          <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} />
+          <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} def={0.7} />
         </Field>
         <div className="row">
-          <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} /></Field>
-          <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} /></Field>
-          <Field label="Max per hour"><Num value={pro.max_per_hour} onChange={(v) => setP('max_per_hour', v)} min={0} /></Field>
+          <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
+          <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} unit="seconds" def={300} /></Field>
+          <Field label="Max per hour"><Num value={pro.max_per_hour} onChange={(v) => setP('max_per_hour', v)} min={0} unit="messages" def={6} /></Field>
         </div>
         <Field label="Quiet hours (UTC)" desc="Stay silent during these hours.">
           <Toggle value={quietOn} onChange={(v) => setQuiet(v ? { start: qh.start ?? 23, end: qh.end ?? 7 } : {})} label="Enable quiet hours" />
@@ -296,11 +296,11 @@ export function Behavior() {
       <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
         <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
         <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
-          <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} />
+          <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} def={0} />
         </Field>
         <div className="row">
-          <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} /></Field>
-          <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} /></Field>
+          <Field label="Channel cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
+          <Field label="Max per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} unit="reactions" def={6} /></Field>
         </div>
       </Card>
         </div>
@@ -504,7 +504,9 @@ export function Channels() {
         </div>
         <div className="hint">Indexing is separate from the mode: it decides whether a channel's messages can be found by search. Turning it off also wipes what's already been indexed there.</div>
       </Card>
-      <Card title={`Channels — ${configured} configured`}>
+      {/* "Channels — 9 configured" over ten rows left the reader counting: is 9 the total,
+          or the subset that isn't off? Say both numbers, and say which is which. */}
+      <Card title={`Channels — ${configured} of ${rows.length} active`}>
         {rows.length === 0 ? (
           <div className="empty">No channels synced yet. The bot populates this list shortly after it starts; you can also run <code>/olisar watch</code> in a channel.</div>
         ) : (
@@ -713,10 +715,23 @@ function SearchIndexCard() {
         <>
           <div className="reindex-top">
             <div className="reindex-stat">
-              {/* Coerced rather than read straight: a drifted or partial payload used to
-                  throw here and take the whole page to the error boundary. */}
-              <b>{data.done ?? 0}</b> / {data.total ?? 0} channels indexed
-              <span className="rx-dim"> · {Number(data.indexed_messages ?? 0).toLocaleString()} messages</span>
+              {/* `done / total` is BACKFILL progress, not what the index holds — so with no
+                  backfill running it read "0 / 0 channels indexed · 128,431 messages",
+                  which says both nothing and everything is indexed. Two different facts;
+                  only show the progress one while there is progress to report.
+                  Coerced rather than read straight: a drifted payload used to throw here
+                  and take the whole page to the error boundary. */}
+              {Number(data.total ?? 0) > 0 ? (
+                <>
+                  <b>{data.done ?? 0}</b> / {data.total} channels backfilled
+                  <span className="rx-dim"> · {Number(data.indexed_messages ?? 0).toLocaleString()} messages searchable</span>
+                </>
+              ) : (
+                <>
+                  <b>{Number(data.indexed_messages ?? 0).toLocaleString()}</b> messages searchable
+                  <span className="rx-dim"> · new posts are indexed as they arrive</span>
+                </>
+              )}
             </div>
             <div className="reindex-actions">
               <button className="primary" onClick={start} disabled={busy}>
@@ -912,7 +927,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         {type === 'website' && (
           <div className="row">
             <Field label="Crawl depth (0–3)"><Num value={depth} onChange={setDepth} min={0} max={3} /></Field>
-            <Field label="Max pages"><Num value={maxPages} onChange={setMaxPages} min={1} max={100} /></Field>
+            <Field label="Max pages"><Num value={maxPages} onChange={setMaxPages} min={1} max={100} unit="pages" def={25} /></Field>
           </div>
         )}
         <SaveBar saver={adder} label="Add & ingest" />
@@ -928,6 +943,21 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               </div>
             </div>
             <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
+            {/* A failed source used to offer Remove and nothing else, so recovering from a
+                transient 404 or timeout meant deleting the row and retyping the URL. The
+                console already knows the URL; retrying is the obvious next step and it was
+                simply missing. */}
+            {s.status === 'error' && (
+              <button onClick={async () => {
+                try {
+                  await api.addSource({ type: s.type, uri: s.uri })
+                  toast('Queued again — Olisar will retry reading it.', 'success')
+                  reload()
+                } catch (e: any) { toast(e?.message || 'Couldn’t queue the retry', 'danger') }
+              }}>
+                <Icon.refresh size={15} /> Retry
+              </button>
+            )}
             <button className="danger" onClick={async () => {
               // Removing a source drops every passage Olisar read out of it. Re-adding means
               // re-crawling and re-reading against the free quota, so this is not a cheap undo.
@@ -2931,6 +2961,15 @@ export function Usage() {
   )
 }
 
-function Spinner() {
-  return <div className="muted" style={{ padding: 20 }}>Loading…</div>
+// The component called Spinner had no spinner in it — every tab switch blanked the page to
+// bare left-aligned grey text, which reads as "empty" rather than "working". A moving
+// indicator is the difference, and `role="status"` means the state reaches a screen reader
+// too, since the visual cue can't.
+function Spinner({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="page-loading" role="status">
+      <span className="spinner" />
+      <span>{label}</span>
+    </div>
+  )
 }
