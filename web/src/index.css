@@ -682,7 +682,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 /* Discord display names have no spaces to break on. Without this an unbroken name sets the
    card's min-content width and, through the grid, the page's. */
 .member-card .member-impression, .member-card .mem { overflow-wrap: anywhere; }
-.member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.member-roles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; margin-top: 8px; }
 .member-roles .tag.more { color: var(--text-3); cursor: default; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
 /* The trigger is a button now, so it inherits the system's focus ring. `outline: none`
@@ -897,6 +897,11 @@ kbd {
 /* Discord role chip — the role's own colour, as it reads in Discord's member list.
    `--rc` is set inline from the API's hex; an uncoloured role falls back to the ramp. */
 .rolechip {
+  /* Declared, not assumed: an uncoloured role has no inline `--rc`, and `color-mix()` with
+     an unset variable is invalid at computed-value time — which throws away the entire
+     `border` shorthand, not just the colour. That is why plain chips shipped with no border
+     at all while `.plain { border-color: … }` appeared to set one. */
+  --rc: var(--text-3);
   display: inline-flex; align-items: center; gap: 7px;
   padding: 2px 10px 2px 8px; border-radius: var(--radius-pill);
   /* Explicit, because the "+N" popup's trigger is a .tag and would otherwise pass mono down. */
@@ -1267,7 +1272,7 @@ kbd {
 .docs-toc-rail { display: flex; flex-direction: column; border-left: 1px solid var(--border); }
 .docs-toc a {
   display: block; color: var(--text-3); font-size: 12.5px; text-decoration: none;
-  padding: 3px 0 3px 12px; line-height: 1.4; border-left: 2px solid transparent; margin-left: -1px;
+  padding: 4px 0 4px 12px; line-height: 1.4; border-left: 2px solid transparent; margin-left: -1px;
   transition: color 0.12s, border-color 0.12s;
 }
 .docs-toc a:hover { color: var(--text); }
