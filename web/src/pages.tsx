@@ -599,7 +599,7 @@ export function Channels() {
                     className="chan-bulk"
                     value=""
                     options={[{ value: '', label: `Set all ${g.rows.length}…` }, ...MODE_OPTS]}
-                    ariaLabel={`Set the mode for all ${g.rows.length} channels in ${g.category || 'no category'}`}
+                    ariaLabel={`Set the mode for ${g.rows.length === 1 ? 'the 1 channel' : `all ${g.rows.length} channels`} in ${g.category || 'no category'}`}
                     onChange={(v) => {
                       if (!v) return
                       g.rows.forEach((c: any) => patchRow(c.channel_id, { mode: v }))
