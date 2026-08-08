@@ -102,6 +102,24 @@ export function Area(props: { value: string; onChange: (v: string) => void; rows
   )
 }
 
+// Progressive disclosure, for settings that have a right answer until they don't. Native
+// <details> so it is keyboard-operable and announced as expandable without any ARIA of our
+// own, and so Ctrl-F inside the browser can still reach the content.
+export function Disclosure(props: { summary: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <details className="disclosure">
+      <summary>
+        <span className="disclosure-chev" aria-hidden="true">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+        </span>
+        <span className="disclosure-title">{props.summary}</span>
+        {props.hint && <span className="disclosure-hint">{props.hint}</span>}
+      </summary>
+      <div className="disclosure-body">{props.children}</div>
+    </details>
+  )
+}
+
 // A bare number box asks the operator to invent a value. `min`/`max` were already being
 // passed and were invisible — the browser enforced a range nobody could see, and nothing
 // said what a sane setting looks like. The range and the default are now on screen, and the
