@@ -39,6 +39,10 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
     })
   } catch (e: any) {
     if (ctrl?.signal.aborted) throw new Error('timed out — the backend didn’t respond')
+    // fetch() rejects with a bare TypeError for DNS, refused connections, offline and CORS.
+    // That surfaced to the operator as the browser's own "Failed to fetch", and because it
+    // carries a message the friendlier fallbacks downstream were dead code.
+    if (e instanceof TypeError) throw new Error('couldn’t reach the backend — is it running?')
     throw e
   } finally {
     if (timer) clearTimeout(timer)
@@ -52,7 +56,16 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
       const j = JSON.parse(body)
       if (j?.detail !== undefined && j?.detail !== null) {
         detail = j.detail
-        msg = typeof j.detail === 'string' ? j.detail : (j.detail?.message || JSON.stringify(j.detail))
+        msg = typeof j.detail === 'string'
+          ? j.detail
+          // FastAPI's 422 detail is an array of {loc, msg, type}. JSON.stringify put the raw
+          // objects on screen; read the field name and the reason out of the first one.
+          : Array.isArray(j.detail)
+            ? j.detail.map((d: any) => {
+                const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null
+                return field ? `${field}: ${d?.msg || 'is not valid'}` : (d?.msg || 'is not valid')
+              }).join('; ')
+            : (j.detail?.message || JSON.stringify(j.detail))
       }
     } catch { /* not JSON — use the raw body */ }
     const err = new Error(msg) as Error & { detail?: any }

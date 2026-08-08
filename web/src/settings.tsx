@@ -359,12 +359,15 @@ function BotSwitcher() {
                       replaced kept the columns but left the operator guessing why an
                       action was missing. A disabled control says "not available here";
                       an absent one says nothing. */}
+                  {/* No tooltip explaining *why* these are disabled: a disabled control
+                      fires neither mouseover nor focusin, so that text was unreachable
+                      exactly when it applied. The row's own "Active" and "Default" chips
+                      already say it, on screen, before anyone reaches for the button. */}
                   <button disabled={busy || isActive} onClick={() => switchTo(p)}
-                    aria-label={`Switch to ${p.name}`}
-                    title={isActive ? 'Already the active bot' : undefined}>
+                    aria-label={`Switch to ${p.name}`}>
                     Switch
                   </button>
-                  <button className="ghost icon-btn sm" data-tip={isDefault ? 'Already the launch default' : 'Set as default'}
+                  <button className="ghost icon-btn sm" data-tip="Set as default"
                     aria-label={isDefault ? `${p.name} is already the launch default` : `Make ${p.name} the launch default`}
                     disabled={busy || isDefault} onClick={() => makeDefault(p)}>
                     <Icon.star size={14} weight={isDefault ? 'Bold' : 'Linear'} />
@@ -372,7 +375,7 @@ function BotSwitcher() {
                   <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
-                  <button className="ghost icon-btn sm" data-tip={isActive ? 'Move / change hosting' : 'Only the active bot can be moved'}
+                  <button className="ghost icon-btn sm" data-tip="Move / change hosting"
                     aria-label={`Move ${p.name} or change its hosting`}
                     disabled={busy || !isActive} onClick={() => setMoving(p)}>
                     <Icon.remote size={14} />
@@ -382,7 +385,6 @@ function BotSwitcher() {
                     <Icon.eraser size={14} />
                   </button>
                   <button className="danger" aria-label={`Delete ${p.name}`}
-                    title={isActive ? 'Switch to another bot before deleting this one' : undefined}
                     disabled={busy || isActive} onClick={() => del(p)}>
                     <Icon.trash size={14} /> Delete
                   </button>
