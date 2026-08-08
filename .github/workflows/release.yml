@@ -40,8 +40,18 @@ jobs:
       contents: read
       packages: write
 
-  macos:
+  # Prove the signing + notarization credentials before the macOS job spends ten minutes on Go,
+  # uv, PyInstaller and a dashboard build to reach the step that uses them. Four v1.4.0 builds
+  # died that way on a certificate secret that was simply unset. Runs on its own from the
+  # Actions tab too — that's the point, it's the dry run a `v*`-only workflow can't give you.
+  # `secrets: inherit`: a called workflow gets none of the repo's secrets otherwise.
+  mac-preflight:
     needs: version-check
+    uses: ./.github/workflows/mac-signing-preflight.yml
+    secrets: inherit
+
+  macos:
+    needs: mac-preflight # which needs version-check, so both gates still apply
     runs-on: macos-14 # Apple Silicon → arm64 .dmg
     steps:
       - uses: actions/checkout@v4

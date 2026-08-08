@@ -83,6 +83,15 @@ export APPLE_APP_SPECIFIC_PASSWORD=$(security find-generic-password -s olisar-no
 
 The first signed build pops a keychain prompt for the signing key — choose **Always Allow**.
 
+To check the shell you're about to build from before you spend a build on it:
+
+```sh
+scripts/check_mac_signing.sh
+```
+
+It resolves the certificate and the notarization credentials exactly the way the build does,
+authenticates against Apple without submitting anything, and names every problem it finds.
+
 > **Not `notarytool store-credentials` / `APPLE_KEYCHAIN_PROFILE`.** electron-builder always
 > passes `mac.notarize.teamId` through to `@electron/notarize`, whose validator counts *any*
 > `teamId` as password credentials — so adding a keychain profile on top fails the build with
@@ -102,6 +111,19 @@ and the release job just builds unsigned:
 | `APPLE_ID` | An Apple ID on the developer team |
 | `APPLE_APP_SPECIFIC_PASSWORD` | An [app-specific password](https://support.apple.com/en-us/102654) for that Apple ID |
 | `APPLE_TEAM_ID` | `2R2HK79MH6` (also pinned in `desktop/package.json` as `build.mac.notarize.teamId`) |
+
+**Prove them before you tag.** Run the **macOS signing preflight** workflow (Actions →
+*macOS signing preflight* → *Run workflow*). It runs the same
+[`scripts/check_mac_signing.sh`](scripts/check_mac_signing.sh) against the repository secrets
+and takes about a minute — a green run means the next tag produces a signed, notarized `.dmg`.
+Do this after adding or rotating any secret above. Release builds run it as their first job,
+so a bad secret fails there instead of ten minutes into the macOS build.
+
+> **Why it exists.** `release.yml` only triggers on a `v*` tag, so a signing secret used to be
+> untestable except by cutting a release. v1.4.0 burned four tagged builds discovering that
+> `MACOS_CERTIFICATE` was unset: electron-builder read the empty `CSC_LINK` as a *path*,
+> resolved it to the working directory, and failed with `⨯ …/desktop not a file` — an error
+> that names neither signing nor the secret. That release shipped from a local build instead.
 
 ## 3. Build & publish
 
