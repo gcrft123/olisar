@@ -1,10 +1,10 @@
 // The extension code editor — the "Build" mode of the Extensions tab. A focused,
-// full-width Monaco editor over the Olisar SDK; author TypeScript, transpile in-browser
-// (esbuild-wasm), and save to the backend. Lazy-loaded by pages.tsx so the heavy
-// editor/transpiler only load when an operator drills in to create or edit.
-import { useEffect, useState } from 'react'
+// full-width Monaco editor over the Olisar SDK; author TypeScript and save it to the
+// backend, which transpiles it (see below). Lazy-loaded by pages.tsx so the editor only
+// loads when an operator drills in to create or edit.
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { Card, Field, Text, useSaver } from './ui'
+import { Card, Field, Text, useDirtyGuard, useSaver } from './ui'
 import { Icon } from './icons'
 import { confirmDialog } from './overlays'
 
@@ -38,7 +38,7 @@ const STATUS_COLOR = { ok: 'var(--ok)', err: 'var(--danger)', info: 'var(--text-
 
 export default function ExtensionEditor(props: {
   editKey: string | null
-  onBack: () => void
+  onBack: () => void | Promise<void>
   onChanged: () => void
 }) {
   const [key, setKey] = useState<string | null>(props.editKey)
@@ -48,6 +48,10 @@ export default function ExtensionEditor(props: {
   const [manifest, setManifest] = useState<any>(null)
   const [status, setStatus] = useState<Status>(props.editKey ? { kind: 'info', msg: 'Loading…' } : null)
   const [Editor, setEditor] = useState<any>(null)
+  // Hand-written extension source is the costliest thing in the console to lose, and it
+  // lives entirely in this component's state until Save.
+  const saved = useRef(props.editKey ? '' : TEMPLATE)
+  useDirtyGuard(() => source !== saved.current)
 
   // Lazy-load Monaco + SDK types only on first open of the editor.
   useEffect(() => {
@@ -70,7 +74,8 @@ export default function ExtensionEditor(props: {
         if (!alive) return
         setKey(props.editKey)
         setKind(p.kind || 'user')
-        setSource(p.source_ts || p.compiled_js || '')
+        saved.current = p.source_ts || p.compiled_js || ''
+        setSource(saved.current)
         setName(p.name || '')
         setManifest(p.manifest)
         setStatus(p.kind === 'builtin'
@@ -97,6 +102,7 @@ export default function ExtensionEditor(props: {
     const body = { source_ts: source, name: name || undefined }
     if (key) await api.updateAuthoring(key, body)
     else { const r = await api.createAuthoring(body); setKey(r.key) }
+    saved.current = source
     props.onChanged()
     setStatus({ kind: 'ok', msg: 'Saved.' })
   })
@@ -110,7 +116,7 @@ export default function ExtensionEditor(props: {
       tone: 'danger',
       requirePhrase: { phrase: `delete ${key}` },
     }))) return
-    try { await api.deleteAuthoring(key); props.onChanged(); props.onBack() }
+    try { await api.deleteAuthoring(key); saved.current = source; props.onChanged(); props.onBack() }
     catch (e: any) { setStatus({ kind: 'err', msg: e.message }) }
   }
 

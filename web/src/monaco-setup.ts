@@ -1,7 +1,17 @@
 // Monaco wiring for the extension editor. Kept in its own module so it's only pulled
 // in when the operator opens the authoring tab (lazy). Workers and the editor core are
 // bundled locally (no CDN) so it works inside the offline desktop build.
-import * as monaco from 'monaco-editor'
+//
+// Import the editor and the two languages we use, not the `monaco-editor` barrel: that
+// barrel drags in every basic-language grammar Monaco ships — Cameligo, Postiats, MIPS,
+// Twig, Redshift, ~80 in all. They were emitted as separate chunks so nobody downloaded
+// them, but they made up roughly 10 of the built bundle's 11 MB, and the desktop app
+// packages the whole directory. This editor only ever opens TypeScript.
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
+import 'monaco-editor/esm/vs/editor/editor.all.js'                            // find, folding, suggest, context menu…
+import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'         // the TS language service
+import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
 import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import { loader } from '@monaco-editor/react'
@@ -22,7 +32,7 @@ monaco.editor.defineTheme('olisar-dark', {
   inherit: true,
   rules: [
     { token: '', foreground: 'ededee' },
-    { token: 'comment', foreground: '6a6a73', fontStyle: 'italic' },
+    { token: 'comment', foreground: '7f7f8a', fontStyle: 'italic' },  /* --text-3; 4.4:1 on the editor ground */
     { token: 'string', foreground: '7fd1a0' },
     { token: 'keyword', foreground: 'b69cff' },
     { token: 'number', foreground: 'e0a458' },

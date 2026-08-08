@@ -5,6 +5,26 @@
 :root {
   color-scheme: dark;
 
+  /* ── Interface size ──────────────────────────────────────────────────────
+     Everything here is sized in px — 34px controls, a 244px rail, chart geometry — so there
+     is no single font-size to turn up. `zoom` scales the whole coordinate system instead,
+     which is what the browser's own Cmd +/− does. theme.ts overrides --ui-scale per browser.
+
+     One catch: viewport units resolve against the UN-zoomed viewport and are then scaled, so
+     a bare `100vh` renders --ui-scale taller than the window (at 1.1 that was 80px of phantom
+     scroll under the sidebar). Divide the factor back out — use --vh/--vw/--dvh below rather
+     than raw viewport units anywhere the value has to match the real window.
+
+     Media queries are NOT affected by zoom, so a breakpoint fires at a physical width while
+     the layout inside it is scaled: at 1.1 the content sees width/1.1. The breakpoints are
+     content-driven and sit well clear of the common desktop widths, so this only shifts
+     where the collapse happens, never whether it works. */
+  --ui-scale: 1.1;
+  zoom: var(--ui-scale);
+  --vh: calc(100vh / var(--ui-scale));
+  --vw: calc(100vw / var(--ui-scale));
+  --dvh: calc(100dvh / var(--ui-scale));
+
   /* Surfaces (darkest → lightest). Near-black ground; cards sit a hair above it and
      are read by their BORDER, not by fill contrast — they blend into the bg. */
   --bg: #020203;            /* app background */
@@ -20,19 +40,22 @@
   /* Text ramp */
   --text: #ededee;
   --text-2: #9d9da7;
-  --text-3: #6a6a73;
+  /* --text-3 carries every placeholder, eyebrow, axis label and hint in the console, so it
+     has to clear 4.5:1 as body text on the LIGHTEST ground it lands on, not the darkest.
+     The old #6a6a73 measured 3.87:1 on --bg and only 3.57:1 on --bg-inset — an AA failure
+     everywhere it was used. #7f7f8a measures 5.09 / 4.70. */
+  --text-3: #7f7f8a;
 
-  /* The one accent (re-tinted at runtime from theme.ts; drives --accent-soft + the glow).
-     Default is Blue; theme.ts overrides per-browser on load. */
+  /* The one accent. Fixed, not user-switchable: colour carries state here, and a picker
+     that could land on --ok / --warn / --danger made an enabled toggle read as an error. */
   --accent: #5b9cf6;
   --accent-soft: rgba(91, 156, 246, 0.16);
-  --glow-a: rgba(91, 156, 246, 0.18);  /* ambient background blobs */
-  --glow-b: rgba(91, 156, 246, 0.10);
 
-  /* Selectable accent hues */
-  --accent-violet: #8a8af2; --accent-iris: #7c6cf0; --accent-blue: #5b9cf6;
+  /* Chart series palette (.us0–.us5) and the marketplace publisher chip. Distinct hues
+     for categorical data — never UI state, which is what the semantic tokens below are. */
+  --accent-violet: #8a8af2; --accent-blue: #5b9cf6;
   --accent-teal: #2dd4bf;   --accent-green: #43cf8e; --accent-amber: #e0a458;
-  --accent-rose: #f2728a;   --accent-red: #ff6369;
+  --accent-rose: #f2728a;
 
   /* "Primary" action surface — a bright neutral, NOT the accent. One per view. */
   --primary-bg: #ededee;
@@ -43,14 +66,22 @@
   --ok: #43cf8e;     --ok-soft: rgba(67, 207, 142, 0.14);   --ok-border: rgba(67, 207, 142, 0.34);
   --danger: #ff6369; --danger-soft: rgba(255, 99, 105, 0.13); --danger-border: rgba(255, 99, 105, 0.34);
   --warn: #e3a13a;   --warn-soft: rgba(227, 161, 58, 0.14);  --warn-border: rgba(227, 161, 58, 0.34);
-  --info: #5b9cf6;   --info-soft: rgba(91, 156, 246, 0.14);  --info-border: rgba(91, 156, 246, 0.34);
+  /* Sky, not the accent's periwinkle. These were byte-identical (#5b9cf6) — survivable
+     while the accent was switchable, permanent once it wasn't. ΔE 32 apart now. */
+  --info: #5fc4f2;   --info-soft: rgba(95, 196, 242, 0.14); --info-border: rgba(95, 196, 242, 0.34);
   --neutral: #9d9da7; --neutral-soft: rgba(157, 157, 167, 0.12); --neutral-border: rgba(157, 157, 167, 0.28);
   --success: var(--ok); --error: var(--danger); --warning: var(--warn);
+
+  /* Discord's own chrome, for the surfaces that simulate it (the Command replies
+     preview). Deliberately off-palette: this is a picture of another product, and
+     approximating it in Olisar's greys would make the preview a lie. */
+  --dc-bg: #313338;      --dc-head: #f2f3f5;   --dc-text: #dbdee1;
+  --dc-muted: #949ba4;   --dc-hash: #80848e;   --dc-brand: #5865f2;
 
   /* Type */
   --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
-  --mono: var(--font-mono);   /* legacy alias used throughout this stylesheet */
+  --mono: var(--font-mono);   /* alias; prefer --font-mono in new rules (DESIGN.md names that one) */
 
   /* Radii — generously rounded */
   --radius: 16px;       /* cards, modals */
@@ -62,7 +93,10 @@
   --shadow-card: none;
   --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
   --shadow-modal: 0 24px 70px rgba(0, 0, 0, 0.5);
-  --ring: 0 0 0 3px var(--accent-soft);  /* focus */
+  /* Focus. Two rings, not one: a gap in the page ground, then the accent. The old single
+     accent-soft ring measured 1.2:1 against every ground — 3:1 is the floor (WCAG 1.4.11 /
+     2.4.11) — and on --primary-bg, which every primary button is, it was 1.14:1. */
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   /* Motion — quiet and quick */
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -93,44 +127,6 @@ a:hover { text-decoration: underline; }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 ::selection { background: var(--accent-soft); }
 
-/* ── Ambient background glow ─────────────────────────────────────────────── */
-/* Two large, very soft accent blobs that drift slowly behind everything. They sit
-   above the flat --bg fill but below all content (z-index: -1), so they show through
-   the transparent gutters of .main and fill the login / setup screens. Kept low-alpha
-   and slow on purpose — atmosphere, not decoration. */
-body::before,
-body::after {
-  content: "";
-  position: fixed;
-  z-index: -1;
-  pointer-events: none;
-  filter: blur(56px);
-  will-change: transform, opacity;
-}
-body::before {
-  width: 54vw; height: 54vw;
-  top: -16vw; left: 4vw;
-  background: radial-gradient(circle, var(--glow-a), transparent 60%);
-  animation: glow-a 28s ease-in-out infinite alternate;
-}
-body::after {
-  width: 48vw; height: 48vw;
-  bottom: -18vw; right: -6vw;
-  background: radial-gradient(circle, var(--glow-b), transparent 60%);
-  animation: glow-b 36s ease-in-out infinite alternate;
-}
-@keyframes glow-a {
-  from { transform: translate3d(0, 0, 0) scale(1);      opacity: 0.65; }
-  to   { transform: translate3d(6vw, 4vw, 0) scale(1.18); opacity: 1; }
-}
-@keyframes glow-b {
-  from { transform: translate3d(0, 0, 0) scale(1.12);   opacity: 0.55; }
-  to   { transform: translate3d(-5vw, -4vw, 0) scale(1); opacity: 0.9; }
-}
-@media (prefers-reduced-motion: reduce) {
-  body::before, body::after { animation: none; }
-}
-
 /* ── Scrollbars: slim, floating, no chrome ──────────────────────────────── */
 * {
   scrollbar-width: thin;                                   /* Firefox */
@@ -150,16 +146,48 @@ body::after {
 }
 ::-webkit-scrollbar-corner { background: transparent; }
 
+/* Available to assistive tech, absent to everyone else. Not `display: none`, which would
+   hide it from both. Used for the chart data tables, which carry the numbers a
+   `role="img"` chart cannot expose. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* Skip link — offscreen until focused, then a normal panel chip at the top left. */
+.skip-link {
+  position: fixed; z-index: 300; top: 12px; left: 12px;
+  padding: 9px 14px; border-radius: var(--radius-sm);
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  font-size: 13px; font-weight: 550; text-decoration: none; box-shadow: var(--shadow-pop);
+  transform: translateY(calc(-100% - 20px)); transition: transform var(--dur-mid) var(--ease-out);
+}
+.skip-link:focus-visible { transform: none; outline: none; box-shadow: var(--ring), var(--shadow-pop); }
+.skip-link:hover { text-decoration: none; }
+
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-.shell { display: grid; grid-template-columns: 244px 1fr; min-height: 100%; }
+/* `minmax(0, 1fr)`, never a bare `1fr`. A grid track's automatic minimum is its content's
+   min-content width, so a row that refuses to wrap inflates the track past the viewport —
+   and because nothing in the chain scrolls, the overflow is unreachable rather than merely
+   off-screen. At 420px the content track had grown to 599px with `window.scrollX` pinned at
+   0: a quarter of Channels, including the indexing control, simply could not be reached. */
+.shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100%; }
 
 .sidebar {
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
   padding: 18px 14px;
   display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 0; height: 100vh;
+  position: sticky; top: 0; height: var(--vh);
 }
+
+/* The rail is a fixed 244px track, which at 375px leaves 43px of usable content — so below
+   the width where the two-column pages have already collapsed, the rail leaves the flow and
+   becomes a drawer, and a slim top bar carries the brand and the toggle. `visibility` (not
+   just the transform) is what takes the closed drawer's 16 controls out of the tab order. */
+.topbar { display: none; }
+.nav-backdrop { display: none; }
+
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 18px; }
 .brand .mark {
   width: 30px; height: 30px; border-radius: var(--radius-sm);
@@ -185,17 +213,6 @@ body::after {
 .server-switch:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
 .server-icon { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; flex: none; }
 .server-icon.ph { display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; }
-.server-select {
-  flex: 1; min-width: 0; height: 26px; background: transparent; border: 0; color: var(--text);
-  font-size: 13px; font-weight: 500; cursor: pointer;
-  appearance: none; padding: 3px 20px 3px 2px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239d9da7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
-  background-repeat: no-repeat; background-position: right center;
-}
-.server-select:focus { outline: none; }
-.server-select:disabled { cursor: default; opacity: 0.9; }
-
 /* Custom server picker menu (always openable, even with one server). */
 .server-select-btn {
   flex: 1; min-width: 0; height: 26px; display: flex; align-items: center; justify-content: flex-start; gap: 6px;
@@ -230,8 +247,13 @@ body::after {
   color: var(--text-2); font-weight: 400; font-size: 13.5px; user-select: none;
   transition: background 0.12s, color 0.12s;
 }
+/* Separates the configuration items from Developer / Docs, which aren't configuration.
+   Its own element rather than a border on the row, so the active row keeps its radius. */
+.nav-rule { height: 1px; background: var(--border); margin: 10px 10px 9px; }
 .nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .nav-item:focus-visible { outline: none; box-shadow: var(--ring); }
+.nav-item { text-decoration: none; }
+.nav-item:hover { text-decoration: none; }
 .nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 .nav-item .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; }
 
@@ -249,7 +271,7 @@ body::after {
 }
 .weblink-head { display: flex; align-items: center; gap: 7px; }
 .weblink-label {
-  font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3);
 }
 .weblink .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
@@ -286,7 +308,9 @@ body::after {
 }
 .botpower-text { min-width: 0; }
 .bp-status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--text); }
-.bp-hint { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+.bp-hint { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.botpower.unknown { opacity: 0.75; }
+.botpower.unknown .power-btn { color: var(--text-3); cursor: default; }
 
 .botpower.online .power-btn { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); box-shadow: 0 0 0 3px var(--ok-soft); }
 
@@ -300,13 +324,21 @@ body::after {
 .botpower.starting .power-ring { animation: bp-spin 0.9s linear infinite; }
 .botpower.starting .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
 
+/* Connected but resting a rate-limited model: up, and not answering. Amber, because it
+   is neither healthy nor broken, and it clears on its own. */
+.botpower.limited .power-btn {
+  color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border-strong));
+  box-shadow: 0 0 0 3px var(--warn-soft);
+}
+.botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
 .botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
 
 @keyframes bp-spin { to { transform: rotate(360deg); } }
 @keyframes bp-shutdown { 0% { box-shadow: 0 0 0 3px var(--danger-soft); } 45% { box-shadow: 0 0 0 9px var(--danger-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) {
-  .botpower.stopping .power-btn, .botpower.starting .power-ring { animation: none; }
+  .botpower.stopping .power-btn { animation: none; }   /* a one-shot flourish; nothing is lost */
+  .botpower.starting .power-ring { animation-duration: 2.4s; }  /* still says "starting" */
 }
 
 /* width:100% is load-bearing: .main is a grid item with `margin: 0 auto`, and auto
@@ -314,6 +346,9 @@ body::after {
    shrink-wrap its content (so content-light pages render narrow, and pages widen once
    their data loads). A definite width makes every page the same 1180px, centered. */
 .main { padding: 40px 44px 96px; width: 100%; max-width: 1180px; margin: 0 auto; }
+/* The skip link's whole payoff is landing somewhere visible. `outline: none` here meant
+   activating it produced no change on screen at all. */
+.main:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius); }
 /* Monaco names some of its own internal nodes with generic classes that collide with our
    layout classes above — notably `.main`, which Monaco gives each autocomplete row's
    content box. Our page `.main` padding/width then leaked into the editor and pushed every
@@ -324,7 +359,7 @@ body::after {
 
 /* Page layouts for the wide content area. .cols2 = two explicit columns that each
    hug their own content; .grid2 = an auto-flow two-column card grid. */
-.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+.cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .cols2 > .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 /* A column holding a single card (e.g. Knowledge's Index, API keys' Cloudflare) grows it
    to match the taller neighbouring column, so both sides line up evenly. */
@@ -333,16 +368,19 @@ body::after {
    gains empty space below so it matches the taller one beside it. */
 .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .cols2 .card, .grid2 > .card { margin: 0; min-width: 0; }
-/* A `.col.fill` (Knowledge's Index) lets the OTHER column define the row height and pins its
-   single card to fill that height, scrolling its own list — so a long list doesn't make the
-   right side taller than the two cards on the left; the columns end level. Only while the
-   grid is actually two columns (below, it collapses to one and the card goes back in flow). */
-@media (min-width: 901px) {
-  .cols2 > .col.fill { position: relative; }
-  .cols2 > .col.fill > .card { position: absolute; inset: 0; display: flex; flex-direction: column; }
-  .cols2 > .col.fill > .card .reindex-list { flex: 1 1 0; min-height: 0; max-height: none; }
-}
-@media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
+/* The grid zeroes its children's margins because `gap` owns the spacing inside it — but the
+   grid itself still has to carry the card rhythm, or the next card butts straight against
+   the columns above with no gap at all. */
+.cols2, .grid2 { margin-bottom: 14px; }
+@media (max-width: 1120px) { .cols2, .grid2 { grid-template-columns: minmax(0, 1fr); } }
+/* A page head with trailing actions, and any free-standing row of buttons. Both wrap —
+   a nowrap button row is the single most common way content ends up outside the viewport
+   with nothing able to scroll to it. */
+.head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.head-row > .page-head { min-width: 0; }
+.head-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
 .page-head .title-ic {
@@ -362,12 +400,97 @@ body::after {
   margin-bottom: 14px;
   box-shadow: var(--shadow-card);
 }
-.card h3 { font-size: 13.5px; margin-bottom: 2px; letter-spacing: -0.01em; }
+/* 15px, per DESIGN.md's type table. At 13.5 a card title and a field label (12.5/550) were
+   separated by 1px and half a weight step — the group heading read as another control
+   label, so nothing said where one group ended and the next began. */
+.card-titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-titlerow h2 { margin-bottom: 0; }
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 3px; letter-spacing: -0.012em; }
 .card .hint { color: var(--text-2); font-size: 12.5px; margin-bottom: 15px; line-height: 1.5; }
+
+/* ── Narrow widths: the rail becomes a drawer ───────────────────────────── */
+/* Placed after every base rule it overrides — .main, .card, .page-head and .nav-item
+   are all defined above, and an equal-specificity rule declared later would win. */
+@media (max-width: 1000px) {
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .topbar {
+    position: sticky; top: 0; z-index: 90;
+    display: flex; align-items: center; gap: 11px;
+    height: 52px; padding: 0 12px; padding-top: env(safe-area-inset-top);
+    background: color-mix(in srgb, var(--bg-sidebar) 88%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+  }
+  .topbar .brand-logo { width: 24px; height: 24px; border-radius: var(--radius-xs); }
+  .topbar .name { font-weight: 600; font-size: 14px; letter-spacing: -0.02em; }
+  .sidebar {
+    position: fixed; inset: 0 auto 0 0; z-index: 130;
+    width: min(292px, calc(var(--vw) * 0.86)); height: var(--dvh); max-height: none;
+    padding-top: max(18px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+    overflow-y: auto; visibility: hidden;
+    transform: translateX(-100%); box-shadow: var(--shadow-modal);
+    transition: transform var(--dur-slow) var(--ease-out), visibility var(--dur-slow);
+  }
+  .sidebar.open { transform: none; visibility: visible; }
+  .nav-backdrop {
+    position: fixed; inset: 0; z-index: 120; display: block;
+    background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) ease;
+  }
+  .nav-backdrop.open { opacity: 1; pointer-events: auto; }
+  .main { padding: 24px 18px 72px; }
+  .page-head { margin-bottom: 20px; }
+  .card { padding: 17px 16px; }
+  /* Roomier rows once the pointer is a thumb rather than a cursor. */
+  .nav-item { padding: 10px 10px; }
+  .savedock { left: 50%; }
+}
+@media (max-width: 860px) and (prefers-reduced-motion: reduce) {
+  .sidebar { transition: visibility var(--dur-slow); }
+}
+@media (max-width: 420px) {
+  .main { padding: 20px 14px 72px; }
+  .page-head h1 { font-size: 20px; }
+}
+
+/* Activity log. A ledger, so the columns line up and the eye can scan down the times. */
+.activity { display: flex; flex-direction: column; }
+.act-row {
+  display: grid; grid-template-columns: 116px minmax(0, 1fr) auto; align-items: baseline; gap: 14px;
+  padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.act-row:last-child { border-bottom: 0; }
+.act-when { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); }
+.act-what { color: var(--text); min-width: 0; }
+.act-row.destructive .act-what { color: var(--danger); }
+/* The receipt — the counts the toast used to show for 3.6s and then discard. */
+.act-receipt { display: block; color: var(--text-2); font-size: 12px; margin-top: 2px; }
+.act-who { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); justify-self: end; }
+@media (max-width: 560px) {
+  .act-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .act-when { grid-column: 1 / -1; }
+}
+
+/* Danger zone — the system's red, quietly. Enough tint to separate it from an ordinary
+   card, not enough to shout on a page you visit for other reasons; the weight belongs to
+   the confirm dialog, which is where the decision is actually made. Set apart from the
+   content above rather than continuing the 14px card rhythm. */
+.danger-zone {
+  /* One clear step above the 14px card rhythm — enough to read as set apart from the page's
+     ordinary content, not so much that it looks detached from it. (Margins collapse with the
+     preceding card's 14px, so this value is the gap.) */
+  margin-top: 24px;
+  border-color: color-mix(in srgb, var(--danger) 22%, transparent);
+  background: color-mix(in srgb, var(--danger) 4%, var(--panel));
+}
+.danger-zone h2 { color: var(--danger); }
+.danger-zone .settings-muted { color: var(--text-2); }
 
 .field { margin-bottom: 17px; }
 .field:last-child { margin-bottom: 0; }
-.field > label { display: block; font-weight: 550; font-size: 12.5px; margin-bottom: 6px; color: var(--text); }
+/* `.flabel` is the same treatment for a field whose body holds no focusable control (a
+   read-only key box, a copy row) — a <label> there would point its `for` at nothing. */
+.field > label, .field > .flabel { display: block; font-weight: 550; font-size: 12.5px; margin-bottom: 6px; color: var(--text); }
 .field .desc { color: var(--text-2); font-size: 12px; margin: -3px 0 8px; line-height: 1.5; }
 
 input[type=text], input[type=password], input[type=number], textarea, select {
@@ -387,11 +510,6 @@ select { appearance: none; cursor: pointer;
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 .mono { font-family: var(--mono); font-size: 12.5px; }
-.code-default {
-  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-xs);
-  padding: 8px 10px; color: var(--text-2); font-size: 12px; margin-top: 8px;
-  font-family: var(--mono); white-space: pre-wrap; line-height: 1.5;
-}
 .placeholders { font-size: 11.5px; color: var(--text-3); margin-top: 7px; }
 .placeholders code { color: var(--accent); font-family: var(--mono); }
 
@@ -399,7 +517,15 @@ select { appearance: none; cursor: pointer;
 .row > * { flex: 1; min-width: 0; }   /* shrink to share — never let a wide row force its column wider */
 
 /* ── Toggle ─────────────────────────────────────────────────────────────── */
-.toggle { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; }
+/* The 38x22 track is the visible mark; the hit area is the whole row and gets the 24px
+   minimum (WCAG 2.5.8). Keeping the target bigger than the mark costs nothing visually
+   and is the difference between a comfortable tap and a near miss. */
+/* Now a <button>, so it has to shed the button chrome it would otherwise inherit. */
+.toggle {
+  display: inline-flex; align-items: center; gap: 11px; cursor: pointer; min-height: 24px;
+  background: none; border: 0; padding: 0; height: auto; width: auto;
+  font: inherit; color: inherit; text-align: left;
+}
 .toggle .track {
   width: 38px; height: 22px; border-radius: var(--radius-pill); background: var(--border-strong);
   position: relative; transition: background 0.16s; flex: none;
@@ -411,7 +537,10 @@ select { appearance: none; cursor: pointer;
 .toggle.on .track { background: var(--accent); }
 .toggle.on .track .knob { left: 18px; }
 .toggle .lbl { font-weight: 500; font-size: 13px; color: var(--text); }
-.toggle:focus-visible { outline: none; }
+/* The ring belongs on the track — the switch's visible mark — not around the whole row.
+   As a <button> it now also matches the global `button:focus-visible`, so that one is
+   suppressed here or the control draws two concentric rings. */
+.toggle:focus-visible { outline: none; box-shadow: none; }
 .toggle:focus-visible .track { box-shadow: var(--ring); }
 .toggle.disabled { cursor: not-allowed; opacity: 0.45; }
 
@@ -427,6 +556,10 @@ select { appearance: none; cursor: pointer;
 .choice:hover { background: var(--bg-inset); color: var(--text); }
 .choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+/* The real checkbox is a 0x0 box, so the UA ring paints on nothing — the chip has to carry
+   the focus itself. Without this, Behavior's three mention chips were invisible tab stops,
+   and a focused chip was byte-identical to a selected one. */
+.choice:has(input:focus-visible) { outline: none; box-shadow: var(--ring); }
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 button {
@@ -452,7 +585,11 @@ button.danger:hover { background: var(--danger-soft); border-color: transparent;
 button.caution { color: var(--warn); }
 button.caution:hover { background: var(--warn-soft); border-color: transparent; }
 button.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
-button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; }
+/* `flex: none` because these are square by contract. As a flex child with the default
+   `flex-shrink: 1` the width is a suggestion: in the test-chat header the title pushed the
+   close button from 28px down to 20px at 390px — the control shrank precisely where the
+   target needs to be biggest. */
+button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; flex: none; }
 button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* Inline spinner for the "acting" button state (Saving…). */
@@ -462,7 +599,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   border-top-color: currentColor; animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+/* Slow it, don't stop it. `animation: none` left a static ring next to "Saving…" — no
+   indication anything was happening — for exactly the operators least able to infer it. */
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
 
 .savebar { display: flex; align-items: center; gap: 13px; margin-top: 6px; }
 .saved { color: var(--ok); font-size: 12.5px; display: inline-flex; align-items: center; gap: 5px; font-weight: 500; }
@@ -478,16 +617,25 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .savedock.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
 .savedock-inner {
   display: flex; align-items: center; gap: 22px;
-  min-width: 420px; max-width: 90vw;
+  min-width: 420px; max-width: calc(var(--vw) * 0.9);
   padding: 9px 10px 9px 18px;
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
 .savedock-msg { font-size: 13px; color: var(--text-2); }
 .savedock-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-@media (max-width: 760px) {
+/* The message must be allowed to shrink and wrap, or its min-content width holds the dock
+   open wider than the viewport and pushes Save off the right edge — where, with nothing
+   scrolling, it cannot be reached at all. */
+.savedock-msg { min-width: 0; }
+@media (max-width: 860px) {
   .savedock { left: 50%; right: auto; }
-  .savedock-inner { min-width: 0; width: 92vw; }
+  .savedock-inner { min-width: 0; width: calc(var(--vw) * 0.92); gap: 12px; padding-left: 15px; }
+}
+@media (max-width: 620px) {
+  .savedock-inner { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; }
+  .savedock-actions { margin-left: 0; width: 100%; }
+  .savedock-actions button { flex: 1 1 0; min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .savedock { transition: opacity 0.2s ease; }
@@ -495,17 +643,25 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 
 /* ── Badges & lists ─────────────────────────────────────────────────────── */
+/* No `text-transform: capitalize` here. It manufactured Title Case for every multi-word
+   badge — "Set In Dashboard", "Not Set", "Built-In" — against DESIGN.md's sentence-case
+   rule, from CSS, where no amount of copy review could see it. Badge text is written in
+   the case it should render. */
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2);
-  text-transform: capitalize;
+  /* A pill that wraps is a broken pill: "Preference" rendered 60x40 beside 23px siblings,
+     split mid-word as "Prefere / nce". */
+  white-space: nowrap;
 }
 .badge.ready, .badge.success, .badge.done { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
 .badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
-.badge.pending, .badge.crawling, .badge.chunking, .badge.missing, .badge.event { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
+.badge.pending, .badge.crawling, .badge.chunking, .badge.missing { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
-.badge.preference { color: var(--accent); background: var(--accent-soft); border-color: var(--accent-soft); }
+/* Not the accent: it carries links, focus and the toggle "on" track, and this is one of
+   three neutral taxonomy labels sitting beside each other. */
+.badge.preference { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
 /* Marketplace publisher chip — the violet accent, regardless of the active theme accent. */
 .badge.publisher {
   color: var(--accent-violet);
@@ -513,58 +669,298 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   border-color: color-mix(in srgb, var(--accent-violet) 34%, transparent);
 }
 
-.member-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-@media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 620px) { .member-grid { grid-template-columns: 1fr; } }
+.member-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1180px) { .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .member-grid { grid-template-columns: minmax(0, 1fr); } }
 .member-card {
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
 }
-.member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); }
-.member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+/* Avatar + name, so a member card is recognisably a person rather than a database row.
+   Discord hands us the avatar URL; the tinted initial is the fallback for a member the
+   bot hasn't seen since the avatar column landed, or while the bot is offline. */
+.member-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.member-av {
+  width: 32px; height: 32px; border-radius: 50%; flex: none; overflow: hidden;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px;
+}
+.member-av img { width: 100%; height: 100%; object-fit: cover; }
+.member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Discord display names have no spaces to break on. Without this an unbroken name sets the
+   card's min-content width and, through the grid, the page's. */
+.member-card .member-impression, .member-card .mem { overflow-wrap: anywhere; }
+.member-roles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; margin-top: 8px; }
 .member-roles .tag.more { color: var(--text-3); cursor: default; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
-.rolepop-wrap { position: relative; outline: none; }
+/* The trigger is a button now, so it inherits the system's focus ring. `outline: none`
+   without a replacement is why this was the one focusable control in the console that
+   showed nothing at all when focused. */
+.rolepop-wrap { position: relative; font: inherit; cursor: pointer; }
+.rolepop-wrap:focus-visible { outline: none; box-shadow: var(--ring); }
+/* `left: 0` on a card near the right edge ran the 300px popup off the viewport. Anchor it
+   to whichever side has room — .rolepop.right flips it to the trigger's right edge. */
 .rolepop { position: absolute; left: 0; z-index: 30;
-  width: 300px; max-width: 360px; max-height: 240px; overflow-y: auto; padding: 11px;
+  width: min(300px, calc(var(--vw) - 32px)); max-height: 240px; overflow-y: auto; padding: 11px;
   background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   box-shadow: var(--shadow-pop); cursor: default; }
+.rolepop.right { left: auto; right: 0; }
 .rolepop.down { top: calc(100% + 8px); }
 .rolepop.up { bottom: calc(100% + 8px); }
-.rolepop-head { display: block; font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
+.rolepop-head { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
 .rolepop-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .member-impression { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin-top: 9px; }
 .member-none { color: var(--text-3); font-size: 12px; font-style: italic; margin-top: 9px; }
 .member-memories { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; }
 .member-card .mem { font-size: 11.5px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; }
+/* One width for the three memory kinds, so the content beside them starts at the same x
+   down the card instead of stepping in and out with the label length. */
+.member-card .mem > .badge { flex: none; min-width: 52px; justify-content: center; }
 .member-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; }
 .member-actions .err.sm { font-size: 11px; }
 .member-meta { color: var(--text-3); font-size: 11px; margin-top: 7px; }
-.key-status { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+/* Disclosure — native <details>, so it is keyboard-operable and announced as expandable
+   with no ARIA of our own. Quiet by default: it is a way in, not a section heading. */
+.disclosure { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 14px; }
+.disclosure > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  color: var(--text-2); font-size: 12.5px; font-weight: 550; user-select: none;
+  padding: 3px 4px; margin: -3px -4px; border-radius: var(--radius-xs);
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary:hover { color: var(--text); }
+.disclosure > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.disclosure-chev { display: inline-flex; color: var(--text-3); transition: transform var(--dur-mid) var(--ease-out); }
+.disclosure[open] > summary .disclosure-chev { transform: rotate(90deg); }
+.disclosure-hint { color: var(--text-3); font-weight: 400; font-size: 12px; }
+.disclosure-body { padding-top: 15px; }
+@media (prefers-reduced-motion: reduce) { .disclosure-chev { transition-duration: 0.4s; } }
+
+/* The access policy in one sentence, and a warning tint once it is a lock-out rather than
+   a preference — the difference between "some roles are set" and "everyone else is out". */
+.access-summary {
+  display: flex; align-items: flex-start; gap: 9px; margin-top: 15px;
+  color: var(--text-2); font-size: 12.5px; line-height: 1.5;
+}
+.access-summary.restrictive {
+  color: color-mix(in srgb, var(--warn) 24%, var(--text));
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
+  border-radius: var(--radius-sm); padding: 10px 12px;
+}
+.access-summary.restrictive svg { color: var(--warn); flex: none; margin-top: 1px; }
+
+/* Keyboard reference (Settings → Appearance). */
+.shortcuts { margin: 0; display: flex; flex-direction: column; }
+.shortcut {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 14px; align-items: baseline;
+  padding: 9px 0; border-bottom: 1px solid var(--border);
+}
+.shortcut:last-child { border-bottom: 0; }
+.shortcut dt { display: flex; gap: 4px; }
+.shortcut dd { margin: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.shortcut dd span { color: var(--text-2); font-size: 12px; }
+kbd {
+  font-family: var(--mono); font-size: 11px; color: var(--text-2); line-height: 1.6;
+  padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
+  background: var(--bg-inset); white-space: nowrap;
+}
+
+/* Idle rows in the fallback chain, folded away by default. */
+.u-idle-toggle { margin-top: 12px; height: 28px; font-size: 12px; color: var(--text-2); border-color: transparent; }
+.u-idle-toggle:hover { color: var(--text); background: var(--bg-inset); }
+
+/* Numeric field: the unit sits in the box, the range and default sit under it. Both were
+   invisible before — the browser enforced min/max nobody could see, and nothing said what
+   a reasonable value looks like, so every threshold was a guess. */
+/* No spinners. They sit exactly where the unit suffix goes, so they overlapped it and ate
+   text room at narrow widths — and nobody sets a 6000-token threshold by clicking a 12px
+   arrow. The keyboard arrows still step, and min/max/step still constrain the value. */
+input[type='number'] { -moz-appearance: textfield; appearance: textfield; }
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.num-wrap { position: relative; display: flex; align-items: center; }
+/* The right reserve is written per instance by <Num> from the unit's measured width, and is
+   absent entirely when there is no unit. A flat reserve here left 2px for the value in a
+   three-across row. */
+.num-unit {
+  position: absolute; right: 12px; pointer-events: none;
+  font-size: 12px; color: var(--text-3); white-space: nowrap;
+}
+.num-hint { display: flex; align-items: center; gap: 8px; margin-top: 5px; font-size: 11.5px; color: var(--text-3); flex-wrap: wrap; }
+/* Below this a three-column .row gives each field ~110px, which is narrower than the value
+   it holds. Stack instead — a tall page beats an unreadable one. */
+@media (max-width: 620px) {
+  .row { flex-direction: column; gap: 0; }
+  .row > * { width: 100%; }
+}
+/* 24px, so it clears WCAG 2.5.8 outright rather than leaning on the spacing exception —
+   this is my own control in my own hint line, there is no reason for it to be borderline. */
+.num-reset { height: 24px; padding: 0 8px; font-size: 11px; color: var(--text-2); border-color: transparent; }
+.num-reset:hover { color: var(--text); background: var(--bg-inset); }
+
+/* The rail's entry point to the palette. Quiet — it is a hint, not a nav item. */
+.cmdk-hint {
+  display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start;
+  height: 30px; margin: 0 0 10px; padding: 0 9px;
+  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-3); font-size: 12.5px; font-weight: 400;
+}
+.cmdk-hint:hover { background: var(--bg-inset); color: var(--text-2); border-color: var(--border-strong); }
+.cmdk-hint kbd { margin-left: auto; font-size: 11px; padding: 0 5px; }
+
+/* ── Command palette (⌘K) ───────────────────────────────────────────────── */
+/* Sits high rather than centred: the list grows downward, and a centred sheet would walk
+   its own results up and down the screen as they filter. */
+.cmdk {
+  width: min(560px, calc(var(--vw) - 32px)); margin-top: calc(var(--vh) * 0.12); align-self: flex-start;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  box-shadow: var(--shadow-modal); overflow: hidden;
+}
+.cmdk-input { display: flex; align-items: center; gap: 11px; padding: 0 14px; height: 52px; border-bottom: 1px solid var(--border); color: var(--text-3); }
+.cmdk-input input {
+  flex: 1; min-width: 0; height: 100%; border: 0; background: none; padding: 0;
+  font: inherit; font-size: 14.5px; color: var(--text); outline: none;
+}
+.cmdk-input input:focus { border: 0; box-shadow: none; }
+.cmdk-esc {
+  font-family: var(--mono); font-size: 11px; color: var(--text-3); flex: none;
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--bg-inset);
+}
+.cmdk-list { max-height: 320px; overflow-y: auto; padding: 6px; }
+.cmdk-item {
+  display: flex; align-items: center; gap: 11px; padding: 9px 10px;
+  border-radius: var(--radius-sm); color: var(--text-2); cursor: pointer; font-size: 13.5px;
+}
+.cmdk-item.sel { background: var(--bg-inset); color: var(--text); }
+.cmdk-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmdk-group { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); flex: none; }
+.cmdk-empty { padding: 18px 12px; color: var(--text-3); font-size: 13px; text-align: center; }
+/* The backdrop centres its child; the palette wants the top. */
+.modal-backdrop:has(.cmdk) { align-items: flex-start; }
+
+/* A reserved slot for a conditional row action: it holds the column even when the action
+   isn't available, so every row's icons line up under each other. */
+.row-slot { display: inline-flex; width: 28px; flex: none; }
+/* Holds the column for a labelled action rather than an icon. */
+.row-slot.wide { width: 96px; justify-content: flex-end; }
+.row-slot:empty { display: inline-block; }
+/* Separates benign row actions from destructive ones. */
+.row-divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); flex: none; }
+
+.key-status { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+/* Persistent, unlike the placeholder it replaced. */
+.key-state { color: var(--text-2); font-size: 12px; }
+/* Reveal sits inside the field so the control is unmistakably about this key. */
+.key-input { position: relative; display: flex; align-items: center; }
+.key-input input { padding-right: 40px; }
+.key-input .key-reveal { position: absolute; right: 1px; width: 34px; height: 32px; color: var(--text-3); }
+.key-input .key-reveal:hover { color: var(--text); background: transparent; }
 
 .list-row {
   display: flex; align-items: center; gap: 12px; padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
+/* Channel row controls. 200px on the mode select because `resource — reference context`
+   measures 177px and a select spends ~42px on padding and chevron — at 180px the two
+   longest of six options were clipped at rest, so the control hid the vocabulary the
+   legend above it had just taught. */
+.chan-ctl { flex: none; }
+/* The gloss after the em dash IS the control's meaning — "resource — reference context"
+   is how DESIGN.md prescribes making a mode legible. At a fixed 200px the two longest of
+   six options were cut ("resource — reference cont"), so the control hid the vocabulary the
+   legend above it teaches. It takes the row's spare width; indexing is one short word and
+   doesn't need any. */
+.chan-ctl.mode { flex: 1 1 240px; min-width: 0; max-width: 320px; }
+.chan-ctl.index { flex: 0 0 140px; }
 .list-row:first-child { padding-top: 2px; }
 .list-row:last-child { border-bottom: none; padding-bottom: 2px; }
 .list-row .grow { flex: 1; min-width: 0; }
 .list-row .title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .meta { color: var(--text-2); font-size: 12px; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
 .meta-warn { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
+/* A row whose text needs reading: identifier full width, error beneath it, actions after.
+   The alternative was three controls compressing the URL to an ellipsis. */
+.list-row.stacked { flex-wrap: wrap; align-items: flex-start; }
+.list-row.stacked .grow { flex: 1 0 100%; }
+.list-row.stacked .title { white-space: normal; overflow-wrap: anywhere; }
+.list-row.stacked .meta-warn { margin-top: 4px; font-size: 12px; }
+
+/* Below this the row cannot hold text and two controls side by side. Stacking is what
+   keeps them reachable: unwrapped, the row's min-content width inflated the grid track
+   past the viewport and the second control became unreachable entirely. */
+@media (max-width: 620px) {
+  .list-row { flex-wrap: wrap; align-items: flex-start; }
+  .list-row .grow { flex: 1 0 100%; }
+  .list-row .title { white-space: normal; }
+  .chan-ctl { flex: 1 1 0; min-width: 0; }
+  .chan-ctl.mode, .chan-ctl.index { flex: 1 1 0; max-width: none; }
+}
+/* Declared after the 620 block, which sets the same properties at equal specificity — a
+   rule that loses the cascade is a rule that isn't there. Mode gets its own row: "resource
+   — reference context" is unreadable in half of 390px. */
+@media (max-width: 520px) {
+  .chan-ctl.mode, .chan-ctl.index { flex: 1 0 100%; }
+}
 .tag {
   display: inline-block; font-family: var(--mono); font-size: 11.5px; font-weight: 500;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text);
   border-radius: var(--radius-xs); padding: 1px 7px;
 }
 
+/* Discord role chip — the role's own colour, as it reads in Discord's member list.
+   `--rc` is set inline from the API's hex; an uncoloured role falls back to the ramp. */
+.rolechip {
+  /* Declared, not assumed: an uncoloured role has no inline `--rc`, and `color-mix()` with
+     an unset variable is invalid at computed-value time — which throws away the entire
+     `border` shorthand, not just the colour. That is why plain chips shipped with no border
+     at all while `.plain { border-color: … }` appeared to set one. */
+  --rc: var(--text-3);
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 2px 10px 2px 8px; border-radius: var(--radius-pill);
+  /* Explicit, because the "+N" popup's trigger is a .tag and would otherwise pass mono down. */
+  font-family: var(--font-sans); font-size: 12.5px; font-weight: 550; color: var(--text);
+  background: color-mix(in srgb, var(--rc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rc) 40%, transparent);
+}
+.rolechip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rc); flex: none; }
+.rolechip.plain { background: var(--bg-inset); border-color: var(--border); color: var(--text-2); }
+.rolechip.plain .rolechip-dot { background: var(--text-3); }
+
+/* Channel list, grouped the way Discord groups it. The category eyebrow reuses the
+   nav-label treatment; the rail never adopted it, but a channel tree is exactly what
+   it was drawn for. */
+.chan-group + .chan-group { margin-top: 6px; }
+.chan-cat-row { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+/* Quiet until wanted: a bulk action that shouts competes with the per-row controls it is
+   meant to shortcut. */
+.chan-bulk {
+  width: auto; min-width: 132px; height: 28px; padding: 0 30px 0 10px;
+  font-size: 12px; color: var(--text-2); background-color: transparent;
+  border-color: transparent; margin-bottom: 4px;
+}
+.chan-bulk:hover { border-color: var(--border-strong); color: var(--text); }
+.chan-cat {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--text-3); padding: 14px 0 5px;
+}
+.chan-group:first-child .chan-cat { padding-top: 4px; }
+/* The row's derived consequence line wraps rather than truncating — it is the sentence
+   that says what the two controls beside it actually do. */
+.chan-group .list-row .meta { white-space: normal; }
+
 .mode-legend { display: grid; gap: 8px; font-size: 12.5px; color: var(--text-2); }
 .mode-legend > div { display: flex; align-items: center; gap: 9px; }
 .mode-legend .tag { color: var(--text); min-width: 72px; text-align: center; }
+/* Keep the control near the thing it governs. A fixed 220px column against a flexible name
+   put 627px of empty row between a role chip and its select at 1440 — the eye has to travel
+   the whole width to connect two halves of one decision. */
+.role-ctl { width: 220px; flex: none; }
+.list-row .grow.rolename { flex: 0 1 auto; max-width: 340px; }
 
 /* ── Extensions workspace (master-detail) ───────────────────────────────── */
 .ext-wrap { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 980px) { .ext-wrap { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .ext-wrap { grid-template-columns: minmax(0, 1fr); } }
 
 /* Rail */
 .ext-rail { display: flex; flex-direction: column; gap: 11px; position: sticky; top: 6px; }
@@ -582,10 +978,14 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .ext-seg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
 .ext-list {
   display: flex; flex-direction: column; gap: 1px;
-  max-height: calc(100vh - 232px); overflow-y: auto; margin: 0 -4px; padding: 0 4px;
+  max-height: calc(var(--vh) - 232px); overflow-y: auto; margin: 0 -4px; padding: 0 4px;
 }
+/* The system's eyebrow treatment, same as .chan-cat and the docs nav labels — 11px sans.
+   This was 10px mono at 0.09em: a third eyebrow style, below the type scale's floor, and
+   monospace worn as a costume on words like "Community" and "Games" that are neither code
+   nor data. */
 .ext-glabel {
-  font-family: var(--mono); font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3); padding: 13px 8px 5px;
 }
 .ext-glabel:first-child { padding-top: 2px; }
@@ -599,7 +999,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .ext-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: none; transition: background 0.16s; }
 .ext-item.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .ext-item .nm { flex: 1; min-width: 0; font-weight: 550; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ext-item .cust { font-family: var(--mono); font-size: 9px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent); flex: none; }
+/* Marks a user-authored extension in the rail. Was 9px mono — the smallest type anywhere
+   in the console, three steps under the floor, for a word that is neither code nor a
+   number. Same eyebrow scale as everything else that labels rather than reads. */
+.ext-item .cust { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); flex: none; }
 .ext-empty-rail { color: var(--text-3); font-size: 12px; padding: 16px 10px; text-align: center; }
 @keyframes extIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .ext-item { animation: none; } }
@@ -619,7 +1022,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .ext-overview { text-align: center; color: var(--text-2); padding: 30px 16px; }
 .ext-stats { display: flex; justify-content: center; gap: 30px; margin-bottom: 20px; }
 .ext-stat .n { font-size: 24px; font-weight: 600; color: var(--text); line-height: 1; }
-.ext-stat .l { font-size: 10.5px; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.ext-stat .l { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 15px 16px; }
@@ -627,7 +1030,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .stat .k { color: var(--text-2); font-size: 12px; margin-top: 3px; }
 
 /* ── Login ──────────────────────────────────────────────────────────────── */
-.login { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+.login { min-height: var(--vh); display: grid; place-items: center; padding: 20px; }
 .login .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 40px 38px; text-align: center; max-width: 380px; box-shadow: var(--shadow-pop);
@@ -666,7 +1069,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .login-actions { display: flex; gap: 10px; justify-content: center; }
 .login-actions button { flex: 1; max-width: 160px; justify-content: center; }
 
-.loading { min-height: 100vh; display: grid; place-items: center; color: var(--text-2); }
+.loading { min-height: var(--vh); display: flex; align-items: center; justify-content: center; gap: 11px; color: var(--text-2); }
+/* In-page loading, for a tab that is still fetching. Centred and moving, so an empty
+   region reads as "working" rather than "nothing here". */
+.page-loading { display: flex; align-items: center; justify-content: center; gap: 11px; padding: 64px 20px; color: var(--text-2); font-size: 13.5px; }
 
 /* Settings gear on the pre-auth login / onboarding cards. */
 .login .box, .setup .box { position: relative; }
@@ -674,10 +1080,16 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* Bot switcher (Settings ▸ Bot): one row per bot, the active one highlighted. */
 .bot-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+/* One grid, so every row's badges and actions line up in the same columns instead of each
+   row packing its own flex differently. The badge track is reserved whether or not a row
+   has badges — that is what was making the spacing look inconsistent from row to row. */
 .bot-row {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center; column-gap: 12px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-inset);
 }
+.bot-row + .bot-row { margin-top: 8px; }
+.bot-row .bot-badges { display: flex; align-items: center; gap: 6px; justify-content: flex-end; }
 .bot-row.on { border-color: var(--border-strong); }
 .bot-row .bot-ic { display: inline-flex; color: var(--text-2); }
 .bot-row.on .bot-ic { color: var(--accent); }
@@ -685,6 +1097,14 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .bot-row .bot-sub { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
 .bot-row .grow { flex: 1; }
 .bot-row .bot-actions { display: flex; align-items: center; gap: 6px; }
+/* A disabled control still has to be readable — it is saying "not available here", which
+   is information. The default .55 opacity on a ghost icon over an inset well is not. */
+.bot-row .bot-actions button:disabled { opacity: 0.4; }
+.bot-row .bot-actions .icon-btn:disabled { opacity: 0.35; }
+@media (max-width: 640px) {
+  .bot-row { grid-template-columns: auto minmax(0, 1fr); row-gap: 10px; }
+  .bot-row .bot-badges, .bot-row .bot-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
+}
 
 /* Collapsible "add this key to the VM" fallback on the reconnect/connect screens. */
 .setup .disclosure { margin-bottom: 16px; }
@@ -697,7 +1117,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
 /* ── Setup wizard ───────────────────────────────────────────────────────── */
-.setup { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
 .setup .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);
@@ -742,18 +1162,24 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 /* Continue + a hover-revealed "Connect to existing" ghost. The whole group is the hover
    hitbox (buttons + the gap between), so the cursor can cross from Continue to the ghost
    without it collapsing mid-transfer. */
-.setup .cta-reveal { display: inline-flex; align-items: center; }
+/* An `0fr → 1fr` track rather than a max-width ceiling: the open width resolves to the
+   button's own, so a longer label can never be clipped, and the growing thing is a grid
+   track instead of the button's box — its text isn't re-laid-out on every frame. The 8px
+   separation lives in the button's right padding so it's inside the animated track. */
+.setup .cta-reveal { display: inline-grid; grid-template-columns: 0fr auto; align-items: center;
+  transition: grid-template-columns .22s var(--ease-out); }
+.setup .cta-reveal:hover, .setup .cta-reveal:focus-within { grid-template-columns: 1fr auto; }
+/* The slot is what clips — a grid item doesn't clip to its own track, so without this the
+   button's 28px of horizontal padding leaves a stub sticking out of the collapsed column. */
+.setup .cta-reveal .reveal-slot { display: flex; min-width: 0; overflow: hidden; }
 .setup .cta-reveal .reveal-btn {
-  max-width: 0; opacity: 0; margin-right: 0; padding-left: 0; padding-right: 0;
-  overflow: hidden; white-space: nowrap; pointer-events: none;
-  transition: max-width .22s var(--ease-out), opacity .18s ease,
-    margin-right .22s var(--ease-out), padding .18s ease;
+  flex: none; margin-right: 8px; opacity: 0;
+  white-space: nowrap; pointer-events: none;
+  transition: opacity .18s ease;
 }
 .setup .cta-reveal:hover .reveal-btn,
-.setup .cta-reveal:focus-within .reveal-btn {
-  max-width: 240px; opacity: 1; margin-right: 8px; padding-left: 14px; padding-right: 14px;
-  pointer-events: auto;
-}
+.setup .cta-reveal:focus-within .reveal-btn { opacity: 1; pointer-events: auto; }
+@media (prefers-reduced-motion: reduce) { .setup .cta-reveal { transition: none; } }
 .setup .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
   background: var(--bg-inset); transition: border-color 0.12s;
@@ -785,12 +1211,27 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr) 212px;
   align-items: start;
+
+  /* The article's measure is the one stated width on this surface; everything else is
+     derived from it or yields to it. It used to be the residual after two fixed rails took
+     their cut, which meant the line length was decided by the window and by whether the
+     section happened to have subheadings: 41 characters on a 900px window, 55 with a page
+     index, 90 without one on the same window, 106 at 1680. None of those were chosen.
+     445px at the 13.5px body measures ~73 characters. Not `ch`: per the measure note in
+     DESIGN.md, IBM Plex Sans's zero is 1.33x its average advance, so a ch value overstates
+     a real line by a third. */
+  --doc-measure: 445px;
 }
-.docs-shell.no-toc { grid-template-columns: 230px minmax(0, 1fr); }
+/* A section without subheadings renders no page index — but it keeps the index's track.
+   Reclaiming those 212px used to widen the article on exactly those pages, so the column
+   moved and re-wrapped as the reader clicked between sections. Now that prose holds a fixed
+   measure the space buys nothing, and holding the track steady means the article's left
+   edge and line length are identical on every page in the set. */
+.docs-shell.no-toc { grid-template-columns: 230px minmax(0, 1fr) 212px; }
 
 .docs-nav {
   position: sticky; top: 0; align-self: start;
-  max-height: 100vh; overflow: auto;
+  max-height: var(--vh); overflow: auto;
   border-right: 1px solid var(--border);
   padding: 26px 16px 40px;
 }
@@ -808,20 +1249,35 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .docs-nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .docs-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 
-.docs-content { padding: 44px 48px; max-width: 760px; min-width: 0; }
+/* The pane fills its column up to a cap sized for the widest reference table in the docs
+   (~762px of content), not for the prose — the prose is capped separately below. */
+.docs-content { padding: 44px 48px; max-width: 880px; min-width: 0; }
+
+/* Prose holds the measure. Tables, code and anything else dense is deliberately absent from
+   this list and gets the full column: a reference table squeezed into a prose measure just
+   becomes a horizontal scrollbar, which is the reader doing the layout's job. */
+.docs-eyebrow, .docs-title, .docs-prevnext,
+.doc > p, .doc > ul, .doc > ol, .doc > h2, .doc > h3, .doc > .callout {
+  max-width: var(--doc-measure);
+}
 .docs-eyebrow {
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--accent); margin-bottom: 8px;
 }
 .docs-title { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 20px; }
+/* Wrap, and let each button shrink. Two neighbour titles are content, not a fixed pair —
+   "Create your own" next to "Slash commands & flows" needs 363px, and in a 248px column an
+   unwrapped nowrap row pushed the whole document 74px sideways: a real horizontal page
+   scroll on the docs page at a 900px window, on the pages with the longest neighbours. */
 .docs-prevnext {
-  display: flex; justify-content: space-between; gap: 12px;
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px;
   margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border);
 }
+.docs-prevnext > button { min-width: 0; max-width: 100%; }
 
 .docs-toc {
   position: sticky; top: 0; align-self: start;
-  max-height: 100vh; overflow: auto; padding: 48px 18px;
+  max-height: var(--vh); overflow: auto; padding: 48px 18px;
 }
 .docs-toc-label {
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
@@ -830,20 +1286,50 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .docs-toc-rail { display: flex; flex-direction: column; border-left: 1px solid var(--border); }
 .docs-toc a {
   display: block; color: var(--text-3); font-size: 12.5px; text-decoration: none;
-  padding: 3px 0 3px 12px; line-height: 1.4; border-left: 2px solid transparent; margin-left: -1px;
+  padding: 4px 0 4px 12px; line-height: 1.4; border-left: 2px solid transparent; margin-left: -1px;
   transition: color 0.12s, border-color 0.12s;
 }
 .docs-toc a:hover { color: var(--text); }
 .docs-toc a.lvl2 { padding-left: 24px; }
 .docs-toc a.active { color: var(--text); font-weight: 600; border-left-color: var(--text); }
 
-@media (max-width: 1180px) {
+/* The page index is the first thing to yield, and it has to go earlier than it did. Below
+   this the middle column can no longer hold --doc-measure plus its gutters, so a 212px rail
+   is paid for out of the article — which is how a section with subheadings ended up reading
+   at 55 characters per line while a section without them, at the same window size, read at
+   90. The breakpoint is a physical width and the layout inside it is zoomed, so this fires
+   at 1360 / --ui-scale of effective width; it is picked against the effective one. */
+@media (max-width: 1360px) {
   .docs-shell, .docs-shell.no-toc { grid-template-columns: 220px minmax(0, 1fr); }
   .docs-toc { display: none; }
 }
+@media (max-width: 1180px) {
+  /* 48px of gutter is right for a wide pane and punitive on a narrow one — it was taking
+     28% of the column at the tightest two-rail width. */
+  .docs-content { padding: 40px 30px; }
+}
+/* Then the section nav yields the same way, and for the same reason — below this a 220px
+   rail plus the console's own 244px sidebar is 57% of the window spent on wayfinding, and
+   the article was down to 47 characters. It stops being a rail and becomes a band above the
+   article, which costs vertical space the reader can scroll past and returns the measure. */
+@media (max-width: 1010px) {
+  .docs-shell, .docs-shell.no-toc { grid-template-columns: minmax(0, 1fr); }
+  .docs-nav {
+    position: static; max-height: none; overflow: visible;
+    border-right: 0; border-bottom: 1px solid var(--border); padding: 18px 16px 8px;
+  }
+  .docs-group { margin-bottom: 10px; }
+}
+@media (max-width: 860px) {
+  .docs-content { padding: 26px 16px 56px; }
+  .docs-title { font-size: 22px; }
+  /* The save dock is fixed over the page; leave it room rather than letting it sit on
+     top of the last field for as long as the page is dirty. */
+  .main { padding: 26px 16px 128px; }
+}
 
 .doc { color: var(--text-2); font-size: 13.5px; line-height: 1.6; }
-.doc h3, .doc h4 { scroll-margin-top: 20px; }
+.doc h2, .doc h3 { scroll-margin-top: 20px; }
 
 /* Fenced code blocks */
 .doc-pre {
@@ -913,10 +1399,16 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .doc-table th { color: var(--text); font-weight: 600; border-bottom-color: var(--border-strong); }
 .doc-table tr:last-child td { border-bottom: none; }
 .doc-table td { color: var(--text-2); }
-.doc-table td:first-child { color: var(--text); white-space: nowrap; }
-.doc h3 { color: var(--text); font-size: 15px; font-weight: 600; margin: 18px 0 8px; }
-.doc h3:first-child, .doc h4:first-child { margin-top: 0; }
-.doc h4 { color: var(--text); font-size: 13.5px; font-weight: 600; margin: 15px 0 6px; }
+/* The first column is emphasized, and it must not break an identifier like
+   `gemini-flash-latest` across lines — but `nowrap` on the whole cell is the wrong tool:
+   the troubleshooting table's first column is a sentence, and it claimed 69% of the width
+   and pushed the Fix column (the one the reader came for) off the scroll edge. Wrap prose,
+   hold code together. */
+.doc-table td:first-child { color: var(--text); }
+.doc-table td:first-child code, .doc-table th:first-child code { white-space: nowrap; }
+.doc h2 { color: var(--text); font-size: 15px; font-weight: 600; margin: 18px 0 8px; letter-spacing: -0.01em; }
+.doc h2:first-child, .doc h3:first-child { margin-top: 0; }
+.doc h3 { color: var(--text); font-size: 13.5px; font-weight: 600; margin: 15px 0 6px; letter-spacing: 0; }
 .doc p { margin: 0 0 10px; }
 .doc p:last-child, .doc ul:last-child { margin-bottom: 0; }
 .doc ul { margin: 0 0 10px; padding-left: 20px; }
@@ -932,6 +1424,45 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .doc a:hover { color: #fff; text-decoration-color: #fff; }
 .doc code { font-family: var(--mono); background: var(--bg-inset); border: 1px solid var(--border); padding: 1px 5px; border-radius: 5px; font-size: 12px; color: var(--text); }
+
+/* ── Discord message preview ─────────────────────────────────────────────── */
+/* A picture of the thing being configured. Ported from the marketing site's mockup
+   (docs/index.html) so the console and the landing page show the same Discord, and
+   so "does this sound like Olisar" is a glance rather than an act of imagination. */
+.dcp {
+  background: var(--dc-bg); border-radius: var(--radius-sm);
+  padding: 14px 16px; margin-top: 10px; overflow: hidden;
+}
+.dcp-msg { display: flex; gap: 15px; }
+.dcp-av {
+  width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden;
+  background: var(--dc-brand); display: grid; place-items: center;
+  color: #fff; font-weight: 600; font-size: 15px;
+}
+.dcp-av img { width: 100%; height: 100%; object-fit: cover; }
+.dcp-body { min-width: 0; flex: 1; }
+.dcp-row { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; flex-wrap: wrap; }
+.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); }
+/* The APP badge is what makes this read as Discord rather than as a generic chat. */
+.dcp-tag {
+  background: var(--dc-brand); color: #fff; font-size: 10px; font-weight: 600;
+  padding: 2px 4px; border-radius: 4px; letter-spacing: 0.02em; position: relative; top: -1px;
+}
+.dcp-time { font-size: 11.5px; color: var(--dc-muted); }
+.dcp-text { color: var(--dc-text); font-size: 14.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+/* A {placeholder} is substituted when the message is actually sent, so it is shown as
+   a slot rather than as literal text the reader would expect to see. */
+.dcp-slot {
+  font-family: var(--mono); font-size: 0.85em; padding: 1px 5px; border-radius: 3px;
+  background: color-mix(in srgb, var(--dc-brand) 26%, transparent); color: #fff;
+}
+.dcp-empty { color: var(--dc-muted); font-style: italic; }
+/* Discord's inline code, in Discord's treatment — the preview simulates its chrome, so it
+   uses its conventions rather than the console's. */
+.dcp-code {
+  font-family: var(--mono); font-size: 0.86em; padding: 1px 4px; border-radius: 4px;
+  background: color-mix(in srgb, #000 26%, var(--dc-bg)); color: var(--dc-text);
+}
 
 /* ── Test chat (enclosed sandbox) ───────────────────────────────────────── */
 /* flex:1 + min-height:0 so the panel fills its card (matching Identity's height) and
@@ -974,6 +1505,8 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .sb-typing span:nth-child(2) { animation-delay: 0.18s; }
 .sb-typing span:nth-child(3) { animation-delay: 0.36s; }
 @keyframes sb-blink { 0%, 80%, 100% { opacity: 0.25; } 40% { opacity: 1; } }
+/* The typing dots are the only sign the sandbox is thinking; slow, don't silence. */
+@media (prefers-reduced-motion: reduce) { .sb-typing span { animation-duration: 2.6s; } }
 .sandbox-err {
   color: var(--danger); font-size: 12.5px; padding: 8px 11px;
   background: var(--danger-soft); border-radius: var(--radius-sm);
@@ -1016,8 +1549,8 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .chatdrawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
 .chatdrawer {
-  position: fixed; top: 0; right: 0; height: 100vh; z-index: 101;
-  width: min(440px, 94vw);
+  position: fixed; top: 0; right: 0; height: var(--vh); z-index: 101;
+  width: min(440px, calc(var(--vw) * 0.94));
   display: flex; flex-direction: column;
   background: var(--panel); border-left: 1px solid var(--border-strong);
   box-shadow: var(--shadow-modal);
@@ -1033,7 +1566,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .chatdrawer .sandbox { padding: 16px 20px 20px; }
 .chatdrawer .sandbox-log { min-height: 0; }
 @media (prefers-reduced-motion: reduce) { .chatdrawer { transition: none; } }
-@media (max-width: 760px) { .chatdrawer { width: 100vw; } }
+@media (max-width: 760px) { .chatdrawer { width: var(--vw); } }
 
 /* ── Settings popup (Notion-style modal) ────────────────────────────────── */
 .modal-backdrop {
@@ -1046,14 +1579,33 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 /* Shared modal entrance — scales-and-lifts in, per the Overlays recipe. */
 @keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .settings-modal, .import-modal, .dev-code-modal, .deny-modal { animation: none; }
+  .settings-modal, .import-modal, .dev-code-modal, .deny-modal, .server-menu { animation: none; }
 }
 .settings-modal {
-  width: min(900px, 94vw); height: min(640px, 90vh);
-  display: grid; grid-template-columns: 212px 1fr;
+  width: min(900px, calc(var(--vw) * 0.94)); height: min(640px, calc(var(--vh) * 0.9));
+  display: grid; grid-template-columns: 212px minmax(0, 1fr);
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); overflow: hidden;
   box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out);
+}
+/* Below this the 212px nav track leaves ~140px of body. Lay the sections out as a
+   horizontal scroller above the content instead, and take the sheet full-bleed. */
+@media (max-width: 700px) {
+  .modal-backdrop { padding: 0; }
+  .settings-modal {
+    width: var(--vw); height: var(--dvh); max-height: none; border-radius: 0; border: 0;
+    grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr);
+  }
+  .settings-nav {
+    flex-direction: row; gap: 6px; overflow-x: auto; scrollbar-width: none;
+    border-right: 0; border-bottom: 1px solid var(--border);
+    padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top));
+  }
+  .settings-nav::-webkit-scrollbar { display: none; }
+  .settings-nav-title { display: none; }
+  .settings-nav-item { flex: none; white-space: nowrap; }
+  .settings-body { padding: 22px 18px calc(22px + env(safe-area-inset-bottom)); }
+  .settings-close { top: 10px; right: 10px; }
 }
 .settings-nav {
   background: var(--bg-sidebar); border-right: 1px solid var(--border);
@@ -1079,7 +1631,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .settings-close:hover { background: var(--bg-inset); color: var(--text); }
 .settings-head { margin-bottom: 20px; }
-.settings-head h2 { font-size: 18px; letter-spacing: -0.01em; }
+.settings-head > h2 { font-size: 18px; letter-spacing: -0.01em; }
 .settings-head p { color: var(--text-2); font-size: 13px; margin-top: 5px; max-width: 56ch; }
 .settings-subhead {
   font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
@@ -1096,22 +1648,11 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .settings-row.end { justify-content: flex-end; }
 .settings-row.between { justify-content: space-between; align-items: flex-start; }
 
-/* Appearance */
-.swatches { display: flex; flex-wrap: wrap; gap: 11px; }
-.swatch {
-  width: 38px; height: 38px; border-radius: 50%; padding: 0; cursor: pointer;
-  border: 2px solid var(--border-strong); display: inline-flex; align-items: center; justify-content: center;
-  color: #fff;
-}
-.swatch.active { border-color: var(--text); box-shadow: 0 0 0 3px var(--bg-inset); }
-.custom-color { display: inline-flex; align-items: center; gap: 9px; color: var(--text-2); font-size: 13px; cursor: pointer; }
-.custom-color input[type=color] { width: 30px; height: 30px; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius-xs); background: none; cursor: pointer; }
-
 /* Log views */
 .logview {
   font-family: var(--mono); font-size: 11.5px; line-height: 1.55; color: var(--text-2);
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 12px 14px; max-height: 46vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  padding: 12px 14px; max-height: calc(var(--vh) * 0.46); overflow: auto; white-space: pre-wrap; word-break: break-word;
 }
 .logview.short { max-height: 180px; }
 /* In the Logs section the viewer fills the remaining modal height and scrolls
@@ -1120,7 +1661,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* ── Import .olx (consent dialog) ─────────────────────────────────────────── */
 .import-modal {
-  position: relative; width: min(560px, 94vw); max-height: 88vh; overflow-y: auto;
+  position: relative; width: min(560px, calc(var(--vw) * 0.94)); max-height: calc(var(--vh) * 0.88); overflow-y: auto;
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); padding: 28px 30px;
   box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out);
@@ -1164,12 +1705,15 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .report-attach .ghost.on { color: var(--ok); border-color: transparent; background: var(--ok-soft); }
 .report-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .report-files .tag { display: inline-flex; align-items: center; gap: 6px; }
-.tag-x { height: auto; border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0; font-size: 11px; line-height: 1; }
+/* min-* rather than a fixed box, with negative margin so the chip doesn't grow around it:
+   the visible glyph stays 11px, the hit area clears the 24px minimum. */
+.tag-x { display: inline-grid; place-items: center; min-width: 24px; min-height: 24px; margin: -6px -4px -6px 0;
+  height: auto; border: none; background: transparent; color: var(--text-3); cursor: pointer; padding: 0; font-size: 11px; line-height: 1; }
 .tag-x:hover { color: var(--danger); }
 
 /* Publish-blocked readout — a circular risk meter + flagged reasons. */
 .deny-modal {
-  position: relative; width: min(420px, 92vw); padding: 30px 30px 24px; text-align: center;
+  position: relative; width: min(420px, calc(var(--vw) * 0.92)); padding: 30px 30px 24px; text-align: center;
   background: radial-gradient(120% 75% at 50% -8%, var(--dc-soft), transparent 62%), var(--panel);
   border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
@@ -1202,6 +1746,12 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .riskmeter.scanning .rm-track { stroke: var(--border-strong); } /* visible ring during the scan */
 .rm-sweep { fill: none; stroke: var(--accent); stroke-width: 11; stroke-linecap: round; stroke-dasharray: 22 100; transform-origin: 100px 100px; filter: drop-shadow(0 0 8px var(--accent)); animation: rmSpin 1.05s linear infinite; }
 @keyframes rmSpin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+/* The security scan can run for several seconds with nothing else on screen moving, so the
+   sweep keeps turning — three times slower. The danger pulse is pure emphasis and stops. */
+@media (prefers-reduced-motion: reduce) {
+  .rm-sweep { animation-duration: 3.2s; }
+  .riskmeter.danger { animation: none; }
+}
 .rm-scanning { font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.2em; color: var(--text-2); }
 
 .deny-verdict { font-size: 13px; line-height: 1.55; color: var(--text-2); margin: 12px 2px 0; text-align: left; }
@@ -1212,7 +1762,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .deny-callouts { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .deny-callouts .callout { margin: 0; }
 /* Two-column verdict: score meter + description on the left, callout cards on the right. */
-.deny-modal.split { width: min(680px, 94vw); }
+.deny-modal.split { width: min(680px, calc(var(--vw) * 0.94)); }
 .deny-body { display: flex; gap: 18px; align-items: flex-start; text-align: left; margin-top: 8px; }
 .deny-side { flex: 0 0 216px; display: flex; flex-direction: column; align-items: center; }
 .deny-side .riskmeter { margin: 4px auto 6px; }
@@ -1221,7 +1771,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 /* Inline `code` inside a callout body. */
 .callout-body code { font-family: var(--mono); font-size: 0.92em; color: var(--text); background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
 @media (max-width: 560px) {
-  .deny-modal.split { width: min(420px, 92vw); }
+  .deny-modal.split { width: min(420px, calc(var(--vw) * 0.92)); }
   .deny-body { flex-direction: column; align-items: stretch; }
   .deny-side { flex: none; }
 }
@@ -1236,7 +1786,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .dev-tab:hover { background: transparent; color: var(--text); }
 .dev-tab.active { background: transparent; color: var(--text); font-weight: 600; }
 .dev-tab:focus-visible { outline: none; box-shadow: var(--ring); }
-.dev-tab-ind { position: absolute; bottom: -1px; height: 2px; background: var(--text); border-radius: 2px; pointer-events: none; transition: left 0.22s var(--ease-out), width 0.22s var(--ease-out); }
+/* Drawn once at unit width and placed with a transform, so sliding between tabs runs on the
+   compositor instead of re-laying out on every frame. */
+.dev-tab-ind { position: absolute; bottom: -1px; left: 0; width: 1px; height: 2px; background: var(--text); border-radius: 2px;
+  pointer-events: none; transform-origin: 0 0; transition: transform 0.22s var(--ease-out); }
 .dev-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .dev-search { flex: 0 1 320px; }
 .dev-table-wrap { overflow-x: auto; }
@@ -1267,7 +1820,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
    buttons with margins since JSX strips the whitespace between them. */
 .dev-row-actions { white-space: nowrap; text-align: right; }
 .dev-row-actions button + button { margin-left: 8px; }
-.dev-code-modal { position: relative; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); width: min(900px, 92vw); max-height: 86vh; padding: 24px 26px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out); }
+.dev-code-modal { position: relative; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); width: min(900px, calc(var(--vw) * 0.92)); max-height: calc(var(--vh) * 0.86); padding: 24px 26px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out); }
 .dev-code { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre; overflow: auto; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
 .dev-reports { display: flex; flex-direction: column; gap: 12px; }
 .dev-report { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 15px; background: var(--bg-inset); }
@@ -1276,9 +1829,8 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .dev-report-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
 .dev-report-meta code { font-family: var(--mono); }
 .dev-report-actions { display: flex; gap: 8px; margin-top: 10px; }
-.dev-blocked-reasons { list-style: none; margin: 10px 0 0; padding: 0; }
-.dev-blocked-reasons li { position: relative; padding: 7px 12px 7px 28px; margin-bottom: 6px; font-size: 12px; line-height: 1.5; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-left: 2px solid var(--danger); border-radius: var(--radius-xs); }
-.dev-blocked-reasons li::before { content: '!'; position: absolute; left: 12px; top: 7px; font-family: var(--mono); font-weight: 700; color: var(--danger); }
+/* A stack of callouts, laid out by developer.tsx. */
+.dev-blocked-reasons { margin: 10px 0 0; padding: 0; }
 .dev-mod-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .dev-mod-list { display: flex; flex-direction: column; }
 .dev-policy-row { display: flex; align-items: center; gap: 16px; }
@@ -1372,12 +1924,16 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .rx-dim { color: var(--text-3); }
 .progress { height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
 .progress.sm { height: 6px; }
-.progress-fill { height: 100%; background: var(--accent); border-radius: var(--radius-pill); transition: width 0.5s ease; }
+.progress-fill { height: 100%; width: 100%; background: var(--accent); border-radius: var(--radius-pill);
+  transform-origin: 0 50%; transition: transform 0.5s ease; }
 .progress.indeterminate { position: relative; }
 .progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: var(--radius-pill); animation: rx-indef 1.2s ease-in-out infinite; }
-@keyframes rx-indef { 0% { left: -38%; } 100% { left: 100%; } }
+/* `left` is a layout property; the bar is the only moving thing in an indeterminate
+   progress track, so drive it on the compositor instead. */
+@keyframes rx-indef { 0% { transform: translateX(-108%); } 100% { transform: translateX(286%); } }
+@media (prefers-reduced-motion: reduce) { .progress.indeterminate .progress-bar { animation-duration: 3s; } }
 .reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 560px; overflow-y: auto; }
-.reindex-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+.reindex-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
 .reindex-row:last-child { border-bottom: none; }
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -1393,6 +1949,23 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   position: fixed; right: 24px; bottom: 24px; z-index: 200;
   display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;
 }
+/* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
+   about the thing the operator just did there — landed on top of it. Sit above it instead. */
+body:has(.testchat-fab) .toast-stack { bottom: 76px; }
+/* The save dock is centred but wide, and at common widths its right edge runs under the
+   toast stack — measured 113x57px of overlap at 1440. Every bulk "Set all N…" fires both
+   at once, so the receipt naming what just changed was the thing you couldn't read. Lift
+   the toasts clear while the dock is up. */
+body:has(.savedock.show) .toast-stack { bottom: 96px; }
+body:has(.savedock.show):has(.testchat-fab) .toast-stack { bottom: 148px; }
+/* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
+   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
+   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
+   aside while it is up. */
+body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
+@media (max-width: 720px) {
+  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+}
 .toast {
   display: flex; align-items: center; gap: 12px; min-width: 280px; max-width: 420px;
   padding: 13px 15px; border-radius: var(--radius); pointer-events: auto;
@@ -1405,6 +1978,10 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
 .toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; }
+/* A sticky toast is there to be read and quoted, so its text is selectable — the rest of
+   the console suppresses selection on chrome, and a failure message is not chrome. */
+.toast.sticky .toast-msg { user-select: text; cursor: text; }
+.toast-x { flex: none; margin: -4px -4px -4px 0; color: var(--text-3); }
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
@@ -1413,7 +1990,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* ── Confirm dialog (centered; replaces native confirm/prompt) ───────────── */
 .confirm-dialog {
-  position: relative; width: min(440px, 92vw); padding: 24px 26px;
+  position: relative; width: min(440px, calc(var(--vw) * 0.92)); padding: 24px 26px;
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); box-shadow: var(--shadow-modal);
   animation: modal-in 0.22s var(--ease-out);
@@ -1431,9 +2008,15 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .confirm-input { margin-top: 14px; }
 /* Move-bot modal body: stacks the callout, hosting target, IP field, and key disclosure. */
 .move-body { margin-top: 16px; display: flex; flex-direction: column; gap: 14px; }
-.confirm-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-/* The "Type <phrase> to confirm." line + CopyField for a high-friction confirm. */
+.confirm-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+/* The "Type <phrase> to confirm." line for a high-friction confirm. The phrase is shown,
+   never copyable — retyping it by hand is the whole mechanism. */
 .confirm-phrase { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; font-size: 13px; color: var(--text-2); }
+.confirm-phrase .phrase {
+  font-family: var(--mono); font-size: 12.5px; color: var(--text); user-select: none;
+  padding: 5px 12px; border-radius: var(--radius-sm);
+  background: var(--bg-inset); border: 1px solid var(--border-strong);
+}
 .copy { display: inline-flex; align-items: stretch; height: 34px; overflow: hidden; vertical-align: middle;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-inset); }
 .copy .val { display: inline-flex; align-items: center; padding: 0 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
@@ -1479,12 +2062,26 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
 .useg button { font: inherit; font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
 .useg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); font-weight: 500; }
-.u-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
-.u-mins { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-.u-cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }
-@media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, 1fr); } .u-mins, .u-cols { grid-template-columns: 1fr; } }
-.u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; }
-.u-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
+
+/* The selected segment carries a resting drop shadow at (0,2,1), which outranked the
+   global `button:focus-visible` at (0,1,1) and silently ate the focus ring — on the one
+   element in a roving-tabindex radiogroup that Tab actually lands on. Restated at matching
+   specificity, keeping the shadow underneath the ring. */
+.ext-seg button.on:focus-visible,
+.useg button.on:focus-visible { outline: none; box-shadow: var(--ring), 0 1px 2px rgba(0, 0, 0, 0.3); }
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.u-mins { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+.u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+@media (max-width: 1120px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
+.u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
+/* `.card h2` (0,1,1) beat this (0,1,0), so the four Usage stat eyebrows silently rendered
+   at 13.5px/600 — and inherited `letter-spacing: -0.014em` from the heading base, which is
+   negative tracking on uppercase monospace, the worst possible setting for all-caps. Raised
+   to match the element it lands on, and the tracking stated rather than inherited. */
+.card h2.u-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 2px;
+}
 .u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
 .u-big s { color: var(--text-3); text-decoration: none; font-size: 15px; }
 .u-delta { font-size: 11.5px; color: var(--text-2); margin-top: 8px; }
@@ -1492,18 +2089,21 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .u-track { height: 6px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; margin-top: 11px; }
 .u-track i { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
 .u-track i.warn { background: var(--warn); }
-.u-ttl { font-size: 14.5px; font-weight: 600; }
+.u-ttl { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
 .u-hint { color: var(--text-2); font-size: 12px; margin-top: 2px; }
 .u-cardhead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
 .u-cardhead .useg { margin-left: auto; }
-.u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-2); margin: 10px 0 4px; }
+.u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); margin: 10px 0 4px; }
 .u-legend .lg { display: inline-flex; align-items: center; }
 .u-legend .d { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: currentColor; }
-.u-chart { width: 100%; height: auto; display: block; margin-top: 6px; }
+/* The box the chart measures itself against; the svg inside is drawn at its exact pixel
+   size, so `width` on the svg is a value, not a stretch. */
+.u-chartbox { width: 100%; min-width: 0; margin-top: 6px; }
+.u-chart { display: block; max-width: 100%; }
 .u-grid { stroke: var(--border); }
 .u-limit { stroke: var(--danger); stroke-opacity: 0.55; }
-.u-limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--mono); font-size: 10px; }
-.u-axis { fill: var(--text-3); font-family: var(--mono); font-size: 10px; }
+.u-limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--mono); font-size: 11px; }
+.u-axis { fill: var(--text-3); font-family: var(--mono); font-size: 11px; }
 .u-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .u-line.primary { stroke-width: 2.6; }
 .u-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
@@ -1514,26 +2114,66 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .us-mut { color: var(--neutral); }
 .u-livehead { display: flex; align-items: center; gap: 7px; }
 .u-livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+/* Amber, not green, once the poll stops landing — a green dot over numbers that have
+   stopped moving is the most misleading thing this page could show. */
+.u-livedot.stale { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 .u-meter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .u-meter:last-child { margin-bottom: 2px; }
-.u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11px; min-width: 74px; }
+.u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; min-width: 74px; }
 .u-meter .bar { flex: 1; height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .u-meter .bar i { display: block; height: 100%; border-radius: 4px; background: currentColor; }
 .u-meter .bar i.warn { background: var(--warn); }
 .u-meter .v { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); min-width: 46px; text-align: right; }
-.u-colh { display: grid; grid-template-columns: 156px 1fr 84px 76px; gap: 12px; font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.u-mrow { display: grid; grid-template-columns: 156px 1fr 84px 76px; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--border); }
-.u-mrow:last-child { border-bottom: 0; }
-.u-mname { display: flex; align-items: center; gap: 9px; min-width: 0; }
+/* By-model table. Same look the div grid had — mono numerics, hairline rules, a fixed
+   name column — but as a real table, so each value keeps its column association. */
+.u-mtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.u-mtable th, .u-mtable td { padding: 11px 0; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; font-weight: 400; }
+.u-mtable tbody tr:last-child th, .u-mtable tbody tr:last-child td { border-bottom: 0; }
+.u-mtable thead th {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--text-3); padding-bottom: 8px; padding-top: 0; font-weight: 400;
+}
+.u-mtable th:first-child { width: 156px; }
+.u-mtable th:nth-child(3), .u-mtable td:nth-child(3) { width: 84px; }
+.u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: 76px; }
+.u-mtable .num, .u-mtable td.u-num { text-align: right; }
+.u-mtable td:not(:last-child) { padding-right: 12px; }
+/* 156 + 84 + 76 of fixed column plus padding leaves the rpm meter nothing under ~430px of
+   card. Drop the meter column and let the name take the room; the numbers still line up.
+   Placed after every rule it overrides — the previous version of this block sat above them
+   and lost on equal specificity, so three of its four rules never applied. */
+/* The rpm meter is the first thing to go — it needs real width to mean anything, and the
+   two numeric columns beside it are the ones an operator is actually reading. Dropping it at
+   560 was too late: with the rail gone the card is much narrower than the viewport, so the
+   model name was ellipsising to nothing well before that. */
+@media (max-width: 820px) {
+  .u-mtable { table-layout: auto; }
+  .u-mtable th:first-child { width: auto; }
+  .u-mtable thead th:nth-child(2), .u-mtable tbody td:nth-child(2) { display: none; }
+  .u-mtable th:nth-child(3), .u-mtable td:nth-child(3),
+  .u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: auto; }
+  .u-mname b { font-size: 11px; }
+}
+@media (max-width: 560px) {
+  .u-kpis { grid-template-columns: minmax(0, 1fr); }
+  .u-big { font-size: 22px; }
+}
+/* NOT `display: flex` — that removes a table cell from the table layout algorithm and every
+   value in the row shifts one column left, so the meter sat under "Model", the request count
+   under "Peak rpm vs cap", and the "Tokens" header labelled an empty column. The flex box
+   goes inside the cell. */
+.u-mname > .cell, .u-rpm > .cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.u-mname { min-width: 0; }
 .u-mname .d { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
 .u-mname b { font-weight: 500; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.u-mname span { color: var(--text-3); font-size: 10.5px; flex: none; }
-.u-rpm { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
-.u-rpm .bar { flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
+.u-mname span { color: var(--text-3); font-size: 11.5px; flex: none; }
+.u-rpm { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
+.u-rpm > .cell { gap: 8px; }
+.u-rpm .bar { display: block; flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
 .u-rpm .bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
 .u-rpm .bar i.warn { background: var(--warn); }
 .u-num { font-family: var(--mono); font-size: 12.5px; text-align: right; }
-.u-num s { color: var(--text-3); text-decoration: none; font-size: 10.5px; display: block; }
+.u-num s { color: var(--text-3); text-decoration: none; font-size: 11.5px; display: block; }
 .u-prow { margin-bottom: 13px; }
 .u-prow:last-child { margin-bottom: 2px; }
 .u-pl { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
@@ -1545,11 +2185,24 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .u-donut-track { stroke: var(--bg-inset); }
 .u-donut-seg { stroke: currentColor; }
 .u-donut-total { fill: var(--text); font-family: var(--mono); font-size: 22px; font-weight: 500; }
-.u-donut-sub { fill: var(--text-3); font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; }
+.u-donut-sub { fill: var(--text-3); font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.09em; text-transform: uppercase; }
 .u-donut-legend { width: 100%; display: flex; flex-direction: column; gap: 9px; }
 .u-dl { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
 .u-dl .d { width: 9px; height: 9px; border-radius: 3px; background: currentColor; flex: none; }
 .u-dl .nm { color: var(--text); }
 .u-dl .v { margin-left: auto; font-family: var(--mono); color: var(--text-2); }
-.u-dl .pc { font-family: var(--mono); color: var(--text-3); font-size: 11px; min-width: 34px; text-align: right; }
+.u-dl .pc { font-family: var(--mono); color: var(--text-3); font-size: 11.5px; min-width: 34px; text-align: right; }
 .u-dl[data-tip] { cursor: help; }
+
+/* Load failure — the state that used to be an endless spinner, or worse, an empty state
+   blaming the bot for a request the console never completed. */
+.loadfail {
+  display: flex; align-items: flex-start; gap: 14px;
+  padding: 20px; margin: 8px 0;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  color: var(--warn);
+}
+.loadfail .lf-body { flex: 1; min-width: 0; }
+.loadfail strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
+.loadfail p { margin: 0; color: var(--text-2); font-size: 13px; word-break: break-word; }
+.loadfail button { flex: none; }

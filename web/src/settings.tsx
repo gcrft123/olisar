@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Select, Text, Toggle } from './ui'
-import { toast, confirmDialog, promptDialog } from './overlays'
+import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
+import { ActivityCard } from './pages'
+import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
-import { ACCENTS, DEFAULT_ACCENT, getAccent, setAccent } from './theme'
+import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-type SectionId = 'appearance' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
-const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
-  { id: 'appearance', label: 'Appearance', ic: 'palette' },
+export type SectionId = 'general' | 'activity' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
+  { id: 'general', label: 'General', ic: 'settings' },
+  { id: 'activity', label: 'Activity', ic: 'docs' },
   { id: 'bot', label: 'Bot', ic: 'bolt' },
   { id: 'logs', label: 'Logs', ic: 'docs' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
@@ -20,30 +22,26 @@ const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
 ]
 
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
-// gears show a subset. `botSwitcherOnly` renders just the bot switcher under Bot (no
-// per-server "Clear memory" danger zone, which needs a configured server).
+// gears show a subset.
 export function SettingsModal(
-  { onClose, sections, botSwitcherOnly }:
-  { onClose: () => void; sections?: SectionId[]; botSwitcherOnly?: boolean },
+  { onClose, sections, initialSection }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId },
 ) {
   const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
-  const [section, setSection] = useState<SectionId>(visible[0]?.id ?? 'appearance')
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const [section, setSection] = useState<SectionId>(
+    (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
+  )
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
-        <nav className="settings-nav">
+    <Modal className="settings-modal" label="Settings" onClose={onClose}>
+        <nav className="settings-nav" aria-label="Settings sections">
           {visible.map((s) => {
             const Glyph = Icon[s.ic]
             return (
               <button
                 key={s.id}
                 className={'settings-nav-item' + (section === s.id ? ' active' : '')}
+                aria-current={section === s.id ? 'page' : undefined}
                 onClick={() => setSection(s.id)}
               >
                 <Glyph size={16} weight={section === s.id ? 'Bold' : 'Linear'} /> {s.label}
@@ -52,19 +50,19 @@ export function SettingsModal(
           })}
         </nav>
         <div className="settings-body">
-          <button className="settings-close" onClick={onClose} title="Close (Esc)">
+          <button className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
           </button>
-          {section === 'appearance' && <Appearance />}
-          {section === 'bot' && (botSwitcherOnly ? <BotSwitcher /> : <Bot />)}
+          {section === 'general' && <General />}
+          {section === 'activity' && <Activity />}
+          {section === 'bot' && <Bot />}
           {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
           {section === 'feedback' && <Feedback />}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -94,9 +92,10 @@ function Logs() {
     <>
       <Head title="Logs" />
       <div className="log-tabs">
-        {TABS.map((t) => (
-          <button key={t.id} className={'ghost' + (which === t.id ? ' on' : '')} onClick={() => setWhich(t.id)}>{t.label}</button>
-        ))}
+        {/* `contents` so the group keeps its ARIA role without adding a box to this flex row. */}
+        <Segmented contents ariaLabel="Which log" value={which} onChange={setWhich}
+          buttonClass={(on) => 'ghost' + (on ? ' on' : '')}
+          options={TABS.map((t) => ({ value: t.id, label: t.label }))} />
         <span className="grow" />
         <button className="ghost icon-btn sm" data-tip="Refresh" aria-label="Refresh" onClick={() => load(which)}>
           <Icon.refresh size={14} />
@@ -201,11 +200,11 @@ function Feedback() {
       {files.length > 0 && (
         <div className="report-files">
           {files.map((f, i) => (
-            <span key={i} className="tag">{f.name}<button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label="Remove" title="Remove"><CloseX size={11} /></button></span>
+            <span key={i} className="tag">{f.name}<button className="tag-x" onClick={() => setFiles(files.filter((_, j) => j !== i))} aria-label={`Remove ${f.name}`}><CloseX size={11} /></button></span>
           ))}
         </div>
       )}
-      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
+      <input ref={fileRef} type="file" multiple style={{ display: 'none' }} aria-label="Add attachments" onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
       <div className="settings-row end" style={{ marginTop: 18 }}>
         <button className="primary" onClick={submit} disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</button>
       </div>
@@ -285,7 +284,7 @@ function BotSwitcher() {
           settings, and memory. <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
-      requirePhrase: { phrase: 'delete' },
+      requirePhrase: { phrase: p.name },
       confirmLabel: 'Delete bot',
     })
     if (!ok) return
@@ -305,7 +304,7 @@ function BotSwitcher() {
           <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
-      requirePhrase: { phrase: 'reset' },
+      requirePhrase: { phrase: p.name },
       confirmLabel: 'Reset configuration',
     })
     if (!ok) return
@@ -331,32 +330,44 @@ function BotSwitcher() {
                   {p.name}
                   {!p.created && <span className="bot-sub">not set up yet</span>}
                 </div>
-                <span className="grow" />
-                <div className="bot-actions">
+                <div className="bot-badges">
                   {isDefault && <span className="badge">Default</span>}
                   {isActive && <span className="badge success">Active</span>}
-                  {!isActive && <button className="ghost" disabled={busy} onClick={() => switchTo(p)}>Switch</button>}
-                  {!isDefault && (
-                    <button className="ghost icon-btn sm" data-tip="Set as default" aria-label="Set as default" disabled={busy} onClick={() => makeDefault(p)}>
-                      <Icon.star size={14} />
-                    </button>
-                  )}
-                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label="Rename" disabled={busy} onClick={() => rename(p)}>
+                </div>
+                <div className="bot-actions">
+                  {/* Disabled, not hidden. Every row shows the same five controls in the
+                      same order, so a position always means the same action and the row
+                      never reflows as state changes — the reserved-but-empty slots this
+                      replaced kept the columns but left the operator guessing why an
+                      action was missing. A disabled control says "not available here";
+                      an absent one says nothing. */}
+                  <button disabled={busy || isActive} onClick={() => switchTo(p)}
+                    aria-label={`Switch to ${p.name}`}
+                    title={isActive ? 'Already the active bot' : undefined}>
+                    Switch
+                  </button>
+                  <button className="ghost icon-btn sm" data-tip={isDefault ? 'Already the launch default' : 'Set as default'}
+                    aria-label={isDefault ? `${p.name} is already the launch default` : `Make ${p.name} the launch default`}
+                    disabled={busy || isDefault} onClick={() => makeDefault(p)}>
+                    <Icon.star size={14} weight={isDefault ? 'Bold' : 'Linear'} />
+                  </button>
+                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
-                  {isActive && (
-                    <button className="ghost icon-btn sm" data-tip="Move / change hosting" aria-label="Move / change hosting" disabled={busy} onClick={() => setMoving(p)}>
-                      <Icon.remote size={14} />
-                    </button>
-                  )}
-                  <button className="ghost icon-btn sm" data-tip="Reset configuration" aria-label="Reset configuration" disabled={busy} onClick={() => reset(p)}>
+                  <button className="ghost icon-btn sm" data-tip={isActive ? 'Move / change hosting' : 'Only the active bot can be moved'}
+                    aria-label={`Move ${p.name} or change its hosting`}
+                    disabled={busy || !isActive} onClick={() => setMoving(p)}>
+                    <Icon.remote size={14} />
+                  </button>
+                  <span className="row-divider" aria-hidden="true" />
+                  <button className="danger icon-btn sm" data-tip="Reset configuration" aria-label={`Reset ${p.name}'s configuration`} disabled={busy} onClick={() => reset(p)}>
                     <Icon.eraser size={14} />
                   </button>
-                  {!isActive && (
-                    <button className="ghost icon-btn sm" data-tip="Delete bot" aria-label="Delete bot" disabled={busy} onClick={() => del(p)}>
-                      <Icon.trash size={14} />
-                    </button>
-                  )}
+                  <button className="danger" aria-label={`Delete ${p.name}`}
+                    title={isActive ? 'Switch to another bot before deleting this one' : undefined}
+                    disabled={busy || isActive} onClick={() => del(p)}>
+                    <Icon.trash size={14} /> Delete
+                  </button>
                 </div>
               </div>
             )
@@ -384,6 +395,7 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
   const [showKey, setShowKey] = useState(false)
   const [moving, setMoving] = useState(false)
   const [err, setErr] = useState('')
+  const titleId = useId()
 
   const pk = usePubkey(target === 'server' && showKey)
 
@@ -397,12 +409,6 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
       .catch((e: any) => setErr(e?.message || 'Couldn’t read the bot’s current hosting.'))
       .finally(() => setLoading(false))
   }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !moving) onClose() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [moving, onClose])
 
   const sameServer = target === 'server' && curMode === 'server' && host.trim() === curHost && !!curHost
   const canMove = !moving && !loading && !err && (target === 'local' || (host.trim().length > 0 && !sameServer))
@@ -420,12 +426,11 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
   const curLabel = curMode === 'server' ? `a server${curHost ? ` (${curHost})` : ''}` : 'this computer'
 
   return (
-    <div className="modal-backdrop" onClick={() => { if (!moving) onClose() }}>
-      <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+    <Modal className="confirm-dialog" labelledBy={titleId} onClose={onClose} dismissable={!moving}>
         <div className="confirm-head">
-          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" /></div>
+          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" aria-hidden /></div>
           <div className="confirm-text">
-            <div className="confirm-title">Move {profile.name}</div>
+            <div className="confirm-title" id={titleId}>Move {profile.name}</div>
             <div className="confirm-msg">
               {loading ? 'Reading current hosting…' : <>Currently runs on <b>{curLabel}</b>.</>}
             </div>
@@ -484,88 +489,82 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
           <button className="ghost" disabled={moving} onClick={onClose}>Cancel</button>
           <button className="primary" disabled={!canMove} onClick={doMove}>{moving ? 'Moving…' : 'Move bot'}</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
 // ── Bot (switcher + what Olisar remembers for the active server) ───────────────
+// The Bot section is the bot switcher. "Clear memory" used to hang off the bottom of it,
+// but it is per-*server* destruction sitting in a per-install modal with no server named
+// anywhere on screen — it now lives on Knowledge, under the things it erases.
 function Bot() {
-  const [busy, setBusy] = useState(false)
-  const clearMemory = async () => {
-    const ok = await confirmDialog({
-      tone: 'danger',
-      title: 'Clear memory',
-      message: (
-        <>
-          This erases everything Olisar has learned about this server: conversation memory, summaries, the
-          search index, remembered facts, the glossary, usage stats, its read on each member, and the
-          knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
-          <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
-        </>
-      ),
-      requirePhrase: { phrase: 'clear olisar memory' },
-      confirmLabel: 'Clear memory',
-    })
-    if (!ok) return
-    setBusy(true)
-    try {
-      const r = await api.clearMemory()
-      const c = (r && r.counts) || {}
-      toast(`Memory cleared. Forgot ${c.messages ?? 0} messages, ${c.facts ?? 0} facts, ${c.profiles ?? 0} member profiles, and ${c.knowledge ?? 0} knowledge sources.`, 'success')
-    } catch (e: any) {
-      toast(e?.message || 'Couldn’t clear memory', 'danger')
-    } finally {
-      setBusy(false)
-    }
-  }
+  return <BotSwitcher />
+}
+
+// ── Activity ───────────────────────────────────────────────────────────────
+// The same ledger Knowledge shows beside its danger zone, reachable from anywhere. Every
+// page can change something durable; only one of them could show you what it changed.
+function Activity() {
   return (
     <>
-      <BotSwitcher />
-      <div className="settings-subhead">Danger zone</div>
-      <div className="settings-row between">
-        <div>
-          <div className="opt-label">Clear memory</div>
-          <div className="settings-muted">Erase everything the active bot has learned about this server. It keeps its persona and your settings. This can't be undone.</div>
-        </div>
-        <button className="danger" onClick={clearMemory} disabled={busy}>
-          {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
-        </button>
-      </div>
+      <Head title="Activity" sub="What has been changed in this console, newest first." />
+      <ActivityCard bare />
     </>
   )
 }
 
-// ── Appearance ──────────────────────────────────────────────────────────────
-function Appearance() {
-  const [accent, setAccentState] = useState(getAccent())
-  const pick = (c: string) => { setAccent(c); setAccentState(c) }
+// ── General ────────────────────────────────────────────────────────────────
+function General() {
   return (
     <>
-      <Head title="Appearance" sub="Saved on this device, so everyone who signs in can pick their own." />
-      <div className="swatches">
-        {ACCENTS.map((a) => (
-          <button
-            key={a.value}
-            className={'swatch' + (accent.toLowerCase() === a.value.toLowerCase() ? ' active' : '')}
-            style={{ background: a.value }}
-            title={a.name}
-            onClick={() => pick(a.value)}
-          >
-            {accent.toLowerCase() === a.value.toLowerCase() && <Icon.check size={15} weight="Bold" />}
-          </button>
-        ))}
-      </div>
+      <Head title="General" sub="Saved on this device, so everyone who signs in sets their own." />
+      <div className="settings-subhead">Size</div>
       <div className="settings-row">
-        <label className="custom-color">
-          <input type="color" value={accent} onChange={(e) => pick(e.target.value)} />
-          <span>Custom — {accent}</span>
-        </label>
-        <button className="ghost" onClick={() => pick(DEFAULT_ACCENT)} disabled={accent.toLowerCase() === DEFAULT_ACCENT}>
-          Reset
-        </button>
+        <SizeChoice />
       </div>
+      <p className="settings-foot">
+        Scales the whole interface, the way your browser's zoom does. Applies to this browser only.
+      </p>
+
+      {/* This pane held one three-option control in a 900x620 sheet — about 85% empty on the
+          modal's default view. Shortcuts belong to "how the console behaves for me", they
+          are the one thing in the product with nowhere to be discovered, and they fill the
+          space with something the operator can use rather than with padding. */}
+      <div className="settings-subhead">Keyboard</div>
+      <dl className="shortcuts">
+        {[
+          [['⌘', 'K'], 'Open the command palette', 'Jump to any page, pane or doc — or run this page’s actions'],
+          [['⌘', 'S'], 'Save this page', 'Applies the edits the bar at the bottom is holding'],
+          [['Esc'], 'Close', 'Dismisses a dialog, the palette, or the nav drawer'],
+          [['Tab'], 'Move through the page', 'The skip link is the first stop'],
+          [['↑', '↓'], 'Move in a list', 'In the palette, and in any mode picker'],
+          [['Enter'], 'Confirm', 'Runs the highlighted command or the dialog’s safe action'],
+        ].map(([keys, what, why]) => (
+          <div className="shortcut" key={what as string}>
+            <dt>{(keys as string[]).map((k) => <kbd key={k}>{k}</kbd>)}</dt>
+            <dd><b>{what as string}</b><span>{why as string}</span></dd>
+          </div>
+        ))}
+      </dl>
+      <p className="settings-foot">
+        On Windows and Linux, <kbd>Ctrl</kbd> stands in for <kbd>⌘</kbd>.
+      </p>
     </>
+  )
+}
+
+// The interface-size preference. Same exclusive-choice contract as every other
+// segmented control in the console, so it uses the same component.
+function SizeChoice() {
+  const [scale, setScaleState] = useState(getScale)
+  return (
+    <Segmented
+      className="useg"
+      ariaLabel="Interface size"
+      value={scale}
+      onChange={(v) => { setScale(v); setScaleState(v) }}
+      options={SCALES.map((x) => ({ value: x.value, label: x.label }))}
+    />
   )
 }
 
@@ -619,8 +618,8 @@ function Remote() {
                 : <span className="settings-muted">{st?.running ? 'Starting…' : 'No public link yet.'}</span>}
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button className="ghost" onClick={() => load(true)} title="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
-              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} />}
+              <button className="ghost icon-btn sm" onClick={() => load(true)} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
+              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
             </div>
           </div>
           {headless ? (
@@ -747,7 +746,7 @@ function Desktop() {
           <div className="opt-label">Show in the menu bar</div>
           <div className="settings-muted">Keep Olisar's tray icon for quick access and remote-access control.</div>
         </div>
-        {on === null ? <span className="settings-muted">…</span> : <Toggle value={on} onChange={toggle} />}
+        {on === null ? <span className="settings-muted">…</span> : <Toggle value={on} onChange={toggle} ariaLabel="Show in the menu bar" />}
       </div>
       {!isDesktop && (
         <p className="settings-foot">This applies to the installed desktop app, which picks it up on its next launch.</p>
