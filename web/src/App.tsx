@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SettingsModal } from './settings'
-import { PageBoundary, hasUnsavedChanges, usePoll } from './ui'
+import { PageBoundary, currentPageActions, hasUnsavedChanges, usePoll } from './ui'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
@@ -178,6 +178,20 @@ export default function App() {
 
   usePaletteHotkey(React.useCallback(() => setPaletteOpen(true), []))
 
+  // ⌘S / Ctrl-S. Every page is built around Save and it was mouse-only; the browser's own
+  // "save page" is meaningless inside an app whose whole contract is an explicit save.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 's' || !(e.metaKey || e.ctrlKey)) return
+      const save = currentPageActions().find((a) => a.id === 'save')
+      if (!save) return
+      e.preventDefault()
+      save.run()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const isTab = React.useCallback((id: string) => TAB_IDS.has(id), [])
 
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
@@ -282,9 +296,14 @@ export default function App() {
     ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
     : [...NAV, docsNav]
 
-  // Everything the rail can reach, plus the server switcher — the two things an operator
-  // does most, one keystroke away instead of a trip to the sidebar.
+  // Everything the rail can reach, plus the server switcher, plus whatever the page in
+  // front of the operator is currently offering. A palette that can only do what the
+  // always-visible rail does is a slower way to click something you can already see.
   const commands: Command[] = [
+    ...currentPageActions().map((a) => ({
+      id: 'action:' + a.id, label: a.label, group: 'This page', ic: 'bolt' as IconName,
+      keywords: 'action save', run: a.run,
+    })),
     ...nav.map((n) => ({
       id: 'tab:' + n.id, label: n.label, group: 'Page', ic: n.ic,
       keywords: n.id, run: () => { void goTab(n.id) },
@@ -341,6 +360,15 @@ export default function App() {
         </div>
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
+
+        {/* An accelerator nobody can discover isn't one. This is the only thing in the
+            console that advertises the palette; it's also a real button, so the feature is
+            reachable without knowing the chord at all. */}
+        <button className="cmdk-hint" onClick={() => setPaletteOpen(true)}>
+          <Icon.search size={14} />
+          <span>Search</span>
+          <kbd>⌘K</kbd>
+        </button>
 
         <nav aria-label="Console sections">
         {nav.map((n, i) => {

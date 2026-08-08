@@ -1,12 +1,16 @@
 import React, { useState } from 'react'
 import { Icon } from './icons'
 
-export function Card(props: { title?: string; hint?: React.ReactNode; children: React.ReactNode }) {
+export function Card(props: { title?: string; hint?: React.ReactNode; badge?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="card">
       {/* h2, not h3: the page's <h1> is the only heading above it, and a level skip is a
           1.3.1 failure that also breaks heading-jump navigation. */}
-      {props.title && <h2>{props.title}</h2>}
+      {props.title && (
+        props.badge
+          ? <div className="card-titlerow"><h2>{props.title}</h2>{props.badge}</div>
+          : <h2>{props.title}</h2>
+      )}
       {props.hint && <div className="hint">{props.hint}</div>}
       {props.children}
     </div>
@@ -350,6 +354,32 @@ export function hasUnsavedChanges(): boolean {
   return false
 }
 
+// The same registry idea for page actions. The command palette could only do what the
+// always-visible rail already did — jump between pages — which makes it a slower way to
+// click something you can already see. A page's own actions are the reason to open it, and
+// Save is the action the whole console is organised around.
+type PageAction = { id: string; label: string; run: () => void }
+const pageActions = new Map<number, () => PageAction[]>()
+let nextActionId = 1
+
+/** Every action the mounted pages currently offer, for the palette and ⌘S. */
+export function currentPageActions(): PageAction[] {
+  const out: PageAction[] = []
+  for (const get of pageActions.values()) out.push(...get())
+  return out
+}
+
+/** Publish actions from a page (or a component inside one) to the palette. */
+export function usePageActions(get: () => PageAction[]): void {
+  const latest = React.useRef(get)
+  latest.current = get
+  React.useEffect(() => {
+    const id = nextActionId++
+    pageActions.set(id, () => latest.current())
+    return () => { pageActions.delete(id) }
+  }, [])
+}
+
 /** Register a dirty-flag source for a page that doesn't use `useEditable`. */
 export function useDirtyGuard(isDirty: () => boolean): void {
   const latest = React.useRef(isDirty)
@@ -401,6 +431,10 @@ export function SaveDock(props: {
 }) {
   const s = props.saver
   const show = props.dirty || s.busy || s.saved || !!s.error
+  // One registration here covers every config page, the same way the dirty registry does.
+  usePageActions(() => (props.dirty && !s.busy
+    ? [{ id: 'save', label: props.label ?? 'Save changes', run: () => { void s.run() } }]
+    : []))
   return (
     <div className={'savedock' + (show ? ' show' : '')} aria-hidden={!show}>
       <div className="savedock-inner">

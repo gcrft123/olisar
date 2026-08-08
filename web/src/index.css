@@ -397,6 +397,8 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 /* 15px, per DESIGN.md's type table. At 13.5 a card title and a field label (12.5/550) were
    separated by 1px and half a weight step — the group heading read as another control
    label, so nothing said where one group ended and the next began. */
+.card-titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-titlerow h2 { margin-bottom: 0; }
 .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 3px; letter-spacing: -0.012em; }
 .card .hint { color: var(--text-2); font-size: 12.5px; margin-bottom: 15px; line-height: 1.5; }
 
@@ -769,6 +771,16 @@ kbd {
 .num-reset { height: 24px; padding: 0 8px; font-size: 11px; color: var(--text-2); border-color: transparent; }
 .num-reset:hover { color: var(--text); background: var(--bg-inset); }
 
+/* The rail's entry point to the palette. Quiet — it is a hint, not a nav item. */
+.cmdk-hint {
+  display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start;
+  height: 30px; margin: 0 0 10px; padding: 0 9px;
+  background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  color: var(--text-3); font-size: 12.5px; font-weight: 400;
+}
+.cmdk-hint:hover { background: var(--bg-inset); color: var(--text-2); border-color: var(--border-strong); }
+.cmdk-hint kbd { margin-left: auto; font-size: 10.5px; padding: 0 5px; }
+
 /* ── Command palette (⌘K) ───────────────────────────────────────────────── */
 /* Sits high rather than centred: the list grows downward, and a centred sheet would walk
    its own results up and down the screen as they filter. */
@@ -896,6 +908,11 @@ kbd {
 .mode-legend { display: grid; gap: 8px; font-size: 12.5px; color: var(--text-2); }
 .mode-legend > div { display: flex; align-items: center; gap: 9px; }
 .mode-legend .tag { color: var(--text); min-width: 72px; text-align: center; }
+/* Keep the control near the thing it governs. A fixed 220px column against a flexible name
+   put 627px of empty row between a role chip and its select at 1440 — the eye has to travel
+   the whole width to connect two halves of one decision. */
+.role-ctl { width: 220px; flex: none; }
+.list-row .grow.rolename { flex: 0 1 auto; max-width: 340px; }
 
 /* ── Extensions workspace (master-detail) ───────────────────────────────── */
 .ext-wrap { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 20px; align-items: start; }
