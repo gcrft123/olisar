@@ -68,6 +68,7 @@ PLACEHOLDERS: dict[str, list[str]] = {
     "learn_doc": ["filename"],
     "forget_me": ["messages", "facts"],
     "dm_indexing": ["state"],
+    "proactive": ["state", "level"],
 }
 
 

@@ -34,6 +34,7 @@ class Members(commands.Cog):
                 guild_id=member.guild.id,
                 user_id=member.id,
                 display_name=member.display_name,
+                avatar=str(member.display_avatar.url),
                 roles=extract_roles(member),
             )
 

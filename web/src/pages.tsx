@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import React, { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
@@ -321,8 +321,42 @@ const MSG_LABELS: Record<string, string> = {
   access_denied: 'When access is denied',
 }
 
+// What a reply actually looks like where the reader will see it. The console's job on
+// this page is to answer "does this sound like Olisar" — which was previously an act of
+// imagination performed against grey `default: …` text under a bare textarea.
+function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string; text: string }) {
+  const initial = (name || 'O').trim().slice(0, 1).toUpperCase()
+  // Split on {placeholder} so the slots read as slots — they're substituted at send time,
+  // and showing them as literal prose is the one thing this preview must not do.
+  const parts = text.split(/(\{[a-z_]+\})/gi)
+  return (
+    <div className="dcp">
+      <div className="dcp-msg">
+        <div className="dcp-av">
+          {avatar ? <img src={avatar} alt="" /> : initial}
+        </div>
+        <div className="dcp-body">
+          <div className="dcp-row">
+            <span className="dcp-name">{name || 'Olisar'}</span>
+            <span className="dcp-tag">APP</span>
+            <span className="dcp-time">Today at 9:14 PM</span>
+          </div>
+          <div className="dcp-text">
+            {text.trim()
+              ? parts.map((seg, i) => (/^\{[a-z_]+\}$/i.test(seg)
+                  ? <span className="dcp-slot" key={i}>{seg}</span>
+                  : <span key={i}>{seg}</span>))
+              : <span className="dcp-empty">Olisar stays quiet.</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Messages() {
   const { data, loading } = useAsync<any>(api.getMessages)
+  const { data: persona } = useAsync<any>(api.getPersona)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const base = useRef('')
   useEffect(() => {
@@ -345,7 +379,13 @@ export function Messages() {
       {Object.keys(data).filter((key) => key !== 'privacy').map((key) => (
         <Card key={key} title={MSG_LABELS[key] ?? key}>
           <Area value={edits[key] ?? ''} onChange={(v) => setEdits({ ...edits, [key]: v })} rows={2} placeholder={data[key].default} />
-          <div className="code-default">default: {data[key].default}</div>
+          {/* The effective message — your override if you've written one, otherwise the
+              default that would actually be sent. Updates as you type. */}
+          <DiscordPreview
+            name={persona?.name || 'Olisar'}
+            avatar={persona?.bot_avatar}
+            text={(edits[key] ?? '').trim() || data[key].default}
+          />
           {data[key].placeholders.length > 0 && (
             <div className="placeholders">placeholders: {data[key].placeholders.map((p: string) => <code key={p}>{`{${p}}`} </code>)}</div>
           )}
@@ -372,8 +412,42 @@ const INDEX_OPTS = [
   { value: 'off', label: 'not indexed' },
 ]
 
+// What a row's settings actually mean, in a sentence, derived from the two controls beside
+// it. The mode legend answers this once at the top of the page and then scrolls out of
+// view; this answers it per channel, where the decision is made.
+function channelEffect(mode: string, indexed: boolean, proactive: boolean): string {
+  if (mode === 'off') return 'Ignored entirely.'
+  const parts: string[] = []
+  if (mode === 'memory') parts.push('Reads and remembers')
+  else if (mode === 'respond') parts.push('Replies when addressed')
+  else if (mode === 'both') parts.push('Reads, remembers and replies when addressed')
+  else if (mode === 'resource') parts.push('Carried as reference in every reply')
+  else if (mode === 'feed') parts.push('Remembers the last 3 messages')
+  // Proactivity is gated on exactly these two modes in bot/cogs/proactive.py, so the
+  // clause is only added where the bot can actually act on it.
+  if (proactive && (mode === 'respond' || mode === 'both')) parts.push('may chime in unprompted')
+  parts.push(indexed ? 'searchable' : 'not searchable')
+  return parts.join(' · ') + '.'
+}
+
+// The API returns channels already ordered by Discord `position`, and Discord keeps a
+// category's channels contiguous within that order — so walking runs of equal `category`
+// reproduces the real tree without needing a category id, and degrades correctly through
+// the two serializer fallbacks that emit `category: ""`.
+function groupByCategory(rows: any[]): { category: string; rows: any[] }[] {
+  const groups: { category: string; rows: any[] }[] = []
+  for (const c of rows) {
+    const cat = c.category || ''
+    const last = groups[groups.length - 1]
+    if (last && last.category === cat) last.rows.push(c)
+    else groups.push({ category: cat, rows: [c] })
+  }
+  return groups
+}
+
 export function Channels() {
   const ed = useEditable<any[]>(api.getChannels)
+  const { data: pro } = useAsync<any>(api.getProactivity)
   const [q, setQ] = useState('')
   const saver = useSaver(async () => {
     // One patch per changed row carrying both fields, and rows in parallel. Retuning 30
@@ -420,22 +494,29 @@ export function Channels() {
             <div style={{ marginBottom: 12 }}>
               <Text value={q} onChange={setQ} placeholder="Filter channels…" ariaLabel="Filter channels" />
             </div>
-            {shown.map((c) => (
-              <div className="list-row" key={c.channel_id}>
-                <div className="grow">
-                  <div className="title">#{c.name} {c.kind === 'forum' && <span className="tag">forum</span>}</div>
-                  {c.category && <div className="meta">{c.category}</div>}
-                </div>
-                <div style={{ width: 180 }}>
-                  <Select value={c.mode} options={MODE_OPTS} onChange={(v) => patchRow(c.channel_id, { mode: v })} />
-                </div>
-                <div style={{ width: 140, marginLeft: 8 }}>
-                  <Select
-                    value={c.indexed === false ? 'off' : 'on'}
-                    options={INDEX_OPTS}
-                    onChange={(v) => patchRow(c.channel_id, { indexed: v === 'on' })}
-                  />
-                </div>
+            {groupByCategory(shown).map((g) => (
+              <div className="chan-group" key={g.category || '__none'}>
+                <div className="chan-cat">{g.category || 'No category'}</div>
+                {g.rows.map((c) => (
+                  <div className="list-row" key={c.channel_id}>
+                    <div className="grow">
+                      <div className="title">#{c.name} {c.kind === 'forum' && <span className="tag">forum</span>}</div>
+                      <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled)}</div>
+                    </div>
+                    <div style={{ width: 180 }}>
+                      <Select value={c.mode} options={MODE_OPTS} onChange={(v) => patchRow(c.channel_id, { mode: v })}
+                        ariaLabel={`Mode for #${c.name}`} />
+                    </div>
+                    <div style={{ width: 140, marginLeft: 8 }}>
+                      <Select
+                        value={c.indexed === false ? 'off' : 'on'}
+                        options={INDEX_OPTS}
+                        ariaLabel={`Search indexing for #${c.name}`}
+                        onChange={(v) => patchRow(c.channel_id, { indexed: v === 'on' })}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
             {shown.length === 0 && <div className="empty">No channels match “{q}”.</div>}
@@ -449,10 +530,22 @@ export function Channels() {
 
 // ── Access (role-based) ──────────────────────────────────────────────────────
 const ACCESS_OPTS = [
-  { value: 'open', label: 'Open' },
-  { value: 'allow', label: 'Allowed' },
-  { value: 'block', label: 'Blocked' },
+  { value: 'open', label: 'open — no restriction' },
+  { value: 'allow', label: 'allowed — only these roles' },
+  { value: 'block', label: 'blocked — never' },
 ]
+
+// A Discord role chip: the role's own colour as a dot and a tinted border, the way it
+// reads in Discord's member list. `color` is "" for an uncoloured role.
+function RoleChip({ name, color }: { name: string; color?: string }) {
+  const c = color || ''
+  return (
+    <span className={'rolechip' + (c ? '' : ' plain')} style={c ? { '--rc': c } as React.CSSProperties : undefined}>
+      <span className="rolechip-dot" />
+      {name}
+    </span>
+  )
+}
 
 export function Access() {
   const ed = useEditable<any>(api.getConfig)
@@ -512,18 +605,11 @@ export function Access() {
             {shown.map((r) => (
               <div className="list-row" key={r.role_id}>
                 <div className="grow">
-                  <div className="title">
-                    <span
-                      style={{
-                        display: 'inline-block', width: 10, height: 10, borderRadius: '50%',
-                        background: r.color || 'var(--text-3)', marginRight: 8, verticalAlign: 'middle',
-                      }}
-                    />
-                    {r.name}
-                  </div>
+                  <div className="title"><RoleChip name={r.name} color={r.color} /></div>
                 </div>
                 <div style={{ width: 220 }}>
-                  <Select value={stateOf(r.role_id)} options={ACCESS_OPTS} onChange={(v) => setState(r.role_id, v)} />
+                  <Select value={stateOf(r.role_id)} options={ACCESS_OPTS} onChange={(v) => setState(r.role_id, v)}
+                    ariaLabel={`Access for the ${r.name} role`} />
                 </div>
               </div>
             ))}
@@ -1885,7 +1971,9 @@ const MAX_ROLES = 3  // cap role chips per card so they don't overflow
 
 // The "+N" chip on a member card: hover/focus opens a wide, height-capped popup with every
 // role. It flips above or below the chip toward whichever side has more room.
-function RolesChip({ count, roles }: { count: number; roles: string[] }) {
+type MemberRole = { id: string; name: string }
+
+function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRole[]; colourOf: (r: MemberRole) => string }) {
   const [open, setOpen] = useState(false)
   const [up, setUp] = useState(false)
   const [right, setRight] = useState(false)
@@ -1908,7 +1996,7 @@ function RolesChip({ count, roles }: { count: number; roles: string[] }) {
       {open && (
         <span className={'rolepop ' + (up ? 'up' : 'down') + (right ? ' right' : '')} role="tooltip">
           <span className="rolepop-head">All roles ({roles.length})</span>
-          <span className="rolepop-list">{roles.map((r) => <span className="tag" key={r}>{r}</span>)}</span>
+          <span className="rolepop-list">{roles.map((r) => <RoleChip key={r.id || r.name} name={r.name} color={colourOf(r)} />)}</span>
         </span>
       )}
     </span>
@@ -1922,6 +2010,13 @@ function fmtDate(iso: string | null): string {
 
 export function Members() {
   const { data, loading } = useAsync<any[]>(api.getProfiles)
+  // Roles come back on the profile as {id, name}; the colour lives on /api/roles. Join by
+  // id — role names are not unique in a Discord guild.
+  const { data: guildRoles } = useAsync<any[]>(api.getRoles)
+  const roleColour = React.useMemo(() => {
+    const byId = new Map((guildRoles ?? []).map((r: any) => [String(r.role_id), r.color || '']))
+    return (r: MemberRole) => byId.get(String(r.id)) || ''
+  }, [guildRoles])
   const [q, setQ] = useState('')
   const [building, setBuilding] = useState<Record<string, boolean>>({})
   const [overrides, setOverrides] = useState<Record<string, string>>({})
@@ -1934,7 +2029,7 @@ export function Members() {
   const shown = term
     ? rows.filter((r) =>
         r.display_name.toLowerCase().includes(term)
-        || (r.roles || []).some((x: string) => x.toLowerCase().includes(term))
+        || (r.roles || []).some((x: MemberRole) => (x.name || '').toLowerCase().includes(term))
         || (impressionOf(r) || '').toLowerCase().includes(term))
     : rows
 
@@ -1966,17 +2061,26 @@ export function Members() {
       {rows.length > 0 && shown.length === 0 && <Card title="Profiles"><div className="empty">No members match “{q}”.</div></Card>}
       <div className="member-grid">
         {shown.map((p) => {
-          const roles: string[] = p.roles || []
+          const roles: MemberRole[] = p.roles || []
           const extra = roles.length - MAX_ROLES
           const impression = impressionOf(p)
           const busy = !!building[p.user_id]
           return (
             <div className="member-card" key={p.user_id}>
-              <div className="member-name">{p.display_name}</div>
+              <div className="member-head">
+                <span className="member-av">
+                  {p.avatar
+                    ? <img src={p.avatar} alt="" loading="lazy" />
+                    : (p.display_name || '?').trim().slice(0, 1).toUpperCase()}
+                </span>
+                <span className="member-name">{p.display_name}</span>
+              </div>
               {roles.length > 0 && (
                 <div className="member-roles">
-                  {roles.slice(0, MAX_ROLES).map((r) => <span className="tag" key={r}>{r}</span>)}
-                  {extra > 0 && <RolesChip count={extra} roles={roles} />}
+                  {roles.slice(0, MAX_ROLES).map((r) => (
+                    <RoleChip key={r.id || r.name} name={r.name} color={roleColour(r)} />
+                  ))}
+                  {extra > 0 && <RolesChip count={extra} roles={roles} colourOf={roleColour} />}
                 </div>
               )}
               {impression

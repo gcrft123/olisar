@@ -140,8 +140,9 @@ async def upsert_profile(
     user_id: int,
     display_name: str,
     roles: list[dict] | None = None,
+    avatar: str | None = None,
 ) -> UserProfile:
-    """Insert or refresh a member's profile (display name + roles) and return it."""
+    """Insert or refresh a member's profile (display name, avatar + roles) and return it."""
     profile = await session.scalar(
         select(UserProfile).where(
             UserProfile.user_id == user_id, UserProfile.guild_id == guild_id
@@ -152,11 +153,16 @@ async def upsert_profile(
             user_id=user_id,
             guild_id=guild_id,
             display_name=display_name,
+            avatar=avatar or "",
             roles=roles or [],
         )
         session.add(profile)
         return profile
     profile.display_name = display_name or profile.display_name
+    # Empty means "not observed this time" (e.g. a writer that has no member object),
+    # so it never clears an avatar we already have.
+    if avatar:
+        profile.avatar = avatar
     if roles is not None:
         profile.roles = roles
     profile.last_seen = utcnow()
