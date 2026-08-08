@@ -521,11 +521,11 @@ export function Channels() {
                       <div className="title">#{c.name} {c.kind === 'forum' && <span className="tag">forum</span>}</div>
                       <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled)}</div>
                     </div>
-                    <div style={{ width: 180 }}>
+                    <div className="chan-ctl mode">
                       <Select value={c.mode} options={MODE_OPTS} onChange={(v) => patchRow(c.channel_id, { mode: v })}
                         ariaLabel={`Mode for #${c.name}`} />
                     </div>
-                    <div style={{ width: 140, marginLeft: 8 }}>
+                    <div className="chan-ctl index">
                       <Select
                         value={c.indexed === false ? 'off' : 'on'}
                         options={INDEX_OPTS}
@@ -917,7 +917,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         </div>
         <SaveBar saver={factAdder} label="Add fact" />
         <div className="settings-subhead">Mine for facts</div>
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div className="btn-row">
           <button onClick={() => mine('memory')} disabled={!!mining}>
             <Icon.bolt size={15} /> {mining === 'memory' ? 'Mining…' : 'Mine from memory'}
           </button>
@@ -1907,10 +1907,10 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+      <div className="head-row">
         <PageHead icon="extensions" title="Extensions" sub="Optional packages of extra features." />
         {props.isOperator && (
-          <div style={{ display: 'flex', gap: 8, flexShrink: 0, marginTop: 4 }}>
+          <div className="head-actions">
             <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
             <button className="ghost icon-btn" onClick={() => setImporting(true)} data-tip="Import .olx" aria-label="Import .olx"><Icon.download size={16} /></button>
             <button className="primary" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
