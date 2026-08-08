@@ -530,7 +530,20 @@ export function Channels() {
                         value={c.indexed === false ? 'off' : 'on'}
                         options={INDEX_OPTS}
                         ariaLabel={`Search indexing for #${c.name}`}
-                        onChange={(v) => patchRow(c.channel_id, { indexed: v === 'on' })}
+                        // Turning indexing off doesn't just stop future indexing — it wipes
+                        // what this channel already has, threads included. That is a delete
+                        // hidden inside a dropdown, so it asks first.
+                        onChange={async (v) => {
+                          if (v === 'off' && c.indexed !== false) {
+                            if (!(await confirmDialog({
+                              title: `Stop indexing #${c.name}?`,
+                              message: <>This also <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Re-enabling it indexes new posts from that point on; <code>/olisar reindex</code> reads the history back.</>,
+                              confirmLabel: 'Stop indexing and erase',
+                              tone: 'danger',
+                            }))) return
+                          }
+                          patchRow(c.channel_id, { indexed: v === 'on' })
+                        }}
                       />
                     </div>
                   </div>
@@ -902,7 +915,17 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               </div>
             </div>
             <span className={'badge ' + s.status}>{s.status}</span>
-            <button className="danger" onClick={async () => { await api.deleteSource(s.id); reload() }}>
+            <button className="danger" onClick={async () => {
+              // Removing a source drops every passage Olisar read out of it. Re-adding means
+              // re-crawling and re-reading against the free quota, so this is not a cheap undo.
+              if (!(await confirmDialog({
+                title: `Remove ${s.title || s.uri}?`,
+                message: <>Olisar forgets {s.chunks ? <><strong>{s.chunks}</strong> passages</> : 'everything'} it read from this source. Re-adding it means reading the whole thing again.</>,
+                confirmLabel: 'Remove source',
+                tone: 'danger',
+              }))) return
+              await api.deleteSource(s.id); reload()
+            }}>
               <Icon.trash size={15} /> Remove
             </button>
           </div>
@@ -936,7 +959,15 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 {f.mentions > 1 ? `seen ${f.mentions}×` : 'seen once'}
               </div>
             </div>
-            <button className="danger" onClick={async () => { await api.deleteFact(f.id); reloadFacts() }}>
+            <button className="danger" onClick={async () => {
+              if (!(await confirmDialog({
+                title: 'Delete this fact?',
+                message: <>“{f.fact}” — Olisar stops carrying this into replies. It may mine it again later if it comes up in conversation.</>,
+                confirmLabel: 'Delete fact',
+                tone: 'danger',
+              }))) return
+              await api.deleteFact(f.id); reloadFacts()
+            }}>
               <Icon.trash size={15} /> Delete
             </button>
           </div>
@@ -2250,21 +2281,42 @@ type KeyStatus = { dashboard: boolean; env: boolean; value?: string }
 
 // A key input is a plain <input> rather than <Text> because it carries autoComplete/spellCheck
 // of its own — so it has to claim the enclosing Field's ids by hand.
+//
+// Masked by default. These are secrets: the page's own header says a saved key is never
+// shown again, and the app calls itself a secure console — but the field rendered a pasted
+// Gemini key in full, at 13.5px, for anyone screen-sharing or recording. Reveal is a
+// deliberate act, and it re-masks on blur so a revealed key can't be left on screen.
 function KeyInput(props: { value: string; placeholder: string; onChange: (v: string) => void }) {
   const f = useFieldIds()
+  const [shown, setShown] = useState(false)
   return (
-    <input
-      type="text"
-      id={f?.id}
-      aria-labelledby={f?.labelId}
-      aria-describedby={f?.descId}
-      autoComplete="off"
-      spellCheck={false}
-      className="mono"
-      placeholder={props.placeholder}
-      value={props.value}
-      onChange={(e) => props.onChange(e.target.value)}
-    />
+    <div className="key-input">
+      <input
+        type={shown ? 'text' : 'password'}
+        id={f?.id}
+        aria-labelledby={f?.labelId}
+        aria-describedby={f?.descId}
+        autoComplete="off"
+        spellCheck={false}
+        className="mono"
+        placeholder={props.placeholder}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        onBlur={() => setShown(false)}
+      />
+      {!!props.value && (
+        <button
+          type="button"
+          className="ghost icon-btn key-reveal"
+          onClick={() => setShown((v) => !v)}
+          data-tip={shown ? 'Hide' : 'Reveal'}
+          aria-label={shown ? 'Hide the key' : 'Reveal the key'}
+          aria-pressed={shown}
+        >
+          {shown ? <Icon.eyeOff size={16} /> : <Icon.eye size={16} />}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -2279,29 +2331,33 @@ function KeyField(props: {
   onClear: () => void
 }) {
   const s = props.status
-  // Same field stylization as the first-run wizard: a plain styled text input
-  // (mono), with an example placeholder when nothing is set yet.
-  const placeholder = s.dashboard
-    ? 'Set. Leave blank to keep it.'
+  // The placeholder is an example, never the status: a placeholder disappears the moment
+  // you type, so "a key is already saved" vanished exactly as you were about to overwrite
+  // it. Status is a persistent line under the field instead.
+  const placeholder = props.example || 'Paste your key'
+  const state = s.dashboard
+    ? 'Saved here. Leave the field blank to keep it.'
     : s.env
-      ? 'Using the value from .env. Paste to override.'
-      : props.example || 'Paste your key'
+      ? 'Coming from this machine’s environment. Paste a key to override it.'
+      : 'Not set.'
   return (
     <Field label={props.label} desc={props.desc}>
       <KeyInput placeholder={placeholder} value={props.value} onChange={props.onChange} />
       <div className="key-status">
         {s.dashboard ? (
           <>
-            <span className="badge ready">set in dashboard</span>
-            <button className="ghost icon-btn" onClick={props.onClear} data-tip="Clear key" aria-label="Clear key">
+            {/* "set in dashboard" read equally as "done" and as an instruction to go do it. */}
+            <span className="badge ready">saved</span>
+            <button className="ghost icon-btn" onClick={props.onClear} data-tip="Remove this key" aria-label={`Remove the saved ${props.label}`}>
               <Icon.trash size={16} />
             </button>
           </>
         ) : s.env ? (
-          <span className="badge">env fallback</span>
+          <span className="badge">from environment</span>
         ) : (
           <span className="badge missing">not set</span>
         )}
+        <span className="key-state">{state}</span>
       </div>
     </Field>
   )
