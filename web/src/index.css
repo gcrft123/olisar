@@ -166,7 +166,12 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .skip-link:hover { text-decoration: none; }
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-.shell { display: grid; grid-template-columns: 244px 1fr; min-height: 100%; }
+/* `minmax(0, 1fr)`, never a bare `1fr`. A grid track's automatic minimum is its content's
+   min-content width, so a row that refuses to wrap inflates the track past the viewport —
+   and because nothing in the chain scrolls, the overflow is unreachable rather than merely
+   off-screen. At 420px the content track had grown to 599px with `window.scrollX` pinned at
+   0: a quarter of Channels, including the indexing control, simply could not be reached. */
+.shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100%; }
 
 .sidebar {
   border-right: 1px solid var(--border);
@@ -347,7 +352,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 
 /* Page layouts for the wide content area. .cols2 = two explicit columns that each
    hug their own content; .grid2 = an auto-flow two-column card grid. */
-.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: stretch; }
+.cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
 .cols2 > .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 /* A column holding a single card (e.g. Knowledge's Index, API keys' Cloudflare) grows it
    to match the taller neighbouring column, so both sides line up evenly. */
@@ -360,7 +365,15 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    grid itself still has to carry the card rhythm, or the next card butts straight against
    the columns above with no gap at all. */
 .cols2, .grid2 { margin-bottom: 14px; }
-@media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .cols2, .grid2 { grid-template-columns: minmax(0, 1fr); } }
+/* A page head with trailing actions, and any free-standing row of buttons. Both wrap —
+   a nowrap button row is the single most common way content ends up outside the viewport
+   with nothing able to scroll to it. */
+.head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.head-row > .page-head { min-width: 0; }
+.head-actions { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
 .page-head { margin-bottom: 26px; }
 .page-head .title-row { display: flex; align-items: center; gap: 11px; }
 .page-head .title-ic {
@@ -387,7 +400,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 /* Placed after every base rule it overrides — .main, .card, .page-head and .nav-item
    are all defined above, and an equal-specificity rule declared later would win. */
 @media (max-width: 860px) {
-  .shell { grid-template-columns: 1fr; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
   .topbar {
     position: sticky; top: 0; z-index: 90;
     display: flex; align-items: center; gap: 11px;
@@ -587,9 +600,18 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .savedock-msg { font-size: 13px; color: var(--text-2); }
 .savedock-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+/* The message must be allowed to shrink and wrap, or its min-content width holds the dock
+   open wider than the viewport and pushes Save off the right edge — where, with nothing
+   scrolling, it cannot be reached at all. */
+.savedock-msg { min-width: 0; }
 @media (max-width: 860px) {
   .savedock { left: 50%; right: auto; }
   .savedock-inner { min-width: 0; width: calc(var(--vw) * 0.92); gap: 12px; padding-left: 15px; }
+}
+@media (max-width: 620px) {
+  .savedock-inner { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; }
+  .savedock-actions { margin-left: 0; width: 100%; }
+  .savedock-actions button { flex: 1 1 0; min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .savedock { transition: opacity 0.2s ease; }
@@ -615,9 +637,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   border-color: color-mix(in srgb, var(--accent-violet) 34%, transparent);
 }
 
-.member-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
-@media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 620px) { .member-grid { grid-template-columns: 1fr; } }
+.member-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .member-grid { grid-template-columns: minmax(0, 1fr); } }
 .member-card {
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
@@ -633,6 +655,9 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .member-av img { width: 100%; height: 100%; object-fit: cover; }
 .member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Discord display names have no spaces to break on. Without this an unbroken name sets the
+   card's min-content width and, through the grid, the page's. */
+.member-card .member-impression, .member-card .mem { overflow-wrap: anywhere; }
 .member-roles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .member-roles .tag.more { color: var(--text-3); cursor: default; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
@@ -661,12 +686,30 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   display: flex; align-items: center; gap: 12px; padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
+/* Channel row controls. 200px on the mode select because `resource — reference context`
+   measures 177px and a select spends ~42px on padding and chevron — at 180px the two
+   longest of six options were clipped at rest, so the control hid the vocabulary the
+   legend above it had just taught. */
+.chan-ctl { flex: none; }
+.chan-ctl.mode { width: 200px; }
+.chan-ctl.index { width: 140px; }
 .list-row:first-child { padding-top: 2px; }
 .list-row:last-child { border-bottom: none; padding-bottom: 2px; }
 .list-row .grow { flex: 1; min-width: 0; }
 .list-row .title { font-weight: 550; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .meta { color: var(--text-2); font-size: 12px; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
 .meta-warn { color: var(--danger); display: inline-flex; align-items: center; gap: 4px; }
+
+/* Below this the row cannot hold text and two controls side by side. Stacking is what
+   keeps them reachable: unwrapped, the row's min-content width inflated the grid track
+   past the viewport and the second control became unreachable entirely. */
+@media (max-width: 620px) {
+  .list-row { flex-wrap: wrap; align-items: flex-start; }
+  .list-row .grow { flex: 1 0 100%; }
+  .list-row .title { white-space: normal; }
+  .chan-ctl { flex: 1 1 0; min-width: 0; }
+  .chan-ctl.mode, .chan-ctl.index { width: auto; }
+}
 .tag {
   display: inline-block; font-family: var(--mono); font-size: 11.5px; font-weight: 500;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text);
@@ -706,7 +749,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 
 /* ── Extensions workspace (master-detail) ───────────────────────────────── */
 .ext-wrap { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 980px) { .ext-wrap { grid-template-columns: 1fr; } }
+@media (max-width: 980px) { .ext-wrap { grid-template-columns: minmax(0, 1fr); } }
 
 /* Rail */
 .ext-rail { display: flex; flex-direction: column; gap: 11px; position: sticky; top: 6px; }
@@ -1303,7 +1346,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 .settings-modal {
   width: min(900px, calc(var(--vw) * 0.94)); height: min(640px, calc(var(--vh) * 0.9));
-  display: grid; grid-template-columns: 212px 1fr;
+  display: grid; grid-template-columns: 212px minmax(0, 1fr);
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); overflow: hidden;
   box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out);
@@ -1653,7 +1696,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 @keyframes rx-indef { 0% { transform: translateX(-108%); } 100% { transform: translateX(286%); } }
 @media (prefers-reduced-motion: reduce) { .progress.indeterminate .progress-bar { animation-duration: 3s; } }
 .reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 560px; overflow-y: auto; }
-.reindex-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+.reindex-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
 .reindex-row:last-child { border-bottom: none; }
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -1762,10 +1805,10 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
 .useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
 .useg button { font: inherit; font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
 .useg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); font-weight: 500; }
-.u-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
-.u-mins { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-.u-cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }
-@media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, 1fr); } .u-mins, .u-cols { grid-template-columns: 1fr; } }
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.u-mins { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+.u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
 .u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
 .u-eyebrow { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-3); }
 .u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
@@ -1832,7 +1875,7 @@ body:has(.testchat-fab) .toast-stack { bottom: 76px; }
   .u-mtable { table-layout: auto; }
   .u-mtable th:first-child { width: auto; }
   .u-mtable thead th:nth-child(2), .u-mtable tbody td:nth-child(2) { display: none; }
-  .u-kpis { grid-template-columns: 1fr; }
+  .u-kpis { grid-template-columns: minmax(0, 1fr); }
   .u-big { font-size: 22px; }
 }
 .u-mname { display: flex; align-items: center; gap: 9px; min-width: 0; }
