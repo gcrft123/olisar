@@ -53,6 +53,9 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --text: #ededee;          /* primary */
   --text-2: #9d9da7;        /* secondary */
   --text-3: #6a6a73;        /* tertiary / muted / placeholders */
+  /* --text-3 clears 4.5:1 on --bg (#020203) but NOT on lighter grounds: it measures
+     3.5-3.7:1 on the marketing site's #08080a, which is a WCAG AA failure at any size.
+     Surfaces built on a lighter ground use #7f7f8a instead (4.7:1 or better). */
 
   /* The one accent (user-switchable at runtime; re-tints --accent-soft + glow) */
   --accent: #8a8af2;
@@ -93,7 +96,10 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --shadow-card: none;
   --shadow-pop: 0 8px 28px rgba(0,0,0,.5);
   --shadow-modal: 0 24px 70px rgba(0,0,0,.5);
-  --ring: 0 0 0 3px var(--accent-soft);  /* focus */
+  /* Focus. Two rings, not one: a gap in the page ground, then the accent. A single
+     accent-soft ring is invisible on --primary-bg (a near-white surface), which every
+     primary button is — solid accent on #ededee measures 2.38:1, and this is 16% of it. */
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
   /* Motion — quiet and quick */
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -363,7 +369,9 @@ Same tinting as the callout, fixed bottom-right, with a filled-circle icon in th
 
 ### StepsDialog (the post-download popup)
 
-Fires on the marketing site after a download click: a Dialog whose body is a short **numbered handoff** telling someone what to do with the file they just got. Wider radius (18px) than a console dialog, and a display-serif title — the marketing site adds Instrument Serif for headings; in-console, use `--font-sans` at 600 instead.
+Fires on the marketing site after a download click: a Dialog whose body is a short **numbered handoff** telling someone what to do with the file they just got. Wider radius (18px) than a console dialog, and a display-serif title — the marketing site adds **IBM Plex Serif** at 400 for headings; in-console, use `--font-sans` at 600 instead.
+
+Plex Serif is the superfamily sibling of `--font-sans`, so the site reads as one type system rather than a pairing. It is wide and low-contrast with a large x-height (51.6 against a Garamond's 38.6 at the same size), which means display sizes run *smaller* in px than a high-contrast serif would while reading the same size or larger, and it holds at weight 400 on the near-black ground with no extra weight step. Track it tighter than you would a Garamond — the face is open to begin with. Pair it with a width-matched fallback (`local('Georgia')` at `size-adjust: 106.2%`; Georgia is a closer base than Times at 0.94x its width) so the headline does not reflow during swap.
 
 ```css
 .dlg-back { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
@@ -377,8 +385,8 @@ Fires on the marketing site after a download click: a Dialog whose body is a sho
   opacity: 0; transform: translateY(14px) scale(.97);
   transition: transform .26s var(--ease-out), opacity .26s ease; }
 .dlg-back.open .dlg { opacity: 1; transform: none; }
-.dlg h3 { font-family: "Instrument Serif", Georgia, serif;   /* site-only; --font-sans/600 in-console */
-  font-weight: 400; font-size: 30px; line-height: 1.1; margin: 2px 0 8px; }
+.dlg h3 { font-family: "IBM Plex Serif", Georgia, serif;   /* site-only; --font-sans/600 in-console */
+  font-weight: 400; font-size: 31px; line-height: 1.12; margin: 2px 0 8px; }
 .dlg .lede { color: var(--text-2); font-size: 14.5px; line-height: 1.6; }
 
 /* Numbered steps — CSS counter in an accent-tinted disc, no list markers. */
@@ -460,6 +468,56 @@ Data-driven inline `<svg>` (no chart lib), used on the **Usage** page. Recipe:
 ```
 
 **Confirm pattern** (shared by IconButton, CopyField, and CodeBlock's copy button): on click, briefly swap the glyph to a green `check-circle` with a small pop — `@keyframes pop { 0% { transform: scale(.4); opacity: 0 } 55% { transform: scale(1.12) } 100% { transform: scale(1); opacity: 1 } }`.
+
+---
+
+## Marketing site (site-only)
+
+`docs/index.html` and `docs/docs.html` are standalone files with no build step, so they
+inline the tokens rather than importing them. They use the vocabulary above — `--text`,
+`--border`, `--bg-inset`, `--font-sans` — with a lighter ground (`--bg: #08080a`,
+`--panel: #0f0f12`) and the lifted `--text-3: #7f7f8a` the ramp note requires. Keep the
+two files' token blocks identical to each other; they are siblings linked from each
+other's nav, and a divergent ground shifts the page on navigation.
+
+Four additions live only on the site. They are documented here so the next surface can
+reuse them rather than reinvent them.
+
+```css
+/* Display face. Site-only, as the StepsDialog note says. Pair every webfont with a
+   width-matched local fallback so the headline does not reflow during swap: measure the
+   real face against the stand-in and set size-adjust to the ratio. IBM Plex Serif against
+   Georgia is 106.2%; an unmatched Georgia fallback reflowed the h1 from two lines to
+   three at 320px, a 47px shift. */
+@font-face { font-family: 'Plex Serif Fallback'; src: local('Georgia'), local('Times New Roman');
+  size-adjust: 106.2%; ascent-override: 90%; descent-override: 22%; }
+--font-serif: 'IBM Plex Serif', 'Plex Serif Fallback', Georgia, serif;
+
+/* Prose measure. In em, never ch: IBM Plex Sans's zero is 1.33x its average advance
+   (0.60em vs 0.4499em), so a ch value overstates the real line length by a third.
+   29em lands at ~65 characters at every size in the ramp. */
+--measure: 29em;
+
+/* Section seams. Width-based, because the type scale is width-based — a vh seam against
+   a vw type scale makes the spacing-to-type ratio a function of aspect ratio, which swung
+   63% between a 1440x900 laptop and a 768x1024 tablet. Two values, so a surface can say
+   "this is a turn in the argument" or "these two sections are one act". */
+--seam-act: clamp(88px, 9vw, 148px);
+--seam-flow: clamp(56px, 5.5vw, 92px);
+```
+
+**Decoration never shares space with text.** The footer ornament used to free-float over
+the link columns and erase them between 721px and 1200px. Give an ornament its own grid
+track, and withhold it at widths where the content needs the room:
+
+```css
+.foot-inner { display: grid; grid-template-columns: minmax(0, 1fr) min(30%, 340px);
+  grid-template-areas: "content art" "bottom bottom"; align-items: start; column-gap: 40px; }
+@media (max-width: 1100px) {
+  .foot-inner { grid-template-columns: 1fr; grid-template-areas: "content" "bottom"; }
+  .foot-stage { display: none; }
+}
+```
 
 ---
 
