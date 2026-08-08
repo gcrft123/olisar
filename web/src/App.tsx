@@ -704,6 +704,16 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
+  // Roving focus starts on the server you're already on, so the list opens where you are.
+  const optRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    const i = Math.max(0, guilds.findIndex((g) => g.id === current.id))
+    setActive(i)
+    const t = setTimeout(() => optRefs.current[i]?.focus(), 0)
+    return () => clearTimeout(t)
+  }, [open, guilds, current.id])
   const icon = (g: Guild, cls = '') => (g.icon
     ? <img className={'server-icon ' + cls} src={g.icon} alt="" />
     : <div className={'server-icon ph ' + cls}>{(g.name || '?').slice(0, 1).toUpperCase()}</div>)
@@ -715,13 +725,36 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
         <Icon.chevron size={14} className="server-chev" />
       </button>
       {open && (
-        <div className="server-menu" role="listbox">
-          {guilds.map((g) => (
+        // A listbox whose options are each independently tabbable is not the pattern: the
+        // arrow keys did nothing and Tab walked through every server one at a time. Same
+        // roving tabindex `Segmented` already implements — one stop for the whole list,
+        // arrows to move within it.
+        <div
+          className="server-menu"
+          role="listbox"
+          aria-label="Switch server"
+          onKeyDown={(e) => {
+            const last = guilds.length - 1
+            let next = active
+            if (e.key === 'ArrowDown') next = active >= last ? 0 : active + 1
+            else if (e.key === 'ArrowUp') next = active <= 0 ? last : active - 1
+            else if (e.key === 'Home') next = 0
+            else if (e.key === 'End') next = last
+            else return
+            e.preventDefault()
+            setActive(next)
+            optRefs.current[next]?.focus()
+          }}
+        >
+          {guilds.map((g, i) => (
             <button
               key={g.id}
+              ref={(el) => { optRefs.current[i] = el }}
               role="option"
               aria-selected={g.id === current.id}
+              tabIndex={i === active ? 0 : -1}
               className={'server-menu-item' + (g.id === current.id ? ' on' : '')}
+              onFocus={() => setActive(i)}
               onClick={() => { onPick(g.id); setOpen(false) }}
             >
               {icon(g, 'sm')}
