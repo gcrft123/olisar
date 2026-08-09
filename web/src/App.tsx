@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
-import { PageBoundary, currentPageActions, hasUnsavedChanges, usePoll } from './ui'
+import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
@@ -129,7 +129,9 @@ export default function App() {
   // owns. The prompt text is the browser's, not ours — returnValue just has to be set.
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges()) return
+      // Drafts too: Escape and a backdrop click both prompt before binning an unsent report,
+      // and closing the window — the one route that can't be undone — did not.
+      if (!hasUnsavedChanges() && !hasDraft()) return
       e.preventDefault()
       e.returnValue = ''
     }

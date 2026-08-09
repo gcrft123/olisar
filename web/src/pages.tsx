@@ -726,6 +726,32 @@ export function Channels() {
                       )
                     }}
                   />
+                  {/* Indexing had no bulk equivalent, so turning it off across a thirty-channel
+                      category was thirty dropdowns *and* thirty confirm dialogs — the erase is
+                      per channel, but the decision is one decision. Asked once, for the set. */}
+                  <Select
+                    className="chan-bulk"
+                    value=""
+                    options={[{ value: '', label: 'Index all…' }, ...INDEX_OPTS]}
+                    ariaLabel={`Set search indexing for ${g.rows.length === 1 ? 'the 1 channel' : `all ${g.rows.length} channels`} in ${g.category || 'no category'}`}
+                    onChange={async (v) => {
+                      if (!v) return
+                      const turningOff = v === 'off'
+                      const affected = g.rows.filter((c: any) => (c.indexed === false ? 'off' : 'on') !== v)
+                      if (!affected.length) return
+                      if (turningOff && !(await confirmDialog({
+                        title: `Stop indexing ${affected.length} channel${affected.length === 1 ? '' : 's'}?`,
+                        message: <>When you save, this <strong>erases what's already indexed</strong> for {affected.length === 1 ? 'that channel' : 'those channels'} and their threads. Nothing changes until you save — Reset still undoes it.</>,
+                        confirmLabel: 'Set to not indexed',
+                        tone: 'danger',
+                      }))) return
+                      affected.forEach((c: any) => patchRow(c.channel_id, { indexed: v === 'on' }))
+                      toast(
+                        `${affected.length} channel${affected.length === 1 ? '' : 's'} in ${g.category || 'no category'} set to ${turningOff ? 'not indexed' : 'indexed'}. Save to apply.`,
+                        'neutral',
+                      )
+                    }}
+                  />
                 </div>
                 {g.rows.map((c) => (
                   <div className="list-row" key={c.channel_id}>
@@ -1346,7 +1372,8 @@ function SettingsForm(props: { extKey: string; schema: any }) {
   const fields: any[] = props.schema?.fields ?? []
   const needsChannels = fields.some((f) => f.type === 'channel')
   const { data: chans } = useAsync<any[]>(needsChannels ? api.getChannels : (() => Promise.resolve([])), [props.extKey])
-  const { data: loaded } = useAsync<any>(() => api.getExtensionSettings(props.extKey), [props.extKey])
+  const q = useAsync<any>(() => api.getExtensionSettings(props.extKey), [props.extKey])
+  const loaded = q.data
   const [vals, setVals] = useState<Record<string, any>>({})
   const [init, setInit] = useState(false)
   // This form is not useEditable-backed, so it has to join the dirty registry by hand.
@@ -1365,6 +1392,15 @@ function SettingsForm(props: { extKey: string; schema: any }) {
   const set = (k: string, v: any) => setVals((p) => ({ ...p, [k]: v }))
   const chanOpts = [{ value: '', label: '— pick a channel —' }, ...((chans ?? []).map((c: any) => ({ value: String(c.channel_id), label: '#' + (c.name || c.channel_id) })))]
   if (!fields.length) return null
+  // Never render an editable form over state that was never read. The error was destructured
+  // away and the bar was live from the first render, so a failed GET showed a form full of
+  // blanks and "Save settings" PUT `{}` over the stored row — replacing the extension's
+  // configured channel and values with nothing, having told the operator nothing. This file
+  // states the rule twelve hundred lines up: an empty list and a failed request are different
+  // facts.
+  if (q.loading || q.error || !init) {
+    return <Card title="Settings"><Loading of={q} what="these settings" /></Card>
+  }
   return (
     <Card title="Settings">
       {fields.map((f) => (
@@ -1376,7 +1412,7 @@ function SettingsForm(props: { extKey: string; schema: any }) {
             : <Text value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} />}
         </Field>
       ))}
-      <SaveBar saver={saver} label="Save settings" />
+      <SaveBar saver={saver} label="Save settings" variant="secondary" />
     </Card>
   )
 }
@@ -1532,13 +1568,13 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
           </div>
           <div className="ext-dactions">
             {props.isOperator && marketplace && mkt?.update_available && (
-              <button className="primary" onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
+              <button onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
             )}
             {props.isOperator && publishable && !isPublished && (
               <button className="ghost" onClick={publishToMarketplace}>Publish</button>
             )}
             {props.isOperator && isPublished && pub.has_changes && (
-              <button className="primary" onClick={pushUpdate}>Push update</button>
+              <button onClick={pushUpdate}>Push update</button>
             )}
             {props.isOperator && isPublished && !pub.has_changes && (
               <button className="ghost" onClick={pushUpdate}>Re-publish</button>
@@ -2254,7 +2290,30 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   })
   const toggle = (key: string, v: boolean) =>
     ed.setData((prev: any[] | null) => (prev ?? []).map((e) => (e.key === key ? { ...e, enabled: v } : e)))
-  const openEditor = (key: string | null) => { setEditKey(key); setView('editor') }
+  // Leaving the catalog for the marketplace or the editor unmounts the SaveDock along with
+  // the view, and coming back calls `ed.reload()`, which re-seeds the baseline from the
+  // server — so pending enable/disable toggles were destroyed silently and the bar that had
+  // said "You have unsaved changes." vanished with them. Every other route out of a dirty
+  // page in this console asks first; these three didn't.
+  //
+  // Guarding on the way *out* also fixes the editor's Back prompt, which reads the module-wide
+  // dirty registry: with the catalog left clean, the only draft it can be describing is the
+  // source, which is what its wording claims.
+  const leaveCatalog = async (): Promise<boolean> => {
+    if (!ed.dirty) return true
+    const r = await confirmDialog({
+      title: 'You have unsaved changes',
+      message: 'Extensions you enabled or disabled here haven’t been saved yet.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      tone: 'warning',
+    })
+    return r === true
+  }
+  const openEditor = async (key: string | null) => {
+    if (!(await leaveCatalog())) return
+    setEditKey(key); setView('editor')
+  }
   const startUpdate = async (key: string) => {
     setUpdErr(null); setUpdPreview(null); setUpdKey(key)
     try { setUpdPreview(await api.marketplaceUpdatePreview(key)) }
@@ -2351,9 +2410,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
         <PageHead icon="extensions" title="Extensions" doc="extensions" sub="Optional packages of extra features." />
         {props.isOperator && (
           <div className="head-actions">
-            <button className="ghost" onClick={() => setView('marketplace')}>Marketplace</button>
+            <button className="ghost" onClick={async () => { if (await leaveCatalog()) setView('marketplace') }}>Marketplace</button>
             <button className="ghost icon-btn" onClick={() => setImporting(true)} data-tip="Import .olx" aria-label="Import .olx"><Icon.download size={16} /></button>
-            <button className="primary" onClick={() => openEditor(null)}><Icon.add size={14} /> New extension</button>
+            <button className="primary" onClick={() => void openEditor(null)}><Icon.add size={14} /> New extension</button>
           </div>
         )}
       </div>
