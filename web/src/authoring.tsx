@@ -4,7 +4,7 @@
 // loads when an operator drills in to create or edit.
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { Card, Field, Text, useDirtyGuard, useSaver } from './ui'
+import { Card, Field, Text, useDirtyGuard, usePageActions, useSaver } from './ui'
 import { Icon } from './icons'
 import { confirmDialog } from './overlays'
 
@@ -52,6 +52,13 @@ export default function ExtensionEditor(props: {
   // lives entirely in this component's state until Save.
   const saved = useRef(props.editKey ? '' : TEMPLATE)
   useDirtyGuard(() => source !== saved.current)
+  // SaveDock is the only thing that publishes a page action, and this surface has no dock —
+  // so on the one page holding hand-written source, the Cmd-S that Settings advertises did
+  // nothing *and* suppressed the browser's own save, because the handler always preventDefaults.
+  const saverRef = useRef<{ run: () => Promise<boolean> } | null>(null)
+  usePageActions(() => (source !== saved.current
+    ? [{ id: 'save', label: 'Save extension', run: () => saverRef.current?.run() ?? Promise.resolve(false) }]
+    : []))
 
   // Lazy-load Monaco + SDK types only on first open of the editor.
   useEffect(() => {
@@ -106,6 +113,7 @@ export default function ExtensionEditor(props: {
     props.onChanged()
     setStatus({ kind: 'ok', msg: 'Saved.' })
   })
+  saverRef.current = saver
 
   const del = async () => {
     if (!key) return
@@ -129,6 +137,9 @@ export default function ExtensionEditor(props: {
         <div className="title-row">
           <div className="title-ic"><Icon.code size={19} /></div>
           <h1>{title}</h1>
+          <button className="ghost page-doclink" onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-doc', { detail: 'ext-sdk' }))}>
+            <Icon.docs size={14} /> SDK reference
+          </button>
         </div>
         <p>
           Write your extension in TypeScript against the Olisar SDK. It runs in a sandbox and
@@ -166,9 +177,17 @@ export default function ExtensionEditor(props: {
           </div>
         ) : null}
 
-        {status && (
-          <div className="meta" style={{ marginTop: 14, color: STATUS_COLOR[status.kind] }}>{status.msg}</div>
-        )}
+        {/* Always mounted, so the live region actually announces: a region that appears
+            together with its message is usually missed. The icon carries the outcome for
+            anyone who can't use the colour. */}
+        <div className="meta auth-status" role={status?.kind === 'err' ? 'alert' : 'status'} style={{ marginTop: status ? 14 : 0, color: status ? STATUS_COLOR[status.kind] : undefined }}>
+          {status && (
+            <>
+              {status.kind === 'err' ? <Icon.warn size={14} weight="Bold" /> : status.kind === 'ok' ? <Icon.check size={14} weight="Bold" /> : null}
+              {status.msg}
+            </>
+          )}
+        </div>
 
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 16 }}>
           <button className="primary" disabled={saver.busy} onClick={saver.run}>
