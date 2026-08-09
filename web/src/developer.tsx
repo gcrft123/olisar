@@ -8,6 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { api } from './api'
 import { Icon, CloseX } from './icons'
 import { Modal, toast, confirmDialog } from './overlays'
+import { Spinner, useDirtyGuard } from './ui'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -31,7 +32,7 @@ function fmtDate(s?: string): string {
   const d = new Date(s.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z'))
   return isNaN(+d) ? s : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
-function Loading() { return <div className="empty" style={{ padding: 24 }}>Loading…</div> }
+function Loading() { return <Spinner /> }
 
 const COUNTED: Record<string, true> = { reports: true, blocked: true, moderation: true }
 
@@ -122,17 +123,31 @@ function DevExtensions() {
     })
   }, [rows, q, sort])
 
-  const th = (key: string, label: string, numeric = false) => (
-    <th className={(numeric ? 'num ' : '') + 'sortable' + (sort.key === key ? ' on' : '')}
-      onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}>
-      <span className="th-label">
-        {label}
-        {sort.key === key && (
-          <Icon.chevron size={11} className="th-sort" style={{ transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
-        )}
-      </span>
-    </th>
-  )
+  // A bare `<th onClick>` is invisible to the keyboard and announces nothing — DESIGN.md
+  // names this as the failure that recurs. The button carries the activation and the name;
+  // aria-sort on the cell tells a screen reader which column orders the table and which way.
+  const th = (key: string, label: string, numeric = false) => {
+    const on = sort.key === key
+    return (
+      <th
+        className={(numeric ? 'num ' : '') + 'sortable' + (on ? ' on' : '')}
+        aria-sort={on ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}
+      >
+        <button
+          type="button"
+          className="th-sortbtn"
+          onClick={() => setSort((s) => ({ key, dir: s.key === key ? (s.dir === 1 ? -1 : 1) : 1 }))}
+        >
+          <span className="th-label">
+            {label}
+            {on && (
+              <Icon.chevron size={11} className="th-sort" style={{ transform: sort.dir === 1 ? 'rotate(180deg)' : undefined }} />
+            )}
+          </span>
+        </button>
+      </th>
+    )
+  }
 
   const viewCode = async (r: any) => {
     try { const d = await api.devSource(r.namespace, r.name, r.version); setCode({ id: r.id, ...d }) }
@@ -156,7 +171,7 @@ function DevExtensions() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   return (
     <div className="card">
@@ -240,7 +255,7 @@ function DevReports() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
   return (
@@ -284,7 +299,7 @@ function DevBlocked() {
     catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err">{err}</div></div>
+  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
   return (
@@ -345,7 +360,7 @@ function DevModeration() {
       <div className="import-warn">A ban de-lists the publisher’s extensions and blocks them from Olisar entirely, taking effect on every bot within about a minute. A warning shows once in their console.</div>
 
       <div className="settings-subhead" style={{ marginTop: 18 }}>Current standing</div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       {!entries ? <Loading /> : entries.length === 0 ? <div className="empty">No warned or banned users.</div> : (
         <div className="dev-mod-list">
           {entries.map((m) => (
@@ -383,7 +398,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
         <span className="grow" />
         <button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button>
       </div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       <pre className="logview" ref={preRef} style={{ height: 520, maxHeight: 'none' }}>{(lines || []).join('\n') || (lines ? '(no log lines)' : 'Loading…')}</pre>
     </div>
   )
@@ -394,12 +409,21 @@ function DevPolicy() {
   const [v, setV] = useState<number | null>(null)
   const [saved, setSaved] = useState(false)
   const [err, setErr] = useState<string | null>(null)
-  useEffect(() => { api.marketplacePolicy().then((d) => setV(d.risk_threshold)).catch((e) => setErr(e.message)) }, [])
+  // This pane holds an edit until Save like every configuration page, but it was outside the
+  // dirty registry — so moving the threshold and switching tabs discarded it silently, on the
+  // one setting that decides what the whole marketplace is allowed to publish.
+  const base = useRef<number | null>(null)
+  useDirtyGuard(() => v != null && base.current != null && v !== base.current)
+  useEffect(() => {
+    api.marketplacePolicy()
+      .then((d) => { base.current = d.risk_threshold; setV(d.risk_threshold) })
+      .catch((e) => setErr(e.message))
+  }, [])
 
   const save = async () => {
     if (v == null) return
     setErr(null); setSaved(false)
-    try { const d = await api.setMarketplacePolicy(v); setV(d.risk_threshold); setSaved(true); setTimeout(() => setSaved(false), 1800) }
+    try { const d = await api.setMarketplacePolicy(v); base.current = d.risk_threshold; setV(d.risk_threshold); setSaved(true); setTimeout(() => setSaved(false), 1800) }
     catch (e: any) { setErr(e.message) }
   }
   if (v == null && !err) return <Loading />
@@ -409,7 +433,7 @@ function DevPolicy() {
       <div className="settings-muted" style={{ marginBottom: 12 }}>
         Publishing is blocked when an extension's risk score reaches this value. The same review is shown to anyone installing it.
       </div>
-      {err && <div className="settings-err">{err}</div>}
+      {err && <div className="settings-err" role="alert">{err}</div>}
       <div className="dev-policy-row">
         <input type="range" min={1} max={100} value={v ?? 70} onChange={(e) => setV(Number(e.target.value))}
           aria-label="Publish risk threshold" aria-valuetext={`${v ?? 70} of 100`}

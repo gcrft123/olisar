@@ -389,7 +389,10 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   background: var(--bg-inset); color: var(--text); border: 1px solid var(--border);
 }
 .page-head h1 { font-size: 22px; }
-.page-head p { color: var(--text-2); margin: 9px 0 0; max-width: 66ch; font-size: 13.5px; }
+/* Measured, not guessed: 66ch computed to 534.6px here, which at this face and size is 89
+   realized characters — the one-third overshoot DESIGN.md warns `ch` produces. The doc
+   measure lands at ~74. */
+.page-head p { color: var(--text-2); margin: 9px 0 0; max-width: var(--doc-measure); font-size: 13.5px; }
 
 /* ── Cards & fields ─────────────────────────────────────────────────────── */
 .card {
@@ -1241,7 +1244,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
   color: var(--text-3); padding: 0 8px 6px;
 }
+/* A real <button> now, so it inherits the global :focus-visible ring. It used to be a
+   div[role=button], which can never match `button:focus-visible` — leaving every one of the
+   ~30 documentation tab stops with no visible focus indicator at all. */
 .docs-nav-item {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; font: inherit;
   padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
   color: var(--text-2); font-size: 13px; line-height: 1.35; user-select: none;
   transition: background 0.12s, color 0.12s;
@@ -1632,7 +1640,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .settings-close:hover { background: var(--bg-inset); color: var(--text); }
 .settings-head { margin-bottom: 20px; }
 .settings-head > h2 { font-size: 18px; letter-spacing: -0.01em; }
-.settings-head p { color: var(--text-2); font-size: 13px; margin-top: 5px; max-width: 56ch; }
+.settings-head p { color: var(--text-2); font-size: 13px; margin-top: 5px; max-width: 400px; }
 .settings-subhead {
   font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
   color: var(--text-3); margin: 22px 0 9px;
@@ -1737,7 +1745,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .riskmeter-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .rm-score { font-family: var(--mono); font-weight: 600; font-size: 52px; line-height: 1; color: var(--rm); font-variant-numeric: tabular-nums; }
 .rm-of { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 3px; }
-.rm-label { font-size: 10px; letter-spacing: 0.3em; color: var(--text-3); margin-top: 9px; }
+.rm-label { font-size: 11px; letter-spacing: 0.24em; color: var(--text-3); margin-top: 9px; }
 .riskmeter.danger { animation: rmPulse 2.6s ease-in-out infinite; }
 @keyframes rmPulse { 0%, 100% { filter: none; } 50% { filter: brightness(1.07); } }
 
@@ -1815,7 +1823,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .risk-pill.warn { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
 .risk-pill.danger { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
 .dev-perms { max-width: 220px; }
-.dev-perms .tag { margin: 1px 3px 1px 0; font-size: 10.5px; }
+.dev-perms .tag { margin: 1px 3px 1px 0; font-size: 11px; }
 /* Stay a normal table cell (keeps the row's vertical-align: middle); space the icon
    buttons with margins since JSX strips the whitespace between them. */
 .dev-row-actions { white-space: nowrap; text-align: right; }
@@ -2050,7 +2058,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
   display: inline-flex; align-items: center; justify-content: center; min-width: 19px; height: 18px;
   padding: 0 5px; border-radius: var(--radius-pill);
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-3);
-  font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
 }
 .dev-tab.active .dev-tab-count { color: var(--text-2); border-color: var(--border-strong); }
 
@@ -2206,3 +2214,42 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 .loadfail strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
 .loadfail p { margin: 0; color: var(--text-2); font-size: 13px; word-break: break-word; }
 .loadfail button { flex: none; }
+
+/* A number outside the range its own hint advertises. */
+input[type="number"].bad, input.bad { border-color: var(--danger); }
+input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: var(--danger); }
+.num-err { margin-top: 5px; font-size: 11.5px; color: var(--danger); }
+
+/* A docs search that matches nothing said nothing — an empty rail beside an article that
+   still showed the last section, which reads as a broken filter rather than no results. */
+.docs-nofind { margin: 10px 2px 0; font-size: 12.5px; color: var(--text-3); line-height: 1.45; }
+
+/* A button that reads as the inline link it sits inside — used where a retry belongs in the
+   middle of a sentence rather than as its own control. */
+.linklike {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.linklike:hover { color: var(--text); }
+
+/* The route from a configuration page into the section of the docs that explains it. Sits
+   with the title, not above it, so it reads as an aside rather than as a page action. */
+.page-doclink { margin-left: auto; flex: none; gap: 5px; color: var(--text-3); }
+.page-doclink:hover { color: var(--text); }
+.page-head .title-row { align-items: center; }
+
+/* The editor's validation/save line: always present so its live region announces. */
+.auth-status { display: flex; align-items: center; gap: 6px; min-height: 0; }
+.auth-status:empty { margin-top: 0; }
+
+/* A sortable column header is a control, so it is a real button — keyboard-reachable and
+   named — with the cell carrying aria-sort. */
+.th-sortbtn {
+  background: none; border: 0; padding: 0; font: inherit; color: inherit;
+  cursor: pointer; width: 100%; text-align: inherit;
+}
+th.num .th-sortbtn { text-align: right; }
+
+/* Filter + bulk setter on Access, mirroring the Channels toolbar. */
+.access-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
+.access-toolbar input { flex: 1; min-width: 0; }

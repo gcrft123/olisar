@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from api.auth.deps import require_admin
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, AuditLog
+from olisar.db.models import AdminUser, AuditLog, UserProfile
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -28,6 +28,12 @@ DESTRUCTIVE = {
     "clear_key",
     "delete_guild_fact",
     "set_channel_indexing",
+    # These erase indexed content or an installed extension and were rendering in the same
+    # neutral colour as "Updated the persona".
+    "delete_kb_source",
+    "delete_extension",
+    "clear_search_index",
+    "detach_extension",
 }
 
 # Plain-English labels. The stored action names are internal; an operator reading their own
@@ -49,6 +55,17 @@ LABELS: dict[str, str] = {
     "delete_guild_fact": "Deleted a glossary fact",
     "mine_glossary": "Mined the glossary",
     "deep_mine_glossary": "Deep-mined the glossary",
+    # Eight recorded actions had no label and fell through to a `.replace("_", " ")` that
+    # produced "Add kb source" — the internal name with a space in it, which is the exact
+    # thing this table exists to avoid.
+    "add_kb_source": "Added a knowledge source",
+    "delete_kb_source": "Removed a knowledge source",
+    "clear_search_index": "Cleared the search index",
+    "reindex_search": "Started a re-index",
+    "create_extension": "Created an extension",
+    "update_extension": "Edited an extension",
+    "delete_extension": "Deleted an extension",
+    "detach_extension": "Detached an extension",
 }
 
 
@@ -64,6 +81,21 @@ async def list_audit(
                 select(AuditLog).order_by(AuditLog.ts.desc()).limit(limit)
             )
         ).all()
+        # `actor` is a Discord snowflake, and the console was printing it raw — the same
+        # internal-identifier problem the LABELS table above exists to solve, left standing in
+        # the adjacent column. Resolve the handful of distinct ids in one query; anything the
+        # bot has never seen keeps its id, which is still better than nothing.
+        actor_ids = {int(r.actor) for r in rows if r.actor and r.actor.isdigit()}
+        names: dict[str, str] = {}
+        if actor_ids:
+            profiles = (
+                await session.scalars(
+                    select(UserProfile).where(UserProfile.user_id.in_(actor_ids))
+                )
+            ).all()
+            for pr in profiles:
+                if pr.display_name:
+                    names.setdefault(str(pr.user_id), pr.display_name)
 
     return {
         "install_wide": True,  # no guild_id on the table; say so rather than imply otherwise
@@ -71,7 +103,7 @@ async def list_audit(
             {
                 "id": r.id,
                 "ts": r.ts.isoformat() if r.ts else None,
-                "actor": r.actor,
+                "actor": names.get(r.actor or "", r.actor),
                 "action": r.action,
                 "label": LABELS.get(r.action, r.action.replace("_", " ").capitalize()),
                 "destructive": r.action in DESTRUCTIVE,

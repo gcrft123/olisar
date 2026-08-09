@@ -238,7 +238,7 @@ const MOCK_PROFILES = [
 
 const MOCK_KNOWLEDGE = [
   { id: 1, type: 'url', uri: 'https://robertsspaceindustries.com/comm-link', title: 'RSI Comm-Link', status: 'ready', chunks: 184, error: null },
-  { id: 2, type: 'website', uri: 'https://docs.example.org/handbook', title: 'Org handbook', status: 'ingesting', chunks: 26, error: null },
+  { id: 2, type: 'website', uri: 'https://docs.example.org/handbook', title: 'Org handbook', status: 'chunking', chunks: 26, error: null },
   { id: 3, type: 'url', uri: 'https://unreachable.example/404', title: '', status: 'error', chunks: 0, error: 'fetch failed — 404 Not Found' },
 ]
 

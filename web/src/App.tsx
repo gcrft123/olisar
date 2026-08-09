@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
-import { PageBoundary, currentPageActions, hasUnsavedChanges, usePoll } from './ui'
+import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 
@@ -66,9 +66,12 @@ function useTabRouting(
   // An unknown id renders nothing — `pages[id]` is simply undefined, so no boundary catches
   // it and the operator gets a blank console with no active nav item. Treat anything that
   // isn't a real tab as "no route" and rewrite the URL to match what's on screen.
+  // The first path segment is the tab; anything after it belongs to that tab (Docs uses it
+  // to name the open section, so a doc page can be bookmarked and shared).
   const hashTab = () => {
     const raw = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
-    return isTab(raw) ? raw : ''
+    const first = raw.split('/')[0]
+    return isTab(first) ? first : ''
   }
   // Adopt the hash on first paint, so a bookmarked or shared link opens its page.
   useEffect(() => {
@@ -80,6 +83,7 @@ function useTabRouting(
   // Publish tab changes without adding history noise for the initial adopt.
   useEffect(() => {
     if (hashTab() !== tab) history.pushState(null, '', '#/' + tab)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
   // Back/Forward runs through the same unsaved-work guard as a nav click; if the operator
   // keeps editing, put the hash back so the URL never disagrees with the screen.
@@ -125,13 +129,36 @@ export default function App() {
   // owns. The prompt text is the browser's, not ours — returnValue just has to be set.
   useEffect(() => {
     const onLeave = (e: BeforeUnloadEvent) => {
-      if (!hasUnsavedChanges()) return
+      // Drafts too: Escape and a backdrop click both prompt before binning an unsent report,
+      // and closing the window — the one route that can't be undone — did not.
+      if (!hasUnsavedChanges() && !hasDraft()) return
       e.preventDefault()
       e.returnValue = ''
     }
     window.addEventListener('beforeunload', onLeave)
     return () => window.removeEventListener('beforeunload', onLeave)
   }, [])
+
+  // Opening a doc has to work whether or not the Docs page is already mounted: write the hash
+  // (which is what a freshly-mounted Docs reads) *and* fire the event (which is what an
+  // already-mounted one listens for). Dispatching alone raced the mount and silently landed
+  // the reader on the first section.
+  //
+  // Declared here, above every early return: these are hooks, and a hook that runs only on
+  // the renders that get past the loading gates is a different hook count than the render
+  // before it — which React treats as fatal, not degraded. `goTab` is a plain function
+  // defined further down; the ref is filled in there by assignment, which is not a hook.
+  const goTabRef = React.useRef<(id: string) => Promise<void>>(async () => {})
+  const openDoc = React.useCallback((id: string) => {
+    history.pushState(null, '', '#/docs/' + id)
+    void goTabRef.current('docs')
+    window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: id }))
+  }, [])
+  useEffect(() => {
+    const onOpen = (e: Event) => openDoc((e as CustomEvent).detail)
+    window.addEventListener('olisar:open-doc', onOpen)
+    return () => window.removeEventListener('olisar:open-doc', onOpen)
+  }, [openDoc])
 
   // The drawer covers the page but wasn't modal: the content behind stayed focusable and
   // the body still scrolled, so tabbing out of the drawer landed on controls the operator
@@ -231,6 +258,7 @@ export default function App() {
 
   const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
 
+
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
   // render before it — which React treats as fatal rather than degraded.
@@ -309,6 +337,8 @@ export default function App() {
   // holding. Ask first. Gated here rather than on the nav item because Docs reaches
   // setTab directly through its `tab:` deep links and would otherwise slip past.
   const goTab = async (id: string) => { if (id !== tab && await leaveGuard('this page')) setTab(id) }
+  goTabRef.current = goTab
+
   const changeGuild = async (id: string) => {
     if (id === guild || !(await leaveGuard('this server'))) return
     apiSetGuild(id)
@@ -381,7 +411,7 @@ export default function App() {
       // The body is searchable but never displayed, so typing a phrase from a page finds it.
       keywords: d.id,
       body: d.body,
-      run: () => { void goTab('docs'); window.dispatchEvent(new CustomEvent('olisar:goto-doc', { detail: d.id })) },
+      run: () => openDoc(d.id),
     })),
   ]
 
@@ -676,6 +706,16 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
+  // Roving focus starts on the server you're already on, so the list opens where you are.
+  const optRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [active, setActive] = useState(0)
+  useEffect(() => {
+    if (!open) return
+    const i = Math.max(0, guilds.findIndex((g) => g.id === current.id))
+    setActive(i)
+    const t = setTimeout(() => optRefs.current[i]?.focus(), 0)
+    return () => clearTimeout(t)
+  }, [open, guilds, current.id])
   const icon = (g: Guild, cls = '') => (g.icon
     ? <img className={'server-icon ' + cls} src={g.icon} alt="" />
     : <div className={'server-icon ph ' + cls}>{(g.name || '?').slice(0, 1).toUpperCase()}</div>)
@@ -687,13 +727,36 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
         <Icon.chevron size={14} className="server-chev" />
       </button>
       {open && (
-        <div className="server-menu" role="listbox">
-          {guilds.map((g) => (
+        // A listbox whose options are each independently tabbable is not the pattern: the
+        // arrow keys did nothing and Tab walked through every server one at a time. Same
+        // roving tabindex `Segmented` already implements — one stop for the whole list,
+        // arrows to move within it.
+        <div
+          className="server-menu"
+          role="listbox"
+          aria-label="Switch server"
+          onKeyDown={(e) => {
+            const last = guilds.length - 1
+            let next = active
+            if (e.key === 'ArrowDown') next = active >= last ? 0 : active + 1
+            else if (e.key === 'ArrowUp') next = active <= 0 ? last : active - 1
+            else if (e.key === 'Home') next = 0
+            else if (e.key === 'End') next = last
+            else return
+            e.preventDefault()
+            setActive(next)
+            optRefs.current[next]?.focus()
+          }}
+        >
+          {guilds.map((g, i) => (
             <button
               key={g.id}
+              ref={(el) => { optRefs.current[i] = el }}
               role="option"
               aria-selected={g.id === current.id}
+              tabIndex={i === active ? 0 : -1}
               className={'server-menu-item' + (g.id === current.id ? ' on' : '')}
+              onFocus={() => setActive(i)}
               onClick={() => { onPick(g.id); setOpen(false) }}
             >
               {icon(g, 'sm')}
@@ -874,7 +937,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
         <span className="weblink-label">{tunnel.running ? 'Open from the web' : 'Reconnecting…'}</span>
       </div>
       <div className="weblink-row">
-        <a href={url} target="_blank" rel="noreferrer" data-tip={url}>{host}</a>
+        <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${url} in a new tab`}>{host}</a>
         <button className="ghost icon-btn sm" onClick={copy} data-tip="Copy link" aria-label="Copy link">
           {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
         </button>
