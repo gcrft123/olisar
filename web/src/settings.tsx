@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Segmented, Select, Text, Toggle } from './ui'
+import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog, promptDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
@@ -32,8 +32,24 @@ export function SettingsModal(
     (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
   )
 
+  // Escape and a backdrop click reach this sheet from anywhere inside it, including the
+  // Feedback pane's composer. Ask before discarding text the operator typed but never sent.
+  const guardedClose = async () => {
+    if (hasDraft()) {
+      const ok = await confirmDialog({
+        title: 'Discard your message?',
+        message: 'You’ve written a message but haven’t sent it. Closing settings will discard it.',
+        confirmLabel: 'Discard',
+        cancelLabel: 'Keep writing',
+        tone: 'warning',
+      })
+      if (ok !== true) return
+    }
+    onClose()
+  }
+
   return (
-    <Modal className="settings-modal" label="Settings" onClose={onClose}>
+    <Modal className="settings-modal" label="Settings" onClose={guardedClose}>
         <nav className="settings-nav" aria-label="Settings sections">
           {visible.map((s) => {
             const Glyph = Icon[s.ic]
@@ -50,7 +66,7 @@ export function SettingsModal(
           })}
         </nav>
         <div className="settings-body">
-          <button className="settings-close" onClick={onClose} aria-label="Close settings" title="Close (Esc)">
+          <button className="settings-close" onClick={guardedClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
           </button>
           {section === 'general' && <General />}
@@ -101,8 +117,8 @@ function Logs() {
           <Icon.refresh size={14} />
         </button>
       </div>
-      {loading ? <div className="settings-muted">Loading…</div>
-        : err ? <div className="settings-err">{err}</div>
+      {loading ? <Spinner />
+        : err ? <div className="settings-err" role="alert">{err}</div>
         : <pre className="srv-logs">{text || '(no logs)'}</pre>}
     </>
   )
@@ -142,6 +158,8 @@ function Feedback() {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  // A written-but-unsent message is work. Escape used to bin it silently.
+  useDraft(() => !done && message.trim() !== '')
 
   const addFiles = async (list: FileList) => {
     const out = [...files]
@@ -318,7 +336,7 @@ function BotSwitcher() {
   return (
     <>
       <Head title="Bots" sub="Each bot has its own token, settings, and memory. Only one runs on this machine at a time." />
-      {profiles === null ? <div className="settings-muted">Loading…</div> : (
+      {profiles === null ? <Spinner /> : (
         <div className="bot-list">
           {profiles.map((p) => {
             const isActive = p.id === activeId
@@ -341,12 +359,15 @@ function BotSwitcher() {
                       replaced kept the columns but left the operator guessing why an
                       action was missing. A disabled control says "not available here";
                       an absent one says nothing. */}
+                  {/* No tooltip explaining *why* these are disabled: a disabled control
+                      fires neither mouseover nor focusin, so that text was unreachable
+                      exactly when it applied. The row's own "Active" and "Default" chips
+                      already say it, on screen, before anyone reaches for the button. */}
                   <button disabled={busy || isActive} onClick={() => switchTo(p)}
-                    aria-label={`Switch to ${p.name}`}
-                    title={isActive ? 'Already the active bot' : undefined}>
+                    aria-label={`Switch to ${p.name}`}>
                     Switch
                   </button>
-                  <button className="ghost icon-btn sm" data-tip={isDefault ? 'Already the launch default' : 'Set as default'}
+                  <button className="ghost icon-btn sm" data-tip="Set as default"
                     aria-label={isDefault ? `${p.name} is already the launch default` : `Make ${p.name} the launch default`}
                     disabled={busy || isDefault} onClick={() => makeDefault(p)}>
                     <Icon.star size={14} weight={isDefault ? 'Bold' : 'Linear'} />
@@ -354,7 +375,7 @@ function BotSwitcher() {
                   <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
                     <Icon.edit size={14} />
                   </button>
-                  <button className="ghost icon-btn sm" data-tip={isActive ? 'Move / change hosting' : 'Only the active bot can be moved'}
+                  <button className="ghost icon-btn sm" data-tip="Move / change hosting"
                     aria-label={`Move ${p.name} or change its hosting`}
                     disabled={busy || !isActive} onClick={() => setMoving(p)}>
                     <Icon.remote size={14} />
@@ -364,7 +385,6 @@ function BotSwitcher() {
                     <Icon.eraser size={14} />
                   </button>
                   <button className="danger" aria-label={`Delete ${p.name}`}
-                    title={isActive ? 'Switch to another bot before deleting this one' : undefined}
                     disabled={busy || isActive} onClick={() => del(p)}>
                     <Icon.trash size={14} /> Delete
                   </button>
@@ -606,8 +626,8 @@ function Remote() {
   return (
     <>
       <Head title="Remote access" sub="Reach this console from anywhere, over Tailscale." />
-      {err && <div className="settings-err">{err}</div>}
-      {!data ? <div className="settings-muted">Loading…</div> : (
+      {err && <div className="settings-err" role="alert">{err}</div>}
+      {!data ? <Spinner /> : (
         <>
           <div className="status-card">
             <span className={'dot' + (st?.running ? ' on' : ' warn')} />
@@ -667,7 +687,9 @@ function Updates() {
   const load = (notify = false) => {
     setChecking(true)
     Promise.all([
-      api.getUpdates().catch(() => ({ error: "couldn't check" })),
+      // Keep the reason. Replacing it with a fixed string left the operator with nothing to
+      // act on and nothing to quote — "couldn't check" is true of every possible cause.
+      api.getUpdates().catch((e: any) => ({ error: e?.message || "couldn't check for updates" })),
       du ? du.check().catch(() => null) : Promise.resolve(null),
     ])
       .then(([backend, desk]: [any, any]) => {

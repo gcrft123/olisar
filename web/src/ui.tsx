@@ -124,6 +124,23 @@ export function Disclosure(props: { summary: string; hint?: string; children: Re
   )
 }
 
+// Which number fields are currently out of the range they advertise. `Num` printed
+// "3–100 · default 12" and then enforced nothing: a typed 0 or 500 went to the server
+// silently, and `ConfigIn` had no bounds to catch it either. A save that writes a value the
+// UI already called invalid is worse than one that refuses.
+const invalidNums = new Set<number>()
+const invalidSubs = new Set<() => void>()
+let nextNumId = 1
+function emitInvalid() { for (const f of invalidSubs) f() }
+
+/** True while any mounted Num holds a value outside its own min/max. */
+export function useHasInvalidFields(): boolean {
+  return React.useSyncExternalStore(
+    (cb) => { invalidSubs.add(cb); return () => { invalidSubs.delete(cb) } },
+    () => invalidNums.size,
+  ) > 0
+}
+
 // A bare number box asks the operator to invent a value. `min`/`max` were already being
 // passed and were invisible — the browser enforced a range nobody could see, and nothing
 // said what a sane setting looks like. The range and the default are now on screen, and the
@@ -158,22 +175,68 @@ export function Num(props: {
   else if (props.min !== undefined) bits.push(`${props.min} or more`)
   if (props.def !== undefined) bits.push(`default ${props.def}`)
   const atDefault = props.def === undefined || props.value === props.def
+
+  // Hold the raw text, not just the number. `Number('')` is 0, so clearing the box to type a
+  // new value wrote a real 0 into the config on the way — the field said 0 and meant it.
+  const [text, setText] = useState<string | null>(null)
+  const shown = text ?? String(props.value ?? 0)
+  React.useEffect(() => { setText(null) }, [props.value])
+
+  const err =
+    shown.trim() === '' ? 'Enter a number.'
+    : !Number.isFinite(Number(shown)) ? 'That isn’t a number.'
+    : props.min !== undefined && Number(shown) < props.min ? `Must be ${props.min} or more.`
+    : props.max !== undefined && Number(shown) > props.max ? `Must be ${props.max} or less.`
+    : null
+
+  const idRef = React.useRef(0)
+  if (idRef.current === 0) idRef.current = nextNumId++
+  React.useEffect(() => {
+    const id = idRef.current
+    if (err) invalidNums.add(id); else invalidNums.delete(id)
+    emitInvalid()
+    return () => { invalidNums.delete(id); emitInvalid() }
+  }, [err])
+
+  const errId = hintId + 'e'
   return (
     <>
       <div className="num-wrap">
         <input
           type="number"
           {...labelled(f, props.ariaLabel)}
-          aria-describedby={[f?.descId, bits.length ? hintId : null].filter(Boolean).join(' ') || undefined}
-          value={props.value ?? 0}
+          aria-invalid={err ? true : undefined}
+          aria-describedby={[f?.descId, bits.length ? hintId : null, err ? errId : null].filter(Boolean).join(' ') || undefined}
+          className={err ? 'bad' : undefined}
+          value={shown}
           min={props.min}
           max={props.max}
           step={props.step}
           style={reserve ? { paddingRight: reserve } : undefined}
-          onChange={(e) => props.onChange(Number(e.target.value))}
+          // Leaving the field discards an unusable entry and shows the committed value again.
+          // Without this the box kept displaying a rejected "500" after Reset: the draft had
+          // correctly refused it, so `props.value` never changed and the local text had no
+          // signal to clear — the field disagreed with the data it was editing.
+          onBlur={() => { if (err) setText(null) }}
+          onChange={(e) => {
+            setText(e.target.value)
+            // Only propagate a value the field would accept. The comment used to say this
+            // while the code checked parseability alone, so 500 against max={100} still
+            // entered the draft and was stopped only by the disabled Save — which meant a
+            // Reset-then-leave could carry it, and any future save path that didn't consult
+            // the registry would have written it.
+            const raw = e.target.value.trim()
+            if (raw === '') return
+            const n = Number(raw)
+            if (!Number.isFinite(n)) return
+            if (props.min !== undefined && n < props.min) return
+            if (props.max !== undefined && n > props.max) return
+            props.onChange(n)
+          }}
         />
         {props.unit && <span className="num-unit" ref={unitRef}>{props.unit}</span>}
       </div>
+      {err && <div className="num-err" id={errId} role="alert">{err}</div>}
       {(!!bits.length || !atDefault) && (
         <div className="num-hint">
           {/* The id sits on the text alone: with the button inside it, aria-describedby
@@ -185,7 +248,7 @@ export function Num(props: {
               type="button"
               className="ghost num-reset"
               aria-label={`Reset to the default of ${props.def}`}
-              onClick={() => props.onChange(props.def as number)}
+              onClick={() => { setText(null); props.onChange(props.def as number) }}
             >
               Reset
             </button>
@@ -339,12 +402,17 @@ export function useSaver(save: () => Promise<void>) {
 
 export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string; variant?: 'primary' | 'secondary' }) {
   const s = props.saver
+  // Re-render whenever any field's validity changes, then answer the narrower question:
+  // is anything invalid *in this bar's own card*? The page-wide answer belongs to SaveDock.
+  const anyInvalid = useHasInvalidFields()
+  const box = React.useRef<HTMLDivElement>(null)
+  const invalid = anyInvalid && !!box.current?.closest('.card')?.querySelector('[aria-invalid="true"]')
   return (
-    <div className="savebar">
+    <div className="savebar" ref={box}>
       {/* A page gets one primary. On Knowledge three SaveBars and a SaveDock were all
           bright at once, so the loudest control on the page was whichever you looked at
           first. */}
-      <button className={props.variant === 'secondary' ? '' : 'primary'} disabled={s.busy} onClick={s.run}>
+      <button className={props.variant === 'secondary' ? '' : 'primary'} disabled={s.busy || invalid} onClick={s.run}>
         {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
       </button>
       {/* The outcome of a save was announced to nobody — role="status" appeared exactly
@@ -353,6 +421,7 @@ export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: str
       <span role="status">
         {s.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>}
         {s.error && <span className="err">{s.error}</span>}
+        {!s.error && invalid && <span className="err">Fix the highlighted field before saving.</span>}
       </span>
     </div>
   )
@@ -374,6 +443,31 @@ let nextPageId = 1
 export function hasUnsavedChanges(): boolean {
   for (const isDirty of dirtyPages.values()) if (isDirty()) return true
   return false
+}
+
+// Composed-but-unsent text — a bug report, a feedback message — is a different kind of
+// unsaved work from a dirty config page, and it needs its own registry rather than the one
+// above: closing Settings while a *page behind it* has unsaved edits must not prompt, but
+// closing Settings over a half-written report must. A stray Escape or backdrop click was
+// throwing that text away with no prompt at all.
+const draftFields = new Map<number, () => boolean>()
+let nextDraftId = 1
+
+/** True when a mounted composer is holding text the operator hasn't sent. */
+export function hasDraft(): boolean {
+  for (const has of draftFields.values()) if (has()) return true
+  return false
+}
+
+/** Register a composer's unsent text so the enclosing overlay can guard its close. */
+export function useDraft(has: () => boolean): void {
+  const ref = React.useRef(has)
+  ref.current = has
+  React.useEffect(() => {
+    const id = nextDraftId++
+    draftFields.set(id, () => ref.current())
+    return () => { draftFields.delete(id) }
+  }, [])
 }
 
 // The same registry idea for page actions. The command palette could only do what the
@@ -400,6 +494,20 @@ export function usePageActions(get: () => PageAction[]): void {
     pageActions.set(id, () => latest.current())
     return () => { pageActions.delete(id) }
   }, [])
+}
+
+/**
+ * The console's one loading treatment. It lived privately in pages.tsx, so Settings grew a
+ * bare grey "Loading…" and the Developer page an `.empty` div — reintroducing the exact
+ * "no spinner reads as empty, not working" failure this component exists to prevent.
+ */
+export function Spinner({ label = 'Loading…' }: { label?: string }) {
+  return (
+    <div className="page-loading" role="status">
+      <span className="spinner" />
+      <span>{label}</span>
+    </div>
+  )
 }
 
 /** Register a dirty-flag source for a page that doesn't use `useEditable`. */
@@ -480,8 +588,11 @@ export function SaveDock(props: {
 }) {
   const s = props.saver
   const show = props.dirty || s.busy || s.saved || !!s.error
-  // One registration here covers every config page, the same way the dirty registry does.
-  usePageActions(() => (props.dirty && !s.busy
+  // A field the UI has already marked out of range must not reach the server, and the dock
+  // is the one place every config page funnels through. It also has to withdraw the palette
+  // and Cmd-S action, or the keyboard route would still commit what the button refuses.
+  const invalid = useHasInvalidFields()
+  usePageActions(() => (props.dirty && !s.busy && !invalid
     ? [{ id: 'save', label: props.label ?? 'Save changes', run: () => s.run() }]
     : []))
   return (
@@ -498,6 +609,7 @@ export function SaveDock(props: {
               offer. `dirty` also guards the fall-through, so the message doesn't revert to
               the unsaved string while the dock is sliding out. */}
           {s.error ? <span className="err">{s.error}</span>
+            : invalid && props.dirty ? <span className="err">Fix the highlighted field before saving.</span>
             : props.dirty ? <>You have unsaved changes.</>
             : s.saved ? <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>
             : null}
@@ -510,7 +622,7 @@ export function SaveDock(props: {
           {props.onReset && (!s.saved || props.dirty) && (
             <button className="ghost" disabled={s.busy || !props.dirty} onClick={props.onReset}>Reset</button>
           )}
-          <button className="primary" disabled={s.busy || !props.dirty} onClick={s.run}>
+          <button className="primary" disabled={s.busy || !props.dirty || invalid} onClick={s.run}>
             {s.busy ? <><span className="spinner" /> Saving…</> : props.label ?? 'Save changes'}
           </button>
         </div>
@@ -846,7 +958,15 @@ export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {
       .catch((e: any) => { setError(e?.message || 'Could not reach the backend.'); setLoading(false) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps)
+  // A quiet re-fetch: same request, but it leaves `loading` and `error` alone so a page
+  // gated on those isn't torn down and rebuilt (losing focus and caret) every few seconds.
+  // The rejection is deliberately not caught — usePoll needs it to count staleness.
+  const refresh = React.useCallback(
+    () => loader().then((d) => { setData(d) }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    deps,
+  )
   React.useEffect(() => { reload() }, [reload])
-  return { data, loading, error, reload, setData }
+  return { data, loading, error, reload, refresh, setData }
 }
 
