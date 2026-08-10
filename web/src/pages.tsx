@@ -4,7 +4,7 @@ import { api } from './api'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
-import { uiScale } from './theme'
+import { rectToViewport, uiScale } from './theme'
 import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Spinner, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
@@ -2654,9 +2654,10 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
     if (r) {
       const below = window.innerHeight - r.bottom
       setUp(below < 280 && r.top > below)  // open upward only when there's more room above
-      // …and to the left when the 300px card would run off the right edge. The card's width
-      // is a CSS length so it scales with --ui-scale; the rect and innerWidth do not.
-      setRight(r.left + 300 * uiScale() > window.innerWidth - 16)
+      // …and to the left when the 300px card would run off the right edge. innerWidth is
+      // viewport px and the card's width is a CSS length, so both go to viewport px before
+      // the comparison — the rect only carries the zoom on some engines (see rectScale()).
+      setRight(rectToViewport(r.left) + 300 * uiScale() > window.innerWidth - 16)
     }
     setOpen(true)
   }

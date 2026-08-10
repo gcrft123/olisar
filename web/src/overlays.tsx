@@ -6,10 +6,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon, CloseX, type IconName } from './icons'
-import { uiScale } from './theme'
+import { rectScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
-type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
+export type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
 type ToastItem = { id: number; message: string; tone: Tone }
 
 let toastPush: ((t: ToastItem) => void) | null = null
@@ -367,11 +367,12 @@ function TooltipHost() {
       if (!text) return
       current = el
       const r = el.getBoundingClientRect()
-      const below = r.top < 52
-      // getBoundingClientRect is in viewport px; `left`/`top` below are read back in the
-      // zoomed coordinate space, so divide the scale out or the tip lands scale-1 × its
-      // distance from the origin away from its target (104px at 1.1, near the right edge).
-      const k = uiScale()
+      // `left`/`top` below are read back in the zoomed coordinate space, so divide out
+      // however much zoom the rect already carries — see rectScale(). Getting this from
+      // --ui-scale instead was right in the browser (Chromium 128+) and wrong in the
+      // desktop app (Chromium 126), where it threw the tip left of its target.
+      const k = rectScale()
+      const below = r.top < 52 * k   // a CSS-px threshold, compared against a rect
       setTip({
         text,
         x: Math.round((r.left + r.width / 2) / k),
