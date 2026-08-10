@@ -356,7 +356,10 @@ async def _run_tool_loop(
                     name=call.name, response={"result": result}
                 )
             )
-        contents.append(types.Content(role="tool", parts=responses))
+        # Function responses go back as a "user" turn: the SDK documents role as
+        # "either 'user' or 'model'", and Gemini 3.x enforces it (older 2.x models
+        # silently tolerated role="tool", which is what this used to send).
+        contents.append(types.Content(role="user", parts=responses))
 
     # Budget spent (or an empty turn) — force a plain-text final answer.
     answer = await _force_final_answer(client, contents, system_instruction, model, tools)
