@@ -2,11 +2,12 @@
 
 Run:  uv run python -m unittest tests.test_pipeline_failure_paths -v
 
-Two behaviours from the DM incident:
+Three behaviours from the DM incidents:
   * an exhausted quota must reach generate_reply as RateLimitExceeded, not be flattened
     into an empty string that reads as "the model had nothing to say"
   * lookup tools are capped per reply, so the model can't re-query its way through the
     whole iteration budget and never answer
+  * function responses go back to the model under a role the API actually accepts
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from google.genai import types
 
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.pipeline import (
@@ -116,6 +119,47 @@ class LookupCapTests(unittest.TestCase):
     def test_under_the_cap_nothing_changes(self):
         executed, _ = self._run_with_repeated_search("search_messages", rounds=2)
         self.assertEqual(len(executed), 2)
+
+
+class FunctionResponseRoleTests(unittest.TestCase):
+    """The tool loop feeds each tool result back as its own turn. That turn used to carry
+    role="tool", which the SDK never allowed (Content.role is documented as "either 'user'
+    or 'model'") and which Gemini 2.x merely tolerated. Once the guild default
+    `gemini-flash-latest` rolled onto a 3.x model, the stricter role check turned every
+    tool-backed reply into a 400 -> `gemini generation failed` -> the blank fallback.
+    """
+
+    VALID_ROLES = {"user", "model"}
+
+    def test_function_response_turn_uses_a_role_the_api_accepts(self):
+        # The call that actually blanked: sc_ship_lookup(name='Starlancer TAC'). Built by
+        # hand rather than via _call(), whose own first parameter is `name`.
+        lookup = MagicMock()
+        lookup.name = "sc_ship_lookup"
+        lookup.args = {"name": "Starlancer TAC"}
+
+        client = MagicMock()
+        client.generate_with_tools = AsyncMock(
+            side_effect=[
+                _resp_with_calls(lookup),
+                _resp_with_text("The Starlancer TAC is a MISC gunship."),
+            ]
+        )
+        contents: list = []
+        with patch("olisar.pipeline.get_gemini", return_value=client), patch(
+            "olisar.pipeline.execute_tool",
+            new=AsyncMock(return_value="**Starlancer TAC** — MISC role: Gunship"),
+        ):
+            out = asyncio.run(
+                _run_tool_loop(contents, "sys", None, MagicMock(), blank_fallback="blank")
+            )
+
+        self.assertEqual(out, "The Starlancer TAC is a MISC gunship.")
+        roles = [c.role for c in contents if isinstance(c, types.Content)]
+        self.assertTrue(roles, "the tool loop never appended a function-response turn")
+        for role in roles:
+            with self.subTest(role=role):
+                self.assertIn(role, self.VALID_ROLES)
 
 
 if __name__ == "__main__":
