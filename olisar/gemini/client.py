@@ -29,6 +29,52 @@ log = logging.getLogger("olisar.gemini")
 _TRANSIENT_5XX = {500, 502, 503, 504}
 _SERVER_ERROR_COOLDOWN = 15.0  # short skip of a model that just returned a 5xx
 
+# A retired model: `404 ... is no longer available`. Unambiguously about that model and
+# nothing else, so it must cost the next model rather than the whole request — a 404 used
+# to raise, which is why a retired entry in the vision chain took image understanding down
+# completely instead of degrading to the model behind it. Parked for an hour rather than
+# seconds: retirement is permanent, and re-asking every call is a wasted round trip on
+# every reply until someone ships a new list.
+_MODEL_RETIRED = 404
+_RETIRED_COOLDOWN = 3600.0
+
+# Optional features whose support genuinely varies across the chain. A 400 naming one of
+# these means "this model can't do that" and should cost us the next model; any other 400
+# means the request itself is wrong and must fail loudly where it happened.
+#
+# The two cases arrive as the same status code and near-identical prose — "... is not
+# supported" — so the wording can't separate them. What separates them is the *subject* of
+# the complaint: an optional feature that varies by model, versus the shape of the
+# conversation, which every model validates the same way. Hence a whitelist of features
+# rather than a pattern for "unsupported".
+#
+# Erring permissive is expensive. `role="tool"` was rejected by every model in the chain;
+# reading that as a capability gap would have re-sent the same malformed payload nine
+# times, spent nine free-tier requests, and still returned the blank fallback — slower and
+# harder to diagnose than failing at the first model. Unrecognised 400s keep raising.
+#
+# Note "tool" alone is deliberately absent: it appears in `Role 'tool' is not supported`,
+# the exact bug this must not swallow.
+_CAPABILITY_400_FEATURES = (
+    "google_search", "google search", "search grounding", "grounding",
+    "thinking_config", "thinking_budget", "thinking",
+    "code_execution", "code execution",
+    "response_schema", "responseschema",
+    "response_mime_type", "responsemimetype",
+    "tool_config", "toolconfig",
+    "url_context", "urlcontext",
+    "safety_settings", "safetysettings",
+)
+
+
+def _is_capability_400(exc: Exception) -> bool:
+    """True when a 400 blames an optional feature this model lacks, rather than the
+    request. See ``_CAPABILITY_400_FEATURES`` for why this is a whitelist."""
+    if getattr(exc, "code", None) != 400:
+        return False
+    detail = _api_error_detail(exc).lower()
+    return any(feature in detail for feature in _CAPABILITY_400_FEATURES)
+
 
 class GroundingUnavailable(Exception):
     """Raised when Google Search grounding is quota-exhausted (free tier is small)."""
@@ -160,8 +206,14 @@ class GeminiClient:
         limiter = get_rate_limiter()
         chain = chain or model_chain(model)
         last_error: Exception | None = None
+        # Which models we walked past, and why — reported with the model that finally
+        # answered. This skip used to be silent, so "the reply came from a worse model"
+        # and "the reply came from the preferred one" looked identical in the logs.
+        skipped: list[str] = []
         for candidate in chain:
-            if limiter.state(candidate) != "ok":
+            state = limiter.state(candidate)
+            if state != "ok":
+                skipped.append(f"{candidate} ({state})")
                 continue  # busy or cooling down — fall back to the next model
             limiter.reserve(candidate)
             try:
@@ -212,6 +264,15 @@ class GeminiClient:
                     limiter.penalize(
                         candidate, seconds=_SERVER_ERROR_COOLDOWN, reason=f"a {code} error"
                     )
+                elif code == _MODEL_RETIRED:
+                    log.error(
+                        "gemini %s is gone: %s | dropping it for now and trying the next "
+                        "model — remove it from olisar/gemini/models.py",
+                        candidate, _api_error_detail(exc),
+                    )
+                    limiter.penalize(
+                        candidate, seconds=_RETIRED_COOLDOWN, reason="the model is retired"
+                    )
                 elif code in fall_back_on:
                     # Caller says this code means "this model can't do it" rather than
                     # "the request is bad" — e.g. a model that rejects the search tool.
@@ -219,7 +280,23 @@ class GeminiClient:
                         "gemini %s rejected the request (code=%s): %s; trying the next model",
                         candidate, code, _api_error_detail(exc),
                     )
+                elif _is_capability_400(exc):
+                    # A feature this model lacks (see _CAPABILITY_400_FEATURES). Worth the
+                    # next model; a 400 about the request itself still raises below.
+                    log.warning(
+                        "gemini %s lacks a feature this request needs: %s; trying the next model",
+                        candidate, _api_error_detail(exc),
+                    )
                 else:
+                    # Not transient, not a capability gap — the request is wrong, and every
+                    # model in the chain will say so. Fail here, where the detail is, rather
+                    # than nine models later with the last one's error.
+                    if code == 400:
+                        log.error(
+                            "gemini %s rejected the request as malformed: %s | not falling "
+                            "back — every model would reject this",
+                            candidate, _api_error_detail(exc),
+                        )
                     raise  # non-transient error — surface it, don't mask
                 continue  # fall back to the next model in the chain
 
@@ -229,14 +306,25 @@ class GeminiClient:
                 else 0
             ) or 0
             await record_usage(candidate, tokens, grounding=grounding, source=source)
-            if candidate != chain[0]:
+            # Always say which model answered, not only when it wasn't the preferred one.
+            # Diagnosing the blank-fallback incident meant inferring the serving model from
+            # the daily gemini_usage rollup, because a reply served by the head of the chain
+            # left no trace at all. One line per generation is worth that.
+            if candidate == chain[0]:
+                log.info("gemini %s served %s", candidate, source)
+            else:
                 log.info(
-                    "used fallback model %s (preferred %s unavailable)",
-                    candidate, chain[0],
+                    "gemini %s served %s (fell back from %s%s)",
+                    candidate, source, chain[0],
+                    f", skipped {', '.join(skipped)}" if skipped else "",
                 )
             return resp
 
         # Every model in the chain was unavailable or erroring.
+        log.warning(
+            "gemini chain exhausted for %s: %d model(s), skipped %s",
+            source, len(chain), ", ".join(skipped) or "none",
+        )
         if last_error is not None:
             raise last_error
         raise RateLimitExceeded(chain[0], "all fallback models")
@@ -274,6 +362,7 @@ class GeminiClient:
         system_instruction: str,
         tools: list,
         model: str | None = None,
+        chain: list[str] | None = None,
         temperature: float = 0.9,
         max_output_tokens: int = 2048,
         force_text: bool = False,
@@ -292,7 +381,11 @@ class GeminiClient:
         ``max_output_tokens`` (a combined ceiling over thinking + visible text) is set
         well above the thinking budget so reasoning can't starve the reply — the bug
         that made replies cut off after ~15 words. Pass ``thinking_budget=0`` to
-        disable thinking for a cheap/short call."""
+        disable thinking for a cheap/short call.
+
+        ``chain`` overrides the models to try, as in ``_raw_generate``. The self-test passes
+        a single-model chain: it has to report on the model it named, and silently falling
+        back would let a broken model pass because a healthy one answered for it."""
         model = model or settings.gemini_chat_model
         tool_config = None
         if force_text:
@@ -308,7 +401,7 @@ class GeminiClient:
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         )
         return await self._raw_generate(
-            contents=contents, config=config, model=model,
+            contents=contents, config=config, model=model, chain=chain,
             thinking_budget=thinking_budget, source=source,
         )
 

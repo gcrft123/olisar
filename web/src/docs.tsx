@@ -600,15 +600,18 @@ tab sets where the chain starts.
 
 | Model | Throttle (req/min) | Role | Falls back to |
 | --- | --- | --- | --- |
-| \`gemini-flash-latest\` | 10 | Default — newest Flash | \`gemini-3.5-flash\` |
-| \`gemini-3.5-flash\` | 10 | High quality | \`gemini-3-flash-preview\` |
+| \`gemini-3.5-flash\` | 10 | Default — high quality, pinned | \`gemini-flash-latest\` |
+| \`gemini-flash-latest\` | 10 | Newest Flash (auto-updates) | \`gemini-3-flash-preview\` |
 | \`gemini-3-flash-preview\` | 10 | High quality | \`gemini-2.5-flash\` |
-| \`gemini-2.5-flash\` | 10 | Solid all-rounder | \`gemini-2.0-flash\` |
-| \`gemini-2.0-flash\` | 15 | Fast, dependable | \`gemini-flash-lite-latest\` |
-| \`gemini-flash-lite-latest\` | 15 | Cheaper, higher limit | \`gemini-3.1-flash-lite\` |
-| \`gemini-3.1-flash-lite\` | 15 | Light | \`gemini-2.5-flash-lite\` |
-| \`gemini-2.5-flash-lite\` | 15 | Light | \`gemini-2.0-flash-lite\` |
-| \`gemini-2.0-flash-lite\` | 30 | Last resort, highest limit | — |
+| \`gemini-2.5-flash\` | 10 | Solid all-rounder | \`gemini-3.1-flash-lite\` |
+| \`gemini-3.1-flash-lite\` | 15 | Light | \`gemini-flash-lite-latest\` |
+| \`gemini-flash-lite-latest\` | 15 | Newest Flash-Lite (auto-updates) | \`gemini-2.5-flash-lite\` |
+| \`gemini-2.5-flash-lite\` | 15 | Last resort, highest limit | — |
+
+The default is a **pinned** version, not a \`-latest\` alias. An alias points at whatever Google ships today
+and the API won't say which build that is, so a change on their side could alter request validation under a
+running bot with no Olisar update involved. New models are adopted deliberately, in a release. The aliases
+stay one rung lower, where they're a useful last resort if a pinned model is retired.
 
 :::note Reasoning ("thinking")
 The newer Flash models can spend hidden **thinking** tokens before answering. Olisar caps that budget on
@@ -621,7 +624,7 @@ thinking entirely to stay fast.
 
 | Purpose | Model(s) | Limit | Fallback |
 | --- | --- | --- | --- |
-| Image understanding | \`gemini-2.0-flash\` → \`gemini-2.5-flash-lite\` → \`gemini-flash-lite-latest\` → \`gemini-2.0-flash-lite\` | 15–30/min | next in the list |
+| Image understanding | \`gemini-3.1-flash-lite\` → \`gemini-2.5-flash-lite\` → \`gemini-flash-lite-latest\` | 15/min | next in the list |
 | Image generation | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) — **FLUX.1 [schnell]** | free daily allocation | none (degrades gracefully) |
 | Text embeddings | \`gemini-embedding-001\` (768-dim) | ~100/min | none (single model) |
 
