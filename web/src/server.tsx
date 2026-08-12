@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
+import { toast, type Tone } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { SettingsModal } from './settings'
 import { Field, Text } from './ui'
@@ -43,14 +44,21 @@ function isNewer(remote: string, local: string): boolean {
   return false
 }
 
-/** One line describing an update attempt — ours, or one the VM's timer ran unattended. */
-function noteFor(r: UpdateResult | null | undefined): string {
-  if (!r || !r.at) return ''
-  const tag = r.tag || 'the latest release'
-  if (r.rolled_back) return `${tag} failed its healthcheck and was rolled back. The server is on the previous version.`
-  if (r.updated) return `Server updated to ${tag}.`
-  if (r.ok === false) return `Last update attempt failed: ${r.message || r.error || 'unknown error'}.`
-  return ''
+/** Version strings arrive tagged ("v1.4.2") from the server's image labels and bare
+ *  ("1.4.2") from the releases API. Strip it so the one `v` we render is our own —
+ *  the panel used to print the server's version as "vv1.4.2". */
+const bareVersion = (v: string | undefined): string => String(v || '').replace(/^v/i, '')
+
+/** What an update attempt should say — ours, or one the VM's timer ran unattended.
+ *  Tone drives how it's delivered: a success expires on its own, a rollback or failure
+ *  is something the operator has to act on, so it sticks until dismissed. */
+function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone } | null {
+  if (!r || !r.at) return null
+  const tag = r.tag ? `v${bareVersion(r.tag)}` : 'the latest release'
+  if (r.rolled_back) return { text: `${tag} failed its healthcheck and was rolled back. The server is on the previous version.`, tone: 'warning' }
+  if (r.updated) return { text: `Server updated to ${tag}.`, tone: 'success' }
+  if (r.ok === false) return { text: `Last update attempt failed: ${r.message || r.error || 'unknown error'}.`, tone: 'danger' }
+  return null
 }
 
 /** Shown (loopback-gated, no Discord login) when the app is in server-hosting mode:
@@ -68,7 +76,6 @@ export function ServerControlPanel() {
   const [err, setErr] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [updating, setUpdating] = useState(false)
-  const [updateNote, setUpdateNote] = useState('')
   const [available, setAvailable] = useState('')  // newer release tag, if any
 
   // Reconnect sub-flow
@@ -102,11 +109,13 @@ export function ServerControlPanel() {
     ;(async () => {
       await refresh()
       if (life.cancelled) return
-      // Surface what the VM's update timer did while the app was closed — otherwise an
-      // unattended update (or a rollback) would leave no trace the operator ever sees.
+      // Surface what the VM's update timer did while the app was closed. Only the outcomes
+      // that need attention: a *successful* unattended update already shows as the version
+      // below, so toasting it too would announce the same news on every open, days later.
       try {
         const last = await api.serverLastUpdate()
-        if (!life.cancelled) setUpdateNote(noteFor(last))
+        const note = noteFor(last)
+        if (!life.cancelled && note && note.tone !== 'success') toast(note.text, note.tone)
       } catch { /* informational only */ }
       if (life.cancelled) return
       life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
@@ -132,7 +141,7 @@ export function ServerControlPanel() {
   }, [st?.version])
 
   async function power(action: 'up' | 'stop') {
-    setErr(''); setBusy(true); setUpdateNote('')
+    setErr(''); setBusy(true)
     try {
       const r = await api.serverPower(action)
       if (!r?.ok) setErr(r?.error || 'That didn’t work.')
@@ -145,13 +154,16 @@ export function ServerControlPanel() {
   }
 
   async function runUpdate() {
-    setErr(''); setUpdateNote(''); setUpdating(true)
+    setErr(''); setUpdating(true)
     try {
       const r: UpdateResult = await api.serverUpdate()
-      setUpdateNote(noteFor(r) || (r?.ok ? 'Already on the latest release.' : 'The update didn’t complete.'))
+      const note = noteFor(r)
+      if (note) toast(note.text, note.tone)
+      else toast(r?.ok ? 'Already on the latest release.' : 'The update didn’t complete.',
+        r?.ok ? 'neutral' : 'danger')
       if (r?.ok) setAvailable('')
     } catch (e: any) {
-      setUpdateNote(`Couldn’t update the server: ${e?.message || 'request failed'}`)
+      toast(`Couldn’t update the server: ${e?.message || 'request failed'}`, 'danger')
     } finally {
       setUpdating(false)
       await refresh()
@@ -262,7 +274,7 @@ export function ServerControlPanel() {
           <span className="grow" />
           {available && (
             <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
-              {updating ? 'Updating…' : `Update to v${available}`}
+              {updating ? 'Updating…' : `Update to v${bareVersion(available)}`}
             </button>
           )}
           {running
@@ -273,8 +285,8 @@ export function ServerControlPanel() {
 
         {st?.version && (
           <p className="srv-hint">
-            Server version <b>v{st.version}</b>
-            {available ? <>, and <b>v{available}</b> is available.</> : <>, up to date.</>}
+            Server version <b>v{bareVersion(st.version)}</b>
+            {available ? <>, and <b>v{bareVersion(available)}</b> is available.</> : <>, up to date.</>}
           </p>
         )}
         {updating && (
@@ -282,9 +294,6 @@ export function ServerControlPanel() {
             Updating the VM. If the new version doesn’t come up, the previous one is restored
             automatically. This can take a few minutes…
           </p>
-        )}
-        {!updating && updateNote && (
-          <p className="srv-hint">{updateNote}</p>
         )}
         {!loading && !updating && unhealthy && (
           <p className="srv-hint">Olisar is running but failing its healthcheck. Check the logs under Settings.</p>
