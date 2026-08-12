@@ -16,6 +16,12 @@ from typing import Annotated
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from olisar.gemini.models import (
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_LITE_MODEL,
+    DEFAULT_VISION_MODEL,
+)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -38,12 +44,16 @@ class Settings(BaseSettings):
 
     # ── Gemini ───────────────────────────────────────────────────────────
     gemini_api_key: str = Field(default="", alias="GEMINI_API_KEY")
-    gemini_chat_model: str = Field(default="gemini-flash-latest", alias="GEMINI_CHAT_MODEL")
-    gemini_lite_model: str = Field(default="gemini-flash-lite-latest", alias="GEMINI_LITE_MODEL")
+    # Pinned, not `-latest`: an alias moves under a running bot and the API won't say to
+    # what, so a provider-side roll becomes a live incident. See olisar/gemini/models.py.
+    gemini_chat_model: str = Field(default=DEFAULT_CHAT_MODEL, alias="GEMINI_CHAT_MODEL")
+    gemini_lite_model: str = Field(default=DEFAULT_LITE_MODEL, alias="GEMINI_LITE_MODEL")
     # Where the vision (image-description) fallback chain starts. Defaults to a
     # mid-tier multimodal model that chat reaches last, so captioning images
     # doesn't park the top chat models. See olisar/gemini/models.IMAGE_RANKED.
-    gemini_vision_model: str = Field(default="gemini-2.0-flash", alias="GEMINI_VISION_MODEL")
+    gemini_vision_model: str = Field(
+        default=DEFAULT_VISION_MODEL, alias="GEMINI_VISION_MODEL"
+    )
 
     # ── Cloudflare Workers AI (image generation) ─────────────────────────
     # Gemini's image-gen models are paid-only (free quota = 0), so image
