@@ -68,12 +68,20 @@ def create_app() -> FastAPI:
         # ``vec``/``sandbox`` are None when the unified runtime hasn't run its self-checks
         # (e.g. the standalone dev API); True/False once it has, so the tray can warn on a
         # bad bundle (missing sqlite-vec or the QuickJS extension sandbox).
+        # ``model`` is the daily tool round-trip self-test (olisar/gemini/canary.py):
+        # None before its first run, then "ok" / "failed" / "inconclusive". It reports the
+        # request shape the reply path needs, which a reachable API can still reject.
+        from olisar.gemini.canary import last_result
+
+        canary = last_result()
         return {
             "ok": True,
             "vec": getattr(request.app.state, "vec_ok", None),
             "sandbox": getattr(request.app.state, "sandbox_ok", None),
             "transpile": getattr(request.app.state, "transpile_ok", None),
             "signing": getattr(request.app.state, "signing_ok", None),
+            "model": canary.status if canary else None,
+            "model_failed": list(canary.failed_models) if canary else [],
         }
 
     # Serve the built dashboard at the same origin (desktop app + production).

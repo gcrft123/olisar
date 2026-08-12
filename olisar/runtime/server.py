@@ -163,7 +163,12 @@ async def _init_database() -> None:
 
     ``create_schema`` migrates forward only (and drops a table whose primary key changed),
     so snapshot the database first whenever a *different* build is about to touch it."""
-    from scripts.init_db import create_schema, seed_builtins, seed_defaults
+    from scripts.init_db import (
+        create_schema,
+        migrate_model_default,
+        seed_builtins,
+        seed_defaults,
+    )
 
     from olisar.config import settings
     from olisar.runtime import dbbackup
@@ -172,6 +177,14 @@ async def _init_database() -> None:
     version = current_version()
     dbbackup.before_migration(settings.database_path, version)
     await create_schema()
+    moved = await migrate_model_default()
+    if moved:
+        from olisar.gemini.models import DEFAULT_CHAT_MODEL
+
+        log.info(
+            "moved %d guild(s) off the auto-updating model alias onto %s",
+            moved, DEFAULT_CHAT_MODEL,
+        )
     dbbackup.record_version(settings.database_path, version)
     await seed_defaults()
     await seed_builtins()

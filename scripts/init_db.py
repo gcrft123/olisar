@@ -98,6 +98,31 @@ async def create_schema() -> None:
         await create_fts_tables(conn)
 
 
+async def migrate_model_default() -> int:
+    """Move guilds still on the old auto-updating default onto the pinned model.
+
+    ``default_model`` used to default to ``gemini-flash-latest``, so every install
+    carries that value whether or not anyone chose it — pinning the column default
+    alone would leave existing guilds on the alias forever, which is precisely where
+    the problem was. Only rows *equal to the old default* move: anyone who picked a
+    different model (including the alias, deliberately, after this ships) keeps it.
+
+    Idempotent; returns how many rows changed so the caller can log it.
+    """
+    from sqlalchemy import update
+
+    from olisar.db.models import GuildConfig
+    from olisar.gemini.models import DEFAULT_CHAT_MODEL, LEGACY_DEFAULT_CHAT_MODEL
+
+    async with session_scope() as session:
+        result = await session.execute(
+            update(GuildConfig)
+            .where(GuildConfig.default_model == LEGACY_DEFAULT_CHAT_MODEL)
+            .values(default_model=DEFAULT_CHAT_MODEL)
+        )
+    return int(result.rowcount or 0)
+
+
 async def seed_defaults() -> None:
     guild_id = settings.target_guild_id
     if not guild_id:

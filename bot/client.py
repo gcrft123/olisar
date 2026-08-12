@@ -28,6 +28,7 @@ INITIAL_COGS = [
     "bot.cogs.sdk_events",  # dispatches gateway events (member join, …) to SDK extensions
     "bot.cogs.killswitch",  # /killswitch — instantly disable an extension in a guild
     "bot.cogs.moderation",  # syncs + enforces the global ban list from the registry
+    "bot.cogs.canary",  # daily tool round-trip self-test — see olisar/gemini/canary.py
 ]
 
 

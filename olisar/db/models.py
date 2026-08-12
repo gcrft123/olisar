@@ -33,6 +33,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
+from olisar.gemini.models import DEFAULT_CHAT_MODEL
+
 
 def utcnow() -> datetime:
     """Timezone-aware UTC now (``datetime.utcnow`` is deprecated in 3.12+)."""
@@ -143,7 +145,7 @@ class GuildConfig(Base):
     # always denies. Server admins (Manage Server) bypass both. See olisar/access.py.
     allowed_role_ids: Mapped[list] = mapped_column(JSON, default=list)
     blocked_role_ids: Mapped[list] = mapped_column(JSON, default=list)
-    default_model: Mapped[str] = mapped_column(String(64), default="gemini-flash-latest")
+    default_model: Mapped[str] = mapped_column(String(64), default=DEFAULT_CHAT_MODEL)
     grounding_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     grounding_daily_cap: Mapped[int] = mapped_column(Integer, default=100)
     # When a channel accumulates this many unsummarized tokens, roll a summary.
