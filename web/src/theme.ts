@@ -54,3 +54,45 @@ export function uiScale(): number {
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ui-scale'))
   return Number.isFinite(v) && v > 0 ? v : 1
 }
+
+// How much of the zoom `getBoundingClientRect()` has *already* applied — measured, not
+// assumed, because engines disagree.
+//
+// `zoom` was standardised in Chromium 128: from there on a rect comes back in viewport px
+// (zoom included), which is what `uiScale()` above documents. Older engines report the rect
+// in the same space as the CSS length you feed it to. The desktop app is Electron 31 —
+// Chromium 126 — so the console and the app sit on opposite sides of that change, and a
+// single hard-coded correction cannot be right in both: dividing by the scale on the old
+// engine pushed every tooltip left by ~9% of its distance from the origin, which is why a
+// toolbar button near the right edge showed its tooltip ~160px off to the left.
+//
+// So ask the engine. A fixed 100px probe measures 110 where rects are zoomed and 100 where
+// they aren't, and callers divide by whatever comes back — correct on both, and on whatever
+// Electron ships next. Cached per scale value, so this costs one layout per scale change.
+let rectProbe: { scale: number; k: number } | null = null
+
+export function rectScale(): number {
+  const scale = uiScale()
+  if (rectProbe && rectProbe.scale === scale) return rectProbe.k
+  let k = scale
+  try {
+    const probe = document.createElement('div')
+    probe.style.cssText =
+      'position:fixed;left:0;top:0;width:100px;height:0;visibility:hidden;pointer-events:none'
+    document.body.appendChild(probe)
+    const w = probe.getBoundingClientRect().width
+    probe.remove()
+    if (w > 0) k = w / 100
+  } catch {
+    /* no document to probe — fall back to the configured scale */
+  }
+  rectProbe = { scale, k }
+  return k
+}
+
+/** A rect measurement converted to viewport px, for comparing against `window.innerWidth`
+ *  / `innerHeight` (always viewport px) or against a CSS length multiplied by `uiScale()`.
+ *  Identity where the engine already zooms rects; scales up where it doesn't. */
+export function rectToViewport(px: number): number {
+  return px * (uiScale() / rectScale())
+}
