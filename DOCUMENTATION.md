@@ -577,9 +577,13 @@ Discord account and only sees the servers where they have **Manage Server** (see
 The **Settings** button in the sidebar footer, next to **Log out**, opens an app-wide settings popup.
 Unlike the tabs above it, nothing here is per-server.
 
-#### Appearance
+#### General
 **Size** scales the whole console — text, controls, charts and all — the way your browser's zoom does.
 Pick 100%, 110% or 125%. It's saved on this device, so everyone who signs in can set their own.
+
+Below it, a **keyboard reference**: <kbd>⌘K</kbd> opens the command palette, which jumps to any page,
+switches server, and runs the current page's actions; <kbd>⌘S</kbd> saves. On Windows and Linux,
+<kbd>Ctrl</kbd> stands in for <kbd>⌘</kbd>.
 
 #### Bot
 The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this
@@ -949,6 +953,30 @@ How it works, end to end:
 > Point a crawl at a **specific docs section** (a subpath) with low depth, or add a few small sources,
 > rather than one giant one. Crawling respects `robots.txt`, so some sites (or pages) may be off-limits.
 
+
+#### Keeping a source current
+
+A page you taught Olisar last month is a page that may have changed since. Every web source carries a
+**Re-read** setting — **Never** by default, or anything from hourly to monthly — and Olisar reads it
+again on that schedule in the background, no different from the first read.
+
+Re-reading is cheap by design. Olisar compares what it finds against the passages it already holds and
+only indexes the ones that actually changed, so a weekly re-read of a page nobody edited costs **nothing**
+against your quota. A page that gained a paragraph costs one paragraph, not the whole page.
+
+Each source's line says whether it's working: how long ago it was last checked, and when the next read
+is due. **Refresh** reads a source immediately, whichever schedule it's on — that's also how you retry
+one that failed.
+
+> [!NOTE]
+> **A failed read never empties a source**
+> If a site is down, or a page briefly returns nothing, Olisar keeps every passage it already had and marks
+> the source with what went wrong. It tries again on the next scheduled read. You never lose what it
+> learned because a server had a bad afternoon.
+
+
+Uploaded documents have no schedule: the file lives on the operator's own machine and doesn't change on
+its own. Upload it again to teach Olisar a new version.
 
 #### Glossary
 

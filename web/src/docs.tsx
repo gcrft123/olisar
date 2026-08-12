@@ -803,6 +803,29 @@ Point a crawl at a **specific docs section** (a subpath) with low depth, or add 
 rather than one giant one. Crawling respects \`robots.txt\`, so some sites (or pages) may be off-limits.
 :::
 
+## Keeping a source current
+
+A page you taught Olisar last month is a page that may have changed since. Every web source carries a
+**Re-read** setting — **Never** by default, or anything from hourly to monthly — and Olisar reads it
+again on that schedule in the background, no different from the first read.
+
+Re-reading is cheap by design. Olisar compares what it finds against the passages it already holds and
+only indexes the ones that actually changed, so a weekly re-read of a page nobody edited costs **nothing**
+against your quota. A page that gained a paragraph costs one paragraph, not the whole page.
+
+Each source's line says whether it's working: how long ago it was last checked, and when the next read
+is due. **Refresh** reads a source immediately, whichever schedule it's on — that's also how you retry
+one that failed.
+
+:::note A failed read never empties a source
+If a site is down, or a page briefly returns nothing, Olisar keeps every passage it already had and marks
+the source with what went wrong. It tries again on the next scheduled read. You never lose what it
+learned because a server had a bad afternoon.
+:::
+
+Uploaded documents have no schedule: the file lives on the operator's own machine and doesn't change on
+its own. Upload it again to teach Olisar a new version.
+
 ## Glossary
 
 Short, server-specific lore Olisar carries into **every** reply so it speaks your community's dialect:

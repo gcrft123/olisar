@@ -670,6 +670,25 @@ class KBSource(Base):
     last_ingested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # ── Automatic re-reading ──────────────────────────────────────────────────
+    # How often to read the source again, in hours; 0 = never (the default, and what every
+    # source added before this existed gets from the ADD COLUMN migration). Deliberately
+    # un-indexed: `_add_missing_columns` only adds columns, so an index declared here would
+    # exist on a fresh install and be silently absent on an upgraded one. The table holds a
+    # handful of rows per server, so the scan is free and the schemas stay identical.
+    refresh_interval_hours: Mapped[int] = mapped_column(Integer, default=0)
+    # When the next automatic read is due. Advanced when the source is *queued*, not when
+    # the read finishes, so the cadence is the interval rather than interval-plus-crawl.
+    next_refresh_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # When the last read *attempt* began — distinct from ``last_ingested_at``, which only
+    # moves when content actually lands. A scheduled source that finds nothing changed still
+    # advances this, which is how the console can say "checked an hour ago" about a source
+    # whose content is a month old. Doubles as the clock for recovering an abandoned claim.
+    last_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     chunks: Mapped[list["KBChunk"]] = relationship(
