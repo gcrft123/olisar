@@ -60,6 +60,8 @@ LABELS: dict[str, str] = {
     # thing this table exists to avoid.
     "add_kb_source": "Added a knowledge source",
     "delete_kb_source": "Removed a knowledge source",
+    "set_kb_refresh": "Changed a source's refresh schedule",
+    "refresh_kb_source": "Re-read a knowledge source",
     "clear_search_index": "Cleared the search index",
     "reindex_search": "Started a re-index",
     "create_extension": "Created an extension",

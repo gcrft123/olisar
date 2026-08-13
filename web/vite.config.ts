@@ -236,10 +236,25 @@ const MOCK_PROFILES = [
   },
 ]
 
+// Relative to server start, so the "checked 2 hours ago / next read in 5 days" line renders
+// with real spans instead of dates from whenever this fixture was last edited.
+const hoursOut = (h: number) => new Date(Date.now() + h * 3600_000).toISOString()
+
+// Every state the sources list can be in, including the ones that are easy to get wrong: a
+// source on an interval the console's own ladder doesn't offer (id 4), and an uploaded doc,
+// which can't be scheduled at all and must render without the control rather than with a
+// disabled one (id 5).
 const MOCK_KNOWLEDGE = [
-  { id: 1, type: 'url', uri: 'https://robertsspaceindustries.com/comm-link', title: 'RSI Comm-Link', status: 'ready', chunks: 184, error: null },
-  { id: 2, type: 'website', uri: 'https://docs.example.org/handbook', title: 'Org handbook', status: 'chunking', chunks: 26, error: null },
-  { id: 3, type: 'url', uri: 'https://unreachable.example/404', title: '', status: 'error', chunks: 0, error: 'fetch failed — 404 Not Found' },
+  { id: 1, type: 'url', uri: 'https://robertsspaceindustries.com/comm-link', title: 'RSI Comm-Link', status: 'ready', chunks: 184, error: null,
+    refresh_hours: 24, next_refresh_at: hoursOut(9), last_checked_at: hoursOut(-15), last_ingested_at: hoursOut(-15), can_refresh: true },
+  { id: 2, type: 'website', uri: 'https://docs.example.org/handbook', title: 'Org handbook', status: 'chunking', chunks: 26, error: null,
+    refresh_hours: 168, next_refresh_at: hoursOut(121), last_checked_at: hoursOut(-47), last_ingested_at: hoursOut(-47), can_refresh: true },
+  { id: 3, type: 'url', uri: 'https://unreachable.example/404', title: '', status: 'error', chunks: 0, error: 'fetch failed — 404 Not Found',
+    refresh_hours: 6, next_refresh_at: hoursOut(-1), last_checked_at: hoursOut(-7), last_ingested_at: null, can_refresh: true },
+  { id: 4, type: 'website', uri: 'https://status.example.net/', title: 'Status feed', status: 'ready', chunks: 12, error: null,
+    refresh_hours: 5, next_refresh_at: hoursOut(3), last_checked_at: hoursOut(-2), last_ingested_at: hoursOut(-2), can_refresh: true },
+  { id: 5, type: 'doc', uri: '/data/kb_uploads/charter.pdf', title: 'charter.pdf', status: 'ready', chunks: 41, error: null,
+    refresh_hours: 0, next_refresh_at: null, last_checked_at: hoursOut(-620), last_ingested_at: hoursOut(-620), can_refresh: false },
 ]
 
 const MOCK_FACTS = [
@@ -323,7 +338,11 @@ function mockPlugin(): Plugin {
         // Writes are accepted and discarded: the fixture exists to render states, not to
         // persist them. Every payload mirrors the real serializer's shape exactly — a
         // fixture that returns a *convenient* shape hides the drift it should expose.
-        if (req.method === 'PUT' || req.method === 'POST' || req.method === 'DELETE') {
+        // PATCH belongs here too. Without it a PATCH fell past this block into the GET
+        // matchers, where /api/knowledge/1/schedule matched the /api/knowledge prefix and
+        // came back 200 with the whole sources array — a write that "succeeded" by being
+        // answered as a read, which is exactly the drift this fixture is supposed to expose.
+        if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
           if (url.startsWith('/api/')) return send({ ok: true })
         }
         if (url.startsWith('/api/persona')) return send(MOCK_PERSONA)

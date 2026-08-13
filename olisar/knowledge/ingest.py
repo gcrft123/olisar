@@ -5,14 +5,20 @@ processed per call: claim it, gather chunks via network/extraction *outside* any
 DB transaction (so crawls don't hold a write lock), then write chunks in a short
 transaction. The chunks land with embedded=False; the memory worker's embed pass
 vectorizes them. Re-ingest is idempotent (old chunks + vectors are replaced).
+
+Re-reading is content-keyed rather than destructive: a passage whose text is unchanged keeps
+its row, and therefore its embedding, so a scheduled re-read of a page that hasn't changed
+costs nothing against the free embedding quota. See :func:`plan_chunk_sync`.
 """
 
 from __future__ import annotations
 
 import logging
+from collections import deque
 from pathlib import Path
+from typing import NamedTuple
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from olisar.db.engine import session_scope
 from olisar.db.models import KBChunk, KBSource, KBSourceType, KBStatus, utcnow
@@ -44,13 +50,84 @@ async def _gather(stype: KBSourceType, uri: str, depth: int, max_pages: int) -> 
     return records
 
 
-async def _replace_chunks(session, source_id: int) -> None:
-    old_ids = (
-        await session.scalars(select(KBChunk.id).where(KBChunk.source_id == source_id))
-    ).all()
-    for cid in old_ids:
-        await delete_embedding(session, "kb_chunk_embedding", cid)
-    await session.execute(delete(KBChunk).where(KBChunk.source_id == source_id))
+class ChunkPlan(NamedTuple):
+    """What a re-read changes. ``reuse`` is ``(chunk_id, ordinal, url, title)``; ``insert`` is
+    ``(ordinal, record)``; ``delete`` is the chunk ids no longer present upstream."""
+
+    reuse: list[tuple[int, int, str | None, str | None]]
+    insert: list[tuple[int, dict]]
+    delete: list[int]
+
+
+def plan_chunk_sync(existing: list[tuple[int, str]], records: list[dict]) -> ChunkPlan:
+    """Match freshly-read passages against the ones already stored, by exact text.
+
+    Pure, so the matching rules are testable without a schema. The point is the embedding: a
+    ``kb_chunk`` row's id *is* its rowid in the ``kb_chunk_embedding`` vector table, so a row
+    that survives a re-read keeps its vector and never has to be embedded again. Wiping and
+    re-inserting every passage — which is what this used to do — re-embedded a whole site on
+    every read, which is affordable once by hand and not at all on a schedule.
+
+    Position is not identity: a page that gains a paragraph shifts every passage after it, so
+    matching by ordinal would count the whole tail as new. Text is the key, and duplicate text
+    is matched one-for-one so a page carrying the same boilerplate twice stays stable.
+    """
+    buckets: dict[str, deque[int]] = {}
+    for chunk_id, content in existing:
+        buckets.setdefault(content, deque()).append(chunk_id)
+
+    reuse: list[tuple[int, int, str | None, str | None]] = []
+    insert: list[tuple[int, dict]] = []
+    for ordinal, rec in enumerate(records):
+        bucket = buckets.get(rec["text"])
+        if bucket:
+            reuse.append((bucket.popleft(), ordinal, rec.get("url"), rec.get("title")))
+        else:
+            insert.append((ordinal, rec))
+
+    delete = [chunk_id for bucket in buckets.values() for chunk_id in bucket]
+    return ChunkPlan(reuse=reuse, insert=insert, delete=delete)
+
+
+async def _apply_chunk_plan(session, source_id: int, guild_id: int, plan: ChunkPlan) -> None:
+    """Write a :func:`plan_chunk_sync` result. Reused rows keep their id, and with it their
+    embedding and ``embedded`` flag; only their position and page metadata move."""
+    if plan.reuse:
+        rows = {
+            row.id: row
+            for row in (
+                await session.scalars(
+                    select(KBChunk).where(KBChunk.id.in_([r[0] for r in plan.reuse]))
+                )
+            ).all()
+        }
+        for chunk_id, ordinal, url, title in plan.reuse:
+            row = rows.get(chunk_id)
+            if row is None:  # deleted underneath us — the insert path covers the text
+                continue
+            row.ordinal = ordinal
+            row.page_url = url
+            row.heading_path = title
+
+    for chunk_id in plan.delete:
+        await delete_embedding(session, "kb_chunk_embedding", chunk_id)
+        row = await session.get(KBChunk, chunk_id)
+        if row is not None:
+            await session.delete(row)
+
+    for ordinal, rec in plan.insert:
+        session.add(
+            KBChunk(
+                source_id=source_id,
+                guild_id=guild_id,
+                ordinal=ordinal,
+                content=rec["text"],
+                token_count=estimate_tokens(rec["text"]),
+                page_url=rec.get("url"),
+                heading_path=rec.get("title"),
+                embedded=False,
+            )
+        )
 
 
 async def process_pending_sources() -> bool:
@@ -69,6 +146,9 @@ async def process_pending_sources() -> bool:
         if src is None:
             return False
         src.status = KBStatus.crawling
+        # Stamped in the same transaction as the claim, so the two are never observed apart.
+        # olisar.knowledge.refresh relies on that to tell an abandoned claim from a live one.
+        src.last_checked_at = utcnow()
         sid, stype, uri = src.id, src.type, src.uri
         depth, max_pages, gid = src.crawl_depth, src.max_pages, src.guild_id
 
@@ -89,27 +169,37 @@ async def process_pending_sources() -> bool:
         src = await session.get(KBSource, sid)
         if src is None:
             return True
-        await _replace_chunks(session, sid)
-        for i, rec in enumerate(records):
-            session.add(
-                KBChunk(
-                    source_id=sid,
-                    guild_id=gid,
-                    ordinal=i,
-                    content=rec["text"],
-                    token_count=estimate_tokens(rec["text"]),
-                    page_url=rec.get("url"),
-                    heading_path=rec.get("title"),
-                    embedded=False,
-                )
-            )
-        if records:
-            src.status = KBStatus.ready
-            src.last_ingested_at = utcnow()
-            src.error = None
-        else:
-            src.status = KBStatus.error
-            src.error = "no content could be extracted"
+        existing = [
+            (row.id, row.content)
+            for row in (
+                await session.scalars(select(KBChunk).where(KBChunk.source_id == sid))
+            ).all()
+        ]
 
-    log.info("ingested source %s: %d chunks", sid, len(records))
+        if not records:
+            # A read that came back empty is a failed read, not an emptied source. This used
+            # to delete every passage first and report the error afterwards, so one temporary
+            # 502 — or a page that briefly rendered nothing — erased everything Olisar had
+            # learned from that source. Harmless while re-reading was a manual act; on a
+            # schedule it is a wipe waiting for a bad afternoon. Keep what we have and say so.
+            src.status = KBStatus.error
+            src.error = (
+                f"couldn’t read it this time — keeping the {len(existing)} passages from the "
+                "last successful read"
+                if existing
+                else "no content could be extracted"
+            )
+            log.warning("ingest for source %s read nothing (%d kept)", sid, len(existing))
+            return True
+
+        plan = plan_chunk_sync(existing, records)
+        await _apply_chunk_plan(session, sid, gid, plan)
+        src.status = KBStatus.ready
+        src.last_ingested_at = utcnow()
+        src.error = None
+
+    log.info(
+        "ingested source %s: %d passages (%d new, %d unchanged, %d dropped)",
+        sid, len(records), len(plan.insert), len(plan.reuse), len(plan.delete),
+    )
     return True

@@ -876,6 +876,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
    doesn't need any. */
 .chan-ctl.mode { flex: 1 1 240px; min-width: 0; max-width: 320px; }
 .chan-ctl.index { flex: 0 0 140px; }
+/* A knowledge source's re-read cadence. Fixed, because the row's own width belongs to the
+   URL beside it — and 168px because the longest option ("Every 12 hours") measures ~104px
+   and a select spends ~42px on padding and chevron, so anything narrower clips the option
+   that says how often the thing runs. */
+.kb-ctl { flex: 0 0 168px; min-width: 0; }
 .list-row:first-child { padding-top: 2px; }
 .list-row:last-child { border-bottom: none; padding-bottom: 2px; }
 .list-row .grow { flex: 1; min-width: 0; }
@@ -898,6 +903,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   .list-row .title { white-space: normal; }
   .chan-ctl { flex: 1 1 0; min-width: 0; }
   .chan-ctl.mode, .chan-ctl.index { flex: 1 1 0; max-width: none; }
+  /* A floor, not `flex: 1 1 0`. Sharing the wrapped control line by flex factor alone left
+     this select 10px wide on the row that had the most siblings — a cadence picker too
+     narrow to show a cadence. Source rows are always `.stacked`, so `flex-wrap` is on and a
+     control that can't fit takes its own line instead of being crushed onto a shared one. */
+  .kb-ctl { flex: 1 1 150px; min-width: 150px; }
 }
 /* Declared after the 620 block, which sets the same properties at equal specificity — a
    rule that loses the cascade is a rule that isn't there. Mode gets its own row: "resource

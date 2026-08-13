@@ -5,11 +5,13 @@ multipart upload from the dashboard lands with the frontend (Phase 7)."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select, update
 
 from api.auth.deps import GuildContext, require_guild_admin
-from api.schemas import SourceIn
+from api.schemas import SourceIn, SourceScheduleIn
 from olisar.audit import record_audit
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -20,11 +22,28 @@ from olisar.db.models import (
     KBStatus,
     Message,
     SearchMessage,
+    utcnow,
 )
+from olisar.knowledge.refresh import REFRESHABLE_TYPES, next_run_at
 from olisar.memory.vectors import delete_embedding
 from olisar.memory.writer import clear_search_index
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    """SQLite has no timezone type, so a ``DateTime(timezone=True)`` column reads back naive.
+    Values were always written as UTC; this says so."""
+    if value is None:
+        return None
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _iso(value: datetime | None) -> str | None:
+    """A stored timestamp as an unambiguous ISO string. Sent bare — without the offset — the
+    browser parses it as local time, and a source checked an hour ago renders hours away."""
+    stamped = _aware(value)
+    return stamped.isoformat() if stamped else None
 
 
 @router.get("")
@@ -51,6 +70,14 @@ async def list_sources(gctx: GuildContext = Depends(require_guild_admin)):
                     "chunks": chunk_count,
                     "crawl_depth": r.crawl_depth,
                     "max_pages": r.max_pages,
+                    "refresh_hours": r.refresh_interval_hours,
+                    # Serialized as ISO strings; SQLite hands these back naive, so stamp the
+                    # UTC the column always held rather than letting the browser read them
+                    # as local time.
+                    "next_refresh_at": _iso(r.next_refresh_at),
+                    "last_checked_at": _iso(r.last_checked_at),
+                    "last_ingested_at": _iso(r.last_ingested_at),
+                    "can_refresh": r.type in REFRESHABLE_TYPES,
                 }
             )
     return out
@@ -74,6 +101,10 @@ async def add_source(body: SourceIn, gctx: GuildContext = Depends(require_guild_
             crawl_depth=body.crawl_depth,
             max_pages=body.max_pages,
             added_by=gctx.admin.discord_user_id,
+            refresh_interval_hours=body.refresh_hours,
+            # Measured from the first read, not from now: the source is about to be read
+            # anyway, and stamping "now" would make an hourly schedule fire twice up front.
+            next_refresh_at=next_run_at(utcnow(), body.refresh_hours),
         )
         session.add(src)
         await session.flush()
@@ -81,7 +112,7 @@ async def add_source(body: SourceIn, gctx: GuildContext = Depends(require_guild_
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="add_kb_source",
             target_type="kb_source", target_id=source_id,
-            after={"uri": body.uri, "type": body.type},
+            after={"uri": body.uri, "type": body.type, "refresh_hours": body.refresh_hours},
         )
     return {"id": source_id, "status": "pending"}
 
@@ -209,6 +240,68 @@ async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
         "indexed_messages": int(sum(counts.values())) + dm_indexed,
         "channels": channels,
     }
+
+
+# The per-source routes are declared after the /reindex ones on purpose. FastAPI matches in
+# declaration order, so a "/{source_id}/…" pattern above them would be tried against
+# "/reindex/clear" first — it only fails to match today because the literal second segment
+# differs, which is not a property to leave load-bearing.
+
+
+@router.patch("/{source_id}/schedule")
+async def set_schedule(
+    source_id: int, body: SourceScheduleIn, gctx: GuildContext = Depends(require_guild_admin)
+):
+    """Set how often a source re-reads itself. 0 turns the schedule off."""
+    async with session_scope() as session:
+        src = await session.get(KBSource, source_id)
+        if src is None or src.guild_id != gctx.guild_id:
+            raise HTTPException(status_code=404, detail="source not found")
+        if body.refresh_hours and src.type not in REFRESHABLE_TYPES:
+            # An uploaded document is a file in the operator's own data dir. Re-reading it
+            # would re-extract identical text, or fail if the file has since gone — a Ready
+            # source turning itself into an Error one on a timer. Say that, rather than
+            # accepting a schedule it would never be a good idea to run.
+            raise HTTPException(
+                status_code=400,
+                detail="uploaded documents don’t change on their own — upload the file "
+                       "again to update it",
+            )
+        before = src.refresh_interval_hours
+        src.refresh_interval_hours = body.refresh_hours
+        # Re-based on the last read rather than on now, so shortening an interval takes
+        # effect against the content's real age instead of granting a fresh full period.
+        anchor = _aware(src.last_checked_at) or _aware(src.last_ingested_at) or utcnow()
+        src.next_refresh_at = next_run_at(anchor, body.refresh_hours)
+        next_at = _iso(src.next_refresh_at)
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="set_kb_refresh",
+            target_type="kb_source", target_id=source_id,
+            before={"refresh_hours": before}, after={"refresh_hours": body.refresh_hours},
+        )
+    return {"ok": True, "refresh_hours": body.refresh_hours, "next_refresh_at": next_at}
+
+
+@router.post("/{source_id}/refresh")
+async def refresh_now(source_id: int, gctx: GuildContext = Depends(require_guild_admin)):
+    """Read a source again now. Re-queues the row in place — the passages it already has stay
+    searchable until the new read replaces them, and unchanged ones are never re-embedded."""
+    async with session_scope() as session:
+        src = await session.get(KBSource, source_id)
+        if src is None or src.guild_id != gctx.guild_id:
+            raise HTTPException(status_code=404, detail="source not found")
+        if src.status in (KBStatus.pending, KBStatus.crawling, KBStatus.chunking):
+            raise HTTPException(status_code=409, detail="that source is already being read")
+        src.status = KBStatus.pending
+        src.error = None
+        # A manual read restarts the clock, so "every 6 hours" means six hours from this
+        # read rather than six from whenever the last scheduled one happened to land.
+        src.next_refresh_at = next_run_at(utcnow(), src.refresh_interval_hours)
+        await record_audit(
+            session, actor=gctx.admin.discord_user_id, action="refresh_kb_source",
+            target_type="kb_source", target_id=source_id,
+        )
+    return {"ok": True, "status": "pending"}
 
 
 @router.delete("/{source_id}")
