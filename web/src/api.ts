@@ -190,6 +190,9 @@ export const api = {
   getKnowledge: () => req('/api/knowledge'),
   addSource: (b: any) => req('/api/knowledge', { method: 'POST', body: JSON.stringify(b) }),
   deleteSource: (id: number) => req(`/api/knowledge/${id}`, { method: 'DELETE' }),
+  setSourceSchedule: (id: number, refresh_hours: number) =>
+    req(`/api/knowledge/${id}/schedule`, { method: 'PATCH', body: JSON.stringify({ refresh_hours }) }),
+  refreshSource: (id: number) => req(`/api/knowledge/${id}/refresh`, { method: 'POST' }),
 
   // Message search index (re)build + per-channel progress.
   reindex: () => req('/api/knowledge/reindex', { method: 'POST' }),

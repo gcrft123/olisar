@@ -1187,11 +1187,36 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const [uri, setUri] = useState('')
   const [depth, setDepth] = useState(1)
   const [maxPages, setMaxPages] = useState(25)
+  const [refresh, setRefresh] = useState(0)
   const adder = useSaver(async () => {
-    await api.addSource({ type, uri, crawl_depth: depth, max_pages: maxPages })
+    await api.addSource({ type, uri, crawl_depth: depth, max_pages: maxPages, refresh_hours: refresh })
     setUri('')
     reload()
   })
+
+  // The sources list applies immediately — Add and Remove already do, and there is no save
+  // bar on this card to hold a draft in. Each action leaves a receipt instead.
+  const setSchedule = async (s: any, hours: number) => {
+    try {
+      await api.setSourceSchedule(s.id, hours)
+      toast(
+        hours ? `Set to re-read ${cadenceLabel(hours).toLowerCase()}.` : 'Automatic re-reading turned off.',
+        'success',
+      )
+      reload()
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t change the schedule', 'danger')
+    }
+  }
+  const readNow = async (s: any) => {
+    try {
+      await api.refreshSource(s.id)
+      toast('Queued — Olisar is reading it again.', 'success')
+      reload()
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t queue the read', 'danger')
+    }
+  }
 
   const factsQ = useAsync<any[]>(api.getFacts)
   const { data: facts, loading: lf, reload: reloadFacts } = factsQ
@@ -1243,38 +1268,53 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             <Field label="Max pages"><Num value={maxPages} onChange={setMaxPages} min={1} max={100} unit="pages" def={25} /></Field>
           </div>
         )}
+        <Field
+          label="Re-read"
+          desc="How often Olisar reads it again, so a page that changes stays current. Only passages that actually changed are re-indexed, so re-reading an unchanged page costs no quota."
+        >
+          <Select value={String(refresh)} options={refreshOptions(refresh)} onChange={(v) => setRefresh(Number(v))} />
+        </Field>
         <SaveBar saver={adder} label="Add & ingest" variant="secondary" />
         <div className="settings-subhead">Sources ({rows.length})</div>
         {rows.length === 0 && <div className="empty">Nothing yet.</div>}
         {rows.map((s) => (
-          // A failed row carries the most text and had the least room: badge + Retry +
-          // Remove won the flex fight and squeezed the identifier to 165px, so the URL
-          // ellipsised and the error interleaved with the wrapped meta line. When there's
-          // something to read, give it the full width and put the actions underneath.
-          <div className={'list-row' + (s.status === 'error' ? ' stacked' : '')} key={s.id}>
+          // Stacked for every source now, not just failed ones. A failed row already carried
+          // the most text and the least room — badge + Retry + Remove squeezed the identifier
+          // to 165px — and the schedule control takes another 168px from the same line. In a
+          // two-column layout the row's fixed children add up to more than the 331px track,
+          // which drove `.grow` to *zero* and pushed the buttons outside the card. Identifier
+          // on its own line, controls underneath, at every width.
+          <div className="list-row stacked" key={s.id}>
             <div className="grow">
               <div className="title" title={s.title || s.uri}>{s.title || s.uri}</div>
-              <div className="meta">
-                {s.type} · {s.chunks} chunks
-              </div>
+              <div className="meta">{sourceMeta(s)}</div>
               {s.error && <div className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</div>}
             </div>
-            <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
-            {/* A failed source used to offer Remove and nothing else, so recovering from a
-                transient 404 or timeout meant deleting the row and retyping the URL. The
-                console already knows the URL; retrying is the obvious next step and it was
-                simply missing. */}
-            {s.status === 'error' && (
-              <button aria-label={`Retry reading ${s.title || s.uri}`} onClick={async () => {
-                try {
-                  await api.addSource({ type: s.type, uri: s.uri })
-                  toast('Queued again — Olisar will retry reading it.', 'success')
-                  reload()
-                } catch (e: any) { toast(e?.message || 'Couldn’t queue the retry', 'danger') }
-              }}>
-                <Icon.refresh size={15} /> Retry
-              </button>
+            {/* A document is a file in your own data dir — it can't change upstream, so it
+                gets no schedule rather than a control that would never be right to use. */}
+            {s.can_refresh !== false && (
+              <div className="kb-ctl">
+                <Select
+                  value={String(s.refresh_hours ?? 0)}
+                  options={refreshOptions(s.refresh_hours ?? 0)}
+                  ariaLabel={`How often to re-read ${s.title || s.uri}`}
+                  onChange={(v) => setSchedule(s, Number(v))}
+                />
+              </div>
             )}
+            <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
+            {/* One button for both jobs. This used to be Retry-on-error only, and it called
+                addSource — which inserts a *new* row, so a retry left the failed source
+                sitting there and added a duplicate beside it. Re-queuing the row in place is
+                what it always meant, and it is equally the right action for a Ready source
+                the operator wants read again now. */}
+            <button
+              disabled={SOURCE_BUSY.has(s.status)}
+              aria-label={`Read ${s.title || s.uri} again now`}
+              onClick={() => readNow(s)}
+            >
+              <Icon.refresh size={15} /> {s.status === 'error' ? 'Retry' : 'Refresh'}
+            </button>
             <button className="danger" aria-label={`Remove ${s.title || s.uri}`} onClick={async () => {
               // Removing a source drops every passage Olisar read out of it. Re-adding means
               // re-crawling and re-reading against the free quota, so this is not a cheap undo.
@@ -1358,6 +1398,65 @@ const SOURCE_STATUS: Record<string, string> = {
 }
 /** Statuses the backend will still move on its own — worth watching. */
 const SOURCE_BUSY = new Set(['pending', 'crawling', 'chunking'])
+
+// How often a source re-reads itself, in hours. A ladder rather than a free number box: the
+// real cadences an operator wants span hourly to monthly, and one glanceable control per row
+// beats a number and a unit picker on a list you mostly read rather than edit.
+const REFRESH_CHOICES: { value: number; label: string }[] = [
+  { value: 0, label: 'Never' },
+  { value: 1, label: 'Every hour' },
+  { value: 6, label: 'Every 6 hours' },
+  { value: 12, label: 'Every 12 hours' },
+  { value: 24, label: 'Daily' },
+  { value: 72, label: 'Every 3 days' },
+  { value: 168, label: 'Weekly' },
+  { value: 336, label: 'Every 2 weeks' },
+  { value: 720, label: 'Monthly' },
+]
+
+function cadenceLabel(hours: number): string {
+  const known = REFRESH_CHOICES.find((c) => c.value === hours)
+  if (known) return known.label
+  if (hours % 168 === 0) return `Every ${hours / 168} weeks`
+  if (hours % 24 === 0) return `Every ${hours / 24} days`
+  return `Every ${hours} hours`
+}
+
+// The API takes any interval from 1 to 8760 hours, so a schedule set by an extension or a
+// direct call can land off this ladder. Show it as what it is instead of snapping to the
+// nearest option — a select that silently rewrites a value the operator never touched is
+// worse than one with an odd entry in it.
+function refreshOptions(current: number): { value: string; label: string }[] {
+  const values = REFRESH_CHOICES.map((c) => c.value)
+  // Slotted in by length, not appended: an odd 5-hour schedule listed after "Monthly" reads
+  // as a separate kind of thing rather than as one more point on the same scale.
+  if (!values.includes(current)) values.push(current)
+  return values.sort((a, b) => a - b).map((v) => ({ value: String(v), label: cadenceLabel(v) }))
+}
+
+/** A duration in the coarsest unit that still reads precisely. */
+function span(ms: number): string {
+  const mins = Math.round(ms / 60000)
+  if (mins < 1) return 'less than a minute'
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'}`
+  const hours = Math.round(mins / 60)
+  if (hours < 48) return `${hours} hour${hours === 1 ? '' : 's'}`
+  return `${Math.round(hours / 24)} days`
+}
+
+// The identifier line under a source: what it is, how much of it Olisar holds, and — the
+// question a schedule creates — whether the thing is actually running.
+function sourceMeta(s: any): string {
+  const bits = [String(s.type), `${s.chunks} chunks`]
+  const checked = s.last_checked_at ? Date.parse(s.last_checked_at) : NaN
+  if (Number.isFinite(checked)) bits.push(`checked ${span(Date.now() - checked)} ago`)
+  const next = s.refresh_hours > 0 && s.next_refresh_at ? Date.parse(s.next_refresh_at) : NaN
+  if (Number.isFinite(next)) {
+    const due = next - Date.now()
+    bits.push(due <= 0 ? 'next read due' : `next read in ${span(due)}`)
+  }
+  return bits.join(' · ')
+}
 // Abbreviated so the three memory chips are the same size and never wrap — "Preference"
 // rendered 60x40 beside 23px siblings and broke mid-word into "Prefere / nce".
 const MEMORY_KIND: Record<string, string> = {

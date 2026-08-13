@@ -5,6 +5,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+# The refresh ceiling lives with the scheduler that enforces it. Imported rather than
+# retyped: a validator and a worker disagreeing about the ceiling is a console that accepts
+# a schedule the backend will never run.
+from olisar.knowledge.refresh import MAX_INTERVAL_HOURS
+
 
 class PersonaIn(BaseModel):
     name: str | None = None
@@ -200,6 +205,14 @@ class SourceIn(BaseModel):
     # quietly doing something else.
     crawl_depth: int = Field(1, ge=0, le=3)
     max_pages: int = Field(25, ge=1, le=100)
+    # How often to read this source again, in hours — 0 for never, which is what every source
+    # added before this existed keeps. The floor is one hour (an int can't sit between 0 and
+    # 1), the ceiling a year.
+    refresh_hours: int = Field(0, ge=0, le=MAX_INTERVAL_HOURS)
+
+
+class SourceScheduleIn(BaseModel):
+    refresh_hours: int = Field(..., ge=0, le=MAX_INTERVAL_HOURS)
 
 
 class ExtensionToggleIn(BaseModel):

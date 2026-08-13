@@ -12,6 +12,7 @@ import logging
 from discord.ext import commands, tasks
 
 from olisar.knowledge.ingest import process_pending_sources
+from olisar.knowledge.refresh import queue_due_refreshes
 from olisar.memory.maintenance import (
     embed_pending,
     run_glossary,
@@ -33,6 +34,7 @@ class MemoryWorker(commands.Cog):
     @tasks.loop(seconds=20)
     async def tick(self) -> None:
         try:
+            await queue_due_refreshes()      # re-queue KB sources whose schedule came due
             await process_pending_sources()  # ingest one queued KB source, if any
             embedded = await embed_pending()
             if embedded:
