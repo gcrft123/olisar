@@ -19,7 +19,14 @@ import discord
 
 from bot.replies import STALE_ANCHOR, TYPING_MAX, TYPING_MIN, anchor_for, typing_seconds
 from olisar.context import channel_note
-from olisar.persona import SPLIT_MARKER, split_messages, strip_breaks
+from olisar.persona import (
+    DEFAULT_TONE_NOTES,
+    SPLIT_MARKER,
+    SUPERSEDED_TONE_NOTES,
+    refreshed_tone_notes,
+    split_messages,
+    strip_breaks,
+)
 
 
 def _msg(*, mid: int, channel_id: int = 10, author_id: int = 5, age: float = 0.0, dm: bool = False):
@@ -109,6 +116,42 @@ class TypingPaceTest(unittest.TestCase):
         """Jitter must not swamp the signal — that's the whole point of the pacing."""
         self.assertLess(max(typing_seconds("ok") for _ in range(20)),
                         min(typing_seconds("x" * 300) for _ in range(20)))
+
+
+class ToneNotesRefreshTest(unittest.TestCase):
+    """A style rewrite that only reaches new installs isn't a rewrite. The seed list is
+    the mechanism, and it has to keep growing — an entry dropped from it is a server that
+    quietly keeps a default nobody chose."""
+
+    def test_every_superseded_seed_moves_forward(self) -> None:
+        for old in SUPERSEDED_TONE_NOTES:
+            self.assertEqual(refreshed_tone_notes(old), DEFAULT_TONE_NOTES)
+            self.assertEqual(refreshed_tone_notes(f"  {old}\n"), DEFAULT_TONE_NOTES)
+
+    def test_the_1_4_4_seed_is_still_listed(self) -> None:
+        """The release before this one refreshed servers onto its own seed; matching only
+        the oldest would strand exactly the ones that refresh reached."""
+        self.assertGreaterEqual(len(SUPERSEDED_TONE_NOTES), 2)
+
+    def test_an_admins_own_writing_is_never_touched(self) -> None:
+        for text in ("be nice", SUPERSEDED_TONE_NOTES[0] + "\n- and be brief", "formal, always"):
+            self.assertIsNone(refreshed_tone_notes(text))
+
+    def test_the_current_default_is_left_alone(self) -> None:
+        """Not merely a no-op: returning it would dirty the row on every connect."""
+        self.assertIsNone(refreshed_tone_notes(DEFAULT_TONE_NOTES))
+
+    def test_empty_notes_stay_empty(self) -> None:
+        """Cleared on purpose is a choice too — the persona alone carries the voice."""
+        self.assertIsNone(refreshed_tone_notes(""))
+        self.assertIsNone(refreshed_tone_notes("   \n "))
+
+    def test_the_current_default_is_not_also_a_superseded_one(self) -> None:
+        self.assertNotIn(DEFAULT_TONE_NOTES.strip(), [s.strip() for s in SUPERSEDED_TONE_NOTES])
+
+    def test_the_default_teaches_the_split_marker(self) -> None:
+        """The examples are what carry the rhythm; the marker has to survive edits here."""
+        self.assertIn(SPLIT_MARKER, DEFAULT_TONE_NOTES)
 
 
 class ChannelNoteTest(unittest.TestCase):
