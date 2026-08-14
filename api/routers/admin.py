@@ -49,6 +49,7 @@ from olisar.db.models import (
 )
 from olisar.gemini.models import RANKED
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
+from olisar.persona import SERVER_TYPES
 
 router = APIRouter(prefix="/api", tags=["admin"])
 log = logging.getLogger("olisar.api.admin")
@@ -117,6 +118,11 @@ async def get_persona(request: Request, gctx: GuildContext = Depends(require_gui
             "system_prompt": p.system_prompt,
             "tone_notes": p.tone_notes,
             "desired_bio": p.desired_bio,
+            "server_type": p.server_type,
+            "slang_density": p.slang_density,
+            # The console builds its picker from this rather than hard-coding a list the
+            # backend would then have to keep agreeing with.
+            "server_types": sorted(k for k in SERVER_TYPES if k),
             # The console previews command replies as they appear in Discord, which needs
             # the bot's real avatar. Read live off the in-process client (nothing stores
             # it); "" whenever the bot isn't running, and the UI falls back.
@@ -127,6 +133,13 @@ async def get_persona(request: Request, gctx: GuildContext = Depends(require_gui
 @router.put("/persona")
 async def put_persona(body: PersonaIn, gctx: GuildContext = Depends(require_guild_admin)):
     data = body.model_dump(exclude_unset=True)
+    # An unrecognised server type would store fine and then contribute nothing to the
+    # prompt — a setting that looks applied and isn't. Refuse it instead.
+    if data.get("server_type") is not None and data["server_type"] not in SERVER_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown server type {data['server_type']!r}",
+        )
     async with session_scope() as session:
         p = await session.get(Persona, gctx.guild_id)
         if p is None:
@@ -187,6 +200,8 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
             "context_message_limit": c.context_message_limit,
             "presence_tools_enabled": c.presence_tools_enabled,
+            "name_requires_address": c.name_requires_address,
+            "see_other_bots": c.see_other_bots,
             "blocked_mentions": list(c.blocked_mentions or []),
             "allowed_role_ids": [str(r) for r in (c.allowed_role_ids or [])],
             "blocked_role_ids": [str(r) for r in (c.blocked_role_ids or [])],
