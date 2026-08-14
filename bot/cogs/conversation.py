@@ -2,7 +2,8 @@
 
 Pipeline (Phase 1):
   record (if channel stores) -> detect trigger -> if addressed & allowed to
-  speak: typing -> generate reply -> send (chunked) -> record the reply.
+  speak: compose (quiet, then typing if it drags) -> generate reply -> send it at
+  human pace, as the one to three messages it was written as -> record the reply.
 
 Speaking is gated by the channel's mode (respond/both) or being a DM, so admins
 control where Olisar talks. Memory is gated separately by memory/both.
@@ -18,9 +19,16 @@ from discord.ext import commands
 
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import MessageActions
-from bot.content import download_images, image_attachments, message_text, resolve_reply
-from bot.replies import record_bot_messages, report_view, send_reply
+from bot.content import (
+    channel_identity,
+    download_images,
+    image_attachments,
+    message_text,
+    resolve_reply,
+)
+from bot.replies import anchor_for, composing, record_bot_messages, report_view, send_paced
 from bot.triggers import detect_trigger
+from olisar.addressing import AMBIGUOUS, PASSING, confirm_addressed, name_mention_kind
 from olisar.failures import open_report
 from olisar.db.engine import session_scope
 from olisar.db.models import ChannelMode, GuildConfig
@@ -88,9 +96,6 @@ class Conversation(commands.Cog):
         if indexed and is_member_author(message.author) and image_attachments(message):
             self._spawn_caption(message)
 
-        if not is_member_author(message.author):
-            return  # conversational memory + replies ignore other bots
-
         # Load this server's behaviour config (DMs borrow the home guild's — a real guild
         # the bot is in, even if target_guild_id is stale) + channel mode.
         cfg_guild = dm_home_guild_id(self.bot) if is_dm else guild_id
@@ -100,6 +105,8 @@ class Conversation(commands.Cog):
             reply_in_dms = config.reply_in_dms if config else True
             allowed_roles = config.allowed_role_ids if config else []
             blocked_roles = config.blocked_role_ids if config else []
+            strict_name = config.name_requires_address if config else True
+            see_bots = config.see_other_bots if config else False
 
             # Threads (incl. forum posts) inherit their parent channel's mode, so
             # Olisar engages in them per the parent's setting. Memory is still keyed
@@ -114,19 +121,34 @@ class Conversation(commands.Cog):
                 else await get_channel_mode(session, guild_id, mode_channel_id)
             )
             stores = is_dm or mode in (ChannelMode.memory, ChannelMode.both)
-            if stores:
+            # Two different things can put a bot's message in here, and they mean opposite
+            # things. ``see_other_bots`` admits a third-party bot *as a bot* — visible in
+            # context, never answered. An allowlisted sandbox peer (olisar/peers.py) is
+            # standing in for a person, so it is stored as one: ``author_is_bot`` false,
+            # which is what gives it a user profile, a name in the transcript, and a place
+            # in persona/glossary mining. Recording an emulator as a bot would make the
+            # whole testbed measure a conversation Olisar can't properly see.
+            if stores and (is_member_author(message.author) or see_bots):
                 await record_message(
                     session,
                     guild_id=guild_id,
                     channel_id=message.channel.id,
                     message_id=message.id,
                     author_id=message.author.id,
-                    author_is_bot=False,
+                    author_is_bot=not is_member_author(message.author),
                     content=text_body,
                     reply_to=message.reference.message_id if message.reference else None,
                     display_name=message.author.display_name,
                     roles=extract_roles(message.author) if not is_dm else None,
                 )
+
+        if not is_member_author(message.author):
+            # Another bot in the room. With `see_other_bots` on it's now part of the
+            # conversation Olisar can see (17% of real Discord traffic is bots), but it
+            # is never something to answer — two bots talking to each other is a loop.
+            # An allowlisted sandbox peer is exempt: it is playing a member, and the
+            # loop it would otherwise form is the thing the harness governs directly.
+            return
 
         trigger = detect_trigger(message, bot_user, name_triggers, is_dm)
         if trigger is None:
@@ -148,6 +170,17 @@ class Conversation(commands.Cog):
             log.info("access denied (role gate) for %s", message.author)
             return
 
+        # A name in a message isn't always a message to Olisar. Only the name path is
+        # checked: an @mention, a reply, or a DM is unambiguous by construction.
+        if trigger == "name" and strict_name:
+            kind = name_mention_kind(text_body, name_triggers)
+            if kind == PASSING or (
+                kind == AMBIGUOUS
+                and not await confirm_addressed(text_body, name_triggers[0] if name_triggers else "")
+            ):
+                log.info("name mentioned (%s) by %s but not addressed — staying quiet", kind, message.author)
+                return
+
         log.info("trigger=%s from %s in #%s", trigger, message.author, message.channel)
 
         # Let Olisar actually see images in the message it's replying to.
@@ -155,7 +188,12 @@ class Conversation(commands.Cog):
         # Surface which message this one replies to (used only when it's relevant).
         reply_to = await resolve_reply(message)
 
-        async with message.channel.typing():
+        room_name, room_topic = channel_identity(message.channel)
+
+        # Compose in silence (see `composing`), then hand the finished text to `send_paced`,
+        # which does the typing — the indicator should track what got written, not how long
+        # the model took to write it.
+        async with composing(message.channel):
             async with session_scope() as session:
                 reply = await generate_reply(
                     session,
@@ -170,6 +208,8 @@ class Conversation(commands.Cog):
                     actions=MessageActions(self.bot, message),
                     images=images,
                     reply_to=reply_to,
+                    channel_name=room_name,
+                    channel_topic=room_topic,
                 )
                 # Park the failure inside the same transaction that produced it: the button
                 # about to be sent is a link to this row, so the row commits first or the
@@ -186,9 +226,12 @@ class Conversation(commands.Cog):
                     if reply.blanked
                     else ""
                 )
-            sent = await send_reply(
-                message.channel, reply.text, reply_to=message, view=report_view(report_url)
-            )
+        sent = await send_paced(
+            message.channel,
+            reply.text,
+            reply_to=anchor_for(self.bot, message),
+            view=report_view(report_url),
+        )
 
         if stores:
             await record_bot_messages(

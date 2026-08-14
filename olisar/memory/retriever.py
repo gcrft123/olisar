@@ -13,7 +13,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar.context import name_map
+from olisar.context import name_map, speaker_name
 from olisar.db.models import ChannelSummary, Message, UserMemory, UserProfile
 from olisar.gemini.embeddings import embed_query
 from olisar.gemini.rate_limiter import RateLimitExceeded
@@ -124,10 +124,9 @@ async def recall(
             names = await name_map(
                 session, {m.author_id for m in picked if not m.author_is_bot}
             )
-            lines = [
-                f"{'you' if m.author_is_bot else names.get(m.author_id, str(m.author_id))}: {m.content}"
-                for m in picked
-            ]
+            # "you" for Olisar's own past messages — this block is its memory, so a
+            # nameless bot row is itself; a named one is some other bot in the channel.
+            lines = [f"{speaker_name(m, names, own='you')}: {m.content}" for m in picked]
             blocks.append("Possibly relevant older messages:\n- " + "\n- ".join(lines))
             used.append(f"older-msgs:{len(picked)}")
 

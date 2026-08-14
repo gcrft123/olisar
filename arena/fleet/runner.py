@@ -38,6 +38,16 @@ log = logging.getLogger("arena.runner")
 
 _POLL_SECONDS = 2.0
 
+# How long Olisar must stay quiet before a reply counts as finished. Sized from the
+# delivery pacing in bot/replies.py — a break pause of up to 1.1s plus typing time at
+# ~18 chars/sec, so a ~200-character follow-on message lands about twelve seconds after
+# the one before it. Under-sizing this doesn't fail loudly; it quietly truncates the
+# transcript, which is worse.
+_REPLY_SETTLE_SECONDS = 14.0
+# A backstop for the pathological case (a reply that keeps going, or a channel someone
+# else is posting into). Bounds one beat, not the run — the scenario timeout still applies.
+_REPLY_DRAIN_CEILING = 90.0
+
 
 class RunAborted(RuntimeError):
     """A governor stopped the run. Not a bug — the transcript up to that point is kept."""
@@ -120,9 +130,11 @@ class LiveRunner:
                         olisar_id, name_trigger, deadline,
                     )
                 # A final sweep: Olisar's reply to the last beat, or a proactive chime,
-                # commonly lands after the beat loop has moved on.
-                await asyncio.sleep(4.0)
-                await self._collect(run, steward.rest, channel_id, cursor, olisar_id)
+                # commonly lands after the beat loop has moved on. Drained the same way as
+                # an awaited reply, so a multi-message answer to the last beat isn't cut
+                # off at whichever chunk happened to have arrived.
+                await asyncio.sleep(_POLL_SECONDS)
+                await self._drain_reply(run, steward.rest, channel_id, cursor, olisar_id)
         except RunAborted as exc:
             run.error = str(exc)
             log.warning("run %s aborted: %s", run.run_id, exc)
@@ -270,10 +282,37 @@ class LiveRunner:
             await asyncio.sleep(_POLL_SECONDS)
             cursor = await self._collect(run, observer, channel_id, cursor, olisar_id)
             if len(run.olisar_turns) > before:
-                # Olisar chunks long replies across several messages; give the rest a beat.
-                await asyncio.sleep(2.5)
-                return await self._collect(run, observer, channel_id, cursor, olisar_id)
+                return await self._drain_reply(run, observer, channel_id, cursor, olisar_id)
         log.info("no reply within %.0fs", timeout)
+        return cursor
+
+    async def _drain_reply(
+        self, run: Run, observer: DiscordRest, channel_id: int, cursor: int, olisar_id: int
+    ) -> int:
+        """Keep collecting until Olisar has gone quiet for ``_REPLY_SETTLE_SECONDS``.
+
+        One turn is delivered as the one to three messages the model asked for, each
+        preceded by a typing indicator held for roughly as long as it would take to write
+        (``bot/replies.py``: ~18 chars/sec, plus a 0.4-1.1s pause between them). So the
+        second half of a reply can land ten seconds after the first, and a fixed short wait
+        would capture the opening line and nothing else — then hand the judge a truncated
+        reply to score as if it were the whole thing.
+
+        The window resets on each new message rather than being a single fixed sleep, so a
+        three-part reply is followed to its end without paying the worst case every time.
+        """
+        last_seen = time.monotonic()
+        count = len(run.olisar_turns)
+        hard_stop = time.monotonic() + _REPLY_DRAIN_CEILING
+        while time.monotonic() - last_seen < _REPLY_SETTLE_SECONDS:
+            if time.monotonic() > hard_stop:
+                log.warning("reply drain hit its ceiling — the transcript may be partial")
+                break
+            await asyncio.sleep(_POLL_SECONDS)
+            cursor = await self._collect(run, observer, channel_id, cursor, olisar_id)
+            if len(run.olisar_turns) > count:
+                count = len(run.olisar_turns)
+                last_seen = time.monotonic()
         return cursor
 
     async def _collect(

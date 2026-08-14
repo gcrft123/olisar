@@ -176,11 +176,33 @@ class CheckEvaluationTests(unittest.TestCase):
 
     def test_max_reply_chars_uses_the_longest_reply(self):
         run = self._run_with(
-            Turn(author="Olisar", content="short", is_olisar=True),
+            Turn(author="mika", content="hi"),
             Turn(author="Olisar", content="x" * 500, is_olisar=True),
         )
         results = evaluate_checks(run, Checks(max_reply_chars=100))
         self.assertFalse(results[0].passed)
+
+    def test_a_chunked_reply_is_measured_as_one_turn(self):
+        """Olisar delivers one turn as up to three paced messages. Measuring the longest
+        individual message would let a long answer pass simply by arriving in parts."""
+        run = self._run_with(
+            Turn(author="mika", content="tell me everything"),
+            Turn(author="Olisar", content="x" * 60, is_olisar=True),
+            Turn(author="Olisar", content="y" * 60, is_olisar=True),
+        )
+        self.assertFalse(evaluate_checks(run, Checks(max_reply_chars=100))[0].passed)
+        self.assertTrue(evaluate_checks(run, Checks(max_reply_chars=200))[0].passed)
+
+    def test_separate_exchanges_are_not_summed(self):
+        """A member speaking between them breaks the run — two short replies in one
+        scenario is not one long reply."""
+        run = self._run_with(
+            Turn(author="mika", content="q1"),
+            Turn(author="Olisar", content="x" * 60, is_olisar=True),
+            Turn(author="mika", content="q2"),
+            Turn(author="Olisar", content="y" * 60, is_olisar=True),
+        )
+        self.assertTrue(evaluate_checks(run, Checks(max_reply_chars=100))[0].passed)
 
 
 class _StubModel:

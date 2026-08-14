@@ -278,7 +278,23 @@ Two small, production-inert seams:
   `not author.bot`. Without it the emulators are invisible: Olisar's message listener drops
   bot authors outright.
 - **[olisar/prompt_overrides.py](../olisar/prompt_overrides.py)** — `OLISAR_PROMPT_OVERRIDES`
-  points at a JSON file replacing the baked-in blocks, re-read on mtime change so a variant
-  swap needs no restart. Unset, every getter returns the text compiled into the source. A
-  missing or malformed file falls back to the defaults and logs once; a bad override can
-  never strip the guardrails.
+  points at a JSON file replacing the baked-in blocks (`operating_rules`, `tools_note`,
+  `proactive_note`, `follow_up_note`), re-read on mtime change so a variant swap needs no
+  restart. Unset, every getter returns the text compiled into the source. A missing or
+  malformed file falls back to the defaults and logs once; a bad override can never strip
+  the guardrails.
+
+### `peer_bot_ids` is not `see_other_bots`
+
+They look alike and mean opposite things, so it's worth being explicit:
+
+| | `see_other_bots` (a real setting) | `OLISAR_PEER_BOT_IDS` (this harness) |
+|---|---|---|
+| what it admits | any bot in the server | only the ids you list |
+| stored as | a bot (`author_is_bot` true, sender named) | a person (`author_is_bot` false, own profile) |
+| gets a user profile | no | yes |
+| can trigger a reply | **never** — two bots is a loop | yes, that's the point |
+| for | a music bot's now-playing crowding the context | emulators standing in for members |
+
+The loop `see_other_bots` refuses to allow is real; the harness permits it only because it
+governs turn-taking directly, with a message ceiling, a minimum gap, and a run timeout.

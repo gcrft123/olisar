@@ -18,7 +18,8 @@ The file is re-read when its mtime moves, so swapping variants doesn't need a re
 missing, unreadable, or malformed file falls back to the compiled-in defaults and logs once;
 a bad override must never be able to strip Olisar's guardrails.
 
-Recognised keys (all optional): ``operating_rules``, ``tools_note``, ``proactive_note``.
+Recognised keys (all optional): ``operating_rules``, ``tools_note``, ``proactive_note``,
+``follow_up_note``.
 """
 
 from __future__ import annotations
@@ -107,6 +108,16 @@ def tools_note(default: str) -> str:
 def proactive_note(default: str) -> str:
     """The per-reply note used when Olisar chimes in unprompted."""
     return _get("proactive_note", default)
+
+
+def follow_up_note(default: str) -> str:
+    """The per-reply note for continuing a conversation Olisar is already in.
+
+    Its own key rather than sharing ``proactive_note``: interrupting a conversation and
+    continuing your own are different instructions with opposite failure modes, and one
+    override for both would quietly rewrite the wrong one.
+    """
+    return _get("follow_up_note", default)
 
 
 def active() -> dict[str, str]:

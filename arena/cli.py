@@ -22,6 +22,7 @@ from typing import Any
 
 from arena import config as arena_config
 from arena.config import ArenaConfig, ConfigError
+from arena.experiments.variants import OVERRIDE_KEYS
 
 log = logging.getLogger("arena.cli")
 
@@ -692,7 +693,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop_cmd.add_argument("--tags", nargs="*", default=["everyday"])
     loop_cmd.add_argument("--lane", default="")
     loop_cmd.add_argument("--block", default="operating_rules",
-                          choices=["operating_rules", "tools_note", "proactive_note"])
+                          choices=list(OVERRIDE_KEYS))
 
     sub.add_parser("report", help="scorecards, the current champion, and how to land it")
     return parser
