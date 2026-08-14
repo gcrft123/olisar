@@ -28,6 +28,25 @@ function PageHead(props: { icon: IconName; title: string; sub: string; doc?: str
   )
 }
 
+// Labels for the server types the API offers (keys come from the backend, so a type
+// added there still appears here — just under its raw key until it's named).
+const SERVER_TYPE_LABELS: Record<string, string> = {
+  anime: 'Anime & fandom',
+  art: 'Art & creative',
+  finance: 'Crypto & finance',
+  gaming: 'Gaming',
+  music: 'Music',
+  social: 'General community',
+  study: 'Study & focus',
+  tech: 'Programming & tech',
+}
+const SLANG_OPTS = [
+  { value: 0, label: 'None' },
+  { value: 1, label: 'Light' },
+  { value: 2, label: 'Normal' },
+  { value: 3, label: 'Heavy' },
+]
+
 // ── Persona (identity + an enclosed test-chat panel) ───────────────────────
 export function Persona() {
   const ed = useEditable<any>(api.getPersona)
@@ -42,6 +61,31 @@ export function Persona() {
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
         <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
           <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
+        </Field>
+      </Card>
+      <Card title="The room" hint="What kind of community this is. Register turns on this more than the subject does — the same line reads as normal in a gaming server and as try-hard in a study one.">
+        <Field label="Server type" desc="Sets the register Olisar writes in. Leave unset to let it read the room on its own.">
+          <Select
+            value={data.server_type || ''}
+            onChange={(v) => set('server_type', v)}
+            ariaLabel="Server type"
+            options={[
+              { value: '', label: 'Not set — read the room' },
+              // The API sorts by key; a reader scans the labels, so re-sort by those.
+              ...(data.server_types || [])
+                .map((t: string) => ({ value: t, label: SERVER_TYPE_LABELS[t] || t }))
+                .sort((a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label)),
+            ]}
+          />
+        </Field>
+        <Field plain label="Slang" desc="How thickly Olisar lays on the community's own dialect. It only uses slang it has actually seen here — this is the dial, not a vocabulary.">
+          <Segmented
+            className="useg"
+            ariaLabel="Slang density"
+            value={typeof data.slang_density === 'number' ? data.slang_density : 2}
+            onChange={(v) => set('slang_density', v)}
+            options={SLANG_OPTS}
+          />
         </Field>
       </Card>
       <div className="grid2">
@@ -321,7 +365,13 @@ export function Behavior() {
             placeholder="olisar, oli"
           />
         </Field>
+        <Field label="Only when addressed" desc="A name trigger has to actually be talking to Olisar. On, “olisar was down again” is overheard rather than answered.">
+          <Toggle value={data.name_requires_address} onChange={(v) => set('name_requires_address', v)} label="Ignore passing mentions of its name" />
+        </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
+        <Field label="See other bots" desc="Let other bots' messages into Olisar's context, so it can follow what they post. It never replies to them. Chatty bots will crowd the context window.">
+          <Toggle value={data.see_other_bots} onChange={(v) => set('see_other_bots', v)} label="Read messages from other bots" />
+        </Field>
         {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
             point at nothing — which is exactly what it was doing. `.flabel` is the same
             treatment without the false promise. */}

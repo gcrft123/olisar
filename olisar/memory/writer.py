@@ -247,6 +247,7 @@ async def record_message(
         message_id=message_id,
         author_id=author_id,
         author_is_bot=author_is_bot,
+        author_name=(display_name or "")[:64],
         content=content,
         reply_to_message_id=reply_to,
     )

@@ -16,6 +16,10 @@ class PersonaIn(BaseModel):
     system_prompt: str | None = None
     tone_notes: str | None = None
     desired_bio: str | None = None
+    # Room settings — a key from olisar/persona.py SERVER_TYPES (validated in the
+    # router, so an unknown one is refused rather than silently ignored) and 0-3.
+    server_type: str | None = None
+    slang_density: int | None = Field(None, ge=0, le=3)
 
 
 class ApiKeysIn(BaseModel):
@@ -169,6 +173,8 @@ class ConfigIn(BaseModel):
     user_persona_msg_threshold: int | None = Field(None, ge=5)
     context_message_limit: int | None = Field(None, ge=3, le=100)
     presence_tools_enabled: bool | None = None
+    name_requires_address: bool | None = None
+    see_other_bots: bool | None = None
     # Mention types the bot may not ping: any of "everyone", "here", "roles".
     blocked_mentions: list[str] | None = None
     # Role ids as strings (snowflake precision). Empty lists = open access.
