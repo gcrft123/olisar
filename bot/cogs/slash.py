@@ -17,7 +17,7 @@ from sqlalchemy import func, select, update
 
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import BotActions
-from bot.replies import chunk_text, mention_policy, sanitize_mentions
+from bot.replies import chunk_text, mention_policy, report_view, sanitize_mentions
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -34,6 +34,7 @@ from olisar.db.models import (
     SearchMessage,
 )
 from olisar.catchup import generate_catchup
+from olisar.failures import open_report
 from olisar.knowledge.extract import SUPPORTED_SUFFIXES
 from olisar.memory.purge import active_memory_guild_ids, forget_user
 from olisar.memory.vectors import delete_embedding
@@ -89,7 +90,7 @@ class Slash(commands.Cog):
         await interaction.response.defer(thinking=True)
         guild_id = interaction.guild_id or DM_GUILD_ID
         async with session_scope() as session:
-            text = await generate_reply(
+            reply = await generate_reply(
                 session,
                 guild_id=guild_id,
                 home_guild_id=cfg_guild,  # DM /ask draws features from a real guild
@@ -101,11 +102,29 @@ class Slash(commands.Cog):
                 user_text=prompt,
                 actions=BotActions(self.bot, channel=interaction.channel),
             )
+            # Committed with the reply that failed, so the button has a row to claim.
+            report_url = (
+                await open_report(
+                    session,
+                    user_id=interaction.user.id,
+                    guild_id=guild_id,
+                    channel_id=interaction.channel_id or 0,
+                    trigger="ask",
+                    prompt=prompt,
+                )
+                if reply.blanked
+                else ""
+            )
         am = mention_policy(mention_block)
-        chunks = chunk_text(sanitize_mentions(text, mention_block)) or ["…"]
-        await interaction.followup.send(chunks[0], allowed_mentions=am)
-        for extra in chunks[1:]:
-            await interaction.followup.send(extra, allowed_mentions=am)
+        chunks = chunk_text(sanitize_mentions(reply.text, mention_block)) or ["…"]
+        # The view goes on the last chunk, matching send_reply — a blank is one chunk, but
+        # the two paths shouldn't disagree about where the button lands.
+        view = report_view(report_url)
+        for i, chunk in enumerate(chunks):
+            last = i == len(chunks) - 1
+            await interaction.followup.send(
+                chunk, allowed_mentions=am, **({"view": view} if (view and last) else {})
+            )
 
     @app_commands.command(
         name="catchup", description="Get caught up on what you missed in this channel."

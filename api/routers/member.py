@@ -27,6 +27,7 @@ from api.schemas import MemberFactCorrectionIn, MemberForgetIn, MemberSettingsIn
 from olisar.audit import record_audit
 from olisar.db.engine import session_scope
 from olisar.db.models import (
+    FailureReport,
     Guild,
     GuildChannelInfo,
     GuildConfig,
@@ -552,6 +553,13 @@ async def export(request: Request, ctx: MemberGuildContext = Depends(require_mem
                 .order_by(Reminder.scheduled_at.asc())
             )
         ).all()
+        blanks = (
+            await session.scalars(
+                select(FailureReport)
+                .where(FailureReport.guild_id == gid, FailureReport.user_id == uid)
+                .order_by(FailureReport.created_at.asc())
+            )
+        ).all()
 
         payload = {
             "exported_at": utcnow().isoformat(),
@@ -605,6 +613,20 @@ async def export(request: Request, ctx: MemberGuildContext = Depends(require_mem
                     "fired": r.fired,
                 }
                 for r in rows
+            ],
+            # Times Olisar drew a blank on you, kept for a few days so you can report them
+            # from the Feedback pane. Your prompt is here because it's yours. The bot logs
+            # captured alongside it are not: they're the bot's record of everyone's
+            # activity in that window, which is exactly why no reporter — member or
+            # operator — is ever shown them (see olisar/db/models.py:FailureReport).
+            "unreported_failures": [
+                {
+                    "prompt": f.prompt,
+                    "how_you_reached_olisar": f.trigger,
+                    "when": f.created_at.isoformat() if f.created_at else None,
+                    "expires": f.expires_at.isoformat() if f.expires_at else None,
+                }
+                for f in blanks
             ],
         }
         await record_audit(

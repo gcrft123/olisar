@@ -117,6 +117,10 @@ class FeedbackIn(BaseModel):
     # requires admin, so a member ticking "add bot logs" could only ever fail — and a member
     # must not be handed the bot's logs just to file a bug about it.
     include_logs: bool = False
+    # A parked blank-reply failure (olisar/failures.py) this report is about, from the
+    # **Report this** button on the message. When set and claimable, the logs attached are
+    # the ones captured at the failure rather than whatever the buffer holds now.
+    report_token: str = ""
     attachments: list[ReportAttachmentIn] = []
 
 

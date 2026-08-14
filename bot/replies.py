@@ -67,23 +67,45 @@ def chunk_text(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
     return chunks
 
 
+def report_view(url: str) -> discord.ui.View | None:
+    """A single **Report this** link-button, or None for an empty URL.
+
+    A link button carries no ``custom_id`` and fires no interaction, so this view needs no
+    timeout, no handler, and no registration with ``bot.add_view`` — it keeps working
+    across restarts because Discord resolves it entirely client-side. The URL is the
+    console's, and what it opens there is decided by who signs in (see olisar/failures.py).
+    """
+    if not url:
+        return None
+    view = discord.ui.View(timeout=None)
+    view.add_item(discord.ui.Button(label="Report this", url=url, style=discord.ButtonStyle.link))
+    return view
+
+
 async def send_reply(
     channel: discord.abc.Messageable,
     text: str,
     *,
     reply_to: discord.Message | None = None,
+    view: discord.ui.View | None = None,
 ) -> list[discord.Message]:
     """Send text (chunked). The first chunk replies to `reply_to` if given. Honours the
-    guild's blocked-mention policy so the bot can't @everyone/@here/role when disallowed."""
+    guild's blocked-mention policy so the bot can't @everyone/@here/role when disallowed.
+
+    ``view`` rides on the **last** chunk: a view belongs to one message, and a button that
+    acts on the whole reply belongs under the end of it, not buried above two more chunks.
+    """
     blocked = await blocked_mentions_for(channel)
     am = mention_policy(blocked)
     text = sanitize_mentions(text, blocked)
+    chunks = chunk_text(text)
     sent: list[discord.Message] = []
-    for i, chunk in enumerate(chunk_text(text)):
+    for i, chunk in enumerate(chunks):
+        extra = {"view": view} if (view is not None and i == len(chunks) - 1) else {}
         if i == 0 and reply_to is not None:
-            sent.append(await reply_to.reply(chunk, allowed_mentions=am))
+            sent.append(await reply_to.reply(chunk, allowed_mentions=am, **extra))
         else:
-            sent.append(await channel.send(chunk, allowed_mentions=am))
+            sent.append(await channel.send(chunk, allowed_mentions=am, **extra))
     return sent
 
 

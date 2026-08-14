@@ -328,6 +328,20 @@ function mockPlugin(): Plugin {
         })
         if (url.startsWith('/api/settings/updates')) return send({ current: '1.0.5', available: false })
         if (url.startsWith('/api/settings/desktop')) return send({ show_in_menu_bar: true })
+        // A parked blank reply, reached by the "Report this" button Olisar puts on one.
+        // Open http://localhost:5173/?report=expired for the other half of this — the
+        // link that has aged out, which is what most late clicks will hit.
+        if (url.startsWith('/api/settings/report/')) {
+          if (url.endsWith('/expired')) {
+            res.statusCode = 404
+            return send({ detail: 'That report link isn’t valid any more.' })
+          }
+          return send({
+            prompt: 'what was that link someone posted about the fleet week schedule',
+            trigger: 'mention', when: new Date(Date.now() - 3600_000).toISOString(),
+            server: 'Red Nebula Industries', channel: 'general', has_logs: true,
+          })
+        }
         if (url.startsWith('/api/usage/live')) return send(mockLive())
         if (url.startsWith('/api/usage/summary')) {
           const m = url.match(/days=(\d+)/)

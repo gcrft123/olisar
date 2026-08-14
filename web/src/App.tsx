@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
+import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
@@ -118,6 +118,9 @@ export default function App() {
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
+  // A blank reply's "Report this" button delivered a token to this tab. Held until a
+  // session resolves, then handed to Feedback — which is the only thing that can redeem it.
+  const [report, setReport] = useState('')
   const [isDev, setIsDev] = useState(false)
   const [standing, setStanding] = useState<{ status: string; message?: string; acknowledged?: boolean } | null>(null)
   const [warnDismissed, setWarnDismissed] = useState(false)
@@ -201,6 +204,19 @@ export default function App() {
       back?.focus()
     }
   }, [navOpen])
+
+  // Landing from a blank reply's "Report this" button. Deliberately waits for a session:
+  // signed out, the link lands on Login and the token sits in sessionStorage across the
+  // Discord round trip, which is what lets one URL serve an admin and an ordinary member.
+  // The member portal opens its own copy (see MemberPortal) — this branch is the console's.
+  useEffect(() => {
+    if (auth !== 'in') return
+    const token = pendingReport()
+    if (!token) return
+    setReport(token)
+    setSettingsPane('feedback')
+    setSettingsOpen(true)
+  }, [auth])
 
   // Landing back from the marketplace Discord-verification round-trip.
   useEffect(() => {
@@ -542,7 +558,18 @@ export default function App() {
           </div>
         </div>
       </aside>
-      {settingsOpen && <SettingsModal initialSection={settingsPane} onClose={() => { setSettingsOpen(false); setSettingsPane(undefined) }} />}
+      {settingsOpen && (
+        <SettingsModal
+          initialSection={settingsPane}
+          report={report}
+          onClose={() => {
+            setSettingsOpen(false); setSettingsPane(undefined)
+            // Closing the sheet is a decision about this report. Reopening Settings later
+            // shouldn't drag it back, and neither should a reload.
+            if (report) { clearPendingReport(); setReport('') }
+          }}
+        />
+      )}
       <CommandPalette commands={commands} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {standing?.status === 'warned' && !standing.acknowledged && !warnDismissed && (
         <WarnModal

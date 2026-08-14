@@ -613,6 +613,22 @@ Send **feedback, a bug report, or a question** straight to the Olisar team.
 - Pick a **type**, write your **message**, and optionally add **your email** so the team can reply.
 - Attach up to **8 files** (3 MB each), and click **Add bot logs** to include recent log lines.
 
+Logs are gathered by Olisar itself and go only to the team — you never see them, and neither does
+anyone else who files a report. They cover every member's activity in that window, which is why
+they aren't shown to the person attaching them.
+
+#### Reporting a blank reply
+When a reply comes back as **"my mind just went blank"**, Olisar puts a **Report this** button on the
+message. Opening it signs you in and lands you here with the report already written: what you asked,
+where, when, and the bot's logs from that exact moment attached. All that's left is to say what you
+expected, and send.
+
+The button only appears once [remote access](#remote-access) is on — before that the console is reachable
+only from the machine Olisar runs on, so the link would go nowhere for everyone else in the channel.
+One link serves everyone: an admin lands in this console, an ordinary member lands in the
+[member portal](#member-portal), and each report can only be opened by the person it happened to.
+Unreported blanks are forgotten after **7 days**, and `/forget-me` clears them immediately.
+
 ## Configure
 
 ### Persona
@@ -935,6 +951,11 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 > **Example**
 > Set the **When it draws a blank** message to "…lost my train of thought, say that again?" to keep the
 > fallback in character.
+
+
+Whatever you write for **When it draws a blank**, Olisar attaches a **Report this** button to it when
+[remote access](#remote-access) is on, so the person it happened to can send you the failure with its logs —
+see [Feedback](#console-settings).
 
 ### API keys
 
@@ -1977,7 +1998,8 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| "My mind went blank" / slow replies | Free-tier rate limiting — every model busy at once | Wait a minute; on Behavior, start the chain at a less-contended model |
+| Slow replies, or "I'm a bit rate-limited" | Free-tier rate limiting — every model busy at once | Wait a minute; on Behavior, start the chain at a less-contended model |
+| "My mind went blank" | The model returned nothing usable — the cause is in the logs, not the quota | Use the **Report this** button on the message, which sends the team that failure and its logs ([Feedback](#console-settings)) |
 | Won't reply in a channel | Channel mode is `off` or `memory` | Set `respond` or `both` on Channels (threads/forum posts inherit the parent) |
 | A member can't use it | A role is marked **Allowed**, locking everyone else out | Adjust the Access tab |
 | Image generation fails | Cloudflare not configured, or the daily allocation is used up | Add the Cloudflare keys; otherwise wait for the daily reset |

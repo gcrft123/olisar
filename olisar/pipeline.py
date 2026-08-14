@@ -7,6 +7,7 @@ it. The caller handles Discord I/O (typing, sending, recording the reply).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from google.genai import types
@@ -42,6 +43,26 @@ log = logging.getLogger("olisar.pipeline")
 # ("blank_fallback" / "rate_limit"), resolved per-reply in generate_reply.
 FALLBACK_EMPTY = DEFAULT_COMMAND_MESSAGES["blank_fallback"]
 FALLBACK_RATELIMIT = DEFAULT_COMMAND_MESSAGES["rate_limit"]
+
+
+@dataclass(frozen=True)
+class Reply:
+    """What :func:`generate_reply` produces: the text, and whether it is an apology.
+
+    ``blanked`` marks the reply as the blank fallback — the model produced nothing usable
+    and the user is being asked to rephrase. The cogs use it to offer a report button, so
+    the distinction has to be carried rather than re-derived: from the outside a blank is
+    just a string, and a caller comparing text against the operator's configured fallback
+    would be guessing at something the pipeline already knows.
+
+    ``str(reply)`` is the text, so a caller that only wants to send it can.
+    """
+
+    text: str
+    blanked: bool = False
+
+    def __str__(self) -> str:
+        return self.text
 
 MAX_TOOL_ITERS = 6
 
@@ -385,8 +406,8 @@ async def generate_reply(
     images: list[tuple[bytes, str, str]] | None = None,
     home_guild_id: int | None = None,
     reply_to: tuple[str, str] | None = None,
-) -> str:
-    """Produce Olisar's reply text for one incoming message/prompt.
+) -> Reply:
+    """Produce Olisar's reply for one incoming message/prompt.
 
     ``images`` (``(data, mime)`` pairs from the triggering message) are shown to
     the model directly, so Olisar can react to screenshots/pictures in real time."""
@@ -504,7 +525,7 @@ async def generate_reply(
         extension_tools=ext.handlers,
     )
     try:
-        return await _run_tool_loop(
+        text = await _run_tool_loop(
             contents,
             system_instruction,
             model,
@@ -513,10 +534,17 @@ async def generate_reply(
             tools=tools_with_extensions(extra_decls),
         )
     except RateLimitExceeded:
-        return rate_limit_msg
+        # Deliberately not a blank. The quota is spent, waiting fixes it, and the reply
+        # says so — there is nothing here for the operator to diagnose or the team to fix.
+        return Reply(rate_limit_msg)
     except Exception:
         log.exception("gemini generation failed")
-        return blank_fallback
+        return Reply(blank_fallback, blanked=True)
+    # _fallback_when_synthesis_fails returns the very string handed to it, so an equal
+    # result is the loop reporting that it never reached an answer. A model that happened
+    # to write the operator's fallback text verbatim would also match; the cost of that
+    # coincidence is one offered report button on a reply that was fine.
+    return Reply(text, blanked=text == blank_fallback)
 
 
 SANDBOX_NOTE = (

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import discord
-from fastapi import Cookie, Header, HTTPException, Request
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 
 from api.auth.sessions import (
     COOKIE_NAME,
@@ -318,6 +318,43 @@ async def require_any_session(
         if resolved is not None:
             return f"member:{resolved[0].discord_user_id}"
     raise HTTPException(status_code=401, detail="not authenticated")
+
+
+async def discord_identity(
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+    olisar_member: str | None = Cookie(default=None, alias=MEMBER_COOKIE_NAME),
+) -> int | None:
+    """The Discord user id behind this request — admin session or member session, whichever
+    is present — or None if neither is. Used where a route must answer *for one Discord
+    account* rather than for anyone authenticated: claiming a parked failure report
+    (api/routers/settings.py), which belongs to the person the failure happened to.
+
+    Loopback is deliberately **not** a principal here, unlike ``require_any_session``. Being
+    at the operator's machine says nothing about which Discord account clicked the button,
+    and a report is claimed by identity or not at all. The operator signs in to reach the
+    console anyway, so this costs them nothing.
+
+    No live re-check: this is weaker than either portal or console access and grants nothing
+    on its own — the routes using it still match the id against the row's owner.
+    """
+    if olisar_session:
+        admin = await get_admin_for_token(olisar_session)
+        if admin is not None:
+            return admin.discord_user_id
+    if olisar_member:
+        resolved = await get_member_for_token(olisar_member)
+        if resolved is not None:
+            return resolved[0].discord_user_id
+    return None
+
+
+async def require_discord_identity(
+    user_id: int | None = Depends(discord_identity),
+) -> int:
+    """:func:`discord_identity`, but 401 rather than None when nobody is signed in."""
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    return user_id
 
 
 @dataclass
