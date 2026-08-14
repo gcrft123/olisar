@@ -14,7 +14,7 @@ from olisar.persona import (
     DEFAULT_PERSONA_NAME,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_TONE_NOTES,
-    LEGACY_TONE_NOTES,
+    refreshed_tone_notes,
 )
 
 
@@ -42,11 +42,11 @@ async def ensure_guild_defaults(
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             tone_notes=DEFAULT_TONE_NOTES,
         ))
-    elif persona.tone_notes.strip() == LEGACY_TONE_NOTES.strip():
-        # An exact match with a previous release's seed means nobody ever edited this
-        # field, so the guild is running defaults and should get the current ones — the
-        # style rewrite is worthless if it only ever reaches servers installed after it.
-        # One character of admin authorship and this branch never fires again.
-        persona.tone_notes = DEFAULT_TONE_NOTES
+    else:
+        # An exact match with any previous release's seed means nobody ever edited this
+        # field, so the guild is running defaults and should get the current ones.
+        fresh = refreshed_tone_notes(persona.tone_notes)
+        if fresh is not None:
+            persona.tone_notes = fresh
     if await session.get(ProactivityConfig, guild_id) is None:
         session.add(ProactivityConfig(guild_id=guild_id))
