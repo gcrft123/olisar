@@ -55,7 +55,14 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
         "• `/forget-me` — delete everything I've stored about you, including the search "
         "index and DMs.\n"
         "• `/forget-me stop_remembering:true` — delete it **and** stop recording you.\n"
-        "• `/dm-indexing enabled:false` — stop saving and indexing just your DMs."
+        "• `/dm-indexing enabled:false` — stop saving and indexing just your DMs.\n"
+        "{portal}"
+    ),
+    # Appended to /privacy only where the operator has opened the member portal. This is the
+    # portal's discovery path: nobody finds a web page nothing links to, and the command that
+    # exists to explain data handling is the honest place to mention it.
+    "privacy_portal": (
+        "\nYou can also see and delete all of it yourself at {url} — sign in with Discord."
     ),
 }
 
@@ -69,6 +76,10 @@ PLACEHOLDERS: dict[str, list[str]] = {
     "forget_me": ["messages", "facts"],
     "dm_indexing": ["state"],
     "proactive": ["state", "level"],
+    # Empty unless this server has opened the member portal — an operator editing the
+    # privacy text should know the slot exists and that it can render as nothing.
+    "privacy": ["portal"],
+    "privacy_portal": ["url"],
 }
 
 

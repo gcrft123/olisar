@@ -147,7 +147,31 @@ class Slash(commands.Cog):
 
     @app_commands.command(name="privacy", description="See how Olisar handles your data.")
     async def privacy(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_message(await self._msg("privacy"), ephemeral=True)
+        await interaction.response.send_message(
+            await self._msg("privacy", portal=await self._portal_line(interaction)), ephemeral=True
+        )
+
+    async def _portal_line(self, interaction: discord.Interaction) -> str:
+        """The member-portal invitation appended to /privacy, or "" where there isn't one.
+
+        Nobody finds a web page nothing links to, and the command whose whole job is to
+        explain data handling is the honest place to mention the page that shows it. Silent
+        when the operator hasn't opened the portal, or when remote access isn't configured —
+        a link to a loopback URL is worse than no link.
+        """
+        guild_id = interaction.guild_id
+        if not guild_id:
+            return ""
+        from olisar import runtime_config
+
+        if not await runtime_config.remote_access_configured():
+            return ""
+        async with session_scope() as session:
+            config = await session.get(GuildConfig, guild_id)
+            if config is None or not config.member_portal_enabled:
+                return ""
+        url = (await runtime_config.public_base_url()).rstrip("/")
+        return await self._msg("privacy_portal", url=url) if url else ""
 
     @app_commands.command(name="forget-me", description="Delete what Olisar remembers about you.")
     @app_commands.describe(stop_remembering="Also stop recording your messages from now on.")

@@ -6,6 +6,7 @@ import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
 import { Developer } from './developer'
+import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, type SectionId } from './settings'
@@ -106,8 +107,11 @@ function useTabRouting(
 export default function App() {
   const [setup, setSetup] = useState<'checking' | 'needed' | 'done'>('checking')
   const [setupInfo, setSetupInfo] = useState<SetupStatus | null>(null)
-  const [auth, setAuth] = useState<'loading' | 'in' | 'out'>('loading')
+  // 'member' is a non-admin signed in to the member portal — a different session family
+  // entirely (own table, own cookie), not a lesser console user.
+  const [auth, setAuth] = useState<'loading' | 'in' | 'member' | 'out'>('loading')
   const [me, setMe] = useState<any>(null)
+  const [memberSession, setMemberSession] = useState<any>(null)
   const [tab, setTab] = useState('persona')
   const [guilds, setGuilds] = useState<Guild[] | null>(null)
   const [guild, setGuildState] = useState<string | null>(null)
@@ -219,11 +223,17 @@ export default function App() {
       .catch(() => setSetup('done'))
   }, [])
 
+  // Routing is by SESSION, not by URL: the app is served by StaticFiles, so a hard refresh
+  // on a path like /me would 404. If the console session is absent, try the member one
+  // before falling through to the login screen — an ordinary member of a server Olisar is
+  // in has a portal, just not a console.
   useEffect(() => {
     if (setup !== 'done') return
     api.me()
       .then((m) => { setMe(m); setAuth('in') })
-      .catch((e) => setAuth(e instanceof Unauthorized ? 'out' : 'out'))
+      .catch(() => api.memberSession()
+        .then((s) => { setMemberSession(s); setAuth('member') })
+        .catch(() => setAuth('out')))
   }, [setup])
 
   // Remote-access (Tailscale Funnel) status, so the sidebar can surface the public
@@ -329,6 +339,16 @@ export default function App() {
   // control panel (start/stop over SSH) — no Discord login, no local console.
   if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />
   if (auth === 'loading') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
+  // Ahead of Login and of the guild loading below: a member has no `api.guilds()` and would
+  // otherwise sit on "Loading your servers…" forever.
+  if (auth === 'member' && memberSession) {
+    return (
+      <MemberPortal
+        session={memberSession}
+        onSignOut={async () => { await api.logout(); setMemberSession(null); setAuth('out') }}
+      />
+    )
+  }
   if (auth === 'out') return <Login />
   if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
   if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
@@ -606,7 +626,7 @@ function Login() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['general', 'bot', 'updates', 'desktop', 'feedback']}
+          sections={['general', 'updates', 'desktop', 'feedback']}
           onClose={() => setSettingsOpen(false)}
         />
       )}

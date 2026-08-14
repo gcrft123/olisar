@@ -3,18 +3,20 @@ import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft } from './ui'
 import { ActivityCard } from './pages'
-import { Modal, toast, confirmDialog, promptDialog } from './overlays'
+import { Modal, toast, confirmDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
-export type SectionId = 'general' | 'activity' | 'bot' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+// 'size' is the member portal's cut-down General — the size control alone, without the
+// console-only keyboard shortcuts. 'bot' (the multi-bot profile switcher) was removed.
+export type SectionId = 'general' | 'size' | 'activity' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
 export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
+  { id: 'size', label: 'Size', ic: 'palette' },
   { id: 'activity', label: 'Activity', ic: 'docs' },
-  { id: 'bot', label: 'Bot', ic: 'bolt' },
-  { id: 'logs', label: 'Logs', ic: 'docs' },
+  { id: 'logs', label: 'Logs', ic: 'pulse' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
@@ -27,7 +29,10 @@ export function SettingsModal(
   { onClose, sections, initialSection }:
   { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId },
 ) {
-  const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id)) : SECTIONS
+  // 'size' is the member portal's cut-down General; the console shows General instead,
+  // so an unfiltered modal must not offer both.
+  const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id))
+    : SECTIONS.filter((s) => s.id !== 'size')
   const [section, setSection] = useState<SectionId>(
     (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
   )
@@ -70,8 +75,8 @@ export function SettingsModal(
             <CloseX size={18} />
           </button>
           {section === 'general' && <General />}
+          {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
-          {section === 'bot' && <Bot />}
           {section === 'logs' && <Logs />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
@@ -87,39 +92,56 @@ export function SettingsModal(
 // local backend's own log buffer. Bot/Funnel return an "only for server-hosted bots" note
 // when there's no VM configured.
 function Logs() {
-  const [which, setWhich] = useState<'bot' | 'funnel' | 'app'>('app')
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
+  const [source, setSource] = useState<'vm' | 'local'>('vm')
   const [loading, setLoading] = useState(false)
 
-  const load = (w: 'bot' | 'funnel' | 'app') => {
+  // One view, two ways of reaching the same output.
+  //
+  // /api/server/* is loopback-gated: it drives a remote VM over SSH, so it must not be
+  // reachable from the public tunnel. That means the desktop control panel can ask the VM
+  // for `docker compose logs`, but the console *served by* that VM cannot. From inside the
+  // container there is no docker socket either, so the closest equivalent is the in-process
+  // ring buffer, fed by the same logger that writes the container's stdout.
+  const load = () => {
     setLoading(true); setErr(''); setText('')
-    const p = w === 'app'
-      ? api.getLogs(500).then((d: any) => (d.lines || []).join('\n'))
-      : api.serverLogs(w).then((d: any) => (d?.ok ? (d.logs || '') : Promise.reject(new Error(d?.error || 'Only available for server-hosted bots.'))))
-    p.then((t: string) => setText(t)).catch((e: any) => setErr(e?.message || 'Couldn’t load logs.')).finally(() => setLoading(false))
+    api.serverLogs('bot')
+      .then((d: any) => {
+        if (!d?.ok) throw new Error(d?.error || 'unavailable')
+        setSource('vm'); setText(d.logs || '')
+      })
+      .catch(() =>
+        api.getLogs(500)
+          .then((d: any) => { setSource('local'); setText((d.lines || []).join('\n')) })
+          .catch((e: any) => setErr(e?.message || 'Couldn’t load logs.')))
+      .finally(() => setLoading(false))
   }
-  useEffect(() => { load(which) }, [which])
+  useEffect(() => { load() }, [])
 
-  const TABS: { id: 'bot' | 'funnel' | 'app'; label: string }[] = [
-    { id: 'bot', label: 'Bot' }, { id: 'funnel', label: 'Funnel' }, { id: 'app', label: 'This app' },
-  ]
+  // Newest first. Both sources emit oldest-first, which puts the line you opened this pane
+  // to read at the bottom of a 500-line block. Reversing is per-line, so a stack trace reads
+  // bottom-up where it appears — the exception line lands first, which is the one being
+  // looked for anyway.
+  const shown = text ? text.split('\n').reverse().join('\n') : ''
+
   return (
     <>
-      <Head title="Logs" />
-      <div className="log-tabs">
-        {/* `contents` so the group keeps its ARIA role without adding a box to this flex row. */}
-        <Segmented contents ariaLabel="Which log" value={which} onChange={setWhich}
-          buttonClass={(on) => 'ghost' + (on ? ' on' : '')}
-          options={TABS.map((t) => ({ value: t.id, label: t.label }))} />
-        <span className="grow" />
-        <button className="ghost icon-btn sm" data-tip="Refresh" aria-label="Refresh" onClick={() => load(which)}>
-          <Icon.refresh size={14} />
+      <Head
+        title="Logs"
+        sub={source === 'vm'
+          ? 'Container logs from the server, newest first.'
+          : 'This bot’s own output, newest first.'}
+      />
+      {/* Same toolbar as the Activity ledger, so reload sits in one place across the modal. */}
+      <div className="act-toolbar">
+        <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh logs" onClick={load}>
+          <Icon.refresh size={15} />
         </button>
       </div>
       {loading ? <Spinner />
         : err ? <div className="settings-err" role="alert">{err}</div>
-        : <pre className="srv-logs">{text || '(no logs)'}</pre>}
+        : <pre className="srv-logs">{shown || '(no logs)'}</pre>}
     </>
   )
 }
@@ -154,7 +176,6 @@ function Feedback() {
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
   const [logsAttached, setLogsAttached] = useState(false)
-  const [logs, setLogs] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -170,15 +191,15 @@ function Feedback() {
     }
     setFiles(out)
   }
-  const attachLogs = async () => {
-    try { const d = await api.getLogs(800); setLogs((d.lines || []).join('\n')); setLogsAttached(true) }
-    catch { toast('Couldn’t read the bot logs.', 'danger') }
-  }
+  // A toggle, not a fetch. The client used to read the logs and post them back, which
+  // needs admin — so in the member portal this button could only ever fail. The server
+  // attaches its own now, and the reporter (member or operator) never sees them.
+  const toggleLogs = () => setLogsAttached((on) => !on)
   const submit = async () => {
     if (!message.trim()) { toast('Add a message first.', 'warning'); return }
     setBusy(true)
     try {
-      const r = await api.sendFeedback({ category, message: message.trim(), email: email.trim(), logs: logsAttached ? logs : '', attachments: files })
+      const r = await api.sendFeedback({ category, message: message.trim(), email: email.trim(), include_logs: logsAttached, attachments: files })
       if (r && r.emailed === false) toast('Sent, but the email didn’t go through. The team will still see it.', 'warning')
       else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
       setDone(true)
@@ -199,7 +220,7 @@ function Feedback() {
           <div className="callout-body">Thanks — your {category.toLowerCase()} was sent.{email.trim() ? ` The team will reply to ${email.trim()} if needed.` : ''}</div>
         </div>
         <div className="settings-row end" style={{ marginTop: 16 }}>
-          <button className="ghost" onClick={() => { setDone(false); setMessage(''); setFiles([]); setLogsAttached(false); setLogs('') }}>Send another</button>
+          <button className="ghost" onClick={() => { setDone(false); setMessage(''); setFiles([]); setLogsAttached(false) }}>Send another</button>
         </div>
       </>
     )
@@ -213,7 +234,7 @@ function Feedback() {
       <div className="settings-subhead">Attachments (optional)</div>
       <div className="report-attach">
         <button className="ghost" onClick={() => fileRef.current?.click()}><Icon.add size={14} /> Add files</button>
-        <button className={'ghost' + (logsAttached ? ' on' : '')} onClick={attachLogs}><Icon.docs size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}</button>
+        <button className={'ghost' + (logsAttached ? ' on' : '')} aria-pressed={logsAttached} onClick={toggleLogs}><Icon.pulse size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}</button>
       </div>
       {files.length > 0 && (
         <div className="report-files">
@@ -233,174 +254,9 @@ function Feedback() {
 // ── Bot switcher (run several bots from one app) ──────────────────────────────
 type BotProfile = { id: string; name: string; created: boolean }
 
-function BotSwitcher() {
-  const [profiles, setProfiles] = useState<BotProfile[] | null>(null)
-  const [activeId, setActiveId] = useState('')
-  const [defaultId, setDefaultId] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [moving, setMoving] = useState<BotProfile | null>(null)
-
-  const load = () =>
-    api.botList()
-      .then((d: any) => { setProfiles(d.profiles || []); setActiveId(d.active_id || ''); setDefaultId(d.default_id || '') })
-      .catch(() => setProfiles([]))
-  useEffect(() => { load() }, [])
-
-  const switchTo = async (p: BotProfile) => {
-    if (p.id === activeId || busy) return
-    const ok = await confirmDialog({
-      title: `Switch to ${p.name}?`,
-      message: <>This stops the current bot and loads <b>{p.name}</b>. The console will reload.</>,
-      confirmLabel: 'Switch',
-    })
-    if (!ok) return
-    setBusy(true)
-    try { await api.switchBot(p.id); window.location.reload() }
-    catch (e: any) { toast(e?.message || 'Couldn’t switch bots', 'danger'); setBusy(false); load() }
-  }
-
-  const rename = async (p: BotProfile) => {
-    const name = await promptDialog({
-      title: 'Rename bot',
-      confirmLabel: 'Rename',
-      prompt: { placeholder: 'Bot name', defaultValue: p.name },
-    })
-    if (name === null || !name.trim() || name.trim() === p.name) return
-    try { await api.renameBot(p.id, name.trim()); load() }
-    catch (e: any) { toast(e?.message || 'Couldn’t rename the bot', 'danger') }
-  }
-
-  const makeDefault = async (p: BotProfile) => {
-    if (p.id === defaultId || busy) return
-    try { await api.setDefaultBot(p.id); toast(`${p.name} opens on launch`, 'success'); load() }
-    catch (e: any) { toast(e?.message || 'Couldn’t set the default', 'danger') }
-  }
-
-  const create = async () => {
-    const name = await promptDialog({
-      title: 'Create a new bot',
-      message: 'You’ll connect its Discord token next.',
-      confirmLabel: 'Create',
-      prompt: { placeholder: 'e.g. Support bot' },
-    })
-    if (name === null) return
-    setBusy(true)
-    try {
-      const p = await api.createBot(name.trim() || 'New bot')
-      await api.switchBot(p.id)
-      window.location.reload()
-    } catch (e: any) { toast(e?.message || 'Couldn’t create the bot', 'danger'); setBusy(false); load() }
-  }
-
-  const del = async (p: BotProfile) => {
-    const ok = await confirmDialog({
-      tone: 'danger',
-      title: `Delete ${p.name}?`,
-      message: (
-        <>
-          This permanently deletes <b>{p.name}</b> and everything it stores: its token,
-          settings, and memory. <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
-        </>
-      ),
-      requirePhrase: { phrase: p.name },
-      confirmLabel: 'Delete bot',
-    })
-    if (!ok) return
-    try { await api.deleteBot(p.id); toast(`Deleted ${p.name}`, 'neutral'); load() }
-    catch (e: any) { toast(e?.message || 'Couldn’t delete the bot', 'danger') }
-  }
-
-  const reset = async (p: BotProfile) => {
-    const ok = await confirmDialog({
-      tone: 'danger',
-      title: `Reset ${p.name}'s configuration?`,
-      message: (
-        <>
-          Clears <b>{p.name}</b>’s Discord credentials, API keys, and hosting setup, and signs it
-          out. It <b>keeps</b> its persona, memory, knowledge, and settings, and you’ll set it up
-          again.{' '}
-          <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
-        </>
-      ),
-      requirePhrase: { phrase: p.name },
-      confirmLabel: 'Reset configuration',
-    })
-    if (!ok) return
-    try {
-      const r = await api.resetBot(p.id)
-      if (r?.active) window.location.reload()  // App re-routes to reconnect / setup
-      else { toast(`Reset ${p.name}`, 'neutral'); load() }
-    } catch (e: any) { toast(e?.message || 'Couldn’t reset the bot', 'danger') }
-  }
-
-  return (
-    <>
-      <Head title="Bots" sub="Each bot has its own token, settings, and memory. Only one runs on this machine at a time." />
-      {profiles === null ? <Spinner /> : (
-        <div className="bot-list">
-          {profiles.map((p) => {
-            const isActive = p.id === activeId
-            const isDefault = p.id === defaultId
-            return (
-              <div key={p.id} className={'bot-row' + (isActive ? ' on' : '')}>
-                <span className="bot-ic"><Icon.bolt size={16} weight={isActive ? 'Bold' : 'Linear'} /></span>
-                <div className="bot-name">
-                  {p.name}
-                  {!p.created && <span className="bot-sub">not set up yet</span>}
-                </div>
-                <div className="bot-badges">
-                  {isDefault && <span className="badge">Default</span>}
-                  {isActive && <span className="badge success">Active</span>}
-                </div>
-                <div className="bot-actions">
-                  {/* Disabled, not hidden. Every row shows the same five controls in the
-                      same order, so a position always means the same action and the row
-                      never reflows as state changes — the reserved-but-empty slots this
-                      replaced kept the columns but left the operator guessing why an
-                      action was missing. A disabled control says "not available here";
-                      an absent one says nothing. */}
-                  {/* No tooltip explaining *why* these are disabled: a disabled control
-                      fires neither mouseover nor focusin, so that text was unreachable
-                      exactly when it applied. The row's own "Active" and "Default" chips
-                      already say it, on screen, before anyone reaches for the button. */}
-                  <button disabled={busy || isActive} onClick={() => switchTo(p)}
-                    aria-label={`Switch to ${p.name}`}>
-                    Switch
-                  </button>
-                  <button className="ghost icon-btn sm" data-tip="Set as default"
-                    aria-label={isDefault ? `${p.name} is already the launch default` : `Make ${p.name} the launch default`}
-                    disabled={busy || isDefault} onClick={() => makeDefault(p)}>
-                    <Icon.star size={14} weight={isDefault ? 'Bold' : 'Linear'} />
-                  </button>
-                  <button className="ghost icon-btn sm" data-tip="Rename" aria-label={`Rename ${p.name}`} disabled={busy} onClick={() => rename(p)}>
-                    <Icon.edit size={14} />
-                  </button>
-                  <button className="ghost icon-btn sm" data-tip="Move / change hosting"
-                    aria-label={`Move ${p.name} or change its hosting`}
-                    disabled={busy || !isActive} onClick={() => setMoving(p)}>
-                    <Icon.remote size={14} />
-                  </button>
-                  <span className="row-divider" aria-hidden="true" />
-                  <button className="danger icon-btn sm" data-tip="Reset configuration" aria-label={`Reset ${p.name}'s configuration`} disabled={busy} onClick={() => reset(p)}>
-                    <Icon.eraser size={14} />
-                  </button>
-                  <button className="danger" aria-label={`Delete ${p.name}`}
-                    disabled={busy || isActive} onClick={() => del(p)}>
-                    <Icon.trash size={14} /> Delete
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-      <div className="settings-row">
-        <button disabled={busy} onClick={create}><Icon.add size={14} /> Create new bot</button>
-      </div>
-      {moving && <MoveBotModal profile={moving} onClose={() => setMoving(null)} />}
-    </>
-  )
-}
+// The multi-bot profile switcher lived here. Its Settings tab was removed; the API
+// client methods (api.botList/switchBot/…) and the /api/bots routes are untouched, so
+// restoring it is a component, not a feature.
 
 // A dedicated "Move bot" flow: change where the active bot runs (this computer ↔ a cloud VM),
 // carrying its data across and keeping the old copy as a backup. Only the active bot can be
@@ -517,9 +373,6 @@ function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () =
 // The Bot section is the bot switcher. "Clear memory" used to hang off the bottom of it,
 // but it is per-*server* destruction sitting in a per-install modal with no server named
 // anywhere on screen — it now lives on Knowledge, under the things it erases.
-function Bot() {
-  return <BotSwitcher />
-}
 
 // ── Activity ───────────────────────────────────────────────────────────────
 // The same ledger Knowledge shows beside its danger zone, reachable from anywhere. Every
@@ -529,6 +382,23 @@ function Activity() {
     <>
       <Head title="Activity" sub="What has been changed in this console, newest first." />
       <ActivityCard bare />
+    </>
+  )
+}
+
+// The member portal's General. Size alone: the console's keyboard shortcuts below are all
+// console actions (⌘K palette, ⌘S save) that the portal doesn't have, so listing them there
+// would advertise keys that do nothing.
+function SizeOnly() {
+  return (
+    <>
+      <Head title="Size" sub="Saved in this browser, so everyone sets their own." />
+      <div className="settings-row">
+        <SizeChoice />
+      </div>
+      <p className="settings-foot">
+        Scales the whole interface, the way your browser's zoom does.
+      </p>
     </>
   )
 }

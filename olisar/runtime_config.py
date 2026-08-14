@@ -123,6 +123,19 @@ async def hosting_mode() -> str:
     return (await _load()).get("hosting_mode") or "local"
 
 
+async def remote_access_configured() -> bool:
+    """Whether this install is reachable by anyone who isn't sitting at the operator's
+    machine — Tailscale Funnel is up, or the bot is server-hosted (already on a public VM).
+
+    Gates the member portal: the console is loopback-only otherwise, so enabling a
+    surface built for ordinary members would produce a URL none of them can open.
+    """
+    data = await _load()
+    if data.get("tunnel_enabled") and data.get("tunnel_hostname"):
+        return True
+    return (data.get("hosting_mode") or "local") == "server"
+
+
 async def tunnel_hostname() -> str:
     return await _str("tunnel_hostname")
 

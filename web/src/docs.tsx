@@ -10,7 +10,7 @@ export type DocSection = { id: string; title: string; body: string }
 export const DOC_GROUPS: { label: string; ids: string[] }[] = [
   { label: 'Start', ids: ['overview', 'servers', 'talking', 'commands'] },
   { label: 'Hosting & access', ids: ['bots', 'hosting', 'host-server', 'remote', 'settings'] },
-  { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'replies', 'keys'] },
+  { label: 'Configure', ids: ['persona', 'behavior', 'models', 'channels', 'access', 'member-portal', 'replies', 'keys'] },
   { label: 'Knowledge & memory', ids: ['knowledge', 'memory', 'members', 'images'] },
   { label: 'Extend', ids: ['extensions', 'ext-build', 'ext-sdk', 'ext-flows', 'ext-share', 'ext-marketplace', 'ext-security'] },
   { label: 'Reference', ids: ['usage', 'privacy', 'troubleshooting'] },
@@ -695,6 +695,52 @@ talk to Olisar. Or mark just \`@Muted\` \`blocked\` → everyone except muted me
 :::tip Safeguards
 Server admins (Manage Server) **always** have access, so you can't lock yourself out, and \`/privacy\` and
 \`/forget-me\` stay open to everyone for data rights. DM users are gated by their roles in this server.
+:::
+
+This tab also carries the switches for the [Member portal](#member-portal) — the page where members
+manage their own data. Those roles govern who can *use* Olisar; the portal governs what someone can see
+and delete about themselves.
+`,
+  },
+  {
+    id: 'member-portal',
+    title: 'Member portal',
+    body: `
+Everything above is a console for **admins**. The member portal is the other side of it: a page where
+any member of your server can sign in with Discord and see what Olisar has stored about *them* — and
+correct it, export it, or delete it. It shows each person only their own data.
+
+Turn it on from the [Access](tab:access) tab.
+
+## What a member sees
+- **How it sees you** — the private characterization Olisar writes from someone's messages. Off by
+  default; see the warning below.
+- **What it remembers** — every durable fact, each with a link back to the message it came from, and a
+  delete button on each one. This is the part \`/forget-me\` can't do: it erases everything or nothing.
+- **What it may keep** — switches for remembering, search indexing, and DMs, plus a **pause** that
+  expires on its own after 24 hours or 7 days.
+- **Waiting on** — their pending reminders, including the ones Olisar set itself after they mentioned a
+  date, which until now had no surface at all.
+- **Export or erase** — the whole lot as a JSON file, or the same wipe \`/forget-me\` performs.
+
+Figures in the opening sentence are clickable: each one opens a breakdown of where it comes from.
+
+:::warning Impressions are a separate choice
+"Show each member their impression" is a **second** toggle, off even when the portal is on. That text is
+written by the model from someone's messages, and it can be unflattering or simply wrong. Read a few on
+the [Members](tab:members) tab before you decide to show them.
+:::
+
+:::note Needs remote access
+The console is only reachable from the operator's machine until [remote access](#remote) is on, so the
+portal can't be enabled without it — members would have no address to open. The toggle stays disabled,
+and the API refuses it too.
+:::
+
+:::tip How members find it
+Once the portal is open, \`/privacy\` starts including a link to it. Nobody finds a page nothing links
+to, and \`/privacy\` is the command whose whole job is explaining what Olisar keeps. You can reword that
+text on the [Command replies](tab:messages) tab.
 :::
 `,
   },
@@ -1772,6 +1818,9 @@ and write that machine's data live.
 - \`/forget-me\` — deletes everything stored about a person: messages, facts, profile, and their
   entries in the search index. \`stop_remembering: true\` also opts them out of future recording,
   permanently. When a message is edited or deleted in Discord, Olisar updates or removes its copy too.
+- The [Member portal](#member-portal), if you've opened it — the same rights on a web page, plus the
+  two things a slash command can't offer: **seeing** what's stored before deciding, and deleting a
+  **single** remembered fact instead of all of them.
 
 :::warning Admin wipe
 **Clear memory**, at the bottom of the [Knowledge](tab:knowledge) tab, erases everything Olisar has

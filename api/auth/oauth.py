@@ -21,16 +21,21 @@ from sqlalchemy import select
 
 from api.auth.sessions import (
     COOKIE_NAME,
+    MEMBER_COOKIE_NAME,
+    MEMBER_SESSION_TTL_DAYS,
     SESSION_TTL_DAYS,
+    create_member_session,
     create_session,
+    delete_member_session,
     delete_session,
+    sign_member_sid,
     sign_sid,
 )
 from api.trust import is_local_request
 from olisar import discord_app, runtime_config
 from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminGrant, AdminUser, Guild, utcnow
+from olisar.db.models import AdminGrant, AdminUser, Guild, GuildConfig, MemberUser, utcnow
 from olisar.guild_setup import ensure_guild_defaults
 
 log = logging.getLogger("olisar.api.auth")
@@ -151,6 +156,44 @@ async def _finish_login(request: Request, sid: str, desktop_nonce: str | None) -
     return resp
 
 
+async def _finish_member_login(request: Request, sid: str) -> Response:
+    """Complete a member-portal sign-in: set the member cookie and land on the portal.
+
+    No desktop-handoff branch, by design — the handoff exists to give the app the
+    *operator's* console, and the caller keeps the denial for that path (see the callback).
+    """
+    resp = RedirectResponse(_origin(request) + "/?portal=1")
+    resp.delete_cookie(STATE_COOKIE)
+    resp.set_cookie(
+        MEMBER_COOKIE_NAME,
+        await sign_member_sid(sid),
+        max_age=MEMBER_SESSION_TTL_DAYS * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=_is_secure(request),
+    )
+    return resp
+
+
+async def _sign_in_member(
+    request: Request, me: dict, user_id: int, member_guild_ids: list[str]
+) -> Response:
+    """Admit a non-admin: someone with no Manage Server anywhere, who is in at least one
+    server Olisar is in and whose operator has opened the member portal there."""
+    async with session_scope() as session:
+        member = await session.get(MemberUser, user_id)
+        if member is None:
+            member = MemberUser(discord_user_id=user_id)
+            session.add(member)
+        member.username = me.get("username", "")
+        member.avatar = _avatar_url(me)
+        member.guild_ids = member_guild_ids
+        member.last_login = utcnow()
+    sid, _csrf = await create_member_session(user_id)
+    log.info("member portal sign-in for user %s (%d servers)", user_id, len(member_guild_ids))
+    return await _finish_member_login(request, sid)
+
+
 async def _mock_sign_in(request: Request, desktop_nonce: str | None) -> Response:
     """Seed a mock allowlisted operator on a seeded 'Mock Server', create a session, and
     finish the sign-in — no Discord round-trip."""
@@ -232,6 +275,31 @@ def _managed_guild_ids(guilds: object) -> list[str]:
             except (TypeError, ValueError):
                 continue
     return out
+
+
+def _all_guild_ids(guilds: object) -> list[str]:
+    """Every guild id the user is in, regardless of permissions — the member portal's
+    equivalent of ``_managed_guild_ids``. Intersected with the bot's active guilds by the
+    caller; the OAuth ``guilds`` scope is what proves membership, so no bot call is needed
+    to admit someone at login."""
+    out: list[str] = []
+    if isinstance(guilds, list):
+        for guild in guilds:
+            try:
+                out.append(str(int(guild.get("id", 0))))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def _avatar_url(me: dict) -> str:
+    """Resolved CDN URL for the signed-in user's avatar, matching the shape the members
+    cog stores (a URL, not a hash). Empty when they're on a default avatar."""
+    user_id, avatar_hash = me.get("id"), me.get("avatar")
+    if not user_id or not avatar_hash:
+        return ""
+    ext = "gif" if str(avatar_hash).startswith("a_") else "png"
+    return f"https://cdn.discordapp.com/avatars/{user_id}/{avatar_hash}.{ext}"
 
 
 @router.get("/login")
@@ -328,6 +396,24 @@ async def callback(request: Request, code: str | None = None, state: str | None 
         # one guild Olisar is actually in. The allowlist gets every guild later.
         bot_guilds = set(await session.scalars(select(Guild.id).where(Guild.active.is_(True))))
         if not (allowlisted or any(int(g) in bot_guilds for g in managed)):
+            # Not an admin of any server Olisar is in — but they may still be an ordinary
+            # member of one, which the member portal admits (their own data only). The
+            # desktop flow is excluded: its handoff hands the *operator's* console to the
+            # app, so a member signing in there still gets the denial below.
+            shared = [g for g in _all_guild_ids(guilds) if int(g) in bot_guilds]
+            if shared and not desktop_nonce:
+                open_portals = set(
+                    await session.scalars(
+                        select(GuildConfig.guild_id).where(
+                            GuildConfig.guild_id.in_([int(g) for g in shared]),
+                            GuildConfig.member_portal_enabled.is_(True),
+                        )
+                    )
+                )
+                portal_guilds = [g for g in shared if int(g) in open_portals]
+                if portal_guilds:
+                    return await _sign_in_member(request, me, user_id, portal_guilds)
+
             # Authenticated with Discord, but not an admin of any server Olisar is in.
             # Bounce back to the dashboard with a flag so it can render a styled
             # "access denied" screen rather than a raw 403 JSON page. No session is
@@ -390,9 +476,16 @@ async def desktop_claim(request: Request, body: _ClaimIn) -> JSONResponse:
 
 @router.post("/logout")
 async def logout(request: Request) -> Response:
+    """Sign out of whichever session(s) this browser is carrying. Both cookies are cleared
+    unconditionally: an operator can hold an admin session and a member session at once
+    (different cookies), and "log out" should mean both, not whichever we checked first."""
     token = request.cookies.get(COOKIE_NAME)
     if token:
         await delete_session(token)
+    member_token = request.cookies.get(MEMBER_COOKIE_NAME)
+    if member_token:
+        await delete_member_session(member_token)
     resp = Response(status_code=204)
     resp.delete_cookie(COOKIE_NAME)
+    resp.delete_cookie(MEMBER_COOKIE_NAME)
     return resp

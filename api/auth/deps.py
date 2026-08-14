@@ -10,20 +10,34 @@ revoked in Discord after login, so on each call we re-derive — from the bot's 
 of the guild — which of the servers the session claims the user still actually manages.
 If they've lost it everywhere, the session is revoked immediately rather than lingering
 until it expires. Allowlisted operators are exempt (admitted by user id, not roles).
+
+``require_member`` / ``require_member_guild`` are the member portal's counterparts. They
+ask a strictly weaker question — *are you still in a server Olisar is in* — and grant
+access only to the caller's own data. They additionally enforce CSRF on mutating requests
+and refuse to serve a server whose operator hasn't opened the portal.
 """
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import discord
 from fastapi import Cookie, Header, HTTPException, Request
 
-from api.auth.sessions import COOKIE_NAME, delete_session, get_admin_for_token
+from api.auth.sessions import (
+    COOKIE_NAME,
+    MEMBER_COOKIE_NAME,
+    delete_member_session,
+    delete_member_sessions_for,
+    delete_session,
+    get_admin_for_token,
+    get_member_for_token,
+)
 from api.trust import is_local_request
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, Guild, utcnow
+from olisar.db.models import AdminUser, Guild, GuildConfig, MemberUser, utcnow
 
 # When each non-allowlisted admin was last verified against the live bot. Bounds how long a
 # session may coast while the bot is unavailable (restarting, or powered off) before it must
@@ -165,3 +179,177 @@ async def require_guild_admin(
     if not admin.is_allowlisted and x_guild_id not in (admin.managed_guild_ids or []):
         raise HTTPException(status_code=403, detail="you don't have Manage Server on this server")
     return GuildContext(admin=admin, guild_id=gid)
+
+
+# ── Member portal ───────────────────────────────────────────────────────────────
+
+# Same shape and purpose as _last_check, for the weaker member re-check.
+_last_member_check: dict[int, datetime] = {}
+
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+async def _still_member_of(bot, user_id: int, claimed: list[str]) -> list[str]:
+    """Of the guilds the session claims the user is in, which they're still in right now.
+    The membership counterpart of ``_still_managed`` — same cache-first lookup and same
+    treatment of transient errors, minus the ``manage_guild`` test."""
+    still: list[str] = []
+    for gid_str in claimed:
+        try:
+            guild = bot.get_guild(int(gid_str))
+        except (TypeError, ValueError):
+            continue
+        if guild is None:
+            continue  # the bot is no longer in that guild
+        member = guild.get_member(user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.NotFound:
+                member = None  # genuinely left — drop this guild
+            except discord.HTTPException:
+                still.append(gid_str)  # transient error — keep, don't revoke on a blip
+                continue
+        if member is not None:
+            still.append(gid_str)
+    return still
+
+
+def _member_recently_verified(member: MemberUser) -> bool:
+    newest = _last_member_check.get(member.discord_user_id)
+    login = member.last_login
+    if login is not None:
+        if login.tzinfo is None:
+            login = login.replace(tzinfo=timezone.utc)
+        if newest is None or login > newest:
+            newest = login
+    return newest is not None and (utcnow() - newest).total_seconds() < _OFFLINE_GRACE_SECONDS
+
+
+async def _revalidate_member(request: Request, member: MemberUser, token: str) -> None:
+    """Re-check that the member is still in at least one server Olisar is in, so leaving
+    the server closes the portal on the next request rather than at session expiry."""
+    bot = _live_bot(request)
+    if bot is None:
+        if _member_recently_verified(member):
+            return
+        await delete_member_session(token)
+        raise HTTPException(status_code=401, detail="please sign in again — the bot is offline")
+    claimed = [str(g) for g in (member.guild_ids or [])]
+    fresh = await _still_member_of(bot, member.discord_user_id, claimed)
+    if set(fresh) != set(claimed):
+        async with session_scope() as session:
+            row = await session.get(MemberUser, member.discord_user_id)
+            if row is not None:
+                row.guild_ids = fresh
+        member.guild_ids = fresh
+    if not fresh:
+        # Left every server Olisar is in. Revoke every session, not just this browser's —
+        # the portal's whole surface is personal data, so a second open tab shouldn't
+        # outlive the membership that authorized it.
+        _last_member_check.pop(member.discord_user_id, None)
+        await delete_member_sessions_for(member.discord_user_id)
+        raise HTTPException(status_code=401, detail="access revoked: you left the server")
+    _last_member_check[member.discord_user_id] = utcnow()
+
+
+def _check_csrf(request: Request, csrf_secret: str, header_token: str | None) -> None:
+    """Enforce a double-submit CSRF token on mutating portal requests.
+
+    The console has relied on ``SameSite=Lax`` alone, which does block cross-site POSTs.
+    The portal is the first surface to expose mutating routes to every member of every
+    server over a public tunnel URL, and its mutations are destructive (deleting facts,
+    erasing an account), so it carries an explicit token as well rather than resting on a
+    single cookie attribute.
+    """
+    if request.method in _SAFE_METHODS:
+        return
+    if not csrf_secret or not header_token or not secrets.compare_digest(
+        header_token, csrf_secret
+    ):
+        raise HTTPException(status_code=403, detail="missing or invalid CSRF token")
+
+
+@dataclass
+class MemberContext:
+    """An authenticated portal member. ``csrf`` is echoed to the client by
+    ``GET /api/member/session`` so it can sign its own mutating calls."""
+    member: MemberUser
+    csrf: str
+
+
+async def require_member(
+    request: Request,
+    olisar_member: str | None = Cookie(default=None, alias=MEMBER_COOKIE_NAME),
+    x_csrf_token: str | None = Header(default=None),
+) -> MemberContext:
+    if not olisar_member:
+        raise HTTPException(status_code=401, detail="not authenticated")
+    resolved = await get_member_for_token(olisar_member)
+    if resolved is None:
+        raise HTTPException(status_code=401, detail="session invalid or expired")
+    member, csrf_secret = resolved
+    _check_csrf(request, csrf_secret, x_csrf_token)
+    await _revalidate_member(request, member, olisar_member)
+    return MemberContext(member=member, csrf=csrf_secret)
+
+
+async def require_any_session(
+    request: Request,
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+    olisar_member: str | None = Cookie(default=None, alias=MEMBER_COOKIE_NAME),
+) -> str:
+    """Any authenticated principal — operator at the machine, signed-in admin, or portal
+    member. Returns a short actor label for logging.
+
+    Used by Feedback, which the member portal offers. It is the one endpoint where "who are
+    you" matters less than "are you someone at all": a member filing a bug about the bot
+    shouldn't need Manage Server, and gating it on admin made the portal's Feedback pane a
+    button that could only fail.
+    """
+    if is_local_request(request):
+        return "operator"
+    if olisar_session:
+        admin = await get_admin_for_token(olisar_session)
+        if admin is not None:
+            return f"admin:{admin.discord_user_id}"
+    if olisar_member:
+        resolved = await get_member_for_token(olisar_member)
+        if resolved is not None:
+            return f"member:{resolved[0].discord_user_id}"
+    raise HTTPException(status_code=401, detail="not authenticated")
+
+
+@dataclass
+class MemberGuildContext:
+    """A portal request authorized for one specific server."""
+    member: MemberUser
+    guild_id: int
+    show_persona: bool
+
+
+async def require_member_guild(
+    request: Request,
+    olisar_member: str | None = Cookie(default=None, alias=MEMBER_COOKIE_NAME),
+    x_csrf_token: str | None = Header(default=None),
+    x_guild_id: str | None = Header(default=None),
+) -> MemberGuildContext:
+    ctx = await require_member(request, olisar_member, x_csrf_token)
+    if not x_guild_id or not x_guild_id.isdigit():
+        raise HTTPException(status_code=400, detail="missing or invalid X-Guild-Id header")
+    gid = int(x_guild_id)
+    # Membership first, then the operator's switch: answering "the portal is off here" to
+    # someone who isn't in the server at all would confirm the bot is in it.
+    if x_guild_id not in [str(g) for g in (ctx.member.guild_ids or [])]:
+        raise HTTPException(status_code=403, detail="you're not in that server")
+    async with session_scope() as session:
+        guild = await session.get(Guild, gid)
+        if guild is None or not guild.active:
+            raise HTTPException(status_code=404, detail="Olisar isn't in that server")
+        config = await session.get(GuildConfig, gid)
+        if config is None or not config.member_portal_enabled:
+            raise HTTPException(
+                status_code=403, detail="this server hasn't opened the member portal"
+            )
+        show_persona = bool(config.member_portal_show_persona)
+    return MemberGuildContext(member=ctx.member, guild_id=gid, show_persona=show_persona)

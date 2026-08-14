@@ -46,6 +46,7 @@ guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#s
 - [Models](#models)
 - [Channels & modes](#channels-modes)
 - [Access control](#access-control)
+- [Member portal](#member-portal)
 - [Command replies](#command-replies)
 - [API keys](#api-keys)
 
@@ -766,13 +767,10 @@ tab sets where the chain starts.
 | `gemini-flash-lite-latest` | 15 | Newest Flash-Lite (auto-updates) | `gemini-2.5-flash-lite` |
 | `gemini-2.5-flash-lite` | 15 | Last resort, highest limit | — |
 
-> [!NOTE]
-> **Why the default is pinned**
-> The `-latest` aliases point at whatever Google ships today, and the API won't tell you which build that
-> is. Running the *default* on one meant a provider-side change could alter request validation under a live
-> bot with no update on Olisar's side — which is exactly how tool-backed replies once started failing. The
-> default is a pinned version, adopted deliberately in a release; the aliases stay one rung lower, where
-> they're a useful last resort if a pinned model is ever retired.
+The default is a **pinned** version, not a `-latest` alias. An alias points at whatever Google ships today
+and the API won't say which build that is, so a change on their side could alter request validation under a
+running bot with no Olisar update involved. New models are adopted deliberately, in a release. The aliases
+stay one rung lower, where they're a useful last resort if a pinned model is retired.
 
 > [!NOTE]
 > **Reasoning ("thinking")**
@@ -854,6 +852,52 @@ For each role you choose:
 > **Safeguards**
 > Server admins (Manage Server) **always** have access, so you can't lock yourself out, and `/privacy` and
 > `/forget-me` stay open to everyone for data rights. DM users are gated by their roles in this server.
+
+
+This tab also carries the switches for the [Member portal](#member-portal) — the page where members
+manage their own data. Those roles govern who can *use* Olisar; the portal governs what someone can see
+and delete about themselves.
+
+### Member portal
+
+Everything above is a console for **admins**. The member portal is the other side of it: a page where
+any member of your server can sign in with Discord and see what Olisar has stored about *them* — and
+correct it, export it, or delete it. It shows each person only their own data.
+
+Turn it on from the Access tab.
+
+#### What a member sees
+- **How it sees you** — the private characterization Olisar writes from someone's messages. Off by
+  default; see the warning below.
+- **What it remembers** — every durable fact, each with a link back to the message it came from, and a
+  delete button on each one. This is the part `/forget-me` can't do: it erases everything or nothing.
+- **What it may keep** — switches for remembering, search indexing, and DMs, plus a **pause** that
+  expires on its own after 24 hours or 7 days.
+- **Waiting on** — their pending reminders, including the ones Olisar set itself after they mentioned a
+  date, which until now had no surface at all.
+- **Export or erase** — the whole lot as a JSON file, or the same wipe `/forget-me` performs.
+
+Figures in the opening sentence are clickable: each one opens a breakdown of where it comes from.
+
+> [!WARNING]
+> **Impressions are a separate choice**
+> "Show each member their impression" is a **second** toggle, off even when the portal is on. That text is
+> written by the model from someone's messages, and it can be unflattering or simply wrong. Read a few on
+> the Members tab before you decide to show them.
+
+
+> [!NOTE]
+> **Needs remote access**
+> The console is only reachable from the operator's machine until [remote access](#remote-access) is on, so the
+> portal can't be enabled without it — members would have no address to open. The toggle stays disabled,
+> and the API refuses it too.
+
+
+> [!TIP]
+> **How members find it**
+> Once the portal is open, `/privacy` starts including a link to it. Nobody finds a page nothing links
+> to, and `/privacy` is the command whose whole job is explaining what Olisar keeps. You can reword that
+> text on the Command replies tab.
 
 ### Command replies
 
@@ -1912,6 +1956,9 @@ Olisar is built to respect members' data, and to be transparent about what it ke
 - `/forget-me` — deletes everything stored about a person: messages, facts, profile, and their
   entries in the search index. `stop_remembering: true` also opts them out of future recording,
   permanently. When a message is edited or deleted in Discord, Olisar updates or removes its copy too.
+- The [Member portal](#member-portal), if you've opened it — the same rights on a web page, plus the
+  two things a slash command can't offer: **seeing** what's stored before deciding, and deleting a
+  **single** remembered fact instead of all of them.
 
 > [!WARNING]
 > **Admin wipe**

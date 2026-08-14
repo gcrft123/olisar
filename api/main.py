@@ -21,6 +21,7 @@ from api.routers.audit import router as audit_router
 from api.routers.knowledge import router as knowledge_router
 from api.routers.dev import router as dev_router
 from api.routers.marketplace import router as marketplace_router
+from api.routers.member import router as member_router
 from api.routers.server import router as server_router
 from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
@@ -62,6 +63,9 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(usage_router)
     app.include_router(audit_router)
+    # The only router gated on a member session rather than an admin one — see
+    # api/routers/member.py for why its authorization is a separate ladder.
+    app.include_router(member_router)
 
     @app.get("/api/health")
     async def health(request: Request):

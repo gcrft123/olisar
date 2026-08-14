@@ -174,6 +174,16 @@ class GuildConfig(Base):
     # Admin overrides for slash-command reply text (key -> template string).
     # Empty/NULL falls back to the defaults in olisar/messages.py.
     command_messages: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
+    # Member portal: lets ordinary members — no Manage Server anywhere — sign in and see,
+    # correct, export and delete what Olisar has stored about them. Off by default: it's
+    # only reachable once remote access is configured (the console is loopback otherwise),
+    # and opening a surface to every member of the server is the operator's call to make.
+    member_portal_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether the portal shows a member the persona_summary Olisar wrote about them. A
+    # second, deliberate opt-in rather than part of the first: that text is model-written
+    # and can be unflattering or simply wrong, so enabling the portal must never expose it
+    # by accident.
+    member_portal_show_persona: Mapped[bool] = mapped_column(Boolean, default=False)
     # Bumped on every config save (reserved for future cache invalidation).
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(
@@ -352,6 +362,15 @@ class UserProfile(Base):
     # the guild-0 (DM) profile since DMs aren't tied to a guild; when set, the user's DMs
     # aren't stored, indexed, summarized, or mined. Toggled via /dm-indexing or the tool.
     dm_opt_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Opt out of the server-wide search index *only* — "keep talking to me, just don't make
+    # my messages findable by everyone". memory_opt_out is the stronger flag and implies
+    # this one; this gates record_search_message alone. Set from the member portal.
+    search_opt_out: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Self-service temporary pause ("incognito"): while this is in the future the member is
+    # neither stored nor indexed. Distinct from memory_opt_out, which is indefinite and must
+    # be lifted by hand — this expires on its own, so a member can go quiet for an evening
+    # without having to remember to turn recording back on.
+    pause_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[dict] = mapped_column(JSON, default=dict)
     # A generated characterization of this user, synthesized from their message
     # history (Phase 2). Distinct from Olisar's own persona; lets Olisar tailor
@@ -792,6 +811,47 @@ class Session(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    csrf_secret: Mapped[str] = mapped_column(String(64), default="")
+
+
+class MemberUser(Base):
+    """A non-admin member signed in to the member portal — someone in a server Olisar is in
+    who has Manage Server nowhere, and so can see only their own data.
+
+    Deliberately a *separate table* from :class:`AdminUser` rather than a discriminator
+    column on it. ``require_admin`` treats every row in ``admin_user`` as trusted, and the
+    schema migrator is forward-only ``create_all`` + ``ADD COLUMN`` (scripts/init_db.py) —
+    it cannot rebuild a table to relax an FK later. Additive tables cost nothing and keep
+    the two trust levels physically apart.
+    """
+
+    __tablename__ = "member_user"
+
+    discord_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    username: Mapped[str] = mapped_column(String(128), default="")
+    avatar: Mapped[str] = mapped_column(String(256), default="")
+    # Guild ids (strings — snowflakes exceed JS's safe-integer range) this user shares with
+    # the bot, captured at login and narrowed by the live re-check on every request.
+    guild_ids: Mapped[list] = mapped_column(JSON, default=list)
+    last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MemberSession(Base):
+    """Session for a member-portal sign-in. Mirrors :class:`Session` but is keyed to
+    ``member_user`` and carried by its own cookie, so a member's token can never be
+    presented to ``require_admin`` — the two never share a namespace."""
+
+    __tablename__ = "member_session"
+
+    sid: Mapped[str] = mapped_column(String(64), primary_key=True)
+    member_user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("member_user.discord_user_id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Unlike the admin session's (currently unused) equivalent, this one is enforced: the
+    # portal is the first surface that exposes mutating routes to every member of every
+    # server, over a public Funnel URL. See api/auth/deps.py:_check_csrf.
     csrf_secret: Mapped[str] = mapped_column(String(64), default="")
 
 

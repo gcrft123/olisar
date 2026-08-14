@@ -2263,3 +2263,186 @@ th.num .th-sortbtn { text-align: right; }
 /* Filter + bulk setter on Access, mirroring the Channels toolbar. */
 .access-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; }
 .access-toolbar input { flex: 1; min-width: 0; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Member portal (web/src/member.tsx)
+
+   The console's own pages sit in a nav rail with stacked cards. This surface is read
+   more than it is operated, so it uses a label rail and hairline seams instead: every
+   section on the page ground, no panels at all. --measure and the seam values come
+   from the guide's site-only block, which documents them for the next surface to reuse.
+   ───────────────────────────────────────────────────────────────────────────── */
+.mp {
+  --measure: 29em;
+  --seam-act: clamp(56px, 6vw, 92px);
+  --seam-flow: clamp(38px, 4vw, 58px);
+  --mp-rail: 172px;
+  max-width: 872px; margin: 0 auto; padding: 0 28px 96px;
+}
+.mp-top { display: flex; align-items: center; gap: 14px; padding: 22px 0 0; }
+.mp-top .spacer { margin-left: auto; }
+.mp-who {
+  display: flex; align-items: center; gap: 9px; padding: 4px 4px 4px 11px;
+  border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--panel);
+}
+.mp-who .nm { font-size: 12.5px; color: var(--text-2); }
+
+.mp-open { padding: clamp(44px, 6vw, 80px) 0 0; }
+.mp-open h1 { font-size: clamp(28px, 3.6vw, 38px); letter-spacing: -0.024em; line-height: 1.08; text-wrap: balance; }
+/* The figures are set in a sentence, not a metric grid: a stat row answers "how is the
+   system doing", and this page answers "what do you have on me". */
+.mp-lead { margin: 18px 0 0; max-width: var(--measure); font-size: 15.5px; line-height: 1.85; color: var(--text-2); }
+
+.mp-seam { margin-top: var(--seam-act); border-top: 1px solid var(--border); }
+.mp-seam.flow { margin-top: var(--seam-flow); }
+.mp-sec { display: grid; grid-template-columns: var(--mp-rail) minmax(0, 1fr); gap: 34px; padding-top: 26px; }
+.mp-sec > .rail { padding-top: 2px; }
+.mp-sec > .rail h2 {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-3); margin: 0;
+}
+.mp-sec > .body { min-width: 0; }
+
+/* The impression. Focal prose, carried by size and measure — not a second typeface. */
+.mp-impression {
+  font-size: clamp(16px, 1.6vw, 18px); line-height: 1.62; letter-spacing: -0.008em;
+  color: var(--text); max-width: var(--measure); margin: 0;
+}
+.mp-impression-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 20px; }
+.mp-impression-foot .when { color: var(--text-3); font-size: 11.5px; }
+.mp-quiet { color: var(--text-3); font-size: 13.5px; margin: 0; }
+
+/* Rows — facts and reminders, on the ground rather than in a table. */
+.mp-list { display: flex; flex-direction: column; }
+.mp-item { display: flex; align-items: flex-start; gap: 15px; padding: 15px 0; border-top: 1px solid var(--border); }
+.mp-item:first-child { border-top: 0; padding-top: 2px; }
+.mp-item .body { min-width: 0; flex: 1; }
+.mp-item .what { font-size: 14px; line-height: 1.5; color: var(--text); }
+.mp-item .meta {
+  margin-top: 5px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+  color: var(--text-3); font-size: 11.5px;
+}
+.mp-item .kind {
+  font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3);
+}
+.mp-item .kind.ev { color: var(--info); }
+/* Quiet by COLOUR, not opacity: a faded wash would put the only control for a destructive
+   action under the contrast floor. --text-3 is sized against every ground it lands on. */
+.mp-item .acts { display: flex; align-items: center; gap: 4px; flex: none; }
+.mp-when { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--text-2); flex: none; width: 104px; padding-top: 2px; }
+.mp-src { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); }
+.mp-src:hover { color: var(--accent); text-decoration: none; }
+
+/* Controls */
+.mp-field { display: flex; align-items: flex-start; gap: 22px; padding: 16px 0; border-top: 1px solid var(--border); }
+.mp-field:first-of-type { border-top: 0; padding-top: 2px; }
+.mp-field .mp-copy { min-width: 0; flex: 1; }
+.mp-field .mp-lbl { display: block; font-weight: 550; font-size: 13.5px; }
+.mp-field .mp-desc { color: var(--text-2); font-size: 12.5px; line-height: 1.5; max-width: 52ch; margin-top: 3px; }
+
+/* Export & erase. No card and no tint: the whole weight of the decision sits on the
+   confirm dialog, which names the server and demands the phrase. */
+.mp-dz { display: flex; align-items: flex-start; gap: 22px; padding: 16px 0; border-top: 1px solid var(--border); }
+.mp-dz:first-of-type { border-top: 0; padding-top: 2px; }
+.mp-dz .mp-copy { flex: 1; min-width: 0; }
+.mp-dz .mp-copy b { display: block; font-weight: 550; font-size: 13.5px; }
+
+/* ── Statistic chips ────────────────────────────────────────────────────────
+   Shaped like the RoleChip — a 13% fill and a 34% edge derived from one colour by
+   color-mix — but carrying a chart series hue instead of a Discord role's. The hue is
+   the figure's own dominant slice, so hovering connects the number to the arc that
+   dominates it. */
+.mp-chipwrap { position: relative; display: inline-block; }
+.mp-chip {
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 0.94em;
+  font-weight: 600; line-height: 1.2; padding: 1px 8px; border-radius: var(--radius-xs);
+  cursor: pointer; color: currentColor;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  transition: background 0.12s, border-color 0.12s;
+}
+.mp-chip:hover, .mp-chip[aria-expanded='true'] {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  border-color: color-mix(in srgb, currentColor 58%, transparent);
+}
+.mp-chip:focus-visible { outline: none; box-shadow: var(--ring); }
+/* Positioning only — the clamp writes an inline transform here, so nothing on this
+   element may animate transform (its final keyframe would win over the inline style). */
+.mp-pop {
+  position: absolute; top: calc(100% + 9px); left: -14px; z-index: 60;
+  width: min(262px, calc(100vw - 20px));
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius);
+  padding: 16px 17px 17px; box-shadow: var(--shadow-pop); cursor: default;
+}
+.mp-pop-in { animation: mpPop 0.16s var(--ease-out) both; }
+@keyframes mpPop { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.mp-pop-head { margin-bottom: 13px; }
+.mp-pop-head b { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+.mp-pop-head span { display: block; font-size: 11.5px; line-height: 1.5; color: var(--text-3); }
+.mp-pop .u-donut-wrap { gap: 15px; }
+.mp-pop .u-donut-total { font-size: 20px; }
+.mp-pop .u-donut-sub { font-size: 10.5px; }
+
+@media (max-width: 760px) {
+  .mp { --mp-rail: auto; padding: 0 18px 80px; }
+  .mp-sec { grid-template-columns: 1fr; gap: 14px; padding-top: 22px; }
+  .mp-when { width: auto; padding-top: 0; }
+  .mp-item { flex-wrap: wrap; gap: 8px 14px; }
+  .mp-item .body { flex: 1 1 100%; order: 2; }
+  .mp-item .acts { order: 3; margin-left: auto; }
+  .mp-field, .mp-dz { flex-direction: column; gap: 12px; }
+}
+
+/* The pause banner sits under the control that produces it and reports its state, so it
+   gets no hairline above — a divider there would read as another setting. */
+.mp-pause { margin-top: 14px; }
+
+/* Activity ledger toolbar — reload sits above the list, since the ledger runs to 60
+   entries and a control under it is below the fold on every screen that matters. */
+.act-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+
+/* Log block inside the Settings modal. `.srv-logs` was only ever styled under `.setup`, so
+   here it was a bare <pre>: unwrapped lines in a flex column resolve min-width to `auto`,
+   the box grew to its widest line, and the whole pane scrolled sideways with it. min-width:0
+   is what keeps the overflow inside this element instead of pushing the layout. */
+.settings-body > .srv-logs {
+  min-width: 0; max-width: 100%; overflow: auto; max-height: 380px; margin: 0;
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6;
+  color: var(--text-2); white-space: pre;
+}
+
+/* A subhead straight after the pane title doubled the gap: .settings-head already carries
+   20px below, and .settings-subhead added 22px above it. */
+.settings-head + .settings-subhead { margin-top: 0; }
+
+/* The account chip's avatar. `.avatar` has no global rule — DESIGN.md describes an Avatar
+   component but index.css never defined one — so it needs its own here. Circular rather
+   than the guide's rounded square: it sits inside a pill, and a squircle inside a
+   999px-radius container reads as a mistake. */
+.mp-who .avatar {
+  width: 24px; height: 24px; border-radius: 50%; flex: none; object-fit: cover;
+  display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 11.5px;
+}
+
+/* ── Hairlines inside the Settings modal ─────────────────────────────────────
+   `zoom: var(--ui-scale)` on :root makes a declared 1px border compute to 0.909px at
+   110% — and Chromium collapses every sub-2px width to that same value, so `1px` and
+   `1.1px` are indistinguishable. At a fractional Y offset (the type scale's 1.55
+   line-height yields 27.9px / 20.925px boxes, which stack into fractions) the top edge's
+   coverage rounds away entirely and a card renders with three sides.
+
+   Box shadows are painted rather than laid out, so an inset ring survives the same offset.
+   The border is kept and made transparent so the box keeps its size — swapping it out
+   would shrink every one of these by 2px. */
+.settings-modal .update-card,
+.settings-modal .status-card,
+.settings-modal .useg,
+.settings-modal .srv-logs,
+.settings-modal .shortcut kbd {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+/* The segmented control's raised chip keeps its own lift on top of the ring. */
+.settings-modal .useg button.on { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }

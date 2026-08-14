@@ -7,6 +7,8 @@ on a background queue (Phase 2), so this never blocks a reply.
 
 from __future__ import annotations
 
+from datetime import timezone
+
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +23,18 @@ from olisar.db.models import (
     snowflake_time,
     utcnow,
 )
+
+
+def _paused(pause_until) -> bool:
+    """Whether a member's self-service pause ("incognito", set from the member portal) is
+    still in effect. Expires on its own — no sweep job clears the column, so every read
+    compares against now. Naive datetimes come back from SQLite; treat them as UTC, the
+    same convention the session code uses."""
+    if pause_until is None:
+        return False
+    if pause_until.tzinfo is None:
+        pause_until = pause_until.replace(tzinfo=timezone.utc)
+    return pause_until > utcnow()
 
 
 async def _indexing_disabled(session: AsyncSession, channel_id: int) -> bool:
@@ -217,6 +231,8 @@ async def record_message(
             return None  # respect opt-out: don't store their content
         if guild_id == 0 and profile.dm_opt_out:
             return None  # user opted their DMs out of storage + indexing
+        if _paused(profile.pause_until):
+            return None  # temporarily paused from the member portal
 
     # Guard against re-delivery (gateway reconnects can replay events).
     exists = await session.scalar(
@@ -283,14 +299,22 @@ async def record_search_message(
     # Respect a per-channel indexing opt-out (threads inherit their parent's setting).
     if await _indexing_disabled(session, channel_id):
         return False
-    # Respect opt-out (same gate as conversational recording).
-    opted_out = await session.scalar(
-        select(UserProfile.memory_opt_out).where(
-            UserProfile.user_id == author_id, UserProfile.guild_id == guild_id
+    # Respect opt-out (same gate as conversational recording), plus the two portal-set
+    # flags that bear on indexing: search_opt_out ("keep talking to me, just don't make me
+    # findable") and an active pause. Fetched in one row rather than a scalar per flag.
+    flags = (
+        await session.execute(
+            select(
+                UserProfile.memory_opt_out,
+                UserProfile.search_opt_out,
+                UserProfile.pause_until,
+            ).where(UserProfile.user_id == author_id, UserProfile.guild_id == guild_id)
         )
-    )
-    if opted_out:
-        return False
+    ).first()
+    if flags is not None:
+        memory_opted, search_opted, pause_until = flags
+        if memory_opted or search_opted or _paused(pause_until):
+            return False
     # DMs: also honour the per-user DM opt-out (kept on the guild-0 profile).
     if guild_id == 0:
         dm_opted = await session.scalar(
