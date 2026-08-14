@@ -292,7 +292,7 @@ class Proactive(commands.Cog):
         async with session_scope() as session:
             display = (await name_map(session, {author_id})).get(author_id, "someone")
             async with channel.typing():
-                text = await generate_reply(
+                reply = await generate_reply(
                     session,
                     guild_id=guild_id,
                     channel_id=channel_id,
@@ -305,7 +305,10 @@ class Proactive(commands.Cog):
                     runtime_note=PROACTIVE_NOTE,
                 )
 
-        clean = (text or "").strip()
+        # No report button here, unlike the addressed paths: nobody asked Olisar anything,
+        # so there is no prompt of theirs to report and no failure they'd recognize. A
+        # chime that comes out blank is the bot's problem, and it's in the operator's logs.
+        clean = (reply.text or "").strip()
         if not clean or clean.lower() in (SKIP_SENTINEL, "skip"):
             log.info("proactive self-skipped ch=%s", channel_id)
             return False

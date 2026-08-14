@@ -423,6 +423,46 @@ class Reminder(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class FailureReport(Base):
+    """One time Olisar drew a blank, parked so the person it happened to can report it.
+
+    When a reply comes back as the blank fallback ("my mind just went blank there"), the
+    bot writes a row here and puts a **Report this** link-button on the message. Opening it
+    signs the clicker into the console — their own portal if they're an ordinary member,
+    the admin console if they aren't — and hands the Feedback pane a bug report already
+    filled in with their prompt and this moment's logs.
+
+    Two fields, two owners, and they are not treated alike:
+
+    * ``prompt`` is the member's own words, so this table is in ``MEMBER_DATA_TABLES``
+      (olisar/memory/purge.py) — ``/forget-me`` deletes it and the portal's export lists it.
+    * ``logs`` is the *bot's* operational record, snapshotted at the failure because the
+      reason is in the lines around it and a report filed tomorrow with tomorrow's logs is
+      worthless. It spans every member's activity, so it is never shown to the reporter or
+      returned by the export — it only ever rides along with the feedback they submit,
+      attached server-side. Same rule the Feedback pane already follows for live logs.
+
+    Rows are short-lived: ``expires_at`` is a few days out and each write prunes what has
+    aged out (see olisar/failures.py), so an unreported blank doesn't keep a prompt forever.
+    """
+
+    __tablename__ = "failure_report"
+
+    token: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    # The DM sentinel 0 for a DM, matching every other per-member table — which is what
+    # puts DM blanks inside the reach of /forget-me (see purge.active_memory_guild_ids).
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    # "mention" | "name" | "reply" | "dm" | "ask" — how they reached Olisar, so a report
+    # says which path broke without the reporter having to remember.
+    trigger: Mapped[str] = mapped_column(String(16), default="")
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    logs: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 # ─── Server-wide search index ───────────────────────────────────────────────────
 
 

@@ -19,8 +19,9 @@ from discord.ext import commands
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import MessageActions
 from bot.content import download_images, image_attachments, message_text, resolve_reply
-from bot.replies import record_bot_messages, send_reply
+from bot.replies import record_bot_messages, report_view, send_reply
 from bot.triggers import detect_trigger
+from olisar.failures import open_report
 from olisar.db.engine import session_scope
 from olisar.db.models import ChannelMode, GuildConfig
 from olisar.gemini.vision import describe_images
@@ -155,7 +156,7 @@ class Conversation(commands.Cog):
 
         async with message.channel.typing():
             async with session_scope() as session:
-                text = await generate_reply(
+                reply = await generate_reply(
                     session,
                     guild_id=guild_id,
                     home_guild_id=cfg_guild,  # DMs (guild_id 0) draw features from this real guild
@@ -169,7 +170,24 @@ class Conversation(commands.Cog):
                     images=images,
                     reply_to=reply_to,
                 )
-            sent = await send_reply(message.channel, text, reply_to=message)
+                # Park the failure inside the same transaction that produced it: the button
+                # about to be sent is a link to this row, so the row commits first or the
+                # message goes out without it.
+                report_url = (
+                    await open_report(
+                        session,
+                        user_id=message.author.id,
+                        guild_id=guild_id,
+                        channel_id=message.channel.id,
+                        trigger=trigger,
+                        prompt=text_body,
+                    )
+                    if reply.blanked
+                    else ""
+                )
+            sent = await send_reply(
+                message.channel, reply.text, reply_to=message, view=report_view(report_url)
+            )
 
         if stores:
             await record_bot_messages(
