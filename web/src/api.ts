@@ -32,15 +32,25 @@ export function setMemberCsrf(token: string | null): void {
 // `timeoutMs` is opt-in — most calls have none (deploy/reindex legitimately run for minutes),
 // but SSH-backed reads (server status/pubkey/logs) pass a short timeout so a wedged/unreachable
 // backend surfaces as an error instead of hanging the UI forever.
+//
+// `signal` is opt-in too: a call the operator can abort (marketplace publish) passes one, and we
+// link it to the timeout controller so either source can cancel the same fetch. The abort reason
+// is what tells them apart afterwards — a timeout is the backend's fault and gets a message; a
+// cancel is the operator's own doing and must not be reported as a failure.
 async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}): Promise<any> {
-  const { timeoutMs, ...init } = opts
+  const { timeoutMs, signal: callerSignal, ...init } = opts
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (currentGuild) headers['X-Guild-Id'] = currentGuild
   // Sent on every member call rather than only the mutating ones: the server ignores it on
   // safe methods, and a per-call opt-in is a thing a future route can forget.
   if (memberCsrf && path.startsWith('/api/member')) headers['X-CSRF-Token'] = memberCsrf
-  const ctrl = timeoutMs ? new AbortController() : null
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
+  const ctrl = timeoutMs || callerSignal ? new AbortController() : null
+  const timer = timeoutMs && ctrl ? setTimeout(() => ctrl.abort('timeout'), timeoutMs) : null
+  const onCallerAbort = () => ctrl?.abort(callerSignal?.reason ?? 'cancelled')
+  if (ctrl && callerSignal) {
+    if (callerSignal.aborted) onCallerAbort()
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
+  }
   let res: Response
   try {
     res = await fetch(BASE + path, {
@@ -50,7 +60,12 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
       headers,
     })
   } catch (e: any) {
-    if (ctrl?.signal.aborted) throw new Error('timed out — the backend didn’t respond')
+    if (ctrl?.signal.aborted) {
+      if (ctrl.signal.reason === 'timeout') throw new Error('timed out — the backend didn’t respond')
+      // The operator cancelled. Rethrow the AbortError untouched so the caller can tell this
+      // apart from a real failure and stay quiet about it.
+      throw e
+    }
     // fetch() rejects with a bare TypeError for DNS, refused connections, offline and CORS.
     // That surfaced to the operator as the browser's own "Failed to fetch", and because it
     // carries a message the friendlier fallbacks downstream were dead code.
@@ -58,6 +73,7 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
     throw e
   } finally {
     if (timer) clearTimeout(timer)
+    callerSignal?.removeEventListener('abort', onCallerAbort)
   }
   if (res.status === 401) { onUnauthorized?.(); throw new Unauthorized('not authenticated') }
   if (!res.ok) {
@@ -159,8 +175,12 @@ export const api = {
   marketplacePublisher: () => req('/api/marketplace/publisher'),
   marketplaceRegister: (handle: string) =>
     req('/api/marketplace/register', { method: 'POST', body: JSON.stringify({ handle }) }),
-  marketplacePublish: (key: string) =>
-    req('/api/marketplace/publish', { method: 'POST', body: JSON.stringify({ key }) }),
+  // Takes a signal: the server-side risk review can run for a minute and the console offers
+  // a Stop, which has to actually reach the backend before it ships anything.
+  marketplacePublish: (key: string, opts?: { signal?: AbortSignal }) =>
+    req('/api/marketplace/publish', {
+      method: 'POST', body: JSON.stringify({ key }), signal: opts?.signal,
+    }),
   marketplaceReview: (key: string) =>
     req('/api/marketplace/review', { method: 'POST', body: JSON.stringify({ key }) }),
   marketplacePublished: () => req('/api/marketplace/published'),

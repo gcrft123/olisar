@@ -1995,11 +1995,16 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 }
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
-.toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; }
+/* min-width:0 so a long message truncates inside the flex row instead of widening it and
+   pushing a trailing action button past the toast's max-width. */
+.toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; min-width: 0; }
 /* A sticky toast is there to be read and quoted, so its text is selectable — the rest of
-   the console suppresses selection on chrome, and a failure message is not chrome. */
-.toast.sticky .toast-msg { user-select: text; cursor: text; }
+   the console suppresses selection on chrome, and a failure message is not chrome. A busy
+   toast is progress, not a message to quote, so it keeps the ordinary cursor. */
+.toast.sticky:not(.busy) .toast-msg { user-select: text; cursor: text; }
 .toast-x { flex: none; margin: -4px -4px -4px 0; color: var(--text-3); }
+/* Negative block margins keep the 34px text button from growing the toast's own height. */
+.toast-action { flex: none; margin: -4px 0 -4px 4px; }
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
