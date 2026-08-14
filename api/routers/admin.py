@@ -24,7 +24,7 @@ from api.schemas import (
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import runtime_keys
+from olisar import runtime_config, runtime_keys
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -190,12 +190,25 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "blocked_mentions": list(c.blocked_mentions or []),
             "allowed_role_ids": [str(r) for r in (c.allowed_role_ids or [])],
             "blocked_role_ids": [str(r) for r in (c.blocked_role_ids or [])],
+            "member_portal_enabled": c.member_portal_enabled,
+            "member_portal_show_persona": c.member_portal_show_persona,
+            # Not a setting — the condition the portal depends on. The console needs it to
+            # explain why the toggle is unavailable rather than just disabling it.
+            "remote_access_configured": await runtime_config.remote_access_configured(),
         }
 
 
 @router.put("/config")
 async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_admin)):
     data = body.model_dump(exclude_unset=True)
+    # The member portal is for people who are not at this machine, and the console is
+    # loopback-only until remote access is configured. Enabling it without that produces a
+    # door whose URL no member can open, so refuse rather than store a setting that lies.
+    if data.get("member_portal_enabled") and not await runtime_config.remote_access_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="turn on remote access first — members can't reach a loopback-only console",
+        )
     async with session_scope() as session:
         c = await session.get(GuildConfig, gctx.guild_id)
         if c is None:

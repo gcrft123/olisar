@@ -112,7 +112,11 @@ class FeedbackIn(BaseModel):
     category: str = "Feedback"  # Feedback | Bug report | Question
     message: str
     email: str = ""             # optional reply-to address
-    logs: str = ""              # optional bot logs
+    logs: str = ""              # deprecated: clients used to read the logs and post them back
+    # Ask the server to attach its own logs. The client no longer fetches them: reading them
+    # requires admin, so a member ticking "add bot logs" could only ever fail — and a member
+    # must not be handed the bot's logs just to file a bug about it.
+    include_logs: bool = False
     attachments: list[ReportAttachmentIn] = []
 
 
@@ -166,6 +170,10 @@ class ConfigIn(BaseModel):
     # Role ids as strings (snowflake precision). Empty lists = open access.
     allowed_role_ids: list[str] | None = None
     blocked_role_ids: list[str] | None = None
+    # Member portal. Enabling is refused unless remote access is configured — see
+    # api/routers/admin.py, put_config.
+    member_portal_enabled: bool | None = None
+    member_portal_show_persona: bool | None = None
 
 
 class ProactivityIn(BaseModel):
@@ -233,3 +241,36 @@ class SandboxChatIn(BaseModel):
 
 class DesktopSettingsIn(BaseModel):
     show_in_menu_bar: bool | None = None
+
+
+# ── Member portal (api/routers/member.py) ───────────────────────────────────────
+
+
+class MemberSettingsIn(BaseModel):
+    """A member editing their own recording preferences. Every field optional so the
+    portal can send only what changed — same convention as the admin PUTs above."""
+
+    memory_opt_out: bool | None = None
+    # DMs aren't per-guild; this one is written to the caller's guild-0 profile whatever
+    # server the portal is scoped to, matching /dm-indexing.
+    dm_opt_out: bool | None = None
+    search_opt_out: bool | None = None
+    # Self-service pause, in hours from now. 0 lifts it; None leaves it untouched. Capped
+    # at 30 days — a longer "pause" is really memory_opt_out, which says so plainly and
+    # doesn't silently lapse.
+    pause_hours: int | None = Field(None, ge=0, le=720)
+
+
+class MemberFactCorrectionIn(BaseModel):
+    """A member telling Olisar its impression of them is wrong. Recorded as a new fact
+    rather than an edit to persona_summary: the summary is regenerated from history, so an
+    edit would be overwritten, and a correction the model can read is worth more than one
+    it can't."""
+
+    content: str = Field(min_length=1, max_length=500)
+
+
+class MemberForgetIn(BaseModel):
+    # Mirrors `/forget-me stop_remembering:true` — delete everything, and optionally stop
+    # recording from here on.
+    stop_remembering: bool = False

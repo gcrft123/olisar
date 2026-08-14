@@ -970,3 +970,94 @@ export function useAsync<T>(loader: () => Promise<T>, deps: any[] = []) {
   return { data, loading, error, reload, refresh, setData }
 }
 
+
+// ── DonutChart (composition) ─────────────────────────────────────────────────
+// Lives here rather than in pages.tsx because two surfaces draw one: the Usage tab's
+// by-process share, and the member portal's per-figure breakdowns. Series hues come from
+// the .us0–.us5 classes via `currentColor`, so no chart hex is ever written inline (the
+// design linter rejects it).
+export const U_SERIES = ['us0', 'us1', 'us2', 'us3', 'us4', 'us5']
+export const uReq = (n: number) => (n >= 1000 ? n.toLocaleString() : String(n))
+
+export type DonutItem = { label: string; value: number; tip?: string }
+
+export function DonutChart(
+  { items, total, unit, size = 190, caption, centerLabel }:
+  { items: DonutItem[]; total: number; unit: string; size?: number; caption?: string; centerLabel?: string },
+) {
+  const c = size / 2, r = size * 0.389, sw = size * 0.084, gapPx = size * 0.042
+  const C = 2 * Math.PI * r
+  const priced = items.filter((it) => it.value > 0).map((it) => ({ ...it, frac: it.value / (total || 1) }))
+  // Fold negligible (<5%) slices into one "Other" so tiny arcs don't overlap. The
+  // Other legend row lists what's inside (name + share) on hover via data-tip.
+  const small = priced.filter((it) => it.frac < 0.05)
+  let base: (DonutItem & { frac: number })[]
+  if (small.length >= 2) {
+    const val = small.reduce((s, x) => s + x.value, 0)
+    base = [
+      ...priced.filter((it) => it.frac >= 0.05),
+      { label: 'Other', value: val, frac: val / (total || 1), tip: small.map((x) => `${x.label} ${Math.round(x.frac * 100)}%`).join(' · ') },
+    ]
+  } else {
+    base = priced
+  }
+  // Give every slice a minimum rendered arc so tiny ones don't collapse under the round
+  // caps and overlap; pay for that surplus by shrinking the largest slice, so the ring
+  // stays 360° and roughly in proportion (the legend keeps the true percentages).
+  const drawable = C - base.length * gapPx
+  const minArc = sw + 3
+  const arcs = base.map((s) => ({ ...s, arc: s.frac * drawable }))
+  let deficit = 0
+  for (const a of arcs) if (a.arc < minArc) { deficit += minArc - a.arc; a.arc = minArc }
+  if (deficit > 0) {
+    const big = arcs.reduce((x, y) => (y.arc > x.arc ? y : x))
+    big.arc = Math.max(minArc, big.arc - deficit)
+  }
+  let cursor = 0
+  const segs = arcs.map((s, i) => {
+    const startPx = cursor
+    cursor += s.arc + gapPx
+    return { ...s, startPx, cls: s.label === 'Other' ? 'us-mut' : U_SERIES[i % U_SERIES.length] }
+  })
+  const summary = `${caption || unit}. ` + segs.map((s) => `${s.label} ${Math.round(s.frac * 100)}%`).join(', ')
+  return (
+    <div className="u-donut-wrap">
+      <svg className="u-donut" viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label={summary}>
+        <circle cx={c} cy={c} r={r} fill="none" className="u-donut-track" strokeWidth={sw} />
+        {segs.map((s) => {
+          const dash = Math.max(0.5, s.arc - sw)
+          const rot = ((s.startPx + sw / 2) / C) * 360 - 90
+          return (
+            <circle key={s.label} cx={c} cy={c} r={r} fill="none" className={'u-donut-seg ' + s.cls}
+              strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${dash} ${C - dash}`}
+              transform={`rotate(${rot} ${c} ${c})`} />
+          )
+        })}
+        <text x={c} y={c - 2} textAnchor="middle" className="u-donut-total">{centerLabel ?? uReq(total)}</text>
+        <text x={c} y={c + 15} textAnchor="middle" className="u-donut-sub">{unit}</text>
+      </svg>
+      <div className="u-donut-legend">
+        {segs.map((s) => (
+          <div className={'u-dl ' + s.cls} key={s.label} data-tip={s.tip} aria-label={s.tip ? `${s.label}: ${s.tip}` : undefined}>
+            <span className="d" /><span className="nm">{s.label}</span>
+            <span className="v">{uReq(s.value)}</span>
+            <span className="pc">{Math.round(s.frac * 100)}%</span>
+          </div>
+        ))}
+      </div>
+      {/* Every chart ships its numbers twice. The class goes on a WRAPPING div, never on
+          the table — a display:table box treats width:1px as a minimum and expands. */}
+      <div className="visually-hidden">
+        <table>
+          <caption>{caption || unit}</caption>
+          <thead><tr><th scope="col">Category</th><th scope="col">Count</th><th scope="col">Share</th></tr></thead>
+          <tbody>
+            {segs.map((s) => (
+              <tr key={s.label}><th scope="row">{s.label}</th><td>{uReq(s.value)}</td><td>{Math.round(s.frac * 100)}%</td></tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
