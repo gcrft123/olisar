@@ -14,7 +14,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setMemberCsrf } from './api'
 import { CloseX, Icon } from './icons'
 import { confirmDialog, promptDialog, toast } from './overlays'
-import { SettingsModal } from './settings'
+import { SettingsModal, clearPendingReport, pendingReport } from './settings'
 import { DonutChart, Segmented, Spinner, Toggle, U_SERIES, uReq, type DonutItem } from './ui'
 
 type Server = { id: string; name: string; icon: string }
@@ -253,8 +253,18 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The console's half of this lives in App; a member never reaches that branch, so the
+  // portal opens the same pane itself. One "Report this" link, whichever way you sign in.
+  const [report, setReport] = useState('')
 
   useEffect(() => { setMemberCsrf(session.csrf) }, [session.csrf])
+
+  useEffect(() => {
+    const token = pendingReport()
+    if (!token) return
+    setReport(token)
+    setSettingsOpen(true)
+  }, [])
 
   const load = useCallback(async () => {
     if (!server) return
@@ -608,7 +618,15 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
       )}
 
       {settingsOpen && (
-        <SettingsModal sections={['size', 'feedback']} onClose={() => setSettingsOpen(false)} />
+        <SettingsModal
+          sections={['size', 'feedback']}
+          initialSection={report ? 'feedback' : undefined}
+          report={report}
+          onClose={() => {
+            setSettingsOpen(false)
+            if (report) { clearPendingReport(); setReport('') }
+          }}
+        />
       )}
     </div>
   )

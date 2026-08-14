@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from api.auth.deps import _check_csrf, require_member_guild
 from olisar.db.models import (
     Base,
+    FailureReport,
     Guild,
     GuildChannelInfo,
     GuildConfig,
@@ -399,6 +400,11 @@ class ForgetCoverageTests(_DbCase):
             session.add(Reminder(
                 guild_id=guild_id, channel_id=1, user_id=user_id,
                 content="stand up", scheduled_at=utcnow() + timedelta(days=1),
+            ))
+            session.add(FailureReport(
+                token=f"tok-{snowflake}", user_id=user_id, guild_id=guild_id, channel_id=1,
+                trigger="mention", prompt="what's the wifi password",
+                logs="…", expires_at=utcnow() + timedelta(days=7),
             ))
             session.add(UserProfile(
                 user_id=user_id, guild_id=guild_id, display_name="x", avatar="",

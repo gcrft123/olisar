@@ -312,8 +312,11 @@ export const api = {
 
   // Settings popup.
   getLogs: (lines = 500) => req(`/api/settings/logs?lines=${lines}`),
-  sendFeedback: (b: { category: string; message: string; email?: string; include_logs?: boolean; attachments?: { name: string; type: string; content_b64: string }[] }) =>
+  sendFeedback: (b: { category: string; message: string; email?: string; include_logs?: boolean; report_token?: string; attachments?: { name: string; type: string; content_b64: string }[] }) =>
     req('/api/settings/feedback', { method: 'POST', body: JSON.stringify(b) }),
+  // A blank reply Olisar parked for you to report, opened by the button on the message.
+  // 404s once it expires, and for anyone but the account it happened to.
+  getReport: (token: string) => req(`/api/settings/report/${encodeURIComponent(token)}`),
   getUpdates: () => req('/api/settings/updates'),
   getRemote: () => req('/api/settings/remote'),
   getDesktop: () => req('/api/settings/desktop'),

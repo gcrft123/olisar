@@ -23,11 +23,44 @@ export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'feedback', label: 'Feedback', ic: 'messages' },
 ]
 
+// ── Reporting a blank reply ───────────────────────────────────────────────────
+// Olisar puts a "Report this" button on a reply that came back blank; it links here with
+// ?report=<token>. The console decides where that lands — admin console or member portal —
+// by who signs in, so one link serves both.
+
+const REPORT_KEY = 'olisar_report'
+
+// Read at module load, before React mounts, for two reasons: the link usually arrives at
+// the sign-in screen rather than a signed-in console, and the Discord OAuth round trip
+// comes back to a bare "/" — the query string is gone by the time auth resolves. Parking it
+// in sessionStorage carries it across both, and only for this tab.
+;(() => {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('report')
+    if (!token) return
+    sessionStorage.setItem(REPORT_KEY, token)
+    params.delete('report')
+    const query = params.toString()
+    history.replaceState({}, '', window.location.pathname + (query ? '?' + query : '') + window.location.hash)
+  } catch { /* private mode, or no sessionStorage — the report just won't pre-fill */ }
+})()
+
+/** The token a "Report this" button delivered to this tab, or ''. */
+export function pendingReport(): string {
+  try { return sessionStorage.getItem(REPORT_KEY) || '' } catch { return '' }
+}
+
+/** Forget it, so a later visit doesn't reopen a report already filed or dismissed. */
+export function clearPendingReport(): void {
+  try { sessionStorage.removeItem(REPORT_KEY) } catch { /* nothing to clear */ }
+}
+
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
-// gears show a subset.
+// gears show a subset. `report` opens Feedback pre-filled from a parked blank reply.
 export function SettingsModal(
-  { onClose, sections, initialSection }:
-  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId },
+  { onClose, sections, initialSection, report }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
   // so an unfiltered modal must not offer both.
@@ -81,7 +114,7 @@ export function SettingsModal(
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
-          {section === 'feedback' && <Feedback />}
+          {section === 'feedback' && <Feedback report={report} />}
         </div>
     </Modal>
   )
@@ -170,17 +203,78 @@ function fileToB64(f: File): Promise<string> {
   })
 }
 
-function Feedback() {
-  const [category, setCategory] = useState('Feedback')
+// Where the blank happened, in the fewest words that let someone recognize it. A DM has no
+// channel worth naming and no server the reporter would think of by name.
+function reportPlace(r: { server?: string; channel?: string; trigger?: string }): string {
+  if (r.trigger === 'dm') return 'in a DM'
+  if (r.channel) return `in #${r.channel}`
+  return r.server ? `in ${r.server}` : ''
+}
+
+// The bug report, already written as far as the facts go. What's left is the one thing only
+// the reporter knows, and the placeholder under it says so.
+function reportDraft(r: { prompt?: string; when?: string; server?: string; channel?: string; trigger?: string }): string {
+  const place = reportPlace(r)
+  // Same shape the Activity ledger uses: no seconds, no year. This is "which reply",
+  // not a timestamp anyone reads back digit by digit.
+  const when = r.when
+    ? new Date(r.when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : ''
+  const where = [place, when && `on ${when}`].filter(Boolean).join(' ')
+  return [
+    `Olisar drew a blank${where ? ' ' + where : ''}.`,
+    '',
+    'What I asked:',
+    r.prompt || '(nothing recorded)',
+    '',
+    'What I expected instead:',
+    '',
+  ].join('\n')
+}
+
+function Feedback({ report }: { report?: string }) {
+  const [category, setCategory] = useState(report ? 'Bug report' : 'Feedback')
   const [message, setMessage] = useState('')
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
   const [logsAttached, setLogsAttached] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  // The parked failure this report is about, once the server confirms it's ours to claim.
+  const [claimed, setClaimed] = useState<{ has_logs?: boolean } | null>(null)
+  const [claimError, setClaimError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  // What we pre-filled, so an untouched draft isn't mistaken for theirs. Without it,
+  // opening a report and deciding not to file it asked "Discard your message?" about text
+  // the console wrote — a guard on work nobody did.
+  const prefilled = useRef('')
   // A written-but-unsent message is work. Escape used to bin it silently.
-  useDraft(() => !done && message.trim() !== '')
+  useDraft(() => !done && message.trim() !== '' && message !== prefilled.current)
+
+  // Arriving from a "Report this" button: fetch the parked failure and write the report.
+  // The prompt never travelled in the URL, so this is the first time the page sees it.
+  useEffect(() => {
+    if (!report) return
+    let live = true
+    api.getReport(report)
+      .then((r: any) => {
+        if (!live) return
+        const draft = reportDraft(r)
+        setClaimed(r)
+        setCategory('Bug report')
+        prefilled.current = draft
+        setMessage(draft)
+        setLogsAttached(!!r.has_logs)
+      })
+      .catch((e: any) => {
+        if (!live) return
+        // Expired, already gone, or someone else's link. Say so and leave the composer
+        // usable — they came here to report something either way.
+        setClaimError(e?.message || 'That report link isn’t valid any more.')
+        clearPendingReport()
+      })
+    return () => { live = false }
+  }, [report])
 
   const addFiles = async (list: FileList) => {
     const out = [...files]
@@ -199,9 +293,17 @@ function Feedback() {
     if (!message.trim()) { toast('Add a message first.', 'warning'); return }
     setBusy(true)
     try {
-      const r = await api.sendFeedback({ category, message: message.trim(), email: email.trim(), include_logs: logsAttached, attachments: files })
+      const r = await api.sendFeedback({
+        category, message: message.trim(), email: email.trim(),
+        include_logs: logsAttached, attachments: files,
+        // Which logs to attach, not whether: the toggle above decides that. Ignored by the
+        // server once the parked failure has expired or if it was never ours.
+        report_token: claimed ? report || '' : '',
+      })
       if (r && r.emailed === false) toast('Sent, but the email didn’t go through. The team will still see it.', 'warning')
       else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
+      // Filed. A refresh or a second visit in this tab shouldn't reopen it.
+      clearPendingReport()
       setDone(true)
     } catch (e: any) { toast('Couldn’t send: ' + (e?.message || 'try again'), 'danger') }
     finally { setBusy(false) }
@@ -220,7 +322,12 @@ function Feedback() {
           <div className="callout-body">Thanks — your {category.toLowerCase()} was sent.{email.trim() ? ` The team will reply to ${email.trim()} if needed.` : ''}</div>
         </div>
         <div className="settings-row end" style={{ marginTop: 16 }}>
-          <button className="ghost" onClick={() => { setDone(false); setMessage(''); setFiles([]); setLogsAttached(false) }}>Send another</button>
+          {/* Clears the claimed report too: the next message is a fresh one, and it must
+              not quietly ship the previous failure's logs under it. */}
+          <button className="ghost" onClick={() => {
+            setDone(false); setMessage(''); setFiles([]); setLogsAttached(false)
+            setClaimed(null); setClaimError(''); prefilled.current = ''
+          }}>Send another</button>
         </div>
       </>
     )
@@ -228,8 +335,17 @@ function Feedback() {
   return (
     <>
       <Head title="Feedback" sub="Goes straight to the Olisar team." />
+      {/* Only the failure case gets a callout. A report that opened correctly explains
+          itself — the type is set, the message is written, the logs button is on — and a
+          banner narrating what the reader can already see is one more thing to read. */}
+      {claimError && (
+        <div className="callout warning">
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">{claimError} You can still describe what happened below.</div>
+        </div>
+      )}
       <Field label="Type"><Select value={category} onChange={setCategory} options={FEEDBACK_TYPES} /></Field>
-      <Field label="Message"><Area value={message} onChange={setMessage} rows={6} placeholder={placeholder} /></Field>
+      <Field label="Message"><Area value={message} onChange={setMessage} rows={claimed ? 9 : 6} placeholder={placeholder} /></Field>
       <Field label="Your email" desc="Optional, so the team can reply."><Text value={email} onChange={setEmail} placeholder="you@example.com" /></Field>
       <div className="settings-subhead">Attachments (optional)</div>
       <div className="report-attach">

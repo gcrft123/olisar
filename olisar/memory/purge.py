@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar.db.models import (
     ChannelContextItem,
     ChannelSummary,
+    FailureReport,
     GeminiUsage,
     Guild,
     GuildChannelInfo,
@@ -38,6 +39,7 @@ MEMBER_DATA_TABLES: tuple[tuple[type, str], ...] = (
     (SearchMessage, "author_id"),
     (UserMemory, "user_id"),
     (Reminder, "user_id"),
+    (FailureReport, "user_id"),
 )
 
 
@@ -123,6 +125,15 @@ async def forget_user(
     await session.execute(
         delete(Reminder).where(
             Reminder.guild_id.in_(guild_ids), Reminder.user_id == user_id
+        )
+    )
+
+    # Parked blank-reply reports. The row holds the prompt they typed, so it goes with
+    # everything else they wrote — and the log snapshot attached to it goes with it, which
+    # is the only route by which that snapshot is ever deleted early.
+    await session.execute(
+        delete(FailureReport).where(
+            FailureReport.guild_id.in_(guild_ids), FailureReport.user_id == user_id
         )
     )
 
