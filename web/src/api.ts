@@ -20,6 +20,15 @@ export function setGuild(id: string | null): void {
   currentGuild = id
 }
 
+// Member-portal CSRF token, handed over once by GET /api/member/session and echoed on every
+// mutating member call. The console's own session has never needed one — SameSite=Lax blocks
+// cross-site POSTs — but the portal is the first surface exposing mutating routes to every
+// member of every server over a public tunnel URL, and its mutations delete data.
+let memberCsrf: string | null = null
+export function setMemberCsrf(token: string | null): void {
+  memberCsrf = token
+}
+
 // `timeoutMs` is opt-in — most calls have none (deploy/reindex legitimately run for minutes),
 // but SSH-backed reads (server status/pubkey/logs) pass a short timeout so a wedged/unreachable
 // backend surfaces as an error instead of hanging the UI forever.
@@ -27,6 +36,9 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
   const { timeoutMs, ...init } = opts
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (currentGuild) headers['X-Guild-Id'] = currentGuild
+  // Sent on every member call rather than only the mutating ones: the server ignores it on
+  // safe methods, and a per-call opt-in is a thing a future route can forget.
+  if (memberCsrf && path.startsWith('/api/member')) headers['X-CSRF-Token'] = memberCsrf
   const ctrl = timeoutMs ? new AbortController() : null
   const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null
   let res: Response
@@ -280,11 +292,42 @@ export const api = {
 
   // Settings popup.
   getLogs: (lines = 500) => req(`/api/settings/logs?lines=${lines}`),
-  sendFeedback: (b: { category: string; message: string; email?: string; logs?: string; attachments?: { name: string; type: string; content_b64: string }[] }) =>
+  sendFeedback: (b: { category: string; message: string; email?: string; include_logs?: boolean; attachments?: { name: string; type: string; content_b64: string }[] }) =>
     req('/api/settings/feedback', { method: 'POST', body: JSON.stringify(b) }),
   getUpdates: () => req('/api/settings/updates'),
   getRemote: () => req('/api/settings/remote'),
   getDesktop: () => req('/api/settings/desktop'),
   putDesktop: (b: { show_in_menu_bar: boolean }) =>
     req('/api/settings/desktop', { method: 'PUT', body: JSON.stringify(b) }),
+
+  // ── Member portal ──────────────────────────────────────────────────────────
+  // Every route answers for the signed-in member and nobody else. Guild scope rides on the
+  // usual X-Guild-Id header; mutations additionally carry X-CSRF-Token (see setMemberCsrf).
+  memberSession: () => req('/api/member/session'),
+  memberOverview: () => req('/api/member/overview'),
+  memberFacts: () => req('/api/member/facts'),
+  memberDeleteFact: (id: number) => req(`/api/member/facts/${id}`, { method: 'DELETE' }),
+  memberCorrection: (content: string) =>
+    req('/api/member/facts/correction', { method: 'POST', body: JSON.stringify({ content }) }),
+  memberReminders: () => req('/api/member/reminders'),
+  memberCancelReminder: (id: number) => req(`/api/member/reminders/${id}`, { method: 'DELETE' }),
+  memberSettings: (b: {
+    memory_opt_out?: boolean; dm_opt_out?: boolean; search_opt_out?: boolean; pause_hours?: number
+  }) => req('/api/member/settings', { method: 'PATCH', body: JSON.stringify(b) }),
+  memberForget: (stopRemembering: boolean) =>
+    req('/api/member/forget', { method: 'POST', body: JSON.stringify({ stop_remembering: stopRemembering }) }),
+  // Fetched rather than linked: the route is scoped by the X-Guild-Id header, and an
+  // <a href> can't send one. Returns the blob for the caller to save.
+  memberExport: async (): Promise<Blob> => {
+    const res = await fetch(BASE + '/api/member/export', {
+      credentials: 'include',
+      headers: {
+        ...(currentGuild ? { 'X-Guild-Id': currentGuild } : {}),
+        ...(memberCsrf ? { 'X-CSRF-Token': memberCsrf } : {}),
+      },
+    })
+    if (res.status === 401) { onUnauthorized?.(); throw new Unauthorized('not authenticated') }
+    if (!res.ok) throw new Error((await res.text().catch(() => '')) || res.statusText)
+    return res.blob()
+  },
 }

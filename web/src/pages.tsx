@@ -5,7 +5,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
-import { Area, Card, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Spinner, Text, Toggle, hasUnsavedChanges, headingsOf, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Card, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Spinner, Text, Toggle, U_SERIES, hasUnsavedChanges, headingsOf, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -934,8 +934,63 @@ export function Access() {
           </>
         )}
       </Card>
+      <MemberPortalCard config={config} reload={ed.reload} />
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
+  )
+}
+
+// The member portal's two switches. They save on toggle rather than joining the page's
+// SaveDock: the dock belongs to the role grid above, and burying "let every member of this
+// server see what I store about them" inside an unrelated Save is not a decision anyone
+// should make by accident.
+function MemberPortalCard({ config, reload }: { config: any; reload: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const remote = !!config.remote_access_configured
+  const on = !!config.member_portal_enabled
+
+  const write = async (body: Record<string, boolean>, question?: string) => {
+    if (question && !(await confirmDialog({ title: question, confirmLabel: 'Turn on' }))) return
+    setBusy(true)
+    try { await api.putConfig(body); reload() }
+    catch (e: any) { toast(e?.message || 'Couldn’t save that', 'danger') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Card
+      title="Member portal"
+      hint="A page where any member of this server can see, correct, export and delete what Olisar has stored about them. They see only their own data."
+    >
+      {!remote && (
+        <div className="callout warning" style={{ marginBottom: 14 }}>
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
+            Turn on remote access first. The console is only reachable from this machine
+            until then, so members would have no address to open.
+          </div>
+        </div>
+      )}
+      <Field label="Open the portal" desc="Members sign in with Discord. /privacy starts linking them to it.">
+        <Toggle
+          value={on} disabled={busy || !remote} ariaLabel="Open the member portal"
+          onChange={(v) => write({ member_portal_enabled: v })}
+        />
+      </Field>
+      <Field
+        label="Show each member their impression"
+        desc="The characterization Olisar writes about someone from their messages. It's model-written and can be unflattering or wrong, so this is a separate choice."
+      >
+        <Toggle
+          value={!!config.member_portal_show_persona} disabled={busy || !on}
+          ariaLabel="Show each member their impression"
+          onChange={(v) => write(
+            { member_portal_show_persona: v },
+            v ? 'Let members read the impression Olisar wrote about them?' : undefined,
+          )}
+        />
+      </Field>
+    </Card>
   )
 }
 
@@ -1142,6 +1197,11 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   }
   const body = (
     <>
+      <div className="act-toolbar">
+        <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh activity" onClick={reload}>
+          <Icon.refresh size={15} />
+        </button>
+      </div>
       {loading ? <Spinner label="Loading recent activity…" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
         <>
@@ -1156,9 +1216,6 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
                 <span className="act-who">{e.actor}</span>
               </div>
             ))}
-          </div>
-          <div className="savebar">
-            <button className="ghost" onClick={reload}><Icon.refresh size={14} /> Refresh</button>
           </div>
         </>
       )}
@@ -3113,7 +3170,6 @@ export function ApiKeys() {
 
 // ── Usage ───────────────────────────────────────────────────────────────────
 // ── Usage & rate limits ─────────────────────────────────────────────────────
-const U_SERIES = ['us0', 'us1', 'us2', 'us3', 'us4', 'us5']
 // There is no requests-per-day cap anywhere in this system: `api/routers/usage.py` returns
 // only per-minute limits, and `olisar/gemini/models.py` gives each model its own rpm
 // (10/15/30) — so the models demonstrably do not share one daily ceiling. A dashed red
@@ -3132,7 +3188,6 @@ const U_SOURCE_TIP: Record<string, string> = {
   embed: 'Lets Olisar search its memory and knowledge base by meaning, not just exact words.',
 }
 const uShort = (m: string) => m.replace('gemini-', '').replace(/-latest$/, '').replace(/-0*(\d)/, '-$1')
-const uReq = (n: number) => (n >= 1000 ? n.toLocaleString() : String(n))
 const uTok = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n))
 function uSmooth(pts: { x: number; y: number }[]) {
   if (!pts.length) return ''
@@ -3292,69 +3347,6 @@ function MiniArea({ values, limit, limitLabel, cls }: { values: number[]; limit:
   )
 }
 
-function DonutChart({ items, total, unit }: { items: { label: string; value: number; tip?: string }[]; total: number; unit: string }) {
-  const size = 190, c = size / 2, r = 74, sw = 16, gapPx = 8
-  const C = 2 * Math.PI * r
-  const priced = items.filter((it) => it.value > 0).map((it) => ({ ...it, frac: it.value / (total || 1) }))
-  // Fold negligible (<5%) slices into one "Other" so tiny arcs don't overlap. The
-  // Other legend row lists what's inside (name + share) on hover via data-tip.
-  const small = priced.filter((it) => it.frac < 0.05)
-  let base: { label: string; value: number; frac: number; tip?: string }[]
-  if (small.length >= 2) {
-    const val = small.reduce((s, x) => s + x.value, 0)
-    base = [
-      ...priced.filter((it) => it.frac >= 0.05),
-      { label: 'Other', value: val, frac: val / (total || 1), tip: small.map((x) => `${x.label} ${Math.round(x.frac * 100)}%`).join(' · ') },
-    ]
-  } else {
-    base = priced
-  }
-  // Give every slice a minimum rendered arc so tiny ones don't collapse under the round
-  // caps and overlap; pay for that surplus by shrinking the largest slice, so the ring
-  // stays 360° and roughly in proportion (the legend keeps the true percentages).
-  const drawable = C - base.length * gapPx
-  const minArc = sw + 3
-  const arcs = base.map((s) => ({ ...s, arc: s.frac * drawable }))
-  let deficit = 0
-  for (const a of arcs) if (a.arc < minArc) { deficit += minArc - a.arc; a.arc = minArc }
-  if (deficit > 0) {
-    const big = arcs.reduce((x, y) => (y.arc > x.arc ? y : x))
-    big.arc = Math.max(minArc, big.arc - deficit)
-  }
-  let cursor = 0
-  const segs = arcs.map((s, i) => {
-    const startPx = cursor
-    cursor += s.arc + gapPx
-    return { ...s, startPx, cls: s.label === 'Other' ? 'us-mut' : U_SERIES[i % U_SERIES.length] }
-  })
-  return (
-    <div className="u-donut-wrap">
-      <svg className="u-donut" viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
-        <circle cx={c} cy={c} r={r} fill="none" className="u-donut-track" strokeWidth={sw} />
-        {segs.map((s) => {
-          const dash = Math.max(0.5, s.arc - sw)
-          const rot = ((s.startPx + sw / 2) / C) * 360 - 90
-          return (
-            <circle key={s.label} cx={c} cy={c} r={r} fill="none" className={'u-donut-seg ' + s.cls}
-              strokeWidth={sw} strokeLinecap="round" strokeDasharray={`${dash} ${C - dash}`}
-              transform={`rotate(${rot} ${c} ${c})`} />
-          )
-        })}
-        <text x={c} y={c - 2} textAnchor="middle" className="u-donut-total">{uReq(total)}</text>
-        <text x={c} y={c + 15} textAnchor="middle" className="u-donut-sub">{unit}</text>
-      </svg>
-      <div className="u-donut-legend">
-        {segs.map((s) => (
-          <div className={'u-dl ' + s.cls} key={s.label} data-tip={s.tip} aria-label={s.tip ? `${s.label}: ${s.tip}` : undefined}>
-            <span className="d" /><span className="nm">{s.label}</span>
-            <span className="v">{uReq(s.value)}</span>
-            <span className="pc">{Math.round(s.frac * 100)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 // 0 = all time. "Today" is gone: with a one-day window `prev` fell back to {0,0}, so both
 // KPI tiles printed a green "+0% vs yesterday" for a comparison that was never made, and a

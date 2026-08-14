@@ -19,6 +19,7 @@ from olisar.db.models import (
     KBSource,
     Message,
     ProactivityState,
+    Reminder,
     SearchMessage,
     UserMemory,
     UserProfile,
@@ -26,6 +27,18 @@ from olisar.db.models import (
 from olisar.memory.vectors import delete_embedding
 
 log = logging.getLogger("olisar.purge")
+
+# Every table holding data that belongs to one member, as (model, user_column). Defined
+# once because two features read it from opposite ends: ``forget_user`` deletes it, and the
+# member portal's export shows it. If they drift, one of them is lying — an export missing
+# a table understates what Olisar holds, and a purge missing one breaks the promise the
+# export just made. Each is additionally scoped by ``guild_id``.
+MEMBER_DATA_TABLES: tuple[tuple[type, str], ...] = (
+    (Message, "author_id"),
+    (SearchMessage, "author_id"),
+    (UserMemory, "user_id"),
+    (Reminder, "user_id"),
+)
 
 
 async def active_memory_guild_ids(session: AsyncSession) -> list[int]:
@@ -95,6 +108,24 @@ async def forget_user(
         )
     )
 
+    # Pending reminders. These are user-authored content keyed to the user, so "delete
+    # everything you've stored about me" has to include them — leaving them behind meant a
+    # forgotten user could still be DMed months later by a reminder they'd asked to erase.
+    # Fired ones go too: the row is the record of what they asked for either way.
+    reminder_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Reminder)
+            .where(Reminder.guild_id.in_(guild_ids), Reminder.user_id == user_id)
+        )
+        or 0
+    )
+    await session.execute(
+        delete(Reminder).where(
+            Reminder.guild_id.in_(guild_ids), Reminder.user_id == user_id
+        )
+    )
+
     # Clear the synthesized persona on every matching profile; optionally opt out.
     profiles = (
         await session.scalars(
@@ -111,10 +142,15 @@ async def forget_user(
             profile.memory_opt_out = True
 
     log.info(
-        "forgot user %s: %d messages, %d facts, opt_out=%s",
-        user_id, len(msg_ids), len(fact_ids), opt_out,
+        "forgot user %s: %d messages, %d facts, %d reminders, opt_out=%s",
+        user_id, len(msg_ids), len(fact_ids), reminder_count, opt_out,
     )
-    return {"messages": len(msg_ids), "facts": len(fact_ids), "opted_out": opt_out}
+    return {
+        "messages": len(msg_ids),
+        "facts": len(fact_ids),
+        "reminders": reminder_count,
+        "opted_out": opt_out,
+    }
 
 
 async def _count(session: AsyncSession, model, guild_ids: list[int]) -> int:

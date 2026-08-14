@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
 
-from api.auth.deps import require_admin, require_admin_or_local
+from api.auth.deps import require_admin, require_admin_or_local, require_any_session
 from api.routers.marketplace import _registry_error, _registry_post
 from api.schemas import DesktopSettingsIn, FeedbackIn
 from olisar import logbuffer, runtime_config
@@ -36,14 +36,26 @@ async def get_updates(_: AdminUser | None = Depends(require_admin_or_local)) -> 
 
 
 @router.post("/feedback")
-async def send_feedback(body: FeedbackIn, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
-    """Email operator feedback (feedback / bug report / question) to the platform owner via
-    the registry's Resend integration. Optional bot logs + attachments ride along."""
+async def send_feedback(body: FeedbackIn, actor: str = Depends(require_any_session)) -> dict:
+    """Email feedback (feedback / bug report / question) to the platform owner via the
+    registry's Resend integration. Optional bot logs + attachments ride along.
+
+    Logs are gathered **here**, not posted by the client. Reading them takes admin, so a
+    member ticking "add bot logs" could only ever fail — and handing a member the bot's
+    logs so they can attach them would leak every other member's activity to file one bug.
+    The report still carries them; the reporter just never sees them.
+    """
+    logs = body.logs
+    if body.include_logs:
+        logs = "\n".join(logbuffer.tail(800))
     payload = {
         "category": body.category,
         "message": body.message,
         "email": body.email,
-        "logs": body.logs,
+        "logs": logs,
+        # Who filed it, so a member report is distinguishable from an operator's without
+        # the reporter having to say so.
+        "reporter": actor,
         "attachments": [a.model_dump() for a in body.attachments],
     }
     r = await _registry_post("/v1/feedback", payload)

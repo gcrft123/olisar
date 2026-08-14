@@ -314,7 +314,7 @@ export function SetupWizard(
         </button>
         {settingsOpen && (
           <SettingsModal
-            sections={['general', 'bot', 'updates', 'desktop', 'feedback']}
+            sections={['general', 'updates', 'desktop', 'feedback']}
             onClose={() => setSettingsOpen(false)}
           />
         )}

@@ -392,13 +392,25 @@ function TooltipHost() {
         hide()
       }
     }
-    const onFocus = (e: Event) => { const el = (e.target as Element)?.closest?.('[data-tip],[title]'); if (el) show(el) }
+    // Keyboard focus only. A click fires mousedown (which hides) and then focusin, so
+    // showing on every focus made the tip blink back the instant you pressed the button
+    // it belongs to. :focus-visible is exactly the "focused, but not by pointer" test.
+    const onFocus = (e: Event) => {
+      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
+      if (el && el.matches(':focus-visible')) show(el)
+    }
     document.addEventListener('mouseover', onOver, true)
     document.addEventListener('mouseout', onOut as EventListener, true)
     document.addEventListener('focusin', onFocus)
     document.addEventListener('focusout', hide)
     document.addEventListener('mousedown', hide, true)
     window.addEventListener('scroll', hide, true)
+    // Escape closes dialogs, taking the hovered control with it — but mouseout never fires
+    // for an element that was removed, so the tip outlived the button it named ("Close (Esc)"
+    // hanging over the page after the modal went away).
+    document.addEventListener('keydown', hide, true)
+    const gone = new MutationObserver(() => { if (current && !current.isConnected) hide() })
+    gone.observe(document.body, { childList: true, subtree: true })
     return () => {
       document.removeEventListener('mouseover', onOver, true)
       document.removeEventListener('mouseout', onOut as EventListener, true)
@@ -406,6 +418,8 @@ function TooltipHost() {
       document.removeEventListener('focusout', hide)
       document.removeEventListener('mousedown', hide, true)
       window.removeEventListener('scroll', hide, true)
+      document.removeEventListener('keydown', hide, true)
+      gone.disconnect()
     }
   }, [])
   if (!tip) return null

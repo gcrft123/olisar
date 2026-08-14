@@ -305,7 +305,7 @@ export function ServerControlPanel() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['general', 'bot', 'logs', 'updates', 'desktop', 'feedback']}
+          sections={['general', 'logs', 'updates', 'desktop', 'feedback']}
           onClose={() => setSettingsOpen(false)}
         />
       )}
