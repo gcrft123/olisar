@@ -10,9 +10,27 @@ import { rectScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 export type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
-type ToastItem = { id: number; message: string; tone: Tone }
+type ToastAction = { label: string; onClick: () => void }
+type ToastItem = {
+  id: number; message: string; tone: Tone
+  sticky?: boolean; busy?: boolean; action?: ToastAction; durationMs?: number
+}
+
+export type ToastOpts = {
+  /** Override the tone's default expiry (see STICKY) — for work that outlives a timer. */
+  sticky?: boolean
+  /** Spinner in place of the tone glyph: this toast reports progress, not an outcome. */
+  busy?: boolean
+  /** Trailing ghost button. Firing it also dismisses the toast. */
+  action?: ToastAction
+  /** Auto-dismiss delay; ignored when sticky. */
+  durationMs?: number
+}
+/** Handle for a toast the caller has to take back down itself (progress toasts). */
+export type ToastControl = { dismiss: () => void }
 
 let toastPush: ((t: ToastItem) => void) | null = null
+let toastRemove: ((id: number) => void) | null = null
 let nextId = 1
 const pending: ToastItem[] = []  // calls made before the host mounts are queued
 
@@ -20,10 +38,21 @@ const TOAST_ICON: Record<Tone, IconName> = {
   success: 'check', danger: 'warn', warning: 'warn', info: 'info', neutral: 'info',
 }
 
-export function toast(message: string, tone: Tone = 'neutral') {
-  const item: ToastItem = { id: nextId++, message, tone }
+export function toast(message: string, tone: Tone = 'neutral', opts?: ToastOpts): ToastControl {
+  const id = nextId++
+  const item: ToastItem = { id, message, tone, ...opts }
   if (toastPush) toastPush(item)
   else pending.push(item)
+  return {
+    dismiss: () => {
+      if (toastRemove) { toastRemove(id); return }
+      // Dismissed before the host mounted. Drop it from the queue instead — otherwise a
+      // sticky progress toast whose work already finished appears after the fact, with
+      // nothing left to take it down again.
+      const i = pending.findIndex((p) => p.id === id)
+      if (i >= 0) pending.splice(i, 1)
+    },
+  }
 }
 
 // Success is a confirmation and can expire. A failure is information the operator may need
@@ -36,24 +65,37 @@ const STICKY: Record<Tone, boolean> = {
 
 function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
   const [show, setShow] = useState(false)
-  const sticky = STICKY[item.tone]
+  // Tone sets the default; a caller can still pin a toast open for work that outlives a timer.
+  const sticky = item.sticky ?? STICKY[item.tone]
   useEffect(() => {
     const a = requestAnimationFrame(() => setShow(true))
     if (sticky) return () => cancelAnimationFrame(a)
-    const hide = setTimeout(() => setShow(false), 3600)
-    const done = setTimeout(() => onDone(item.id), 3920)
+    const hold = item.durationMs ?? 3600
+    const hide = setTimeout(() => setShow(false), hold)
+    const done = setTimeout(() => onDone(item.id), hold + 320)
     return () => { cancelAnimationFrame(a); clearTimeout(hide); clearTimeout(done) }
-  }, [item.id, onDone, sticky])
+  }, [item.id, item.durationMs, onDone, sticky])
   const dismiss = () => { setShow(false); setTimeout(() => onDone(item.id), 320) }
   const Glyph = Icon[TOAST_ICON[item.tone]]
+  const action = item.action
   return (
     // alert, not status: a failure should interrupt rather than queue behind whatever is
-    // currently being read.
-    <div className={'toast ' + item.tone + (show ? ' show' : '') + (sticky ? ' sticky' : '')}
-      role={sticky ? 'alert' : 'status'}>
-      <span className="ic"><Glyph size={20} weight="Bold" /></span>
+    // currently being read. Keyed off the tone default, so a progress toast — pinned open
+    // but not an error — announces politely.
+    <div className={'toast ' + item.tone + (show ? ' show' : '') + (sticky ? ' sticky' : '')
+      + (item.busy ? ' busy' : '')}
+      role={STICKY[item.tone] ? 'alert' : 'status'}>
+      <span className="ic">
+        {item.busy ? <span className="spinner" aria-hidden /> : <Glyph size={20} weight="Bold" />}
+      </span>
       <span className="toast-msg">{item.message}</span>
-      {sticky && (
+      {/* An action toast gets no close ×: the action IS the way out, and dismissing the only
+          handle on work still running would strand it. */}
+      {action ? (
+        <button className="ghost toast-action" onClick={() => { action.onClick(); dismiss() }}>
+          {action.label}
+        </button>
+      ) : sticky && (
         <button className="ghost icon-btn sm toast-x" onClick={dismiss}
           data-tip="Dismiss" aria-label="Dismiss">
           <CloseX size={14} />
@@ -67,8 +109,9 @@ function ToastStack() {
   const [items, setItems] = useState<ToastItem[]>([])
   useEffect(() => {
     toastPush = (t) => setItems((xs) => [...xs, t])
+    toastRemove = (id) => setItems((xs) => xs.filter((x) => x.id !== id))
     if (pending.length) { setItems((xs) => [...xs, ...pending]); pending.length = 0 }
-    return () => { toastPush = null }
+    return () => { toastPush = null; toastRemove = null }
   }, [])
   const remove = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), [])
   if (!items.length) return null

@@ -1646,6 +1646,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   }
 
   const publishToMarketplace = async () => {
+    if (publishing) return
     try {
       const info = await api.marketplacePublisher()
       if (!info.registered) {
@@ -1666,6 +1667,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   // number hasn't moved, warn — the registry overwrites it in place, so anyone who
   // already installed it won't be offered an update unless the version is bumped.
   const pushUpdate = async () => {
+    if (publishing) return
     if (pub && !pub.version_is_new && pub.has_changes) {
       const ok = await confirmDialog({
         title: `Re-publish v${pub.local_version} in place?`,
@@ -1680,22 +1682,60 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
     await startReview()
   }
 
-  // Clicked from the "pass" screen — actually ship it (the server re-reviews as the gate).
+  // Clicked from the "pass" screen — ship it (the server re-reviews as the gate). The modal
+  // closes immediately and the publish runs behind a sticky toast carrying Stop: the server
+  // re-runs the review before shipping, which takes about a minute, and a modal that can't be
+  // dismissed for a minute reads as a hang. Stop aborts the request, and the server drops the
+  // review rather than pushing to the registry.
   const confirmPublish = async () => {
+    if (publishing) return
+    setReviewing(false)
+    setReviewResult(null)
     setPublishing(true)
+    const ctrl = new AbortController()
+    let stopped = false
+    const status = toast(
+      `Publishing ${e.key} v${e.version} — running the security review. This can take a minute.`,
+      'info',
+      {
+        sticky: true,
+        busy: true,
+        action: {
+          label: 'Stop',
+          onClick: () => {
+            stopped = true
+            ctrl.abort()
+            toast('Publish cancelled — nothing was pushed to the marketplace.', 'neutral')
+          },
+        },
+      },
+    )
     try {
-      const r = await api.marketplacePublish(e.key)
-      setReviewing(false); setReviewResult(null)
-      toast(`Published ${r.id} v${r.version} to the marketplace.`, 'success')
+      const r = await api.marketplacePublish(e.key, { signal: ctrl.signal })
+      status.dismiss()
+      // Stop lost the race — the registry already has it. Say so rather than leaving the
+      // cancellation notice standing: this is a public publish, and believing it was stopped
+      // when it wasn't is the one wrong answer here.
+      if (stopped) toast(`Too late to stop — ${r.id} v${r.version} was already published.`, 'warning')
+      else toast(`Published ${r.id} v${r.version} to the marketplace.`, 'success')
       props.onPublished?.()
     } catch (err: any) {
+      status.dismiss()
+      // Stop already said its piece; the AbortError that follows is not a second failure.
+      if (stopped || err?.name === 'AbortError') return
       const d = err?.detail
-      if (d && typeof d === 'object' && d.code === 'risk_blocked') {
+      if (d && typeof d === 'object' && d.code === 'cancelled') {
+        toast(d.message || 'Publish cancelled — nothing was pushed to the marketplace.', 'neutral')
+      } else if (d && typeof d === 'object' && d.code === 'risk_blocked') {
+        // Re-open the scan modal on the verdict — it was closed when the publish started, and
+        // the readout is the whole reason the operator gets to see why it was refused.
         setReviewResult({ ...d, blocked: true, review_available: true })  // server caught it after all
+        setReviewing(true)
       } else if (d && typeof d === 'object' && d.code === 'review_unavailable') {
         setReviewResult({ review_available: false, blocked: false, message: d.message })  // quota died mid-flow
+        setReviewing(true)
       } else {
-        setReviewing(false); toast('Publish failed: ' + err.message, 'danger')
+        toast('Publish failed: ' + err.message, 'danger')
       }
     } finally { setPublishing(false) }
   }
@@ -1727,13 +1767,19 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
               <button onClick={() => props.onUpdate?.(e.key)}>Update to v{mkt.latest_version}</button>
             )}
             {props.isOperator && publishable && !isPublished && (
-              <button className="ghost" onClick={publishToMarketplace}>Publish</button>
+              <button className="ghost" onClick={publishToMarketplace} disabled={publishing}>
+                {publishing ? <><span className="spinner" /> Publishing…</> : 'Publish'}
+              </button>
             )}
             {props.isOperator && isPublished && pub.has_changes && (
-              <button onClick={pushUpdate}>Push update</button>
+              <button onClick={pushUpdate} disabled={publishing}>
+                {publishing ? <><span className="spinner" /> Publishing…</> : 'Push update'}
+              </button>
             )}
             {props.isOperator && isPublished && !pub.has_changes && (
-              <button className="ghost" onClick={pushUpdate}>Re-publish</button>
+              <button className="ghost" onClick={pushUpdate} disabled={publishing}>
+                {publishing ? <><span className="spinner" /> Publishing…</> : 'Re-publish'}
+              </button>
             )}
             {props.isOperator && e.has_code && (
               <button className="ghost icon-btn" onClick={() => downloadOlx(e.key).catch((err) => toast('Export failed: ' + err.message, 'danger'))} data-tip="Export .olx" aria-label="Export extension"><Icon.upload size={16} /></button>
@@ -1753,7 +1799,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
         {reviewing && (
           <PublishReviewModal
             subject={`${e.key} · v${e.version}`}
-            result={reviewResult} publishing={publishing}
+            result={reviewResult}
             onPublish={confirmPublish} onClose={() => { setReviewing(false); setReviewResult(null) }}
           />
         )}
@@ -2124,9 +2170,11 @@ function inlineCode(text: string) {
 
 // The publish flow's modal: first a security-scan screen, then it becomes the verdict —
 // either a BLOCKED readout (with reasons) or a PASSED card with a Publish button. Same size
-// throughout, so the scan animation morphs into the result in place.
+// throughout, so the scan animation morphs into the result in place. Confirming Publish closes
+// this modal at once; the publish itself runs behind a sticky toast carrying Stop, so the modal
+// never has to sit there un-dismissable while the server re-reviews.
 function PublishReviewModal(props: {
-  subject: string; result: any; publishing?: boolean;
+  subject: string; result: any;
   onPublish: () => void; onClose: () => void;
 }) {
   const r = props.result
@@ -2165,7 +2213,7 @@ function PublishReviewModal(props: {
   )
   return (
     <Modal className={'deny-modal ' + (unavailable ? '' : 'split ') + tone} labelledBy={titleId}
-      onClose={props.onClose} dismissable={!props.publishing}>
+      onClose={props.onClose}>
         <button className="settings-close" onClick={props.onClose} aria-label="Close" title="Close"><CloseX size={16} /></button>
         <h2 className="deny-title" id={titleId}>{title}</h2>
         <div className="deny-sub">{props.subject}</div>
@@ -2207,10 +2255,8 @@ function PublishReviewModal(props: {
             <button className="primary" onClick={props.onClose}>{unavailable ? 'Close' : 'Got it'}</button>
           ) : (
             <>
-              <button className="ghost" onClick={props.onClose} disabled={props.publishing}>Cancel</button>
-              <button className="primary" onClick={props.onPublish} disabled={props.publishing}>
-                {props.publishing ? <><span className="spinner" /> Publishing…</> : 'Publish'}
-              </button>
+              <button className="ghost" onClick={props.onClose}>Cancel</button>
+              <button className="primary" onClick={props.onPublish}>Publish</button>
             </>
           )}
         </div>
