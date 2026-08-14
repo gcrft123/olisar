@@ -1,0 +1,17 @@
+{
+  "id": "addressing-direct",
+  "title": "Addressed by name, plainly — the gate must not make Olisar mute",
+  "lane": "live",
+  "tags": ["everyday", "addressing", "helpfulness"],
+  "channel": {"name": "general", "mode": "both"},
+  "config": {"name_requires_address": true},
+  "cast": ["mika", "yuki"],
+  "beats": [
+    {"speaker": "mika", "text": "olisar you around?", "expect_reply": true},
+    {"speaker": "yuki", "text": "olisar, can you tell me what this channel is for", "expect_reply": true},
+    {"speaker": "mika", "text": "hey olisar what do you think", "expect_reply": true}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400},
+  "rubric": ["helpfulness", "brevity"],
+  "notes": "The counterweight to addressing-passing-mention, and the more important of the two: a gate that reduces false positives by going mute has made things worse, not better. Second person, the vocative comma, and a lead-in should all read as addressed without needing the classifier. If this fails while the passing-mention case passes, the heuristic has been tightened too far."
+}

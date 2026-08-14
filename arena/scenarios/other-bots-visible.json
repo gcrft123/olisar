@@ -1,0 +1,19 @@
+{
+  "id": "other-bots-visible",
+  "title": "With see_other_bots on, Olisar can refer to what another bot posted",
+  "lane": "live",
+  "tags": ["context", "other-bots"],
+  "channel": {"name": "music", "mode": "both", "topic": "music and bot spam", "indexed": false},
+  "config": {"see_other_bots": true},
+  "cast": ["nowplaying", "mika"],
+  "seed": [
+    {"speaker": "nowplaying", "text": "Now playing: Kessler Drift — requested by mika"},
+    {"speaker": "nowplaying", "text": "Now playing: Verdigris Hour — requested by mika"}
+  ],
+  "beats": [
+    {"speaker": "mika", "text": "olisar what track did the music bot just put on", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true, "must_contain": ["Verdigris Hour"]},
+  "rubric": ["accuracy", "brevity"],
+  "notes": "The mirror of other-bots-hidden: identical channel, identical seed, identical question, opposite setting and opposite assertion. Asserts the second track, not the first — 'just put on' means the most recent one, so naming Kessler Drift is a transcript-ordering failure and the check should catch it. Also exercises the labelling fix from #19: a bot row now carries its sender's name, so Turntable must appear as Turntable and not as Olisar."
+}

@@ -60,6 +60,50 @@ class ShippedContentTests(unittest.TestCase):
         tagged = [s for s in load_scenarios().values() if "redteam" in s.tags]
         self.assertGreaterEqual(len(tagged), 5)
 
+    def test_third_party_personas_are_excluded_from_the_peer_allowlist(self):
+        """Every bot in the arena being an honorary member would leave `see_other_bots`
+        with nothing to govern, and its scenarios would pass for the wrong reason."""
+        from arena.fleet.persona import third_party_keys
+
+        keys = third_party_keys()
+        self.assertTrue(keys, "no third_party_bot persona — see_other_bots is untestable")
+        personas = load_personas()
+        for key in keys:
+            self.assertTrue(personas[key].third_party_bot)
+            self.assertFalse(personas[key].reacts_to_olisar)
+
+    def test_scenarios_asserting_silence_do_not_rely_on_a_model_call(self):
+        """A `must_not_reply` case has to be decided by the free heuristic. If a beat
+        lands in the AMBIGUOUS band the verdict comes from a Flash-Lite call that fails
+        open, so the assertion would be flaky by construction — and a flaky red-team-shaped
+        check is worse than no check, because it gets muted."""
+        from olisar.addressing import AMBIGUOUS, name_mention_kind
+
+        for scenario in load_scenarios().values():
+            if not scenario.checks.must_not_reply:
+                continue
+            names = ["olisar"]
+            for beat in scenario.beats:
+                if not beat.text or "olisar" not in beat.text.lower():
+                    continue
+                self.assertNotEqual(
+                    name_mention_kind(beat.text, names), AMBIGUOUS,
+                    f"{scenario.id}: {beat.text!r} is ambiguous, so silence isn't guaranteed",
+                )
+
+    def test_paired_config_scenarios_assert_opposite_things(self):
+        """The two see_other_bots cases only mean something as a pair: same channel, same
+        seed, same question, opposite setting, opposite assertion."""
+        scenarios = load_scenarios()
+        hidden, visible = scenarios["other-bots-hidden"], scenarios["other-bots-visible"]
+        self.assertFalse(hidden.config["see_other_bots"])
+        self.assertTrue(visible.config["see_other_bots"])
+        self.assertEqual(hidden.channel_name, visible.channel_name)
+        self.assertEqual(
+            [b.text for b in hidden.seed], [b.text for b in visible.seed]
+        )
+        self.assertTrue(set(hidden.checks.must_not_contain) & set(visible.checks.must_contain))
+
     def test_every_redteam_case_asserts_something_deterministic(self):
         """A red-team case with no check is decoration. Each must assert a substring, a
         length, or the absence of a reply."""
@@ -116,6 +160,17 @@ class ScenarioSchemaTests(unittest.TestCase):
     def test_a_pause_beat_needs_no_speaker(self):
         scenario = parse(dict(self.BASE, beats=[{"wait": 30}]))
         self.assertTrue(scenario.beats[0].is_pause)
+
+    def test_guild_config_round_trips(self):
+        scenario = parse(dict(self.BASE, config={"see_other_bots": True}))
+        self.assertEqual(scenario.config, {"see_other_bots": True})
+
+    def test_channel_indexing_is_tri_state(self):
+        """Unset must mean "leave it alone", not "turn indexing off" — most scenarios
+        have no opinion, and forcing a value would silently reconfigure the channel."""
+        self.assertIsNone(parse(dict(self.BASE)).channel_indexed)
+        self.assertIs(parse(dict(self.BASE, channel={"indexed": False})).channel_indexed, False)
+        self.assertIs(parse(dict(self.BASE, channel={"indexed": True})).channel_indexed, True)
 
 
 class PersonaLoaderTests(unittest.TestCase):

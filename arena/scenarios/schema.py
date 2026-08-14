@@ -91,7 +91,13 @@ class Scenario:
     channel_members: list[str] = field(default_factory=list)
     channel_mode: str = "both"
     channel_topic: str = ""
+    channel_indexed: bool | None = None
     recreate_channel: bool = True
+    # Guild config this scenario depends on, applied before the run and restored after.
+    # A scenario that needs a knob set has to say so: otherwise its result depends on
+    # whatever the previous scenario happened to leave behind, which is the difference
+    # between a regression suite and a sequence of anecdotes.
+    config: dict = field(default_factory=dict)
     cast: list[str] = field(default_factory=list)
     seed: list[Beat] = field(default_factory=list)
     beats: list[Beat] = field(default_factory=list)
@@ -167,7 +173,9 @@ def parse(raw: dict, *, source: str = "<inline>") -> Scenario:
         channel_members=[str(m) for m in channel.get("members", [])],
         channel_mode=str(channel.get("mode", "both")),
         channel_topic=str(channel.get("topic", "")),
+        channel_indexed=(None if channel.get("indexed") is None else bool(channel["indexed"])),
         recreate_channel=bool(channel.get("recreate", True)),
+        config=dict(raw.get("config") or {}),
         cast=[str(c).strip().lower() for c in raw.get("cast", [])],
         seed=[_beat(b, f"{source} seed {i}") for i, b in enumerate(raw.get("seed", []))],
         beats=beats,

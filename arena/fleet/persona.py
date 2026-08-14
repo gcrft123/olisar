@@ -35,6 +35,12 @@ class Persona:
     # answers the bot produces an infinite, entirely artificial two-party loop, which
     # burns quota and teaches nothing. Scenarios turn this on where it's the point.
     reacts_to_olisar: bool = False
+    # A persona that plays one of the *other* bots in a server — a music bot, a gacha
+    # bot — rather than a member. Deliberately excluded from OLISAR_PEER_BOT_IDS, so
+    # Olisar sees it as what it is: something `see_other_bots` governs and that it must
+    # never answer. Without one of these, every bot in the arena is an honorary member
+    # and `see_other_bots` has nothing to act on.
+    third_party_bot: bool = False
 
     @property
     def token_env(self) -> str:
@@ -71,6 +77,7 @@ def _parse(path: Path) -> Persona:
         traits=[str(t) for t in raw.get("traits", [])],
         chattiness=float(raw.get("chattiness", 0.5)),
         reacts_to_olisar=bool(raw.get("reacts_to_olisar", False)),
+        third_party_bot=bool(raw.get("third_party_bot", False)),
     )
 
 
@@ -85,6 +92,19 @@ def load_all(directory: Path | None = None) -> dict[str, Persona]:
             raise PersonaError(f"duplicate persona key {persona.key!r} in {path.name}")
         personas[persona.key] = persona
     return personas
+
+
+def third_party_keys(directory: Path | None = None) -> set[str]:
+    """Persona keys that play other bots rather than members.
+
+    Read while building the instance's environment, so a malformed persona directory
+    must not take the whole harness down here — it will be reported properly by the
+    next command that actually loads personas.
+    """
+    try:
+        return {k for k, p in load_all(directory).items() if p.third_party_bot}
+    except PersonaError:
+        return set()
 
 
 def load(key: str, directory: Path | None = None) -> Persona:

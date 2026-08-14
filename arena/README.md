@@ -32,7 +32,7 @@ At <https://discord.com/developers/applications>. You need **three kinds**:
 |---|---|---|---|
 | **Arena Olisar** — the instance under test | 1 | Message Content Intent, Server Members Intent | the same scopes your real Olisar uses |
 | **Steward** — creates channels/roles, reads transcripts | 1 | Server Members Intent | Administrator |
-| **Emulators** — one per persona | up to 6 | *none* | Send Messages, Read Message History, View Channels |
+| **Emulators** — one per persona | up to 7 | *none* | Send Messages, Read Message History, View Channels |
 
 For each: **Bot → Reset Token → Copy**. Then **OAuth2 → URL Generator**, scope `bot`, tick the
 permissions above, open the URL, and invite it to the test server.
@@ -298,3 +298,24 @@ They look alike and mean opposite things, so it's worth being explicit:
 
 The loop `see_other_bots` refuses to allow is real; the harness permits it only because it
 governs turn-taking directly, with a message ceiling, a minimum gap, and a run timeout.
+
+A persona can opt out of being a member with `"third_party_bot": true` (the shipped one is
+`nowplaying`, a music bot). Those keys are excluded from `OLISAR_PEER_BOT_IDS`, so Olisar
+sees them as bots — which is what makes `see_other_bots` testable at all.
+
+## Scenarios can pin the settings they depend on
+
+A scenario's result must not depend on what the previous one left behind, so a scenario
+declares the guild config it needs. It's applied before the run and restored after, to
+whatever was actually there rather than to a default:
+
+```json
+"config": {"see_other_bots": true, "name_requires_address": false},
+"channel": {"name": "music", "mode": "both", "indexed": false}
+```
+
+`indexed` is worth knowing about. Every message is written to the server-wide search index
+regardless of author, on a completely separate path from conversational context — so a
+scenario asserting Olisar *can't* see something has to close that door too, or
+`search_messages` walks straight through it and the case fails for a reason that isn't the
+one under test.
