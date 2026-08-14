@@ -31,7 +31,7 @@ log = logging.getLogger("arena.variants")
 
 BASELINE = "baseline"
 
-OVERRIDE_KEYS = ("operating_rules", "tools_note", "proactive_note")
+OVERRIDE_KEYS = ("operating_rules", "tools_note", "proactive_note", "follow_up_note")
 
 
 @dataclass
@@ -152,12 +152,13 @@ def current_baked_in() -> dict[str, str]:
     from bot.cogs import proactive  # noqa: F401  (ensures the module graph is importable)
     from olisar.persona import OPERATING_RULES
     from olisar.pipeline import TOOLS_NOTE
-    from olisar.proactivity import PROACTIVE_NOTE
+    from olisar.proactivity import FOLLOW_UP_REPLY_NOTE, PROACTIVE_NOTE
 
     return {
         "operating_rules": OPERATING_RULES,
         "tools_note": TOOLS_NOTE,
         "proactive_note": PROACTIVE_NOTE,
+        "follow_up_note": FOLLOW_UP_REPLY_NOTE,
     }
 
 
@@ -165,6 +166,7 @@ SOURCE_OF = {
     "operating_rules": "olisar/persona.py :: OPERATING_RULES",
     "tools_note": "olisar/pipeline.py :: TOOLS_NOTE",
     "proactive_note": "olisar/proactivity.py :: PROACTIVE_NOTE",
+    "follow_up_note": "olisar/proactivity.py :: FOLLOW_UP_REPLY_NOTE",
 }
 
 

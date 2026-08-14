@@ -10,7 +10,12 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.db.models import Guild, GuildConfig, Persona, ProactivityConfig
-from olisar.persona import DEFAULT_PERSONA_NAME, DEFAULT_SYSTEM_PROMPT, DEFAULT_TONE_NOTES
+from olisar.persona import (
+    DEFAULT_PERSONA_NAME,
+    DEFAULT_SYSTEM_PROMPT,
+    DEFAULT_TONE_NOTES,
+    refreshed_tone_notes,
+)
 
 
 async def ensure_guild_defaults(
@@ -29,12 +34,19 @@ async def ensure_guild_defaults(
         guild.active = True
     if await session.get(GuildConfig, guild_id) is None:
         session.add(GuildConfig(guild_id=guild_id))
-    if await session.get(Persona, guild_id) is None:
+    persona = await session.get(Persona, guild_id)
+    if persona is None:
         session.add(Persona(
             guild_id=guild_id,
             name=DEFAULT_PERSONA_NAME,
             system_prompt=DEFAULT_SYSTEM_PROMPT,
             tone_notes=DEFAULT_TONE_NOTES,
         ))
+    else:
+        # An exact match with any previous release's seed means nobody ever edited this
+        # field, so the guild is running defaults and should get the current ones.
+        fresh = refreshed_tone_notes(persona.tone_notes)
+        if fresh is not None:
+            persona.tone_notes = fresh
     if await session.get(ProactivityConfig, guild_id) is None:
         session.add(ProactivityConfig(guild_id=guild_id))

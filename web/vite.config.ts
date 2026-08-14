@@ -118,6 +118,11 @@ const MOCK_PERSONA = {
     'Industries inside out and treats its members like the crew.',
   tone_notes: 'casual, lowercase, no emoji, never more than three sentences unless asked',
   desired_bio: 'Ship\'s AI for Red Nebula Industries. Ask me anything.',
+  server_type: 'gaming',
+  slang_density: 2,
+  // The console builds its picker from whatever the API offers, so the fixture has to
+  // carry the roster too or the Persona page renders a picker with one option.
+  server_types: ['anime', 'art', 'finance', 'gaming', 'music', 'social', 'study', 'tech'],
   bot_avatar: '',
 }
 
@@ -132,6 +137,8 @@ const MOCK_CONFIG = {
   user_persona_msg_threshold: 40,
   context_message_limit: 12,
   presence_tools_enabled: false,
+  name_requires_address: true,
+  see_other_bots: false,
   blocked_mentions: ['everyone', 'here'],
   allowed_role_ids: ['1321947496179568690'],
   blocked_role_ids: ['1321947496179568694'],

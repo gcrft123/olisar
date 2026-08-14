@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar import prompt_overrides
 from olisar.config import settings
-from olisar.context import CONTEXT_NOTE, build_contents, people_directory
+from olisar.context import CONTEXT_NOTE, build_contents, channel_note, people_directory
 from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini.rate_limiter import RateLimitExceeded
@@ -26,6 +26,7 @@ from olisar.persona import (
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_TONE_NOTES,
     build_system_prompt,
+    strip_breaks,
 )
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
@@ -407,6 +408,8 @@ async def generate_reply(
     images: list[tuple[bytes, str, str]] | None = None,
     home_guild_id: int | None = None,
     reply_to: tuple[str, str] | None = None,
+    channel_name: str = "",
+    channel_topic: str = "",
 ) -> Reply:
     """Produce Olisar's reply for one incoming message/prompt.
 
@@ -434,8 +437,14 @@ async def generate_reply(
             system_prompt=persona.system_prompt,
             tone_notes=persona.tone_notes,
             runtime_note=runtime_note,
+            server_type=persona.server_type,
+            slang_density=persona.slang_density,
         )
     system_instruction += "\n\n" + CONTEXT_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
+    # Which room this is, so the register can follow it (DMs get DM_NOTE instead).
+    room = channel_note(channel_name, channel_topic) if guild_id else ""
+    if room:
+        system_instruction += "\n\n" + room
     system_instruction += (
         f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M} — use it "
         "to resolve any 'remind me' / scheduling request before calling add_reminder."
@@ -585,6 +594,8 @@ async def generate_sandbox_reply(
             system_prompt=persona.system_prompt,
             tone_notes=persona.tone_notes,
             runtime_note=runtime_note,
+            server_type=persona.server_type,
+            slang_density=persona.slang_density,
         )
     system_instruction += "\n\n" + SANDBOX_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
@@ -627,14 +638,16 @@ async def generate_sandbox_reply(
         extension_tools=ext.handlers,
     )
     try:
-        return await _run_tool_loop(
+        # The sandbox renders one reply as one bubble, so a split marker would show up as
+        # literal text there rather than as the extra message it asks for on Discord.
+        return strip_breaks(await _run_tool_loop(
             contents,
             system_instruction,
             model,
             ctx,
             blank_fallback=blank_fallback,
             tools=sandbox_tools(list(ext.declarations)),
-        )
+        ))
     except RateLimitExceeded:
         return rate_limit_msg
     except Exception:

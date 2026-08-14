@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
-from olisar.context import name_map
+from olisar.context import name_map, speaker_name
 from olisar.db.models import ChannelSummary, Message
 from olisar.gemini.client import get_gemini
 from olisar.gemini.rate_limiter import RateLimitExceeded
@@ -97,8 +97,7 @@ async def generate_catchup(
     if msgs:
         lines.append("\nRecent messages:")
         for m in msgs:
-            who = "Olisar" if m.author_is_bot else names.get(m.author_id, str(m.author_id))
-            lines.append(f"{who}: {m.content}")
+            lines.append(f"{speaker_name(m, names)}: {m.content}")
 
     try:
         result = await get_gemini().generate(

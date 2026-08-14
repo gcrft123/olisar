@@ -138,6 +138,21 @@ async def resolve_reply(message: discord.Message) -> tuple[str, str] | None:
     return (target.author.display_name, text)
 
 
+def channel_identity(channel) -> tuple[str, str]:
+    """The ``(name, topic)`` of the room a conversation is happening in, or ``("", "")``
+    for a DM (which has neither, and gets its own note in the prompt).
+
+    A thread reports its own name — that's what people call it — but borrows its parent's
+    topic, since a thread has none of its own and the parent's is what sets the register.
+    """
+    name = getattr(channel, "name", "") or ""
+    if not name:
+        return ("", "")
+    parent = getattr(channel, "parent", None) if isinstance(channel, discord.Thread) else None
+    topic = getattr(parent if parent is not None else channel, "topic", "") or ""
+    return (name, topic)
+
+
 def image_attachments(message: discord.Message) -> list[discord.Attachment]:
     """The message's image attachments worth sending to vision (capped + size-bounded)."""
     out: list[discord.Attachment] = []

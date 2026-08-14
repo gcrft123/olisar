@@ -17,6 +17,7 @@ from sqlalchemy import func, select, update
 
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import BotActions
+from bot.content import channel_identity
 from bot.replies import chunk_text, mention_policy, report_view, sanitize_mentions
 from olisar.config import settings
 from olisar.db.engine import session_scope
@@ -40,6 +41,7 @@ from olisar.memory.purge import active_memory_guild_ids, forget_user
 from olisar.memory.vectors import delete_embedding
 from olisar.memory.writer import clear_search_index
 from olisar.messages import get_command_messages, render_message
+from olisar.persona import split_messages
 from olisar.pipeline import generate_reply
 from olisar.runtime.paths import kb_uploads_dir
 
@@ -89,6 +91,7 @@ class Slash(commands.Cog):
         # Defer immediately — generation can take a few seconds (and shows "thinking").
         await interaction.response.defer(thinking=True)
         guild_id = interaction.guild_id or DM_GUILD_ID
+        room_name, room_topic = channel_identity(interaction.channel)
         async with session_scope() as session:
             reply = await generate_reply(
                 session,
@@ -101,6 +104,8 @@ class Slash(commands.Cog):
                 display_name=interaction.user.display_name,
                 user_text=prompt,
                 actions=BotActions(self.bot, channel=interaction.channel),
+                channel_name=room_name,
+                channel_topic=room_topic,
             )
             # Committed with the reply that failed, so the button has a row to claim.
             report_url = (
@@ -116,7 +121,13 @@ class Slash(commands.Cog):
                 else ""
             )
         am = mention_policy(mention_block)
-        chunks = chunk_text(sanitize_mentions(reply.text, mention_block)) or ["…"]
+        # Followups honour the split marker too, so /ask arrives in the same rhythm a reply
+        # in the channel would (no typing pacing — the interaction already showed "thinking").
+        chunks = [
+            c
+            for piece in split_messages(sanitize_mentions(reply.text, mention_block))
+            for c in chunk_text(piece)
+        ] or ["…"]
         # The view goes on the last chunk, matching send_reply — a blank is one chunk, but
         # the two paths shouldn't disagree about where the button lands.
         view = report_view(report_url)

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
-from olisar.context import name_map
+from olisar.context import name_map, speaker_name
 from olisar.db.models import ChannelAllowlist, ChannelSummary, Message, utcnow
 from olisar.gemini.client import get_gemini
 from olisar.gemini.rate_limiter import RateLimitExceeded
@@ -58,10 +58,7 @@ async def maybe_summarize_channel(
         return False
 
     names = await name_map(session, {m.author_id for m in msgs if not m.author_is_bot})
-    transcript = "\n".join(
-        f"{'Olisar' if m.author_is_bot else names.get(m.author_id, str(m.author_id))}: {m.content}"
-        for m in msgs
-    )
+    transcript = "\n".join(f"{speaker_name(m, names)}: {m.content}" for m in msgs)
 
     try:
         result = await get_gemini().generate(

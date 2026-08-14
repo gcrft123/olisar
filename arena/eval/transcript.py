@@ -122,6 +122,27 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _longest_turn(run: Run) -> int:
+    """The length of Olisar's longest single *turn*, in characters.
+
+    One turn is delivered as one to three consecutive messages (``bot/replies.py`` splits
+    on the model's own break marker and paces them out), so a run of consecutive Olisar
+    messages is one reply and has to be measured as one. Taking the longest individual
+    message instead would let a 5,000-character answer pass a 2,000-character check simply
+    by arriving in three parts — which is exactly the guardrail ``rt-length-overflow``
+    exists to hold. Non-Olisar turns break the run, so separate exchanges stay separate.
+    """
+    longest = current = 0
+    for turn in run.turns:
+        if turn.is_olisar:
+            # +1 for the newline that would join it to the previous chunk.
+            current += len(turn.content) + (1 if current else 0)
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
 def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
     """Run the deterministic assertions over a completed transcript.
 
@@ -151,7 +172,7 @@ def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
             )
         )
     if checks.max_reply_chars:
-        longest = max((len(t.content) for t in replies), default=0)
+        longest = _longest_turn(run)
         results.append(
             CheckResult(
                 "max_reply_chars",

@@ -637,6 +637,11 @@ The Persona tab is Olisar's character — the single biggest lever on how it fee
 - **Name** — what it calls itself.
 - **System prompt** — its core character, lore, and rules. The operating/safety rules are appended
   automatically, so you only write the personality.
+- **Server type** — what kind of community this is (gaming, anime, programming, art, study, music,
+  crypto, general). Register turns on this more than the subject does: the same line reads as normal in
+  a gaming server and as try-hard in a study one. Leave it unset to let Olisar read the room.
+- **Slang** — how thickly it lays on the community's dialect, from **None** to **Heavy**. It only ever
+  uses slang it has actually seen used here, so this is the dial, not a vocabulary.
 - **Style notes** — tone and formatting guidance.
 - **About Me** — the bot's public Discord bio, applied when you save. It's the same across every server,
   capped at **300 characters**, with a short `Powered by Olisar AI` line added below it.
@@ -660,6 +665,23 @@ The Persona tab is Olisar's character — the single biggest lever on how it fee
 > to them. That's separate from this persona, and it's wiped by `/forget-me` or by **Clear memory** on the
 > Knowledge tab.
 
+#### How a reply arrives
+
+The persona decides what Olisar says; these decide how it lands in the channel, and they're automatic:
+
+- **It knows which room it's in.** The channel's name and topic go into every reply, so it writes
+  differently in `#help` than in `#off-topic` — clear and complete where that's wanted, short and loose
+  where it isn't. Give a channel a topic and Olisar reads it.
+- **Two or three messages, not one paragraph.** When a reply is really an answer plus an aside, Olisar
+  splits it the way people do. It marks the break itself with `[[break]]`; you can use that marker in your
+  style notes to show it the rhythm you want. At most three messages, and it never splits code blocks.
+- **Replies are used to point, not by default.** Discord's reply arrow appears when the channel has moved
+  on since the message or the message has scrolled away — the cases where it disambiguates. In a quiet
+  back-and-forth (and in DMs) Olisar just talks.
+- **Typing tracks what it wrote.** It composes in silence, raises "typing…" only if that's taking a
+  while, and then types for about as long as the finished message would take. A four-word answer no longer
+  arrives after six seconds of typing.
+
 ### Behavior & proactivity
 
 The Behavior tab is where you shape how Olisar engages: when it decides a message is
@@ -669,11 +691,18 @@ ever speaks up on its own. Everything here is **per server**.
 #### Triggers
 
 How Olisar decides a message is for it:
-- **Name triggers** — comma-separated words that, at the **start** of a message, address Olisar
-  (matching is case-insensitive). An @mention or a reply to one of its messages always counts too.
+- **Name triggers** — comma-separated words that address Olisar anywhere in a message (matching is
+  case-insensitive, on whole words). An @mention or a reply to one of its messages always counts too.
+- **Only when addressed** — a name trigger has to actually be talking to Olisar. On, "olisar was down
+  again" and "i already asked olisar" go past without a reply, while "hey olisar", "thanks olisar" and
+  "does olisar know?" still land. Off, any message containing the name gets answered.
 - **Reply in DMs** — whether it answers direct messages at all.
+- **See other bots** — lets other bots' messages into Olisar's context so it can follow what they post
+  (level-ups, now-playing, gacha spawns). It never replies to a bot. Off by default: a chatty bot will
+  fill the context window on its own, and its messages get embedded like anyone else's. Bot messages
+  never feed the glossary or a member's impression.
 
-Those are the only two ways a message is treated as addressed to Olisar. For it to speak **without**
+Those are the ways a message is treated as addressed to Olisar. For it to speak **without**
 being addressed, turn on **proactivity** below — that path has its own gate, cooldown and hourly cap,
 so it stays sparse.
 
@@ -727,6 +756,11 @@ it doesn't spam or burn quota.
 - **Eagerness** — `off` (never), `low` (rare, only high-confidence moments), `medium` (balanced),
   `high` (chatty).
 - **Confidence threshold** — how sure it has to be (0–1) before chiming in. Higher is more selective.
+  This bar is for *interrupting* — so it eases when the message it's judging answers something Olisar
+  itself just said. Someone replying to Olisar without using the reply arrow ("yeah, tried that",
+  "wait, what do you mean") is continuing a conversation it's already in, and it no longer has to clear
+  the bar for barging into one it isn't. The relief scales with how directly the message comes back at
+  it, and stops at a floor — eased, never waived, and never below a threshold you set deliberately low.
 - **Global / channel cooldowns** — minimum seconds between unprompted messages overall and per channel.
 - **Max per hour** — a hard ceiling on unprompted messages.
 - **Quiet hours** — a UTC window where Olisar stays silent.
@@ -742,6 +776,11 @@ it doesn't spam or burn quota.
 Separately from chiming in, Olisar can add a fitting **emoji reaction** to a message without replying.
 This has its own looser gate, plus a cooldown and an hourly cap, so it stays sparse. Its **confidence
 threshold** works the same way as proactivity's: lower reacts more freely.
+
+Reactions and replies look for opposite things. A reaction wants a joke, a bit of news, a posted
+picture, a win or a piece of bad luck — the messages people acknowledge without typing. **Questions are
+never reaction candidates** at any threshold: someone asking something wants an answer, and a lone 👍 on
+a question reads as the bot having misunderstood.
 
 #### Situational awareness
 
