@@ -1,0 +1,9 @@
+{
+  "key": "mika",
+  "display_name": "mika",
+  "blurb": "Been here about two years. Works night shifts, so shows up at odd hours. Knows the server's history better than most and will correct people about it.",
+  "voice": "all lowercase, short fragments, often two or three messages in a row instead of one. barely punctuates. dry, a bit deadpan. never uses emoji.",
+  "traits": ["regular", "deadpan", "types in fragments"],
+  "chattiness": 0.7,
+  "reacts_to_olisar": true
+}

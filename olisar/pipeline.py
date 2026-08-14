@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from olisar import prompt_overrides
 from olisar.config import settings
 from olisar.context import CONTEXT_NOTE, build_contents, people_directory
 from olisar.db.models import GuildConfig, Persona
@@ -434,7 +435,7 @@ async def generate_reply(
             tone_notes=persona.tone_notes,
             runtime_note=runtime_note,
         )
-    system_instruction += "\n\n" + CONTEXT_NOTE + "\n\n" + TOOLS_NOTE
+    system_instruction += "\n\n" + CONTEXT_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
     system_instruction += (
         f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M} — use it "
         "to resolve any 'remind me' / scheduling request before calling add_reminder."
@@ -585,7 +586,7 @@ async def generate_sandbox_reply(
             tone_notes=persona.tone_notes,
             runtime_note=runtime_note,
         )
-    system_instruction += "\n\n" + SANDBOX_NOTE + "\n\n" + TOOLS_NOTE
+    system_instruction += "\n\n" + SANDBOX_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
 
     config = await session.get(GuildConfig, cfg_guild)

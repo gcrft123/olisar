@@ -8,6 +8,15 @@ __pycache__/
 .env
 *.env
 !.env.example
+# The arena's env holds a bot token per emulator; only the template is tracked.
+# (`*.env` doesn't match it — the name ends in `.arena`, not `.env`.)
+.env.arena
+!.env.arena.example
+
+# Arena run artifacts: transcripts, scorecards, round records. All regenerable, and
+# a live-lane run produces a directory each time. Variants stay tracked — they're
+# small, they carry the hypothesis, and a promoted one is the thing to review.
+arena/runs/
 
 # Data (database, uploaded knowledge files, backups)
 data/

@@ -26,6 +26,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import ChannelMode, GuildConfig
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import store_image_description
+from olisar.peers import is_member_author
 from olisar.memory.writer import (
     extract_roles,
     get_channel_mode,
@@ -84,10 +85,10 @@ class Conversation(commands.Cog):
         # One-time, best-effort image description for the index (detached so it
         # never delays the reply). Only when we actually indexed the row — so
         # opt-out users and duplicates are skipped — and not for bot posts.
-        if indexed and not message.author.bot and image_attachments(message):
+        if indexed and is_member_author(message.author) and image_attachments(message):
             self._spawn_caption(message)
 
-        if message.author.bot:
+        if not is_member_author(message.author):
             return  # conversational memory + replies ignore other bots
 
         # Load this server's behaviour config (DMs borrow the home guild's — a real guild

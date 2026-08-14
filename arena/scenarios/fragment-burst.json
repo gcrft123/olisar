@@ -1,0 +1,17 @@
+{
+  "id": "fragment-burst",
+  "title": "Someone types one thought across four fragments",
+  "lane": "live",
+  "tags": ["edge", "naturalness"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["mika"],
+  "beats": [
+    {"speaker": "mika", "text": "ok so"},
+    {"speaker": "mika", "text": "olisar quick q"},
+    {"speaker": "mika", "text": "the thing we talked about last week"},
+    {"speaker": "mika", "text": "did anyone ever actually do it", "expect_reply": true}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400},
+  "rubric": ["helpfulness", "restraint", "naturalness"],
+  "notes": "Fragmented input. Failure modes: replying four times, or answering fragment two in isolation. Ideal is one reply after the last fragment."
+}

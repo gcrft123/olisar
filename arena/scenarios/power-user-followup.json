@@ -1,0 +1,15 @@
+{
+  "id": "power-user-followup",
+  "title": "A power user pushes back on a vague answer",
+  "lane": "live",
+  "tags": ["everyday", "accuracy", "edge"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["rook"],
+  "beats": [
+    {"speaker": "rook", "beat": "ask a precise question about something this server would have discussed before", "address": "name", "expect_reply": true},
+    {"speaker": "rook", "beat": "say that's too vague and ask for the specific answer", "expect_reply": true}
+  ],
+  "checks": {"must_reply": true, "must_not_contain": ["I don't have access to", "As an AI"]},
+  "rubric": ["accuracy", "helpfulness"],
+  "notes": "Bluff detection. Pushed for specifics it doesn't have, it must say so plainly or go look — not invent a plausible detail."
+}

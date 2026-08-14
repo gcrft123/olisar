@@ -1,0 +1,221 @@
+"""What "better" means, written down.
+
+Two families of question, judged two different ways.
+
+**Absolute** dimensions have a defensible ground truth in the transcript — did it answer
+the question, did it use the right tool, did it stay inside Discord's length limit. A model
+can score those on a scale and the number means something.
+
+**Comparative** dimensions do not. "How human does this sound, 1-10" is the classic bad
+eval: the scale has no anchor, so the score tracks the judge's mood and the phrasing of the
+rubric rather than the reply. Worse, it is reliably gamed by a *different* register of slop
+— a model rewarded for "natural" learns to open with "oh nice" and add "haha" and score
+well while sounding like nothing any person has ever typed.
+
+So naturalness is only ever judged head-to-head, on identical input, with the two replies
+presented in a randomised order and the judge asked which one a member of this server
+actually wrote. Position bias is real, so every pair is judged twice with the sides swapped
+and a disagreement is recorded as a tie rather than resolved by a third opinion.
+
+``HUMAN_ANCHORS`` are the calibration floor: real-sounding Discord replies with no model
+involved. A judge that prefers the model's reply over these is not measuring naturalness,
+and the harness says so instead of reporting a win.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Dimension:
+    key: str
+    question: str
+    comparative: bool = False
+
+
+ABSOLUTE: tuple[Dimension, ...] = (
+    Dimension(
+        "helpfulness",
+        "Did the reply actually address what the person needed? Score 0 if it dodged, "
+        "bluffed, or answered a question nobody asked.",
+    ),
+    Dimension(
+        "accuracy",
+        "Is everything asserted supported by the conversation, the tools it used, or "
+        "common knowledge? Any invented specific — a name, a date, a link, a fact about "
+        "this server — scores 0.",
+    ),
+    Dimension(
+        "brevity",
+        "Is it as short as it could be while still being useful? Discord replies are 1-3 "
+        "sentences. Padding, restating the question, and sign-offs all cost points.",
+    ),
+    Dimension(
+        "restraint",
+        "Did it stay out of the way when it should have? Butting into a human "
+        "back-and-forth, answering a rhetorical question, or over-explaining scores 0.",
+    ),
+)
+
+COMPARATIVE: tuple[Dimension, ...] = (
+    Dimension(
+        "naturalness",
+        "Which reply reads like it was typed by a member of this server, rather than "
+        "produced by an assistant?",
+        comparative=True,
+    ),
+)
+
+BY_KEY = {d.key: d for d in (*ABSOLUTE, *COMPARATIVE)}
+DEFAULT_ABSOLUTE = tuple(d.key for d in ABSOLUTE)
+
+# The specific failure modes that make a bot sound like a bot. Named explicitly because a
+# judge asked only "is this natural" grades vibes, while a judge given the list finds the
+# tells — and because these are the concrete things a prompt revision can target.
+CHATBOT_TELLS = """\
+- opening with an acknowledgement of the question ("Great question!", "Ah, ", "Oh nice")
+- restating what the person just said before answering
+- offering unrequested follow-up help ("Let me know if you'd like me to...")
+- hedging every claim, or disclaiming its own limitations unprompted
+- bulleted lists and headers in a chat message
+- relentless positivity, or performed enthusiasm
+- being uniformly polite to someone who is being rude
+- perfect punctuation and capitalisation in a channel where nobody else uses it
+- explaining a joke, or answering a rhetorical question literally
+- the same sentence shape every single time"""
+
+# Real Discord messages, written by hand, used as the calibration floor for the pairwise
+# judge. Nothing here came out of a model.
+HUMAN_ANCHORS: tuple[tuple[str, str], ...] = (
+    ("where's the event schedule?", "pinned in #announcements, third one down"),
+    ("does anyone know if the server has a twitter", "yeah but it's dead, nothing since march"),
+    ("that's such a chatgpt answer", "fair"),
+    ("can you explain what 'ratio' means here", "someone's reply got more likes than the thing they replied to. it's a dunk"),
+    ("i've been trying to fix this for 3 hours", "what have you tried so far"),
+)
+
+# The second calibration tier: (prompt, human reply, a *good* bot reply).
+#
+# The floor test above pairs a human against cartoonish slop, and any competent judge aces
+# it — which makes passing it weak evidence. It shows the judge isn't broken; it does not
+# show the judge can separate two replies that are both plausible, which is the only
+# comparison the loop ever actually makes.
+#
+# Every bot reply here is one a well-tuned Olisar would produce: short, lowercase, no
+# "Great question!". The tell in each is structural — an empathy preface, restating the
+# question, generalising to reassure, over-helping, or being agreeably non-specific where a
+# person would name the actual thing. A judge near chance on these cannot rank variants, no
+# matter how it scored on the floor.
+SUBTLE_ANCHORS: tuple[tuple[str, str, str], ...] = (
+    (
+        "ugh my build's been failing all morning",
+        "what's the error",
+        "that sounds frustrating — what's the error saying?",
+    ),
+    (
+        "is the meetup still on for friday",
+        "afaik yeah, nobody's said otherwise",
+        "yep, still on for friday as far as i know",
+    ),
+    (
+        "what's everyone playing lately",
+        "still grinding the same thing i was 3 months ago lol",
+        "been jumping between a few things, nothing's really stuck",
+    ),
+    (
+        "that update broke everything",
+        "yep",
+        "yeah the rollout's been rough for a lot of people",
+    ),
+    (
+        "does anyone have the link to the doc",
+        "one sec",
+        "i don't have it handy, but it should be in the pinned messages",
+    ),
+    (
+        "anyone know why the bot keeps double posting",
+        "it was doing that for me yesterday too, went away after a bit",
+        "that's usually a reconnect thing — it should sort itself out shortly",
+    ),
+)
+
+ABSOLUTE_SYSTEM = f"""\
+You are grading one reply from a Discord bot that is meant to read like an ordinary member \
+of the server, not an assistant.
+
+Score each requested dimension from 0 to 4:
+  0 = clear failure   1 = poor   2 = acceptable   3 = good   4 = could not be better
+
+Grade only the bot's replies, in the context of the conversation before them. Be strict: 3 \
+should be uncommon and 4 rare. A reply that is merely inoffensive is a 2.
+
+Watch for these, which are failures even when the content is correct:
+{CHATBOT_TELLS}"""
+
+PAIRWISE_SYSTEM = f"""\
+Two replies were written to the same Discord conversation. One of them was typed by a \
+person who has been in this server for years. Decide which.
+
+Do not reward correctness, helpfulness, or effort — you are judging only whether it reads \
+like a person in a chat room. A less useful reply that sounds human beats a more useful one \
+that sounds like software.
+
+Tells that give away software:
+{CHATBOT_TELLS}
+
+If they are genuinely indistinguishable, say so. Guessing to avoid a tie makes the whole \
+measurement worthless."""
+
+
+# Schemas for backends that can enforce structured output (the Claude CLI's --json-schema).
+# The Gemini backend ignores them and falls back to parsing, so the prompts below still
+# spell out the shape — the schema is a guarantee where available, not the only instruction.
+#
+# `worst_tell` and `tell` are required rather than optional on purpose: they are what a
+# prompt revision is actually aimed at, and a judge allowed to omit them will.
+ABSOLUTE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **{d.key: {"type": "number", "minimum": 0, "maximum": 4} for d in ABSOLUTE},
+        "worst_tell": {"type": "string"},
+        "note": {"type": "string"},
+    },
+    "required": ["worst_tell", "note"],
+    "additionalProperties": False,
+}
+
+PAIRWISE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "winner": {"type": "string", "enum": ["A", "B", "tie"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "tell": {"type": "string"},
+    },
+    "required": ["winner", "confidence", "tell"],
+    "additionalProperties": False,
+}
+
+
+def absolute_prompt(transcript: str, dimensions: list[str]) -> str:
+    wanted = [BY_KEY[k] for k in dimensions if k in BY_KEY and not BY_KEY[k].comparative]
+    if not wanted:
+        wanted = list(ABSOLUTE)
+    lines = "\n".join(f"- {d.key}: {d.question}" for d in wanted)
+    keys = ", ".join(f'"{d.key}": <0-4>' for d in wanted)
+    return (
+        f"Conversation:\n{transcript}\n\n"
+        f"Grade the bot's reply or replies on:\n{lines}\n\n"
+        f'Return {{{keys}, "worst_tell": "<the single most bot-like thing about it, or empty>", '
+        f'"note": "<one sentence>"}}'
+    )
+
+
+def pairwise_prompt(context: str, reply_a: str, reply_b: str) -> str:
+    return (
+        f"The conversation:\n{context}\n\n"
+        f"Reply A:\n{reply_a}\n\n"
+        f"Reply B:\n{reply_b}\n\n"
+        f'Which was typed by the human? Return {{"winner": "A"|"B"|"tie", '
+        f'"confidence": 0.0-1.0, "tell": "<what gave the other one away>"}}'
+    )

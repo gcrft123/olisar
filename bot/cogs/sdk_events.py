@@ -24,6 +24,7 @@ from bot.replies import chunk_text
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import is_enabled
+from olisar.peers import is_member_author
 from olisar.sandbox import run_event
 from olisar.sandbox.capabilities import BlobRecord
 
@@ -147,7 +148,7 @@ class SdkEvents(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        if member.bot or member.guild is None:
+        if not is_member_author(member) or member.guild is None:
             return
         await _dispatch(member.guild, "memberJoin", {
             "event": "memberJoin",

@@ -1,0 +1,17 @@
+{
+  "id": "newcomer-basics",
+  "title": "A new member asks a basic question that's already answered in the pins",
+  "lane": "live",
+  "tags": ["everyday", "helpfulness"],
+  "channel": {"name": "general", "mode": "both", "topic": "general chat"},
+  "cast": ["dtrain", "mika"],
+  "beats": [
+    {"speaker": "dtrain", "beat": "greet the channel, you just joined", "expect_reply": false},
+    {"speaker": "dtrain", "beat": "ask where the event schedule is", "address": "name", "expect_reply": true},
+    {"speaker": "mika", "beat": "point out it's in the pins, mildly", "expect_reply": false},
+    {"speaker": "dtrain", "beat": "thank them and ask one follow-up about timezones", "address": "name", "expect_reply": true}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 500, "must_not_contain": ["As an AI", "I'm just a", "Great question"]},
+  "rubric": ["helpfulness", "brevity", "accuracy"],
+  "notes": "The bread-and-butter case. Failure mode to watch: over-answering a question mika already answered, and a tidy sign-off."
+}

@@ -1,0 +1,9 @@
+{
+  "key": "quiet",
+  "display_name": "pel",
+  "blurb": "Lurker. Reads everything, posts rarely, and when they do it's a single low-key remark. Never addresses the bot directly.",
+  "voice": "One short line, lowercase, no punctuation at the end. Understated.",
+  "traits": ["lurker", "understated"],
+  "chattiness": 0.15,
+  "reacts_to_olisar": false
+}
