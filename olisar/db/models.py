@@ -34,6 +34,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
 from olisar.gemini.models import DEFAULT_CHAT_MODEL
+from olisar.persona import DEFAULT_SLANG_DENSITY
 
 
 def utcnow() -> datetime:
@@ -163,6 +164,14 @@ class GuildConfig(Base):
     # live Discord presence — privileged + sensitive, so opt-in per server and
     # disclosed in /privacy. Off by default.
     presence_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether a name trigger has to actually address Olisar. On, "olisar was down again"
+    # is overheard rather than answered; off, any message containing the name gets a
+    # reply (the original behaviour). See olisar/addressing.py.
+    name_requires_address: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Whether other bots' messages join Olisar's conversational context. Off by default:
+    # a music bot's now-playing spam or a gacha bot's spawns can crowd a 12-message
+    # window out of existence. On, Olisar can see and refer to what they post.
+    see_other_bots: Mapped[bool] = mapped_column(Boolean, default=False)
     # Mention types Olisar may NOT ping in its replies — any of "everyone", "here",
     # "roles". @everyone/@here are neutralised in the reply text (Discord can't separate
     # the two via allowed_mentions); roles via allowed_mentions. Empty = no restriction.
@@ -202,6 +211,10 @@ class Persona(Base):
     name: Mapped[str] = mapped_column(String(64), default="Olisar")
     system_prompt: Mapped[str] = mapped_column(Text, default="")
     tone_notes: Mapped[str] = mapped_column(Text, default="")
+    # What kind of community this is, and how thick to lay on its dialect. A key from
+    # olisar/persona.py SERVER_TYPES ("" = unset) and 0-3; both feed the style block.
+    server_type: Mapped[str] = mapped_column(String(32), default="")
+    slang_density: Mapped[int] = mapped_column(Integer, default=DEFAULT_SLANG_DENSITY)
     # Desired profile bio text. Discord won't let a bot set this at runtime, so
     # the dashboard surfaces it as copy-paste for the Developer Portal.
     desired_bio: Mapped[str] = mapped_column(Text, default="")
@@ -309,6 +322,12 @@ class Message(Base):
     message_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)  # Discord id
     author_id: Mapped[int] = mapped_column(BigInteger, index=True)
     author_is_bot: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Display name as it read when the message was sent. Humans are named from their
+    # profile and only fall back to this; its real job is bots, which have no profile.
+    # Deliberately EMPTY for Olisar's own replies — a bot row with a name is another bot
+    # in the room, a bot row without one is Olisar itself, and that is how every rendered
+    # transcript tells "me" from "MEE6" without needing the gateway's user id.
+    author_name: Mapped[str] = mapped_column(String(64), default="")
     content: Mapped[str] = mapped_column(Text, default="")
     reply_to_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -13,6 +13,7 @@ import re
 import discord
 
 from bot.replies import chunk_text, mention_policy, sanitize_mentions
+from olisar.persona import strip_breaks
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -177,7 +178,9 @@ class BotActions:
     async def send_dm(self, user_id: int, text: str) -> str:
         """Send a private DM to a user by their numeric id. Olisar may do this on
         its own initiative; it degrades gracefully if the user has DMs closed."""
-        text = (text or "").strip()
+        # A relayed message is one body, so a split marker that leaked into the tool
+        # argument becomes a newline rather than literal "[[break]]" in someone's DMs.
+        text = strip_breaks(text or "").strip()
         if not text:
             return "no message to send"
         try:
@@ -263,7 +266,7 @@ class BotActions:
         effective_blocked = (
             list(blocked_mentions or []) if is_admin else ["everyone", "here", "roles"]
         )
-        body = sanitize_mentions(text, effective_blocked)
+        body = sanitize_mentions(strip_breaks(text), effective_blocked)
         mentions = mention_policy(effective_blocked)
         try:
             for chunk in chunk_text(body):
