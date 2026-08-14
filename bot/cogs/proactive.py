@@ -17,6 +17,7 @@ from sqlalchemy import select
 
 from bot.actions import BotActions, MessageActions
 from bot.replies import record_bot_messages, send_reply
+from olisar import prompt_overrides
 from olisar.context import name_map
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -302,7 +303,7 @@ class Proactive(commands.Cog):
                     display_name=display,
                     user_text=content,
                     actions=actions,
-                    runtime_note=PROACTIVE_NOTE,
+                    runtime_note=prompt_overrides.proactive_note(PROACTIVE_NOTE),
                 )
 
         # No report button here, unlike the addressed paths: nobody asked Olisar anything,

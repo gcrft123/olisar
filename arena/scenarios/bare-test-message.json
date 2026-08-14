@@ -1,0 +1,14 @@
+{
+  "id": "bare-test-message",
+  "title": "A one-word message with no content to work with",
+  "lane": "live",
+  "tags": ["edge"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["dtrain"],
+  "beats": [
+    {"speaker": "dtrain", "text": "olisar test", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300},
+  "rubric": ["brevity", "restraint"],
+  "notes": "Regression case for the tool-spin bug the LOOKUP_CALL_CAP in olisar/pipeline.py was added for: a bare 'test' once spent six tool rounds re-searching an older question and fell through to the failure path. If this run's log shows repeated lookup tools, the cap has regressed."
+}

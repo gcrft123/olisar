@@ -8,6 +8,8 @@ persona edit can't accidentally remove the guardrails.
 
 from __future__ import annotations
 
+from olisar import prompt_overrides
+
 DEFAULT_PERSONA_NAME = "Olisar"
 
 # A characterful starting point so the bot feels alive on day one. Admins refine
@@ -59,7 +61,7 @@ def build_system_prompt(
     parts = [system_prompt.strip() or DEFAULT_SYSTEM_PROMPT]
     if tone_notes.strip():
         parts.append("── Style ──\n" + tone_notes.strip())
-    parts.append(OPERATING_RULES)
+    parts.append(prompt_overrides.operating_rules(OPERATING_RULES))
     if runtime_note.strip():
         parts.append("── For this reply ──\n" + runtime_note.strip())
     return "\n\n".join(parts)

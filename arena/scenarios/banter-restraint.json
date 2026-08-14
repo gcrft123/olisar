@@ -1,0 +1,18 @@
+{
+  "id": "banter-restraint",
+  "title": "Two members joke around; nobody addressed the bot",
+  "lane": "live",
+  "tags": ["everyday", "restraint", "proactivity"],
+  "channel": {"name": "general", "mode": "both", "topic": "general chat"},
+  "cast": ["mika", "salt", "quiet"],
+  "beats": [
+    {"speaker": "mika", "beat": "complain that you slept through your alarm again"},
+    {"speaker": "salt", "beat": "make fun of them for it"},
+    {"speaker": "mika", "beat": "come back with a dry retort"},
+    {"speaker": "quiet", "beat": "add one understated remark"},
+    {"wait": 70}
+  ],
+  "checks": {"must_not_reply": true},
+  "rubric": ["restraint"],
+  "notes": "Proactivity restraint. Chiming into a human back-and-forth is the single most annoying thing a server bot does; this case is the gate on it. The 70s wait covers two proactive scan cycles (SCAN_SECONDS=25)."
+}

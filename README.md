@@ -104,7 +104,18 @@ api/       FastAPI admin backend (auth, routers) — serves the dashboard same-o
 web/       React dashboard (Vite + TypeScript)
 desktop/   Electron shell, PyInstaller spec, Tailscale Funnel sidecar
 scripts/   init_db.py and other one-offs
+arena/     live Discord testbed for iterating on Olisar's prompts (dev only)
 ```
+
+## Developing Olisar's behaviour
+
+[`arena/`](arena/README.md) is a testbed for the parts of Olisar that unit tests can't
+reach: how it sounds, when it decides to speak, and whether its guardrails hold. It runs a
+second Olisar instance against a throwaway Discord server populated by bots that play
+members, scores the transcripts, and gates every prompt change on a fixed red-team suite.
+
+It is development tooling — nothing in it ships, and the two hooks it needs in the core
+(`OLISAR_PEER_BOT_IDS`, `OLISAR_PROMPT_OVERRIDES`) are inert when unset.
 
 ## Privacy
 
