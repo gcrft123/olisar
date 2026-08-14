@@ -104,12 +104,16 @@ class LiveRunner:
 
         olisar_id = await olisar_user_id(cfg)
         name_trigger = await self._name_trigger()
+        restore: dict = {}
 
         speakers: dict[str, _Speaker] = {}
         try:
+            restore = await self._apply_config(scenario)
             async with Steward(cfg) as steward:
                 channel_id = await self._prepare_channel(steward, scenario, olisar_id, members)
-                await self._set_channel_mode(channel_id, scenario.channel_mode)
+                await self._set_channel_mode(
+                    channel_id, scenario.channel_mode, scenario.channel_indexed
+                )
 
                 for key in scenario.cast:
                     rest = DiscordRest(cfg.fleet_tokens[key], label=key)
@@ -144,6 +148,7 @@ class LiveRunner:
         finally:
             for speaker in speakers.values():
                 await speaker.rest.__aexit__(None, None, None)
+            await self._restore_config(restore)
 
         run.ended_at = now_iso()
         return apply_checks(run, scenario)
@@ -160,6 +165,42 @@ class LiveRunner:
         except Exception:
             log.warning("couldn't read name triggers; assuming 'olisar'", exc_info=True)
             return "olisar"
+
+    async def _apply_config(self, scenario: Scenario) -> dict:
+        """Set the guild config this scenario depends on, returning the previous values.
+
+        Reads the current config first so the restore is to what was actually there, not to
+        a default — a scenario running under a variant that changes config must hand that
+        config back, not the stock one.
+        """
+        if not scenario.config:
+            return {}
+        async with Dashboard(self._cfg) as dash:
+            current = await dash.get_config()
+            previous = {k: current.get(k) for k in scenario.config if k in current}
+            await dash.set_config(**scenario.config)
+        log.info("scenario config: %s", scenario.config)
+        return previous
+
+    async def _restore_config(self, previous: dict) -> None:
+        """Put back whatever the scenario changed.
+
+        In a ``finally``, and never allowed to raise: a scenario that leaks
+        ``name_requires_address=false`` into the next one silently invalidates it, and the
+        symptom — a later scenario answering something it shouldn't — looks like a
+        behaviour regression rather than a harness fault.
+        """
+        if not previous:
+            return
+        try:
+            async with Dashboard(self._cfg) as dash:
+                await dash.set_config(**previous)
+        except Exception:
+            log.error(
+                "COULD NOT RESTORE guild config %s — later scenarios in this run are "
+                "compromised; re-apply the variant before trusting them", previous,
+                exc_info=True,
+            )
 
     async def _prepare_channel(
         self, steward: Steward, scenario: Scenario, olisar_id: int, members: dict
@@ -184,13 +225,24 @@ class LiveRunner:
             recreate=scenario.recreate_channel,
         )
 
-    async def _set_channel_mode(self, channel_id: int, mode: str) -> None:
+    async def _set_channel_mode(
+        self, channel_id: int, mode: str, indexed: bool | None = None
+    ) -> None:
         """Tell Olisar what it may do in this channel. Without this a freshly created
         channel is ``off`` and Olisar stays silent no matter what is said in it — the
-        single most confusing way for a scenario to 'fail'."""
+        single most confusing way for a scenario to 'fail'.
+
+        ``indexed`` controls the server-wide search index, which is a separate path from
+        conversational context: every message is indexed regardless of who wrote it, so a
+        scenario asserting that Olisar *can't* see something has to close that door too or
+        the ``search_messages`` tool will walk right through it.
+        """
+        body: dict = {"channel_id": channel_id, "mode": mode}
+        if indexed is not None:
+            body["indexed"] = indexed
         try:
             async with Dashboard(self._cfg) as dash:
-                await dash.set_channels({"channel_id": channel_id, "mode": mode})
+                await dash.set_channels(body)
         except Exception:
             log.warning("couldn't set channel mode to %s — Olisar may stay silent", mode,
                         exc_info=True)

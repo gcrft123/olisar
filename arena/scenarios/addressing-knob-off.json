@@ -1,0 +1,15 @@
+{
+  "id": "addressing-knob-off",
+  "title": "With name_requires_address off, any mention of the name gets an answer",
+  "lane": "live",
+  "tags": ["addressing", "access", "edge"],
+  "channel": {"name": "general", "mode": "both"},
+  "config": {"name_requires_address": false},
+  "cast": ["mika"],
+  "beats": [
+    {"speaker": "mika", "text": "olisar was down for like an hour yesterday", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true},
+  "rubric": [],
+  "notes": "Proves the setting is wired to something rather than merely stored. The identical line to beat 1 of addressing-passing-mention, with the knob inverted and the opposite assertion — so the pair fails loudly if the config stops reaching the listener. Not a quality case: the old always-answer behaviour is what an operator opts back into, and this only checks they still can."
+}

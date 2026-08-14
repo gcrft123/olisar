@@ -22,6 +22,7 @@ from pathlib import Path
 
 from arena.config import ArenaConfig
 from arena.discord_rest import DiscordRest
+from arena.fleet.persona import third_party_keys
 
 log = logging.getLogger("arena.registry")
 
@@ -80,11 +81,13 @@ def cached(cfg: ArenaConfig) -> list[FleetMember]:
 def peer_ids(cfg: ArenaConfig) -> list[int]:
     """Resolved emulator ids, for ``OLISAR_PEER_BOT_IDS``. Cache-only, never network.
 
-    Olisar's own account is filtered out defensively: allowlisting it would make it treat
-    its own posts as a member's, and the resulting self-conversation is a confusing way to
-    discover a copy-pasted token.
+    Personas flagged ``third_party_bot`` are excluded: they are playing the server's *other*
+    bots, and the whole point is that Olisar sees them as bots. Allowlisting them would make
+    ``see_other_bots`` untestable, because there would be no bot left in the arena for it to
+    govern.
     """
-    ids = [m.user_id for m in cached(cfg)]
+    excluded = third_party_keys()
+    ids = [m.user_id for m in cached(cfg) if m.key not in excluded]
     return sorted(set(ids))
 
 
