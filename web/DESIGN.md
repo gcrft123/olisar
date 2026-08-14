@@ -549,6 +549,19 @@ timed error is an error the operator was told about and then had taken away, and
 need from it — the exact wording — is the thing they were reading when it vanished. Tone also
 picks the live region: `role="alert"` for the two that persist, `role="status"` for the rest.
 
+**`toast(message, tone, opts?)` returns a `{ dismiss }` handle**, for work whose end the toast
+can't predict. Options override the tone default:
+
+- **`sticky`** — pin it open regardless of tone (long-running work).
+- **`busy`** — spinner in place of the tone glyph: this toast is progress, not a verdict.
+- **`action: { label, onClick }`** — a trailing `ghost` text button (34px, e.g. **Stop** on a
+  marketplace publish). Firing it also dismisses the toast.
+- **`durationMs`** — auto-dismiss delay; ignored when sticky.
+
+An action toast shows no close ×; the action is the way out, and dismissing the only handle on
+work still running would strand it. `role` stays keyed to the *tone*, so a pinned progress toast
+announces as `status` rather than interrupting as an alert.
+
 ```css
 .toast { position: fixed; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 13px;
   min-width: 300px; max-width: 430px; padding: 13px 15px; border-radius: var(--radius);
@@ -557,6 +570,8 @@ picks the live region: `role="alert"` for the two that persist, `role="status"` 
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast .ic { color: var(--tc); font-size: 22px; }      /* solar:check-circle-bold etc. */
 .toast .title { font-size: 13.5px; font-weight: 650; }
+.toast .toast-msg { flex: 1; min-width: 0; }           /* long text truncates, action stays put */
+.toast-action { flex: none; margin: -4px 0 -4px 4px; } /* trailing ghost button */
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }

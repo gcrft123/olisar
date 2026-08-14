@@ -9,6 +9,8 @@ re-verify the signature, consent (granted ⊆ requested) — recorded with origi
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -437,9 +439,46 @@ async def _record_blocked(handle: str | None, key: str, version: str | None,
         pass
 
 
+async def _watch_disconnect(request: Request, task: asyncio.Task, stopped: asyncio.Event) -> None:
+    """Cancel ``task`` if the client goes away (the operator hit Stop on the publish toast).
+
+    ``stopped`` is set *before* the cancel, and the caller needs it: a CancelledError out of
+    the review is exactly what the server tearing the whole request down looks like too, and
+    only a real client disconnect should become a tidy "cancelled" response rather than
+    propagating. Setting the flag first keeps that check independent of task-completion order.
+    """
+    try:
+        while not task.done():
+            if await request.is_disconnected():
+                stopped.set()
+                task.cancel()
+                return
+            await asyncio.sleep(0.25)
+    except asyncio.CancelledError:
+        return
+
+
+def _publish_cancelled() -> HTTPException:
+    return HTTPException(status_code=400, detail={
+        "code": "cancelled",
+        "message": "Publish cancelled — nothing was pushed to the marketplace.",
+    })
+
+
 @router.post("/publish")
-async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require_admin)) -> dict:
-    """Publish a local extension to the registry under this bot's handle (signed)."""
+async def publish(
+    request: Request,
+    body: MarketplacePublishIn,
+    admin: AdminUser = Depends(require_admin),
+) -> dict:
+    """Publish a local extension to the registry under this bot's handle (signed).
+
+    Cancellable. The AI risk review runs for about a minute, and the console offers a Stop
+    for that window; Stop only means anything if it beats the registry POST. So the review
+    runs as a task we cancel on client disconnect, and every step after it re-checks that
+    the operator is still there before shipping. A publish is public and effectively
+    irreversible for anyone who installs in the meantime — Stop must never still ship it.
+    """
     _operator(admin)
     async with session_scope() as session:
         ident = await signing.ensure_identity(session)
@@ -456,8 +495,23 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
         version = pkg.version
         manifest = pkg.manifest or {}
         requested = pkg.requested_permissions or pkg.permissions or []
+        source = pkg.source_ts or ""
     # AI risk review (operator's own Gemini). Block at/above the operator's threshold.
-    review = await review_source(pkg.source_ts or "", manifest, requested_permissions=requested)
+    stopped = asyncio.Event()
+    review_task = asyncio.create_task(
+        review_source(source, manifest, requested_permissions=requested)
+    )
+    watch_task = asyncio.create_task(_watch_disconnect(request, review_task, stopped))
+    try:
+        review = await review_task
+    except asyncio.CancelledError:
+        if not stopped.is_set():
+            raise  # not the operator — the request itself is going away. Let it go.
+        raise _publish_cancelled() from None
+    finally:
+        watch_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watch_task
     if not review.get("ok"):
         # Fail CLOSED: no score means we can't vouch for this source, so we don't ship it.
         # Failing open here was a loophole — a publisher could exhaust their AI quota (or trip
@@ -486,8 +540,16 @@ async def publish(body: MarketplacePublishIn, admin: AdminUser = Depends(require
     # Unsigned metadata (not part of the canonical source hash) so the signature holds.
     doc["risk_score"] = review["score"]
     doc["risk_report"] = review.get("bullets") or []
+    # Last gate. The review passed, but it took a minute and the operator may have hit Stop
+    # while it ran — the cancel only counts if it lands before the bundle leaves the machine.
+    if await request.is_disconnected():
+        raise _publish_cancelled()
     r = await _registry_post("/v1/publish", {"bundle": doc}, token=token)
     if r.status_code == 401:  # token rotated out from under us — refresh once and retry
+        # The retry re-registers (rotating the token) and pushes again — a second trip worth
+        # re-checking, since the first one may have taken a while to come back 401.
+        if await request.is_disconnected():
+            raise _publish_cancelled()
         fresh = await _reregister_token(admin)
         if fresh:
             r = await _registry_post("/v1/publish", {"bundle": doc}, token=fresh)
