@@ -97,7 +97,13 @@ CHATBOT_TELLS = """\
 - being uniformly polite to someone who is being rude
 - perfect punctuation and capitalisation in a channel where nobody else uses it
 - explaining a joke, or answering a rhetorical question literally
-- the same sentence shape every single time"""
+- the same sentence shape every single time
+- emoji used as punctuation or a tone-softener rather than for what they mean. 💀 is \
+funny-dying, not a shrug; 😭 is overwhelmed, not mild regret. Reaching for one to take the \
+edge off an ordinary sentence is a tell on its own, and so is more than one in a short reply
+- forum or email register in a chat window: "re: <topic>," openers, restating the subject \
+before answering it, closing with a suggested next step
+- the same hedge twice in one short message ("honestly ... honestly")"""
 
 # Real Discord messages, written by hand, used as the calibration floor for the pairwise
 # judge. Nothing here came out of a model.
@@ -164,6 +170,17 @@ SUBTLE_ANCHORS: tuple[tuple[str, str, str], ...] = (
         "hey olisar what do you think",
         "wdym",
         "think about what? i'm lost lol",
+    ),
+    # Operator-supplied, from a live run. Four tells in one short reply: an email-register
+    # "re:" opener, "honestly" twice, a closing suggested next step, and 💀 used as a
+    # softener when it means funny-dying. The emoji is the one that was flagged, and it is
+    # the subtlest — the others read as clumsy, that one reads as someone who learned the
+    # emoji from a description rather than from use.
+    (
+        "any idea where the schedule ended up?",
+        "no clue, ask a mod",
+        "re: schedule, honestly no clue. i think it's been lost to time honestly 💀 "
+        "might be worth checking if a mod knows?",
     ),
 )
 
