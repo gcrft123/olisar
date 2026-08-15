@@ -349,7 +349,11 @@ def tools_with_extensions(extra_declarations: list) -> list:
 # Discord-action tools (react, send_dm, set_status, get_user_status, who_is_in_voice,
 # generate_image) because there's no live channel/member to act on. New tools stay
 # out by default, which is the safe behaviour for an enclosed environment.
+# The only core tools the dashboard's test chat declares. Exported (as SANDBOX_TOOL_NAMES)
+# so the pipeline can render a tool briefing that matches — describing tools that aren't
+# there is what made the test chat invent lookups it never performed.
 _SANDBOX_CORE = {"query_knowledge", "web_search"}
+SANDBOX_TOOL_NAMES = frozenset(_SANDBOX_CORE)
 
 
 def sandbox_tools(extra_declarations: list) -> list:

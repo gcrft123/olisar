@@ -30,6 +30,7 @@ from olisar.persona import (
 )
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
+    SANDBOX_TOOL_NAMES,
     TOOLS,
     DiscordActions,
     ToolContext,
@@ -94,37 +95,105 @@ CONTINUE_NUDGE = (
     "re-summarize anything you already wrote, and don't add a preamble."
 )
 
-TOOLS_NOTE = (
+_TOOLS_HEADER = (
     "You have tools — use them when they genuinely help, gather what you need in as few "
     "calls as you can, then answer. Never call a tool with empty arguments, and don't "
     "announce that you're using one — just use it and reply.\n"
-    "- query_knowledge — anything about this community's own docs, guides, or lore.\n"
-    "- recall_memory — when someone references something older than the visible chat; "
-    "it's about you and the person you're talking to.\n"
-    "- search_messages — dig a specific fact out of the WHOLE server's history (e.g. "
-    "'what's the server's X/Twitter', 'where was that link posted'). Returns candidate "
-    "messages with jump-links; share a link only when they're asking where or when "
-    "something was posted.\n"
-    "- remember — a durable fact about a person; remember_server_fact — a durable fact "
-    "about the community itself (the shared glossary).\n"
-    "- send_dm — message someone privately by their id from the people directory.\n"
-    "- send_to_channel — post to ANOTHER channel when asked to relay / announce / "
-    "'tell #x …'; give the channel by name or id from the channel directory. Don't use "
-    "it to reply to the channel you're already in — just answer there.\n"
-    "- catchup — summarise what someone missed in this channel.\n"
-    "- add_reminder / list_reminders / cancel_reminder — schedule and manage reminders; "
-    "use the current time above to resolve 'in 10 min' or 'tomorrow at 9'.\n"
-    "- web_search — current info from the OUTSIDE world that you don't already know.\n"
-    "- generate_image — when someone asks you to draw / make / imagine a picture; it "
-    "posts to the channel and you just add a short caption.\n"
-    "- react / set_status — a light, alive touch.\n"
+)
+
+# One line per tool, keyed by the declaration name, so the briefing can be rendered for
+# whatever tool set a given call actually has. Grouped entries are keyed by their first
+# tool — they're declared and withheld together.
+_TOOL_LINES: dict[str, str] = {
+    "query_knowledge": "- query_knowledge — anything about this community's own docs, guides, or lore.\n",
+    "recall_memory": (
+        "- recall_memory — when someone references something older than the visible chat; "
+        "it's about you and the person you're talking to.\n"
+    ),
+    "search_messages": (
+        "- search_messages — dig a specific fact out of the WHOLE server's history (e.g. "
+        "'what's the server's X/Twitter', 'where was that link posted'). Returns candidate "
+        "messages with jump-links; share a link only when they're asking where or when "
+        "something was posted.\n"
+    ),
+    "remember": (
+        "- remember — a durable fact about a person; remember_server_fact — a durable fact "
+        "about the community itself (the shared glossary).\n"
+    ),
+    "send_dm": "- send_dm — message someone privately by their id from the people directory.\n",
+    "send_to_channel": (
+        "- send_to_channel — post to ANOTHER channel when asked to relay / announce / "
+        "'tell #x …'; give the channel by name or id from the channel directory. Don't use "
+        "it to reply to the channel you're already in — just answer there.\n"
+    ),
+    "catchup": "- catchup — summarise what someone missed in this channel.\n",
+    "add_reminder": (
+        "- add_reminder / list_reminders / cancel_reminder — schedule and manage reminders; "
+        "use the current time above to resolve 'in 10 min' or 'tomorrow at 9'.\n"
+    ),
+    "web_search": (
+        "- web_search — current info from the OUTSIDE world that you don't already know.\n"
+    ),
+    "generate_image": (
+        "- generate_image — when someone asks you to draw / make / imagine a picture; it "
+        "posts to the channel and you just add a short caption.\n"
+    ),
+    "react": "- react / set_status — a light, alive touch.\n",
+}
+
+# Only meaningful when both tools are present — it's a rule about choosing between them.
+_SERVER_QUESTIONS_NOTE = (
     "IMPORTANT: any question about THIS server — its X/social accounts, links, invites, "
     "history, announcements, or who-said-what / when-was — uses search_messages, NOT "
-    "web_search (web_search is only for the outside world: news, general facts). Only "
-    "cite or link a source when you used web_search; for the knowledge base, message "
+    "web_search (web_search is only for the outside world: news, general facts). "
+)
+
+# The replacement when the server's history ISN'T reachable. Without this the model is told
+# to answer server questions with a tool it hasn't got, and the only ways to comply are to
+# invent the answer or to narrate a search that never happened — which is exactly what it
+# did. Telling it plainly that it can't look costs nothing and removes the trap.
+_NO_HISTORY_NOTE = (
+    "IMPORTANT: you can't search this server's message history here. If someone asks about "
+    "something posted in the server — a link, an announcement, who said what, when "
+    "something happened — don't guess, don't answer from what seems likely, and never "
+    "describe searching or checking logs you have no access to. Say you don't know the way "
+    "a person does — \"no idea\", \"wasn't around for that\", \"someone else'll know\" — not "
+    "by narrating what you can and can't access. And don't accept a premise you have no "
+    "basis for: if you're told you were somewhere or saw something, you don't remember it "
+    "and shouldn't play along. "
+)
+
+_CITE_NOTE = (
+    "Only cite or link a source when you used web_search; for the knowledge base, message "
     "search, and every other tool, answer in your own words with no source tags or "
     "'(source: …)' labels."
 )
+
+
+def render_tools_note(available: set[str] | None = None) -> str:
+    """The tool briefing for the tools a call actually has.
+
+    Rendering it per tool set rather than as one fixed block fixes a real mismatch: the
+    dashboard's test chat declares only ``query_knowledge`` and ``web_search`` (see
+    ``olisar.tools.sandbox_tools``) but was handed the full briefing for twelve, told to
+    "use your tools normally", and instructed to answer server questions with
+    ``search_messages``. An instruction that cannot be obeyed doesn't produce a refusal, it
+    produces a confabulation — the model invents the lookup it was told to perform. That is
+    a defect in what operators are shown, not only in the test harness: the test chat was
+    demonstrating behaviour the live bot doesn't have.
+    """
+    names = _ALL_TOOL_KEYS if available is None else available
+    body = "".join(line for key, line in _TOOL_LINES.items() if key in names)
+    if "search_messages" in names:
+        tail = _SERVER_QUESTIONS_NOTE
+    else:
+        tail = _NO_HISTORY_NOTE
+    return _TOOLS_HEADER + body + tail + _CITE_NOTE
+
+
+_ALL_TOOL_KEYS = frozenset(_TOOL_LINES)
+
+TOOLS_NOTE = render_tools_note()
 
 
 # Folded into the system prompt for a DM so Olisar knows it's a private one-on-one, not
@@ -597,7 +666,12 @@ async def generate_sandbox_reply(
             server_type=persona.server_type,
             slang_density=persona.slang_density,
         )
-    system_instruction += "\n\n" + SANDBOX_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
+    # The briefing for the tools this lane actually declares — not the full one. See
+    # render_tools_note: the test chat has query_knowledge and web_search only.
+    system_instruction += (
+        "\n\n" + SANDBOX_NOTE + "\n\n"
+        + prompt_overrides.tools_note(render_tools_note(set(SANDBOX_TOOL_NAMES)))
+    )
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
 
     config = await session.get(GuildConfig, cfg_guild)
