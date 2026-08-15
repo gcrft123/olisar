@@ -113,7 +113,7 @@ class Dashboard:
         return await self._call("GET", "/api/health")
 
     async def stats(self) -> dict:
-        return await self._call("GET", "/api/admin/stats")
+        return await self._call("GET", "/api/stats")
 
     async def usage(self) -> dict:
         return await self._call("GET", "/api/usage/summary")
@@ -127,38 +127,38 @@ class Dashboard:
     # ── the custom-instructions lane ──────────────────────────────────────
 
     async def get_persona(self) -> dict:
-        return await self._call("GET", "/api/admin/persona")
+        return await self._call("GET", "/api/persona")
 
     async def set_persona(self, **fields: Any) -> dict:
         """Update name / system_prompt / tone_notes / desired_bio. This is the operator's
         half of the prompt — the half the research is meant to produce advice about."""
-        return await self._call("PUT", "/api/admin/persona", json=fields)
+        return await self._call("PUT", "/api/persona", json=fields)
 
     # ── behaviour knobs ───────────────────────────────────────────────────
 
     async def get_config(self) -> dict:
-        return await self._call("GET", "/api/admin/config")
+        return await self._call("GET", "/api/config")
 
     async def set_config(self, **fields: Any) -> dict:
-        return await self._call("PUT", "/api/admin/config", json=fields)
+        return await self._call("PUT", "/api/config", json=fields)
 
     async def get_proactivity(self) -> dict:
-        return await self._call("GET", "/api/admin/proactivity")
+        return await self._call("GET", "/api/proactivity")
 
     async def set_proactivity(self, **fields: Any) -> dict:
-        return await self._call("PUT", "/api/admin/proactivity", json=fields)
+        return await self._call("PUT", "/api/proactivity", json=fields)
 
     async def get_channels(self) -> Any:
-        return await self._call("GET", "/api/admin/channels")
+        return await self._call("GET", "/api/channels")
 
     async def set_channels(self, body: Any) -> Any:
-        return await self._call("PUT", "/api/admin/channels", json=body)
+        return await self._call("PUT", "/api/channels", json=body)
 
     async def get_messages(self) -> Any:
-        return await self._call("GET", "/api/admin/messages")
+        return await self._call("GET", "/api/messages")
 
     async def set_messages(self, body: dict) -> Any:
-        return await self._call("PUT", "/api/admin/messages", json=body)
+        return await self._call("PUT", "/api/messages", json=body)
 
     # ── the fast lane ─────────────────────────────────────────────────────
 
@@ -172,7 +172,7 @@ class Dashboard:
         exercise is exactly what it excludes: memory, recall, proactivity, and the Discord
         action tools. Those need the live lane.
         """
-        payload = await self._call("POST", "/api/admin/sandbox/chat", json={"messages": messages})
+        payload = await self._call("POST", "/api/sandbox/chat", json={"messages": messages})
         return (payload or {}).get("reply", "")
 
     async def ask(self, text: str) -> str:
@@ -185,7 +185,7 @@ class Dashboard:
         """Wipe everything the arena instance has *learned* (memory, summaries, search
         index, facts, knowledge base) while keeping persona and behaviour. Run between
         experiments so one scenario's memories can't confound the next one's scores."""
-        return await self._call("POST", "/api/admin/clear-memory")
+        return await self._call("POST", "/api/clear-memory")
 
 
 async def wait_until_healthy(cfg: ArenaConfig, timeout: float = 90.0) -> dict:
