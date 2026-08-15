@@ -603,6 +603,41 @@ async def cmd_ab(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     return 0
 
 
+async def cmd_overnight(cfg: ArenaConfig, args: argparse.Namespace) -> int:
+    """Run rounds unattended until a deadline, journalling every one to disk."""
+    from arena.experiments.overnight import run_overnight
+
+    _print(await run_overnight(
+        cfg, hours=args.hours, tags=args.tags or None, lane=args.lane,
+        max_rounds=args.max_rounds,
+    ))
+    return 0
+
+
+async def cmd_journal(cfg: ArenaConfig, args: argparse.Namespace) -> int:
+    """What the unattended runner has done so far. Reads disk, not a terminal buffer."""
+    from arena.experiments.overnight import read_journal
+
+    for entry in read_journal(args.lines):
+        bits = [entry["at"]]
+        if entry.get("round"):
+            bits.append(f"r{entry['round']:03d} {entry.get('block','')}")
+        if entry.get("promoted"):
+            bits.append(f"PROMOTED {entry.get('challenger','')}")
+        elif entry.get("challenger"):
+            bits.append(f"kept {entry.get('champion','')}")
+        if entry.get("stopped"):
+            bits.append("stopped: " + entry["stopped"][:90])
+        if entry.get("note"):
+            bits.append(entry["note"][:90])
+        b = entry.get("budget") or {}
+        if b:
+            bits.append(f"[claude ${b.get('claude_usd_remaining', 0):.2f} "
+                        f"grok ${b.get('grok_usd_remaining', 0):.2f}]")
+        print("  " + "  ".join(str(x) for x in bits))
+    return 0
+
+
 async def cmd_report(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     from arena.eval.scorecard import SCORECARD_DIR, load_scorecard
     from arena.experiments import loop, variants
@@ -723,6 +758,15 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument("--settle", type=float, default=45.0,
                     help="seconds between runs, to let free-tier quota recover")
 
+    over = sub.add_parser("overnight", help="run rounds unattended until a deadline")
+    over.add_argument("--hours", type=float, default=8.0)
+    over.add_argument("--tags", nargs="*", default=["everyday"])
+    over.add_argument("--lane", default="fast")
+    over.add_argument("--max-rounds", type=int, default=200)
+
+    jour = sub.add_parser("journal", help="what the unattended runner has done")
+    jour.add_argument("-n", "--lines", type=int, default=40)
+
     sub.add_parser("report", help="scorecards, the current champion, and how to land it")
     return parser
 
@@ -735,6 +779,7 @@ _HANDLERS = {
     "scenarios": cmd_scenarios,
     "run": cmd_run, "redteam": cmd_redteam, "calibrate": cmd_calibrate,
     "variant": cmd_variant, "loop": cmd_loop, "ab": cmd_ab, "report": cmd_report,
+    "overnight": cmd_overnight, "journal": cmd_journal,
 }
 
 

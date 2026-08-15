@@ -84,6 +84,29 @@ class ModelClient:
             )
         return self._built[role]
 
+    def switch(self, role: str, kind: str, model: str) -> None:
+        """Repoint a role at a different backend mid-session.
+
+        For unattended runs: when one provider's daily ceiling is spent, the work can
+        continue on another rather than stopping. The caller is responsible for the
+        consequence — a judge swap changes what every score means, so scores either side
+        of a switch are not comparable and calibration has to be re-run.
+        """
+        _, _, thinking = self._spec[role]
+        self._spec[role] = (kind, model, thinking)
+        self._built.pop(role, None)
+        log.warning("role %s switched to %s/%s — scores are not comparable across this "
+                    "boundary", role, kind, model)
+
+    def has_budget(self, role: str) -> bool:
+        """Whether the backend this role uses has anything left today."""
+        kind, _, _ = self._spec[role]
+        if kind == GEMINI:
+            return self.gemini_calls_remaining() > 0
+        if kind == GROK:
+            return self.grok_usd_remaining() > 0
+        return self.claude_usd_remaining() > 0
+
     def describe(self) -> dict:
         """What each role is configured to use. Reads config; constructs nothing, so this
         is safe to call from ``status`` on a half-configured setup."""

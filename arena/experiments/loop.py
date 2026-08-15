@@ -187,6 +187,8 @@ async def run_round(
     tags: list[str] | None = None,
     lane: str = "",
     block: str = "operating_rules",
+    model: ModelClient | None = None,
+    calibrate: bool = True,
 ) -> Round:
     """One full measure → propose → gate → compare → promote cycle."""
     number = next_round_number()
@@ -204,11 +206,13 @@ async def run_round(
         round_record.save()
         return round_record
 
-    model = ModelClient(cfg)
+    model = model or ModelClient(cfg)
     judge = Judge(cfg, model)
 
     try:
-        calibration = await judge.calibrate()
+        # Calibration costs ~24 judge calls. Worth it once per session and after any
+        # backend switch; per-round it would dominate an unattended run's budget.
+        calibration = await judge.calibrate() if calibrate else {"trustworthy": True}
         if not calibration["trustworthy"]:
             round_record.stopped = (
                 f"judge calibration failed ({calibration['correct']}/{calibration['total']} "

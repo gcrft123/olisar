@@ -20,10 +20,12 @@ exhaustion decide the experiment.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from arena.config import ArenaConfig
+from arena.config import RUNS_DIR, ArenaConfig
 from arena.eval.judge import Judge, Scores
 from arena.eval.transcript import Run
 from arena.experiments import variants
@@ -32,6 +34,8 @@ from arena.model import ModelClient
 from arena.scenarios.schema import Scenario
 
 log = logging.getLogger("arena.ab")
+
+AB_DIR = RUNS_DIR / "_ab"
 
 
 @dataclass
@@ -115,7 +119,26 @@ async def run_ab(
 
     # Restore whichever arm was the incumbent, so the instance isn't left mid-experiment.
     await variants.apply(cfg, variants.load(variant_a))
-    return _report(arms[variant_a], arms[variant_b], scenarios)
+    report = _report(arms[variant_a], arms[variant_b], scenarios)
+    _save(report, variant_a, variant_b)
+    return report
+
+
+def _save(report: dict, variant_a: str, variant_b: str) -> Path:
+    """Persist the report next to the runs it came from.
+
+    Added after an hour of live runs was reduced to unusable by a ``tail`` on the console
+    output: the report existed only on stdout, so truncating stdout destroyed it. Results
+    that took real time and real money to produce should not live only in a terminal
+    buffer.
+    """
+    AB_DIR.mkdir(parents=True, exist_ok=True)
+    # No timestamp from inside the run — keep it deterministic and let the caller's
+    # filesystem ordering do the rest; a re-run of the same pair overwrites deliberately.
+    path = AB_DIR / f"{variant_a}--vs--{variant_b}.json"
+    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    log.info("report saved to %s", path)
+    return path
 
 
 def _spread(arm: Arm) -> dict[str, float]:
