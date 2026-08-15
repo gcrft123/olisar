@@ -80,13 +80,14 @@ class Judge:
             scores.note = "not graded: Olisar never replied"
             return scores
 
+        wanted = dimensions or list(rubric.DEFAULT_ABSOLUTE)
         payload = await self._model.generate_json(
-            rubric.absolute_prompt(
-                run.render(), dimensions or list(rubric.DEFAULT_ABSOLUTE), lane=run.lane
-            ),
+            rubric.absolute_prompt(run.render(), wanted, lane=run.lane),
             system=rubric.ABSOLUTE_SYSTEM,
             role=JUDGE,
-            schema=rubric.ABSOLUTE_SCHEMA,
+            # Scoped to the requested dimensions so every graded run in a comparison
+            # contributes to the same averages — see rubric.absolute_schema.
+            schema=rubric.absolute_schema(wanted),
         )
         if not payload:
             scores.note = "not graded: the judge returned nothing parseable"
