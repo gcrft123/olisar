@@ -218,16 +218,27 @@ measurement worthless."""
 #
 # `worst_tell` and `tell` are required rather than optional on purpose: they are what a
 # prompt revision is actually aimed at, and a judge allowed to omit them will.
-ABSOLUTE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        **{d.key: {"type": "number", "minimum": 0, "maximum": 4} for d in ABSOLUTE},
-        "worst_tell": {"type": "string"},
-        "note": {"type": "string"},
-    },
-    "required": ["worst_tell", "note"],
-    "additionalProperties": False,
-}
+def absolute_schema(dimensions: list[str] | None = None) -> dict:
+    """Structured-output schema for exactly the dimensions being asked for.
+
+    Built per call rather than fixed, because a schema listing every dimension lets the
+    judge volunteer ones the prompt didn't request — and it does. In the first placement
+    A/B, ``restraint`` appeared in both arms' averages despite no scenario asking for it,
+    so the two arms' "restraint" means were computed over different, self-selected subsets
+    of runs. It showed the largest delta of any dimension and meant nothing. Requiring the
+    keys makes every graded run contribute to the same average.
+    """
+    wanted = [d for d in ABSOLUTE if not dimensions or d.key in dimensions] or list(ABSOLUTE)
+    return {
+        "type": "object",
+        "properties": {
+            **{d.key: {"type": "number", "minimum": 0, "maximum": 4} for d in wanted},
+            "worst_tell": {"type": "string"},
+            "note": {"type": "string"},
+        },
+        "required": [*(d.key for d in wanted), "worst_tell", "note"],
+        "additionalProperties": False,
+    }
 
 PAIRWISE_SCHEMA = {
     "type": "object",
