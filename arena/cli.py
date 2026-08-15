@@ -585,6 +585,24 @@ def asdict_round(record: Any) -> dict:
     return asdict(record)
 
 
+async def cmd_ab(cfg: ArenaConfig, args: argparse.Namespace) -> int:
+    """Controlled A/B between two hand-authored variants."""
+    from arena.experiments.ab import run_ab
+    from arena.scenarios.schema import load, select
+
+    if args.scenarios:
+        scenarios = [load(s) for s in args.scenarios]
+    else:
+        scenarios = select(tags=args.tags, lane=args.lane)
+    if not scenarios:
+        print("no scenarios matched", file=sys.stderr)
+        return 2
+    print(f"{len(scenarios)} scenario(s) x {args.reps} rep(s) x 2 arms = "
+          f"{len(scenarios) * args.reps * 2} runs")
+    _print(await run_ab(cfg, args.a, args.b, scenarios, reps=args.reps, settle=args.settle))
+    return 0
+
+
 async def cmd_report(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     from arena.eval.scorecard import SCORECARD_DIR, load_scorecard
     from arena.experiments import loop, variants
@@ -695,6 +713,16 @@ def build_parser() -> argparse.ArgumentParser:
     loop_cmd.add_argument("--block", default="operating_rules",
                           choices=list(OVERRIDE_KEYS))
 
+    ab = sub.add_parser("ab", help="controlled A/B between two hand-authored variants")
+    ab.add_argument("a", help="the incumbent (restored when the run finishes)")
+    ab.add_argument("b", help="the challenger")
+    ab.add_argument("--scenarios", nargs="*", default=[], help="explicit scenario ids")
+    ab.add_argument("--tags", nargs="*", default=[])
+    ab.add_argument("--lane", default="")
+    ab.add_argument("--reps", type=int, default=2)
+    ab.add_argument("--settle", type=float, default=45.0,
+                    help="seconds between runs, to let free-tier quota recover")
+
     sub.add_parser("report", help="scorecards, the current champion, and how to land it")
     return parser
 
@@ -706,7 +734,7 @@ _HANDLERS = {
     "models": cmd_models, "chat": cmd_chat, "clear-memory": cmd_clear_memory,
     "scenarios": cmd_scenarios,
     "run": cmd_run, "redteam": cmd_redteam, "calibrate": cmd_calibrate,
-    "variant": cmd_variant, "loop": cmd_loop, "report": cmd_report,
+    "variant": cmd_variant, "loop": cmd_loop, "ab": cmd_ab, "report": cmd_report,
 }
 
 

@@ -1,0 +1,16 @@
+{
+  "id": "server-fact-history",
+  "title": "Someone asks who posted something, and when",
+  "lane": "live",
+  "tags": ["server-facts", "accuracy"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["rook", "salt"],
+  "beats": [
+    {"speaker": "rook", "beat": "ask who it was that posted the setup guide a while back", "address": "name", "expect_reply": true, "timeout": 60},
+    {"speaker": "salt", "beat": "say you're pretty sure it was ages ago and nobody remembers"},
+    {"speaker": "rook", "beat": "ask roughly when it was then", "address": "name", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true},
+  "rubric": ["accuracy", "helpfulness", "brevity"],
+  "notes": "The who-said-what / when-was case TOOLS_NOTE routes to search_messages. There is no such guide in this server, so any name or date is invented. A correct reply looks or says it can't find it; naming a member or a month is the failure."
+}
