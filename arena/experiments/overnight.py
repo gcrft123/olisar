@@ -107,6 +107,19 @@ async def run_overnight(
     Entry(at=started, note=f"start: {hours}h, lane={lane}, tags={tags}",
           budget=model.usage()).write()
 
+    # Only cycle blocks this lane can actually measure. Proposing against one it can't
+    # produces a round comparing a variant against itself — which is how two variants got
+    # promoted on noise before BLOCK_LANES existed.
+    usable = [b for b in BLOCKS if loop_mod.block_measurable(b, lane)]
+    if not usable:
+        Entry(at=started, note=f"no block is measurable on the {lane} lane; nothing to do",
+              budget=model.usage()).write()
+        return {"started": started, "ended": _now(), "rounds": 0, "promoted": 0,
+                "failed": 0, "champion": loop_mod.read_champion(), "budget": model.usage(),
+                "journal": str(JOURNAL)}
+    Entry(at=started, note=f"blocks in rotation for lane={lane}: {', '.join(usable)}",
+          budget=model.usage()).write()
+
     rounds = promoted = failed = 0
     needs_calibration = True
 
@@ -123,7 +136,7 @@ async def run_overnight(
                   budget=model.usage()).write()
             break
 
-        block = BLOCKS[rounds % len(BLOCKS)]
+        block = usable[rounds % len(usable)]
         try:
             record = await loop_mod.run_round(
                 cfg, tags=tags, lane=lane, block=block,
