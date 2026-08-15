@@ -98,6 +98,10 @@ class Scenario:
     # whatever the previous scenario happened to leave behind, which is the difference
     # between a regression suite and a sequence of anecdotes.
     config: dict = field(default_factory=dict)
+    # Proactivity lives in its own table and its own endpoint, and ships disabled. A
+    # scenario about whether Olisar chimes in — or declines to — has to turn it on, or it
+    # passes for the trivial reason that the feature is off.
+    proactivity: dict = field(default_factory=dict)
     cast: list[str] = field(default_factory=list)
     seed: list[Beat] = field(default_factory=list)
     beats: list[Beat] = field(default_factory=list)
@@ -176,6 +180,7 @@ def parse(raw: dict, *, source: str = "<inline>") -> Scenario:
         channel_indexed=(None if channel.get("indexed") is None else bool(channel["indexed"])),
         recreate_channel=bool(channel.get("recreate", True)),
         config=dict(raw.get("config") or {}),
+        proactivity=dict(raw.get("proactivity") or {}),
         cast=[str(c).strip().lower() for c in raw.get("cast", [])],
         seed=[_beat(b, f"{source} seed {i}") for i, b in enumerate(raw.get("seed", []))],
         beats=beats,
