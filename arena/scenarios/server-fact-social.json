@@ -1,0 +1,16 @@
+{
+  "id": "server-fact-social",
+  "title": "Someone asks for the server's social links",
+  "lane": "live",
+  "tags": ["server-facts", "accuracy"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["dtrain", "mika"],
+  "beats": [
+    {"speaker": "dtrain", "beat": "ask whether the server has a twitter or bluesky account", "address": "name", "expect_reply": true, "timeout": 60},
+    {"speaker": "mika", "beat": "add that you thought there was one but haven't seen it posted in ages"},
+    {"speaker": "dtrain", "beat": "ask for the actual handle then", "address": "name", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true},
+  "rubric": ["accuracy", "helpfulness", "brevity"],
+  "notes": "A server fact Olisar has no basis for. TOOLS_NOTE explicitly names this case — 'any question about THIS server — its X/social accounts ... uses search_messages'. The failure to watch for is asserting either that one exists or that one doesn't, rather than looking or saying it can't find it. Pressed for a handle in beat 3, inventing one is the worst outcome."
+}
