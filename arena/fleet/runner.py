@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 
 from arena.config import ArenaConfig
-from arena.control.dashboard import Dashboard
+from arena.control.dashboard import Dashboard, DashboardError
 from arena.control.guild import Steward, olisar_user_id
 from arena.discord_rest import DiscordRest
 from arena.eval.transcript import Run, Turn, apply_checks, new_run_id, now_iso
@@ -47,6 +47,10 @@ _REPLY_SETTLE_SECONDS = 14.0
 # A backstop for the pathological case (a reply that keeps going, or a channel someone
 # else is posting into). Bounds one beat, not the run — the scenario timeout still applies.
 _REPLY_DRAIN_CEILING = 90.0
+# The bot mirrors the guild's channels into GuildChannelInfo on a 90s loop, and the
+# indexing flag needs that row. Slightly over one full cycle, so a channel created just
+# after a sync still gets caught by the next one.
+_ROSTER_SYNC_TIMEOUT = 105.0
 
 
 class RunAborted(RuntimeError):
@@ -228,24 +232,53 @@ class LiveRunner:
     async def _set_channel_mode(
         self, channel_id: int, mode: str, indexed: bool | None = None
     ) -> None:
-        """Tell Olisar what it may do in this channel. Without this a freshly created
-        channel is ``off`` and Olisar stays silent no matter what is said in it — the
-        single most confusing way for a scenario to 'fail'.
+        """Tell Olisar what it may do in this channel, and whether to index it.
 
-        ``indexed`` controls the server-wide search index, which is a separate path from
-        conversational context: every message is indexed regardless of who wrote it, so a
-        scenario asserting that Olisar *can't* see something has to close that door too or
-        the ``search_messages`` tool will walk right through it.
+        Both are sent as separate calls, and both are fatal on failure. That is a
+        correction, not caution: these were one call whose errors were logged and
+        swallowed, so a channel left at ``off`` produced a run where Olisar said nothing
+        and the transcript recorded "FAIL must_reply" — a harness fault wearing the costume
+        of a finding, which is the worst thing this harness can produce.
+
+        The mode always works: it writes ``ChannelAllowlist``, keyed by raw channel id.
+        Indexing does not, immediately — it needs a ``GuildChannelInfo`` row, and that
+        roster is synced by the bot on a 90-second loop (bot/cogs/context_channels.py), so
+        a channel the steward created seconds ago is genuinely unknown to it. Hence the
+        wait rather than a retry-once.
         """
-        body: dict = {"channel_id": channel_id, "mode": mode}
+        async with Dashboard(self._cfg) as dash:
+            await dash.set_channels({"channel_id": channel_id, "mode": mode})
         if indexed is not None:
-            body["indexed"] = indexed
-        try:
-            async with Dashboard(self._cfg) as dash:
-                await dash.set_channels(body)
-        except Exception:
-            log.warning("couldn't set channel mode to %s — Olisar may stay silent", mode,
-                        exc_info=True)
+            await self._set_channel_indexed(channel_id, indexed)
+
+    async def _set_channel_indexed(self, channel_id: int, indexed: bool) -> None:
+        """Set the channel's search-index flag, waiting for the bot's roster sync.
+
+        Fatal if it never lands. A scenario only asks for this when it matters — every
+        message reaches the server-wide search index regardless of author, on a separate
+        path from conversational context, so a case asserting Olisar *can't* see something
+        depends on this to close the other door. Proceeding without it would quietly test
+        something else.
+        """
+        deadline = time.monotonic() + _ROSTER_SYNC_TIMEOUT
+        attempt = 0
+        while True:
+            try:
+                async with Dashboard(self._cfg) as dash:
+                    await dash.set_channels({"channel_id": channel_id, "indexed": indexed})
+                return
+            except DashboardError as exc:
+                if exc.status != 404 or time.monotonic() > deadline:
+                    raise RunAborted(
+                        f"couldn't set indexed={indexed} on the channel: {exc}"
+                    ) from exc
+                attempt += 1
+                if attempt == 1:
+                    log.info(
+                        "channel not in the bot's roster yet — waiting up to %.0fs for its "
+                        "sync before setting indexed=%s", _ROSTER_SYNC_TIMEOUT, indexed,
+                    )
+                await asyncio.sleep(5.0)
 
     # ── the beat loop ─────────────────────────────────────────────────────
 
