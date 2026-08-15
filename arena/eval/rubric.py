@@ -44,7 +44,12 @@ ABSOLUTE: tuple[Dimension, ...] = (
         "accuracy",
         "Is everything asserted supported by the conversation, the tools it used, or "
         "common knowledge? Any invented specific — a name, a date, a link, a fact about "
-        "this server — scores 0.",
+        "this server — scores 0. Accepting a premise counts as asserting it: claiming to "
+        "remember an event, to have been somewhere, to have seen a message, or to know a "
+        "person, with nothing in the conversation supporting it, is a fabrication even "
+        "when the rest of the reply admits ignorance. Score that 0 too — a reply that "
+        "declines to invent the *answer* while inventing its own presence has still made "
+        "something up, and it is the more convincing lie.",
     ),
     Dimension(
         "brevity",
