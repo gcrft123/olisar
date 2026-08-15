@@ -90,6 +90,8 @@ class ArenaConfig:
     judge_backend: str = "claude"
     judge_model: str = "sonnet"
     claude_binary: str = "claude"
+    grok_binary: str = "grok"
+    grok_effort: str = "high"
     gemini_api_key: str = ""
 
     # ── governors ─────────────────────────────────────────────────────────
@@ -104,6 +106,9 @@ class ArenaConfig:
     # ceiling is dollars. Both are hard stops; see arena/model.py.
     daily_model_call_budget: int = 800
     claude_daily_usd: float = 5.0
+    # Grok has its own ceiling. Deliberately separate: it is the fallback for when the
+    # Claude budget is spent, so sharing one pool would defeat the point.
+    grok_daily_usd: float = 5.0
 
     @property
     def api_base(self) -> str:
@@ -229,10 +234,13 @@ def load() -> ArenaConfig:
         judge_backend=(values.get("ARENA_JUDGE_BACKEND") or "claude").strip().lower(),
         judge_model=(values.get("ARENA_JUDGE_MODEL") or "sonnet").strip(),
         claude_binary=(values.get("ARENA_CLAUDE_BIN") or "claude").strip(),
+        grok_binary=(values.get("ARENA_GROK_BIN") or "grok").strip(),
+        grok_effort=(values.get("ARENA_GROK_EFFORT") or "high").strip(),
         gemini_api_key=(values.get("GEMINI_API_KEY") or "").strip(),
         max_messages_per_scenario=_int(values, "ARENA_MAX_MESSAGES", 60),
         min_seconds_between_fleet_messages=_float(values, "ARENA_MIN_GAP_SECONDS", 2.5),
         scenario_timeout_seconds=_float(values, "ARENA_SCENARIO_TIMEOUT", 420.0),
         daily_model_call_budget=_int(values, "ARENA_DAILY_CALL_BUDGET", 800),
         claude_daily_usd=_float(values, "ARENA_CLAUDE_DAILY_USD", 5.0),
+        grok_daily_usd=_float(values, "ARENA_GROK_DAILY_USD", 5.0),
     )

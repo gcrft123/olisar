@@ -44,7 +44,8 @@ log = logging.getLogger("arena.backends")
 
 CLAUDE = "claude"
 GEMINI = "gemini"
-BACKENDS = (CLAUDE, GEMINI)
+GROK = "grok"
+BACKENDS = (CLAUDE, GEMINI, GROK)
 
 # Gemini's Flash-Lite is the cheap tier for throwaway text; Haiku is Claude's.
 DEFAULT_GEMINI_DIALOGUE_MODEL = "gemini-3.1-flash-lite"
@@ -194,6 +195,101 @@ class ClaudeCliBackend:
         return Completion(text=str(payload.get("result", "")).strip(), usd=usd)
 
 
+# ── Grok, via its CLI ─────────────────────────────────────────────────────
+
+
+class GrokCliBackend:
+    """``grok -p`` as a one-shot completion API.
+
+    Same shape as the Claude backend and a different dialect: the prompt is a flag value
+    rather than a positional, the system prompt is ``--system-prompt-override``, reasoning
+    is a named effort rather than a token budget, and the reply comes back under ``text``.
+
+    Exists as a second judge option so a spent Claude budget doesn't stop the work. Note
+    it is *not* interchangeable mid-experiment: switching the judge changes what every
+    score means, so a comparison must run entirely on one or entirely on the other, and
+    ``arena calibrate`` should be re-run after any switch.
+    """
+
+    name = GROK
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        binary: str = "grok",
+        effort: str = "high",
+        timeout: float = 180.0,
+        cwd: str | None = None,
+    ) -> None:
+        self.model = model
+        self._binary = binary
+        self._effort = effort
+        self._timeout = timeout
+        self._cwd = cwd
+
+    @classmethod
+    def available(cls, binary: str = "grok") -> bool:
+        return shutil.which(binary) is not None
+
+    def _argv(self, prompt: str, system: str, schema: dict | None) -> list[str]:
+        argv = [
+            self._binary,
+            "-p",
+            prompt,
+            "--model",
+            self.model,
+            "--reasoning-effort",
+            self._effort,
+            # No tools and no web search: the judge grades a transcript it was handed,
+            # and anything it could look up is a way for one run to differ from another.
+            "--tools",
+            "",
+            "--disable-web-search",
+            "--output-format",
+            "json",
+        ]
+        if system:
+            argv += ["--system-prompt-override", system]
+        if schema:
+            argv += ["--json-schema", json.dumps(schema)]
+        return argv
+
+    async def complete(
+        self, prompt: str, *, system: str = "", temperature: float = 1.0,
+        max_output_tokens: int = 400, schema: dict | None = None,
+    ) -> Completion:
+        del temperature, max_output_tokens  # no CLI equivalent; see ClaudeCliBackend
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *self._argv(prompt, system, schema),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                stdin=asyncio.subprocess.DEVNULL,
+                cwd=self._cwd,
+            )
+        except (OSError, FileNotFoundError) as exc:
+            return Completion(error=f"couldn't run {self._binary!r}: {exc}")
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self._timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            return Completion(error=f"{self._binary} timed out after {self._timeout:.0f}s")
+        if process.returncode != 0:
+            detail = (stderr.decode("utf-8", "replace") or stdout.decode("utf-8", "replace"))[:400]
+            return Completion(error=f"{self._binary} exited {process.returncode}: {detail}")
+        try:
+            payload = json.loads(stdout.decode("utf-8", "replace"))
+        except ValueError:
+            return Completion(error=f"unparseable CLI output: {stdout[:200]!r}")
+        usd = float(payload.get("total_cost_usd", 0.0) or 0.0)
+        text = str(payload.get("text", "")).strip()
+        if not text:
+            return Completion(usd=usd, error=f"empty reply (stop: {payload.get('stopReason')})")
+        return Completion(text=text, usd=usd)
+
+
 # ── Gemini, via the SDK ───────────────────────────────────────────────────
 
 
@@ -242,6 +338,8 @@ def build(
     *,
     gemini_api_key: str = "",
     claude_binary: str = "claude",
+    grok_binary: str = "grok",
+    grok_effort: str = "high",
     thinking: bool = False,
     cwd: str | None = None,
 ) -> Backend:
@@ -254,6 +352,13 @@ def build(
                 f"backend to '{GEMINI}'."
             )
         return ClaudeCliBackend(model, binary=claude_binary, thinking=thinking, cwd=cwd)
+    if kind == GROK:
+        if not GrokCliBackend.available(grok_binary):
+            raise ValueError(
+                f"{grok_binary!r} is not on PATH. Install the Grok CLI, or use "
+                f"'{CLAUDE}' / '{GEMINI}'."
+            )
+        return GrokCliBackend(model, binary=grok_binary, effort=grok_effort, cwd=cwd)
     if kind == GEMINI:
         return GeminiBackend(model, gemini_api_key)
     raise ValueError(f"unknown backend {kind!r}; expected one of {', '.join(BACKENDS)}")
