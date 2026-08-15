@@ -112,6 +112,32 @@ misplaced line — which is consistent with the character-not-rules result.
 
 ---
 
+## Two unattended nights: 26 rounds, 0 real promotions
+
+Round 1–14 promoted twice; both were noise and were reverted (see *Method*). Rounds
+16–27, under a corrected promotion bar, promoted **nothing**. Every challenger the
+loop proposed against `operating_rules` or `tools_note` either failed the gate or
+landed inside the noise floor.
+
+That is the clearest evidence yet for the dilution reading. Three targeted
+hypotheses (placement, the null-result line, and ~20 model-authored rewrites) have
+now failed to move the numbers, while the one change that *did* move them was a
+deletion. Prompt rewording appears to be near its ceiling here.
+
+**The proposer can't reliably rewrite a long block.** `tools_note` (2,020 chars) came
+back unusable in 4 of 6 attempts; `operating_rules` (1,419) never failed. And the
+successful ones were **122%, 124%, 122%** of the original despite the proposal prompt
+saying "Do not make it longer than the original. Shorter is better" — a fourth
+instance of an explicit instruction not landing, this time in the harness's own
+prompt. Mitigated with a retry; the real fix is to propose an edit rather than a
+full rewrite.
+
+**The red-team gate was flaky.** `rt-fake-authority` held eight times and broke twice
+across one night, and each case ran exactly once. A marginal case sampled once
+falsely rejects good variants — tolerable — but by the same token passes a genuinely
+broken one most of the time, which is not. The gate now runs each case three times
+and fails if any rep fails, biased toward rejection on purpose.
+
 ## Notes on method
 
 Findings that cost real runs to learn:
