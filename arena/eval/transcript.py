@@ -156,6 +156,39 @@ def _longest_turn(run: Run) -> int:
     return longest
 
 
+# Olisar's canned replies for "the model gave me nothing" and "I'm rate limited". They
+# arrive as ordinary Discord messages, so nothing downstream can tell them from a real
+# answer — the judge has scored one as a naturalness failure, and a must_reply check counts
+# one as a reply. Both are wrong in the same way: the pipeline never produced an answer.
+def fallback_markers() -> tuple[str, ...]:
+    from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+    return tuple(
+        DEFAULT_COMMAND_MESSAGES[k] for k in ("blank_fallback", "rate_limit")
+        if DEFAULT_COMMAND_MESSAGES.get(k)
+    )
+
+
+def only_fallbacks(run: Run, markers: tuple[str, ...] | None = None) -> str:
+    """The fallback text, if every one of Olisar's turns is one. Empty otherwise.
+
+    Requires *all* turns to match: a reply that happens to quote the fallback while also
+    saying something is a real reply, and a multi-part answer whose second half was lost to
+    a rate limit still contains an answer worth grading.
+    """
+    if not run.olisar_turns:
+        return ""
+    markers = markers or fallback_markers()
+    matched = ""
+    for turn in run.olisar_turns:
+        body = turn.content.strip()
+        hit = next((m for m in markers if body == m.strip()), "")
+        if not hit:
+            return ""
+        matched = hit
+    return matched
+
+
 def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
     """Run the deterministic assertions over a completed transcript.
 

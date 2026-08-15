@@ -112,6 +112,29 @@ misplaced line — which is consistent with the character-not-rules result.
 
 ---
 
+## Data integrity: 16% of runs were void
+
+A quota-exhausted Olisar does not go silent. It replies with a canned fallback —
+"…my mind just went blank there. mind rephrasing?" — which arrives as an ordinary
+Discord message, so nothing downstream could tell it from an answer. A `must_reply`
+check counted it as a reply, and the judge graded its prose: one placement-A/B tell
+reads *"'my mind just went blank there' reads like an AI performing a human
+memory-lapse"*, which is a critique of Olisar's error message.
+
+Audited every run: **133 of 793 with a reply were entirely fallback (16%)**, from
+05:50 UTC onward, plus 12 partly. Runs are now marked inconclusive when every Olisar
+turn is a fallback, the same treatment as a rate-limited silence.
+
+What survives, checked rather than assumed:
+
+- **The character-not-rules A/B is clean.** All 86 runs in its window (00:29–04:49
+  UTC, before the first loop began) contained zero fallbacks in either arm. The one
+  established finding stands.
+- **The second night's "0 promotions" is weaker than reported.** Rounds r016–r026
+  include 17 void runs, concentrated in the last three rounds. Nothing was promoted,
+  so no bad variant got through — but "nothing cleared the bar" partly reflects
+  rounds comparing error messages, not only a correctly-set bar.
+
 ## Two unattended nights: 26 rounds, 0 real promotions
 
 Round 1–14 promoted twice; both were noise and were reverted (see *Method*). Rounds

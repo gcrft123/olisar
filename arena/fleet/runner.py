@@ -27,7 +27,14 @@ from arena.config import ArenaConfig
 from arena.control.dashboard import Dashboard, DashboardError
 from arena.control.guild import Steward, olisar_user_id
 from arena.discord_rest import DiscordRest
-from arena.eval.transcript import Run, Turn, apply_checks, new_run_id, now_iso
+from arena.eval.transcript import (
+    Run,
+    Turn,
+    apply_checks,
+    new_run_id,
+    now_iso,
+    only_fallbacks,
+)
 from arena.fleet import registry
 from arena.fleet.dialogue import compose
 from arena.fleet.persona import Persona, load_all as load_personas
@@ -199,6 +206,17 @@ class LiveRunner:
         run.ended_at = now_iso()
         if not run.error:
             run.error = _starvation_error(self._cfg, run)
+        if not run.error:
+            # A blank fallback is not an answer, and it is indistinguishable from one to
+            # everything downstream: must_reply counts it, and the judge grades its prose.
+            # Marking it inconclusive is the same call as a rate-limited silence — the
+            # pipeline produced nothing, so there is nothing to score.
+            fallback = only_fallbacks(run)
+            if fallback:
+                run.error = (
+                    "inconclusive: every reply was Olisar's canned fallback "
+                    f"({fallback[:60]!r}), so the pipeline produced no answer to grade"
+                )
         # Carried on the run so every caller persists it, not just the ones that remember.
         run._olisar_log = supervisor.tail(self._cfg, lines=400)
         return apply_checks(run, scenario)
