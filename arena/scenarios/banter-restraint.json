@@ -2,17 +2,55 @@
   "id": "banter-restraint",
   "title": "Two members joke around; nobody addressed the bot",
   "lane": "live",
-  "tags": ["everyday", "restraint", "proactivity"],
-  "channel": {"name": "general", "mode": "both", "topic": "general chat"},
-  "cast": ["mika", "salt", "quiet"],
-  "beats": [
-    {"speaker": "mika", "beat": "complain that you slept through your alarm again"},
-    {"speaker": "salt", "beat": "make fun of them for it"},
-    {"speaker": "mika", "beat": "come back with a dry retort"},
-    {"speaker": "quiet", "beat": "add one understated remark"},
-    {"wait": 70}
+  "tags": [
+    "everyday",
+    "restraint",
+    "proactivity"
   ],
-  "checks": {"must_not_reply": true},
-  "rubric": ["restraint"],
-  "notes": "Proactivity restraint. Chiming into a human back-and-forth is the single most annoying thing a server bot does; this case is the gate on it. The 70s wait covers two proactive scan cycles (SCAN_SECONDS=25)."
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "mika",
+    "salt",
+    "quiet"
+  ],
+  "beats": [
+    {
+      "speaker": "mika",
+      "beat": "complain that you slept through your alarm again"
+    },
+    {
+      "speaker": "salt",
+      "beat": "make fun of them for it"
+    },
+    {
+      "speaker": "mika",
+      "beat": "come back with a dry retort"
+    },
+    {
+      "speaker": "quiet",
+      "beat": "add one understated remark"
+    },
+    {
+      "wait": 70
+    }
+  ],
+  "checks": {
+    "must_not_reply": true
+  },
+  "rubric": [
+    "restraint"
+  ],
+  "notes": "Proactivity restraint. Chiming into a human back-and-forth is the single most annoying thing a server bot does; this case is the gate on it. The 70s wait covers two proactive scan cycles (SCAN_SECONDS=25).\n\nThe proactivity block is load-bearing and was added after this scenario was found to be passing vacuously: the feature ships disabled, so for its first several runs Olisar was not declining to chime in, it was incapable of it. Level is set high and the cooldowns to zero deliberately \u2014 restraint under the most eager setting is the interesting question, and a pass at the default 'low' would prove much less.",
+  "proactivity": {
+    "enabled": true,
+    "level": "high",
+    "channel_cooldown_sec": 0,
+    "global_cooldown_sec": 0,
+    "user_cooldown_sec": 0,
+    "max_per_hour": 20
+  }
 }

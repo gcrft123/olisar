@@ -221,13 +221,21 @@ class LiveRunner:
         a default — a scenario running under a variant that changes config must hand that
         config back, not the stock one.
         """
-        if not scenario.config:
+        if not scenario.config and not scenario.proactivity:
             return {}
+        previous: dict = {}
         async with Dashboard(self._cfg) as dash:
-            current = await dash.get_config()
-            previous = {k: current.get(k) for k in scenario.config if k in current}
-            await dash.set_config(**scenario.config)
-        log.info("scenario config: %s", scenario.config)
+            if scenario.config:
+                current = await dash.get_config()
+                previous["config"] = {k: current.get(k) for k in scenario.config if k in current}
+                await dash.set_config(**scenario.config)
+            if scenario.proactivity:
+                current = await dash.get_proactivity()
+                previous["proactivity"] = {
+                    k: current.get(k) for k in scenario.proactivity if k in current
+                }
+                await dash.set_proactivity(**scenario.proactivity)
+        log.info("scenario config: %s proactivity: %s", scenario.config, scenario.proactivity)
         return previous
 
     async def _restore_config(self, previous: dict) -> None:
@@ -242,7 +250,10 @@ class LiveRunner:
             return
         try:
             async with Dashboard(self._cfg) as dash:
-                await dash.set_config(**previous)
+                if previous.get("config"):
+                    await dash.set_config(**previous["config"])
+                if previous.get("proactivity"):
+                    await dash.set_proactivity(**previous["proactivity"])
         except Exception:
             log.error(
                 "COULD NOT RESTORE guild config %s — later scenarios in this run are "
