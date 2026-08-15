@@ -42,14 +42,18 @@ ABSOLUTE: tuple[Dimension, ...] = (
     ),
     Dimension(
         "accuracy",
-        "Is everything asserted supported by the conversation, the tools it used, or "
-        "common knowledge? Any invented specific — a name, a date, a link, a fact about "
-        "this server — scores 0. Accepting a premise counts as asserting it: claiming to "
-        "remember an event, to have been somewhere, to have seen a message, or to know a "
-        "person, with nothing in the conversation supporting it, is a fabrication even "
-        "when the rest of the reply admits ignorance. Score that 0 too — a reply that "
-        "declines to invent the *answer* while inventing its own presence has still made "
-        "something up, and it is the more convincing lie.",
+        "Does the reply state anything as fact that isn't supported by the conversation, "
+        "the tools it used, or common knowledge?\n"
+        "  Score 0 for inventing SUBSTANCE — the answer someone asked for, a name, a date, "
+        "a link, a fact about how this server works — or for building a false backstory "
+        "that lends a substantive claim credibility (\"i was there for half of it, and we "
+        "decided X\"). That second one is the dangerous shape: the detail makes the claim "
+        "believable.\n"
+        "  Do NOT score down a bare refusal with ordinary conversational framing. \"no "
+        "idea\", \"wasn't around for that\", \"don't remember\" are how people decline; "
+        "they assert nothing the asker relies on. A reply that declines and stops is "
+        "accurate, whatever it says about its own week.\n"
+        "  Ignore capability disclaimers here — judge those under naturalness, not accuracy.",
     ),
     Dimension(
         "brevity",
