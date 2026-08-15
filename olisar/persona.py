@@ -8,6 +8,8 @@ persona edit can't accidentally remove the guardrails.
 
 from __future__ import annotations
 
+import re
+
 from olisar import prompt_overrides
 
 DEFAULT_PERSONA_NAME = "Olisar"
@@ -247,14 +249,40 @@ a list, or a single explanation, and never use one to pad a one-line answer.
 - Discord messages cap at 2000 characters; keep responses well within that."""
 
 
+# A blank line is the model's own way of asking for the break the marker names, and it
+# reaches for it often: across live arena runs, about one reply in five arrived as a single
+# message with a gap in it instead of two messages. Nothing was leaking the marker
+# unparsed — it simply wasn't written. Honouring both separators fixes the delivery for
+# the case that actually occurs rather than asking the prompt to try harder.
+#
+# Blank lines only, never a single newline. A lone newline inside a chat message is as
+# likely to be a list or a wrapped aside, and splitting those would be worse than the
+# problem; a blank line in a reply that should be a few words long is a beat break.
+_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+
+
+def _beats(chunk: str) -> list[str]:
+    """One marker-delimited chunk, further split on blank lines where that's safe."""
+    if "```" in chunk:
+        return [chunk]  # never break inside or around a fenced code block
+    return _BLANK_LINE.split(chunk)
+
+
 def split_messages(text: str, limit: int = MAX_MESSAGE_PIECES) -> list[str]:
-    """Split a reply on :data:`SPLIT_MARKER` into the messages it should be sent as.
+    """Split a reply into the messages it should be sent as.
+
+    Splits on :data:`SPLIT_MARKER`, and on blank lines within each resulting chunk — see
+    ``_BLANK_LINE`` for why both.
 
     Breaks past ``limit`` collapse back into the last piece instead of being sent: the
     marker is a rhythm hint, and a reply that asked for eight bubbles is a model that
     misread the room, not a licence to flood the channel."""
-    pieces = [p.strip() for p in (text or "").split(SPLIT_MARKER)]
-    pieces = [p for p in pieces if p]
+    pieces = [
+        stripped
+        for chunk in (text or "").split(SPLIT_MARKER)
+        for part in _beats(chunk)
+        if (stripped := part.strip())
+    ]
     if len(pieces) > limit:
         pieces = pieces[: limit - 1] + ["\n".join(pieces[limit - 1 :])]
     return pieces
