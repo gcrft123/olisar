@@ -97,6 +97,31 @@ def instance_out_of_quota(cfg: ArenaConfig, window: int = 200) -> str:
     return ""
 
 
+async def instance_can_reply(cfg: ArenaConfig) -> tuple[bool, str]:
+    """Whether Olisar can actually answer right now, confirmed rather than inferred.
+
+    The log is evidence, not a verdict. A ``RESOURCE_EXHAUSTED`` line is true of the moment
+    it was written and says nothing about now — quotas reset, and a restart used to carry
+    the old lines forward, so the bare log check reported an exhausted instance that was
+    replying perfectly well. Only when the log suggests trouble is a probe worth its one
+    call; a clean log needs no confirmation.
+    """
+    hit = instance_out_of_quota(cfg)
+    if not hit:
+        return True, ""
+    from arena.control.dashboard import Dashboard
+    from arena.eval.transcript import fallback_markers
+
+    try:
+        async with Dashboard(cfg) as dash:
+            reply = (await dash.ask("ping")).strip()
+    except Exception as exc:  # noqa: BLE001
+        return False, f"probe failed: {exc}"
+    if not reply or any(reply == m.strip() for m in fallback_markers()):
+        return False, f"probe returned the fallback — {hit}"
+    return True, ""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -164,9 +189,9 @@ async def run_overnight(
         # The instance's own quota is a separate ceiling from the harness's, and the one
         # that actually stops the work: with it gone every reply is the blank fallback and
         # every score is a measurement of nothing.
-        exhausted = instance_out_of_quota(cfg)
-        if exhausted:
-            Entry(at=_now(), note=f"instance is out of Gemini quota, stopping — {exhausted}",
+        can_reply, why = await instance_can_reply(cfg)
+        if not can_reply:
+            Entry(at=_now(), note=f"instance cannot generate replies, stopping — {why}",
                   budget=model.usage()).write()
             break
 
