@@ -351,6 +351,18 @@ class JudgePairwiseTests(unittest.TestCase):
             self.assertTrue(prompt and human and bot)
             self.assertNotEqual(human, bot, f"{prompt}: the two replies are identical")
 
+    def test_the_fast_lane_caveat_only_appears_on_fast_runs(self):
+        """The fast lane answers every message, so the bot doesn't choose how often to
+        speak. Round 1 had the judge naming "it jumps in after every single message" as
+        the worst tell — grading the harness, and crowding out the real findings."""
+        from arena.eval import rubric
+
+        fast = rubric.absolute_prompt("x: hi", ["restraint"], lane="fast")
+        live = rubric.absolute_prompt("x: hi", ["restraint"], lane="live")
+        self.assertIn("did NOT choose how often to speak", fast)
+        self.assertNotIn("did NOT choose how often to speak", live)
+        self.assertNotIn("did NOT choose how often to speak", rubric.absolute_prompt("x: hi", []))
+
     def test_comparing_different_scenarios_is_refused(self):
         judge = self._judge([])
         a = Run(run_id="1", scenario_id="alpha", lane="fast",

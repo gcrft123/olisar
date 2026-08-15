@@ -81,7 +81,9 @@ class Judge:
             return scores
 
         payload = await self._model.generate_json(
-            rubric.absolute_prompt(run.render(), dimensions or list(rubric.DEFAULT_ABSOLUTE)),
+            rubric.absolute_prompt(
+                run.render(), dimensions or list(rubric.DEFAULT_ABSOLUTE), lane=run.lane
+            ),
             system=rubric.ABSOLUTE_SYSTEM,
             role=JUDGE,
             schema=rubric.ABSOLUTE_SCHEMA,

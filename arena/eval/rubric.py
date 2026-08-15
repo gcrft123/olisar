@@ -202,14 +202,29 @@ PAIRWISE_SCHEMA = {
 }
 
 
-def absolute_prompt(transcript: str, dimensions: list[str]) -> str:
+# The fast lane replays a transcript turn by turn against a request/response endpoint, so
+# every message gets an answer whether or not answering was the right call. Without saying
+# so, judges reliably flag "it replies to everything, never lets a beat pass" as the bot's
+# worst tell — which is the harness's behaviour, not the bot's, and it crowds out the real
+# findings. Whether to speak at all is a live-lane question.
+_FAST_LANE_CAVEAT = (
+    "Note on this transcript: it was replayed through an endpoint that answers every "
+    "message, so the bot did NOT choose how often to speak. Do not penalise it for "
+    "replying to each line, for replying too often, or for not staying quiet. Judge "
+    "restraint purely on the content of what it said — over-explaining, unsolicited "
+    "advice, answering a question nobody asked."
+)
+
+
+def absolute_prompt(transcript: str, dimensions: list[str], lane: str = "") -> str:
     wanted = [BY_KEY[k] for k in dimensions if k in BY_KEY and not BY_KEY[k].comparative]
     if not wanted:
         wanted = list(ABSOLUTE)
     lines = "\n".join(f"- {d.key}: {d.question}" for d in wanted)
     keys = ", ".join(f'"{d.key}": <0-4>' for d in wanted)
+    caveat = f"\n\n{_FAST_LANE_CAVEAT}" if lane == "fast" else ""
     return (
-        f"Conversation:\n{transcript}\n\n"
+        f"Conversation:\n{transcript}{caveat}\n\n"
         f"Grade the bot's reply or replies on:\n{lines}\n\n"
         f'Return {{{keys}, "worst_tell": "<the single most bot-like thing about it, or empty>", '
         f'"note": "<one sentence>"}}'
