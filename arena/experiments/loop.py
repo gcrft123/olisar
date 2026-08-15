@@ -182,14 +182,29 @@ async def propose(
         'Return {"revised": "<the full replacement text>", "hypothesis": '
         '"<one sentence: what you changed and why it should help>"}'
     )
-    payload = await model.generate_json(
-        prompt, system=_PROPOSE_SYSTEM, role=JUDGE, schema=_PROPOSE_SCHEMA,
-        max_output_tokens=1600
-    )
-    revised = str(payload.get("revised", "")).strip()
+    # Retried once. Reproducing a whole block verbatim-plus-edits is the failure mode:
+    # tools_note at ~2,000 characters came back unusable in four of six attempts across one
+    # night, while operating_rules at ~1,400 never did. A retry is far cheaper than losing
+    # the round, though the real fix is proposing an edit rather than a full rewrite.
+    revised = ""
+    for attempt in range(2):
+        payload = await model.generate_json(
+            prompt, system=_PROPOSE_SYSTEM, role=JUDGE, schema=_PROPOSE_SCHEMA,
+            max_output_tokens=4000,
+        )
+        revised = str(payload.get("revised", "")).strip()
+        if revised and len(revised) >= 80:
+            break
+        log.warning("proposal for %s came back empty or implausibly short (attempt %d)",
+                    block, attempt + 1)
     if not revised or len(revised) < 80:
-        log.warning("proposal for %s came back empty or implausibly short", block)
         return None
+    if len(revised) > len(current) * 1.15:
+        # Observed at 122-124% repeatedly despite the instruction. Recorded rather than
+        # rejected: a longer block may still win, and the loop's own results are the place
+        # to find out — but a proposer that reliably ignores a constraint is worth knowing.
+        log.warning("%s proposal is %d%% of the original despite being asked for shorter",
+                    block, len(revised) * 100 // len(current))
 
     name = f"r{round_number:03d}-{block}"
     challenger = Variant(
