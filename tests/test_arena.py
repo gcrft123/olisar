@@ -401,8 +401,32 @@ class PromotionRuleTests(unittest.TestCase):
         self.assertEqual(outcome.verdict, "inconclusive")
         self.assertIn("noise floor", outcome.reason)
 
+    def test_the_required_margin_scales_with_comparison_count(self):
+        """A fixed bar is sane over five scenarios and a rubber stamp over twelve: under
+        the null the net margin is a random walk, so its typical size grows like sqrt(n).
+        An overnight run promoted two variants on a fixed ±2 over twelve comparisons."""
+        from arena.eval.scorecard import win_margin
+
+        self.assertGreater(win_margin(12), win_margin(5))
+        self.assertGreaterEqual(win_margin(1), WIN_MARGIN)
+        self.assertEqual(win_margin(0), WIN_MARGIN)
+
+    def test_a_margin_that_would_have_passed_at_five_fails_at_twelve(self):
+        from arena.eval.scorecard import win_margin
+
+        verdicts = {f"s{i}": Verdict(winner="b") for i in range(3)}
+        verdicts.update({f"t{i}": Verdict(winner="tie") for i in range(9)})
+        outcome = compare(self._card("champ"), self._card("c"), verdicts)
+        self.assertEqual(outcome.margin, 3)
+        self.assertGreater(win_margin(12), 3)
+        self.assertEqual(outcome.verdict, "inconclusive")
+
     def test_a_clear_margin_promotes(self):
-        outcome = compare(self._card("champ"), self._card("c"), self._wins(WIN_MARGIN))
+        from arena.eval.scorecard import win_margin
+
+        n = 4
+        verdicts = {f"s{i}": Verdict(winner="b") for i in range(max(n, win_margin(n)))}
+        outcome = compare(self._card("champ"), self._card("c"), verdicts)
         self.assertEqual(outcome.verdict, "challenger")
 
     def test_ties_do_not_count_toward_the_margin(self):
@@ -424,6 +448,31 @@ class PromotionRuleTests(unittest.TestCase):
         outcome = compare(self._card("champ"), self._card("c", trustworthy=False), self._wins(10))
         self.assertEqual(outcome.verdict, "inconclusive")
         self.assertIn("calibration", outcome.reason)
+
+
+class MeasurableBlockTests(unittest.TestCase):
+    """A round on a block the lane can't exercise compares a variant against itself."""
+
+    def test_runtime_notes_are_not_measurable_on_the_fast_lane(self):
+        from arena.experiments.loop import block_measurable
+
+        # generate_sandbox_reply assembles persona + operating rules + tool briefing and
+        # nothing else; the proactive/follow-up notes are passed only by the proactive cog.
+        self.assertFalse(block_measurable("proactive_note", "fast"))
+        self.assertFalse(block_measurable("follow_up_note", "fast"))
+        self.assertTrue(block_measurable("proactive_note", "live"))
+
+    def test_prompt_blocks_are_measurable_on_both_lanes(self):
+        from arena.experiments.loop import block_measurable
+
+        for block in ("operating_rules", "tools_note"):
+            for lane in ("fast", "live"):
+                self.assertTrue(block_measurable(block, lane))
+
+    def test_an_unspecified_lane_is_treated_as_measurable(self):
+        from arena.experiments.loop import block_measurable
+
+        self.assertTrue(block_measurable("proactive_note", ""))
 
 
 class VariantTests(unittest.TestCase):

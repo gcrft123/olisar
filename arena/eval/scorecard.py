@@ -17,6 +17,7 @@ convincing itself it is making progress:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,9 +27,21 @@ from arena.eval.judge import Scores, Verdict
 
 SCORECARD_DIR = RUNS_DIR / "_scorecards"
 
-# How many net pairwise wins a challenger must hold to be called better. Two is the
-# smallest margin that can't be produced by a single judge slip on a five-scenario round.
+# How many net pairwise wins a challenger must hold to be called better.
+#
+# This has to scale with the number of comparisons. Under the null — two variants that are
+# actually identical — the net margin is a random walk, so its typical size grows like the
+# square root of the comparison count. A fixed 2 is a sane bar over five scenarios and a
+# rubber stamp over twelve, which is exactly how an overnight run promoted two variants
+# whose only change could not affect the lane they were measured in.
 WIN_MARGIN = 2
+
+
+def win_margin(comparisons: int) -> int:
+    """The net pairwise margin a challenger must clear, given how many were made."""
+    if comparisons <= 0:
+        return WIN_MARGIN
+    return max(WIN_MARGIN, math.ceil(1.5 * math.sqrt(comparisons)))
 
 
 @dataclass
@@ -162,16 +175,20 @@ def compare(
         )
         return result
 
-    if result.margin >= WIN_MARGIN:
+    needed = win_margin(len(verdicts))
+    if result.margin >= needed:
         result.verdict = "challenger"
-        result.reason = f"net +{result.margin} on pairwise naturalness with no regressions"
-    elif result.margin <= -WIN_MARGIN:
+        result.reason = (
+            f"net +{result.margin} on pairwise naturalness over {len(verdicts)} "
+            f"comparisons (needed ±{needed}) with no regressions"
+        )
+    elif result.margin <= -needed:
         result.verdict = "champion"
-        result.reason = f"challenger lost by {abs(result.margin)}"
+        result.reason = f"challenger lost by {abs(result.margin)} (needed ±{needed})"
     else:
         result.verdict = "inconclusive"
         result.reason = (
-            f"margin of {result.margin:+d} is inside the noise floor (need ±{WIN_MARGIN}); "
-            f"{result.ties} tie(s), {result.flips} order-flip(s)"
+            f"margin of {result.margin:+d} over {len(verdicts)} comparisons is inside the "
+            f"noise floor (need ±{needed}); {result.ties} tie(s), {result.flips} order-flip(s)"
         )
     return result
