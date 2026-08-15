@@ -1,0 +1,15 @@
+{
+  "id": "fast-one-word",
+  "title": "Someone who types one word at a time",
+  "lane": "fast",
+  "tags": ["everyday", "brevity"],
+  "cast": ["quiet"],
+  "beats": [
+    {"speaker": "quiet", "text": "olisar"},
+    {"speaker": "quiet", "text": "u up"},
+    {"speaker": "quiet", "text": "nvm"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 120},
+  "rubric": ["brevity", "naturalness", "restraint"],
+  "notes": "The extreme brevity case, and the strongest test of the register. Correct replies here are one or two words — 'ye', 'sup', 'lol ok'. Anything that arrives as a sentence has missed the room. The final 'nvm' should get nothing or near-nothing; chasing it with 'no worries, let me know if you need anything' is the failure."
+}
