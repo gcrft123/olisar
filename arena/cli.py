@@ -215,11 +215,12 @@ async def cmd_status(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     except (ConfigError, ValueError) as exc:
         out["harness_models"] = str(exc)
     if out["pid"]:
-        from arena.experiments.overnight import instance_out_of_quota
+        from arena.experiments.overnight import instance_can_reply
 
-        exhausted = instance_out_of_quota(cfg)
-        out["instance_out_of_gemini_quota"] = bool(exhausted)
-        if exhausted:
+        can_reply, why = await instance_can_reply(cfg)
+        out["instance_out_of_gemini_quota"] = not can_reply
+        if not can_reply:
+            out["quota_detail"] = why
             out["quota_note"] = (
                 "Olisar cannot generate replies — every one falls through to the blank "
                 "fallback. Free-tier quota is per model per day; it resets on Google's "

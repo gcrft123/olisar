@@ -39,6 +39,20 @@ FTS_K = 40          # keyword candidates pulled before fusion
 VEC_K = 40          # semantic candidates pulled before fusion
 CONTEXT_K = 20      # context-channel LIKE-scan cap
 FINAL_K = 10        # rendered back to the model
+# Minimum fused score for a candidate to be shown to the model at all.
+#
+# Without a floor this search cannot say "nothing relevant". It scores every candidate,
+# sorts, and hands back the top ten — and the recency term alone is worth up to 0.15, so a
+# message posted an hour ago with no keyword and no semantic match still ranks. Ask about
+# something the server never discussed and it gets ten confident-looking results anyway,
+# frequently including the asker's own question, which is what Olisar then answers from.
+#
+# 0.30 sits above what recency can produce unaided (0.15) and above a bare unranked keyword
+# brush (0.5 * 0.45 = 0.225 with no semantic support), while leaving any candidate with real
+# keyword or embedding signal well clear. It is a threshold on a hand-weighted score, so
+# it is a starting point to tune against the arena's server-fact scenarios, not a constant
+# derived from anything.
+MIN_RELEVANCE = 0.30
 SNIPPET_CHARS = 240
 
 # Function words + contraction orphans dropped from the FTS query (kept short so
@@ -346,8 +360,19 @@ async def search_messages(
         except Exception:
             log.exception("a search pass failed; continuing with the others")
 
-    cands = _fuse(_merge(passes))[:k]
+    ranked = _fuse(_merge(passes))
+    # Drop the merely-similar before taking the top k, so "nothing relevant" is a result
+    # this function can actually return. Returning "" makes the tool answer "No matching
+    # messages found in the server's history", which is the truth and is something the
+    # model can act on — unlike ten near-misses it has no way to recognise as such.
+    cands = [c for c in ranked if c.score >= MIN_RELEVANCE][:k]
     if not cands:
+        if ranked:
+            log.info(
+                "search_messages(%r): %d candidate(s), none above the relevance floor "
+                "(best %.2f < %.2f) — reporting nothing found",
+                query, len(ranked), ranked[0].score, MIN_RELEVANCE,
+            )
         return ""
 
     labels = await _channel_labels(

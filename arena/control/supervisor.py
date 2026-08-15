@@ -102,6 +102,13 @@ def start(cfg: ArenaConfig) -> int:
 
     ensure_database(cfg)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    # Roll the previous process's log aside. Anything reading it to decide what is true
+    # *now* — the quota check, the starvation guard — would otherwise be answering with
+    # yesterday's errors, which is exactly what a stale RESOURCE_EXHAUSTED line did.
+    previous = log_path(cfg)
+    if previous.is_file() and previous.stat().st_size:
+        with contextlib.suppress(OSError):
+            previous.replace(previous.with_suffix(".log.prev"))
     handle = open(log_path(cfg), "a", buffering=1, encoding="utf-8")
     handle.write(f"\n{'=' * 72}\n=== arena instance starting {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
 
