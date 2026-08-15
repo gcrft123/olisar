@@ -215,6 +215,16 @@ async def cmd_status(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     except (ConfigError, ValueError) as exc:
         out["harness_models"] = str(exc)
     if out["pid"]:
+        from arena.experiments.overnight import instance_out_of_quota
+
+        exhausted = instance_out_of_quota(cfg)
+        out["instance_out_of_gemini_quota"] = bool(exhausted)
+        if exhausted:
+            out["quota_note"] = (
+                "Olisar cannot generate replies — every one falls through to the blank "
+                "fallback. Free-tier quota is per model per day; it resets on Google's "
+                "schedule. Scenario results are meaningless until it does."
+            )
         try:
             async with Dashboard(cfg) as dash:
                 out["health"] = await dash.health()

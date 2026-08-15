@@ -72,6 +72,31 @@ class Entry:
             handle.write(json.dumps(asdict(self)) + "\n")
 
 
+# What Olisar logs once Google's daily free-tier allowance is gone. Distinct from a
+# per-minute 429, which the model chain rides out by walking down to a lower rung.
+_INSTANCE_EXHAUSTED = ("RESOURCE_EXHAUSTED", "chain exhausted")
+
+
+def instance_out_of_quota(cfg: ArenaConfig, window: int = 200) -> str:
+    """Whether the instance under test can still generate a reply at all.
+
+    This exists because the budget guard was watching the wrong thing. The harness meters
+    its *own* Gemini calls, but once both harness roles moved to Grok that counter sat at
+    zero while the instance quietly burned ~2,650 calls against a 500/day/model free-tier
+    cap — and every scenario after that scored a blank fallback as though it were a reply.
+
+    Read from the log rather than from a request count: the cap is per model per day and
+    the chain has seven rungs, so "how many calls has it made" does not answer "can it
+    still answer", while the exhaustion line does.
+    """
+    from arena.control import supervisor
+
+    for line in reversed(supervisor.tail(cfg, lines=window)):
+        if any(marker in line for marker in _INSTANCE_EXHAUSTED):
+            return line.strip()[:200]
+    return ""
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -133,6 +158,15 @@ async def run_overnight(
 
         if not model.has_budget(JUDGE):
             Entry(at=_now(), note="every backend is spent; stopping",
+                  budget=model.usage()).write()
+            break
+
+        # The instance's own quota is a separate ceiling from the harness's, and the one
+        # that actually stops the work: with it gone every reply is the blank fallback and
+        # every score is a measurement of nothing.
+        exhausted = instance_out_of_quota(cfg)
+        if exhausted:
+            Entry(at=_now(), note=f"instance is out of Gemini quota, stopping — {exhausted}",
                   budget=model.usage()).write()
             break
 
