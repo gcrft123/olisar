@@ -118,12 +118,58 @@ async def run_ab(
     return _report(arms[variant_a], arms[variant_b], scenarios)
 
 
+def _spread(arm: Arm) -> dict[str, float]:
+    """Per-dimension standard deviation within one arm — the noise floor.
+
+    Without this a report is just two means and a subtraction, and a delta smaller than
+    the run-to-run spread reads as a result. In the first null-result A/B the same variant
+    scored 3.33 and 1.67 on the same scenario; against that, a +0.38 aggregate delta is not
+    a finding, and saying so requires having measured it.
+    """
+    totals: dict[str, list[float]] = {}
+    for score in arm.graded():
+        for key, value in score.dimensions.items():
+            totals.setdefault(key, []).append(value)
+    out = {}
+    for key, values in totals.items():
+        if len(values) < 2:
+            continue
+        mean = sum(values) / len(values)
+        out[key] = (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
+    return out
+
+
+def _verdict(deltas: dict[str, float], a_sd: dict[str, float], b_sd: dict[str, float],
+             n: int) -> dict[str, str]:
+    """Read each delta against the noise, not against zero.
+
+    The bar is one standard error of the difference. It is a smell test, not statistics —
+    at these sample sizes nothing here is significant in any formal sense, and the point is
+    to stop a number that looks like an effect from being reported as one.
+    """
+    out = {}
+    for key, delta in deltas.items():
+        pooled = ((a_sd.get(key, 0.0) ** 2 + b_sd.get(key, 0.0) ** 2) / 2) ** 0.5
+        se = pooled / max(n, 1) ** 0.5 if pooled else 0.0
+        if not se:
+            out[key] = "no spread measured"
+        elif abs(delta) < se:
+            out[key] = f"inside the noise (±{se:.2f}) — not a result"
+        elif abs(delta) < 2 * se:
+            out[key] = f"suggestive, under 2 SE (±{se:.2f}) — needs more reps"
+        else:
+            out[key] = f"clears 2 SE (±{se:.2f})"
+    return out
+
+
 def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
     a_means, b_means = a.means(), b.means()
+    a_sd, b_sd = _spread(a), _spread(b)
     deltas = {
         key: round(b_means.get(key, 0.0) - value, 2)
         for key, value in sorted(a_means.items())
     }
+    read = _verdict(deltas, a_sd, b_sd, min(len(a.graded()), len(b.graded())))
     per_scenario = []
     for scenario in scenarios:
         a_s = [s.mean for s in a.by_scenario(scenario.id)]
@@ -142,12 +188,15 @@ def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
         "a": {
             "variant": a.variant, "graded": len(a.graded()),
             "inconclusive": a.inconclusive, "means": {k: round(v, 2) for k, v in a_means.items()},
+            "sd": {k: round(v, 2) for k, v in a_sd.items()},
         },
         "b": {
             "variant": b.variant, "graded": len(b.graded()),
             "inconclusive": b.inconclusive, "means": {k: round(v, 2) for k, v in b_means.items()},
+            "sd": {k: round(v, 2) for k, v in b_sd.items()},
         },
         "delta_b_minus_a": deltas,
+        "read": read,
         "per_scenario": per_scenario,
         "a_tells": a.tells(),
         "b_tells": b.tells(),
