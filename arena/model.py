@@ -26,7 +26,7 @@ import time
 from datetime import date
 from pathlib import Path
 
-from arena.backends import CLAUDE, GEMINI, Backend, Completion, build, extract_json
+from arena.backends import CLAUDE, GEMINI, GROK, Backend, Completion, build, extract_json
 from arena.config import ArenaConfig
 
 log = logging.getLogger("arena.model")
@@ -77,6 +77,8 @@ class ModelClient:
                 model,
                 gemini_api_key=self._cfg.gemini_api_key,
                 claude_binary=self._cfg.claude_binary,
+                grok_binary=self._cfg.grok_binary,
+                grok_effort=self._cfg.grok_effort,
                 thinking=thinking,
                 cwd=str(self._cfg.repo_root),
             )
@@ -113,6 +115,12 @@ class ModelClient:
     def claude_usd_today(self) -> float:
         return float(self._today().get("claude_usd", 0.0))
 
+    def grok_usd_today(self) -> float:
+        return float(self._today().get("grok_usd", 0.0))
+
+    def grok_usd_remaining(self) -> float:
+        return max(0.0, self._cfg.grok_daily_usd - self.grok_usd_today())
+
     def gemini_calls_remaining(self) -> int:
         return max(0, self._cfg.daily_model_call_budget - self.gemini_calls_today())
 
@@ -126,6 +134,8 @@ class ModelClient:
             "gemini_calls_remaining": self.gemini_calls_remaining(),
             "claude_usd_today": round(self.claude_usd_today(), 4),
             "claude_usd_remaining": round(self.claude_usd_remaining(), 4),
+            "grok_usd_today": round(self.grok_usd_today(), 4),
+            "grok_usd_remaining": round(self.grok_usd_remaining(), 4),
         }
 
     def _charge(self, backend: Backend, usd: float) -> None:
@@ -135,8 +145,10 @@ class ModelClient:
         if backend.name == GEMINI:
             entry["gemini_calls"] = int(entry.get("gemini_calls", 0)) + 1
         else:
-            entry["claude_calls"] = int(entry.get("claude_calls", 0)) + 1
-            entry["claude_usd"] = round(float(entry.get("claude_usd", 0.0)) + usd, 6)
+            entry[f"{backend.name}_calls"] = int(entry.get(f"{backend.name}_calls", 0)) + 1
+            entry[f"{backend.name}_usd"] = round(
+                float(entry.get(f"{backend.name}_usd", 0.0)) + usd, 6
+            )
         ledger[today] = entry
         for key in sorted(ledger)[:-14]:  # keep a fortnight
             ledger.pop(key, None)
@@ -149,6 +161,11 @@ class ModelClient:
                 f"the arena has spent its {self._cfg.daily_model_call_budget} Gemini calls for "
                 f"today. Raise ARENA_DAILY_CALL_BUDGET, switch a role to the Claude backend, "
                 f"or resume tomorrow."
+            )
+        if backend.name == GROK and self.grok_usd_remaining() <= 0:
+            raise BudgetExhausted(
+                f"the arena has spent its ${self._cfg.grok_daily_usd:.2f} Grok budget for "
+                f"today. Raise ARENA_GROK_DAILY_USD or resume tomorrow."
             )
         if backend.name == CLAUDE and self.claude_usd_remaining() <= 0:
             raise BudgetExhausted(
