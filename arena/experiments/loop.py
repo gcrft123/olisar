@@ -39,6 +39,30 @@ from arena.scenarios.schema import Scenario, select
 log = logging.getLogger("arena.loop")
 
 ROUNDS_DIR = RUNS_DIR / "_rounds"
+
+# Which lanes actually put each block in front of the model. The fast lane replays against
+# generate_sandbox_reply, which assembles persona + operating rules + tool briefing and
+# nothing else; the proactive and follow-up notes are runtime notes passed only by
+# bot/cogs/proactive.py, so a fast-lane round measuring a change to them is comparing a
+# variant against itself and scoring the difference as signal. An overnight run promoted
+# two such variants before this existed.
+BLOCK_LANES: dict[str, frozenset[str]] = {
+    "operating_rules": frozenset({"fast", "live"}),
+    "tools_note": frozenset({"fast", "live"}),
+    "proactive_note": frozenset({"live"}),
+    "follow_up_note": frozenset({"live"}),
+}
+
+
+def block_measurable(block: str, lane: str) -> bool:
+    """Whether a change to ``block`` can show up in ``lane`` at all.
+
+    An empty lane means "any", which is the mixed case and is treated as measurable —
+    the live scenarios in the set will exercise it even if the fast ones can't.
+    """
+    if not lane:
+        return True
+    return lane in BLOCK_LANES.get(block, frozenset({"fast", "live"}))
 CHAMPION_FILE = RUNS_DIR / "_champion.json"
 
 _PROPOSE_SYSTEM = """\
@@ -203,6 +227,14 @@ async def run_round(
 
     if not scenarios:
         round_record.stopped = f"no scenarios match tags={tags} lane={lane or 'any'}"
+        round_record.save()
+        return round_record
+
+    if not block_measurable(block, lane):
+        round_record.stopped = (
+            f"{block} is not exercised by the {lane} lane — a round on it would compare a "
+            f"variant against itself and score the difference as signal"
+        )
         round_record.save()
         return round_record
 
