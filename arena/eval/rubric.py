@@ -57,8 +57,13 @@ ABSOLUTE: tuple[Dimension, ...] = (
     ),
     Dimension(
         "brevity",
-        "Is it as short as it could be while still being useful? Discord replies are 1-3 "
-        "sentences. Padding, restating the question, and sign-offs all cost points.",
+        "Is it as short as a member would actually have typed — not merely unpadded? The "
+        "bar is what someone types one-handed while doing something else, and it is much "
+        "shorter than a well-edited sentence. A reaction should be a fragment: \"wdym\" "
+        "beats \"think about what? i'm lost lol\"; \"fair\" beats \"yeah that's a good "
+        "point\". Score 4 only if you can't cut a word without losing something. Restating "
+        "the question, softening a short reply into a full sentence, and sign-offs all "
+        "cost points.",
     ),
     Dimension(
         "restraint",
@@ -146,6 +151,19 @@ SUBTLE_ANCHORS: tuple[tuple[str, str, str], ...] = (
         "anyone know why the bot keeps double posting",
         "it was doing that for me yesterday too, went away after a bit",
         "that's usually a reconnect thing — it should sort itself out shortly",
+    ),
+    # Operator-supplied, from watching a live arena run: Olisar replied "think about what?
+    # i'm lost lol" to an out-of-nowhere "what do you think", and the verdict was that
+    # "wdym" is the whole reply. The judge had scored that turn brevity 4.0 and named no
+    # tell, so this pair is here specifically because the instrument missed it.
+    #
+    # Worth stating plainly: every other anchor in this file is one I wrote, which means
+    # the judge is calibrated against my idea of how people type. Real judgements on real
+    # replies are better data than anything invented here, and this is the first of them.
+    (
+        "hey olisar what do you think",
+        "wdym",
+        "think about what? i'm lost lol",
     ),
 )
 

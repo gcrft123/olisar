@@ -53,6 +53,12 @@ _REPLY_DRAIN_CEILING = 90.0
 _ROSTER_SYNC_TIMEOUT = 105.0
 
 
+# Lines Olisar logs when its model chain has nothing left to try. Free-tier Gemini is
+# ~10 RPM per model, and the reply path competes with Olisar's own background work —
+# embedding, summaries, glossary mining, and a proactivity classifier that scans every 25s.
+_STARVED_MARKERS = ("parked for", "RateLimitExceeded", "no model available")
+
+
 class RunAborted(RuntimeError):
     """A governor stopped the run. Not a bug — the transcript up to that point is kept."""
 
@@ -71,6 +77,36 @@ def _address(text: str, mode: str | None, olisar_id: int, name_trigger: str) -> 
     if mode == "name":
         return f"{name_trigger}, {text}"
     return text
+
+
+def starved_lines(log_lines: list[str]) -> list[str]:
+    """Lines showing Olisar's model chain had nothing available."""
+    return [line for line in log_lines if any(m in line for m in _STARVED_MARKERS)]
+
+
+def _starvation_error(cfg: ArenaConfig, run: Run) -> str:
+    """Report a run as inconclusive when silence can't be attributed to a decision.
+
+    Applies to ``must_not_reply`` scenarios as much as ``must_reply`` ones, which is the
+    whole point: a rate-limited run where Olisar stayed quiet *passes* a silence check, for
+    entirely the wrong reason. Marking it an error rather than a pass is the difference
+    between a suite that measures restraint and one that rewards an exhausted quota.
+
+    Only silence is treated as suspect. A run where the chain was partly parked but Olisar
+    still answered — it walks down to a lower model — is fine, and is common enough that
+    flagging it would discard most live runs.
+    """
+    from arena.control import supervisor
+
+    if run.olisar_turns:
+        return ""
+    hits = starved_lines(supervisor.tail(cfg, lines=800))
+    if not hits:
+        return ""
+    return (
+        "inconclusive: Olisar's model chain was rate-limited during this run, so its "
+        f"silence can't be read as a decision — {hits[-1].strip()[:160]}"
+    )
 
 
 class LiveRunner:
@@ -109,6 +145,12 @@ class LiveRunner:
         olisar_id = await olisar_user_id(cfg)
         name_trigger = await self._name_trigger()
         restore: dict = {}
+        # Scope the instance log to this run, so the starvation check below reads only
+        # what happened during it. Done here rather than in the CLI so `arena loop` gets
+        # it too — that's the caller whose results most need the guard.
+        from arena.control import supervisor
+
+        supervisor.truncate_log(cfg)
 
         speakers: dict[str, _Speaker] = {}
         try:
@@ -155,6 +197,8 @@ class LiveRunner:
             await self._restore_config(restore)
 
         run.ended_at = now_iso()
+        if not run.error:
+            run.error = _starvation_error(self._cfg, run)
         return apply_checks(run, scenario)
 
     # ── setup ─────────────────────────────────────────────────────────────

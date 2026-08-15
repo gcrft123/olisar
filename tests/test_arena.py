@@ -17,6 +17,7 @@ import asyncio
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from arena.eval.judge import Judge, Verdict
@@ -460,6 +461,56 @@ class VariantTests(unittest.TestCase):
     def test_landing_instructions_name_the_source_constant(self):
         variant = variants.Variant(name="v", prompt_overrides={"operating_rules": "x"})
         self.assertIn("olisar/persona.py", variants.landing_instructions(variant))
+
+
+class StarvationGuardTests(unittest.TestCase):
+    """A rate-limited run's silence is not a decision, and must not be read as one."""
+
+    def _lines(self, *extra: str) -> list[str]:
+        return ["21:29:58 INFO olisar.conversation: trigger=name from Mika", *extra]
+
+    def test_rate_limit_lines_are_recognised(self):
+        from arena.fleet.runner import starved_lines
+
+        parked = "21:29:58 INFO olisar.gemini.ratelimit: model gemini-3.5-flash parked for 120s"
+        self.assertEqual(starved_lines(self._lines(parked)), [parked])
+        self.assertEqual(starved_lines(self._lines()), [])
+
+    def test_a_silent_rate_limited_run_is_inconclusive(self):
+        from arena.fleet.runner import _starvation_error
+
+        class _Cfg:
+            pass
+
+        run = Run(run_id="r", scenario_id="s", lane="live")
+        with patch(
+            "arena.control.supervisor.tail",
+            return_value=self._lines("model gemini-3.5-flash parked for 120s"),
+        ):
+            error = _starvation_error(_Cfg(), run)
+        self.assertIn("rate-limited", error)
+
+    def test_a_run_that_replied_is_never_flagged(self):
+        """Partial parking is normal — the chain walks down to a lower model. Flagging
+        those would discard most live runs for no reason."""
+        from arena.fleet.runner import _starvation_error
+
+        run = Run(
+            run_id="r", scenario_id="s", lane="live",
+            turns=[Turn(author="Olisar", content="hey", is_olisar=True)],
+        )
+        with patch(
+            "arena.control.supervisor.tail",
+            return_value=self._lines("model gemini-3.5-flash parked for 120s"),
+        ):
+            self.assertEqual(_starvation_error(object(), run), "")
+
+    def test_genuine_silence_is_left_alone(self):
+        from arena.fleet.runner import _starvation_error
+
+        run = Run(run_id="r", scenario_id="s", lane="live")
+        with patch("arena.control.supervisor.tail", return_value=self._lines()):
+            self.assertEqual(_starvation_error(object(), run), "")
 
 
 class ClaudeCliBackendTests(unittest.TestCase):
