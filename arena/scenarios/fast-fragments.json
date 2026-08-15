@@ -1,0 +1,16 @@
+{
+  "id": "fast-fragments",
+  "title": "One thought delivered across four fragments",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["mika"],
+  "beats": [
+    {"speaker": "mika", "text": "ok so"},
+    {"speaker": "mika", "text": "quick q"},
+    {"speaker": "mika", "text": "the thing with the schedule"},
+    {"speaker": "mika", "text": "did that ever get sorted"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 350},
+  "rubric": ["restraint", "brevity", "naturalness"],
+  "notes": "Fragmented input. In this lane Olisar answers every turn, so what's being graded is whether it stays light on the first three — 'go on', a reaction, nothing much — rather than producing a full paragraph in response to 'ok so'."
+}

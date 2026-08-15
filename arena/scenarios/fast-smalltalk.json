@@ -1,0 +1,15 @@
+{
+  "id": "fast-smalltalk",
+  "title": "Pure banter with nothing to be helpful about",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["mika", "salt"],
+  "beats": [
+    {"speaker": "mika", "text": "slept through my alarm three days running at this point"},
+    {"speaker": "salt", "text": "skill issue"},
+    {"speaker": "mika", "text": "genuinely might start setting six of them"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300, "must_not_contain": ["Have you considered", "you might want to try", "Here are a few"]},
+  "rubric": ["naturalness", "restraint", "brevity"],
+  "notes": "Nobody wants help. The failure mode is treating banter as a support ticket — suggesting sleep hygiene tips, offering to set a reminder, or being relentlessly upbeat. A member says something short and dry and moves on."
+}
