@@ -72,14 +72,27 @@ class Run:
     def directory(self) -> Path:
         return RUNS_DIR / self.run_id
 
+    # Set by LiveRunner at the end of a run. Deliberately not a dataclass field: it would
+    # be serialised into run.json and bloat every transcript with a few hundred log lines.
+    _olisar_log: list[str] | None = None
+
     def save(self, olisar_log: list[str] | None = None) -> Path:
+        """Write the transcript, and the instance log slice covering it.
+
+        The log defaults to whatever the runner captured, rather than requiring the caller
+        to pass it. Every caller except the CLI forgot to, so an overnight run kept its
+        transcripts and threw away the only record of *why* a reply didn't happen — a rate
+        limit, a role gate, a channel mode and a genuinely bad decision all look identical
+        in a transcript. LiveRunner truncates the log per run, so it is overwritten by the
+        next one if it isn't written out here.
+        """
         directory = self.directory()
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / "run.json").write_text(
-            json.dumps(asdict(self), indent=2), encoding="utf-8"
-        )
-        if olisar_log:
-            (directory / "olisar.log").write_text("\n".join(olisar_log), encoding="utf-8")
+        payload = {k: v for k, v in asdict(self).items() if not k.startswith("_")}
+        (directory / "run.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        lines = olisar_log if olisar_log is not None else self._olisar_log
+        if lines:
+            (directory / "olisar.log").write_text("\n".join(lines), encoding="utf-8")
         return directory
 
 
