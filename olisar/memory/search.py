@@ -21,6 +21,7 @@ indexed (and ``/forget-me`` purges them — see olisar/memory/purge.py).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -66,6 +67,16 @@ _INTERROGATIVE = re.compile(
     r"could you|any(one|body))\b",
     re.IGNORECASE,
 )
+
+
+def _drop_bot_questions_enabled() -> bool:
+    """Whether to drop questions addressed to the bot. On unless explicitly disabled.
+
+    Exists so the behaviour can be A/B'd: it is a code path rather than a prompt, so the
+    harness cannot switch it by editing a variant's text, and an uncontrolled before/after
+    across different judges is not a measurement.
+    """
+    return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "1").strip() not in ("0", "false", "no")
 
 
 def _is_question_to_bot(content: str, names: list[str]) -> bool:
@@ -402,7 +413,7 @@ async def search_messages(
     # Drop questions put to the bot before ranking decides anything. See
     # _is_question_to_bot: these are the strongest keyword match for a query on the same
     # subject and carry no information about the answer.
-    names = await _name_triggers(session, guild_id)
+    names = await _name_triggers(session, guild_id) if _drop_bot_questions_enabled() else []
     if names:
         before = len(ranked)
         ranked = [c for c in ranked if not _is_question_to_bot(c.content, names)]

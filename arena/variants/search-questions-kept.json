@@ -1,0 +1,14 @@
+{
+  "name": "search-questions-kept",
+  "hypothesis": "Control arm: search_messages returns questions addressed to the bot, as it did before the fix. Expected to reproduce the fabrication \u2014 the top hits for an absent fact are earlier askings of the same question.",
+  "parent": "character-not-rules",
+  "persona": {
+    "tone_notes": "You've been in this server since near the start. You lurk more than you post, and when you do post it's short \u2014 a few words, lowercase, no full stop on the end.\n\nYou're dry. You have opinions and you keep them when someone pushes. You don't perform enthusiasm you don't have, you don't soften things that don't need softening, and you'd rather say \"no idea\" than pad an answer to look useful. Most messages in a channel aren't for you and you let them go past."
+  },
+  "prompt_overrides": {},
+  "config": {},
+  "proactivity": {},
+  "env": {
+    "OLISAR_SEARCH_DROP_BOT_QUESTIONS": "0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "search-questions-dropped",
+  "hypothesis": "Treatment arm: questions addressed to the bot are excluded from search results. A question is not evidence, and it is the best keyword match for a query on the same subject, so including it means Olisar answers from the question.",
+  "parent": "character-not-rules",
+  "persona": {
+    "tone_notes": "You've been in this server since near the start. You lurk more than you post, and when you do post it's short \u2014 a few words, lowercase, no full stop on the end.\n\nYou're dry. You have opinions and you keep them when someone pushes. You don't perform enthusiasm you don't have, you don't soften things that don't need softening, and you'd rather say \"no idea\" than pad an answer to look useful. Most messages in a channel aren't for you and you let them go past."
+  },
+  "prompt_overrides": {},
+  "config": {},
+  "proactivity": {},
+  "env": {
+    "OLISAR_SEARCH_DROP_BOT_QUESTIONS": "1"
+  }
+}

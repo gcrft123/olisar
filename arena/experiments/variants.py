@@ -43,6 +43,10 @@ class Variant:
     persona: dict[str, str] = field(default_factory=dict)
     config: dict = field(default_factory=dict)
     proactivity: dict = field(default_factory=dict)
+    # Instance environment. Unlike every other field this cannot take effect without a
+    # restart, so `apply` restarts when it changes — which is what makes a code path
+    # (retrieval behaviour, a feature flag) A/B-able at all.
+    env: dict = field(default_factory=dict)
 
     @property
     def touches_baked_in(self) -> bool:
@@ -71,6 +75,8 @@ class Variant:
             layers.append("config: " + ", ".join(sorted(self.config)))
         if self.proactivity:
             layers.append("proactivity: " + ", ".join(sorted(self.proactivity)))
+        if self.env:
+            layers.append("env: " + ", ".join(f"{k}={v}" for k, v in sorted(self.env.items())))
         return "; ".join(layers) or "(no changes — this is the stock configuration)"
 
 
@@ -129,6 +135,23 @@ async def apply(cfg: ArenaConfig, variant: Variant) -> dict:
     applied["prompt_overrides"] = sorted(variant.prompt_overrides)
     write_overrides(cfg, variant.prompt_overrides)
 
+    # Instance env only reaches the process at launch, so a change here means a restart.
+    # Skipped when it already matches, which keeps an interleaved A/B from restarting
+    # between two arms that happen to share the same environment.
+    wanted = {str(k): str(v) for k, v in (variant.env or {}).items()}
+    current = _current_env(cfg)
+    if wanted != current:
+        cfg.variant_env_path.parent.mkdir(parents=True, exist_ok=True)
+        cfg.variant_env_path.write_text(json.dumps(wanted, indent=2), encoding="utf-8")
+        from arena.control import supervisor
+        from arena.control.dashboard import wait_until_healthy
+
+        log.info("variant env changed %s -> %s; restarting the instance", current, wanted)
+        supervisor.restart(cfg)
+        await wait_until_healthy(cfg, timeout=150)
+        applied["env"] = wanted
+        applied["restarted"] = True
+
     async with Dashboard(cfg) as dash:
         if variant.persona:
             await dash.set_persona(**variant.persona)
@@ -141,6 +164,15 @@ async def apply(cfg: ArenaConfig, variant: Variant) -> dict:
             applied["proactivity"] = sorted(variant.proactivity)
     log.info("applied variant %s (%s)", variant.name, variant.describe())
     return applied
+
+
+def _current_env(cfg: ArenaConfig) -> dict[str, str]:
+    """The instance env the running process was launched with, as this harness set it."""
+    try:
+        raw = json.loads(cfg.variant_env_path.read_text(encoding="utf-8"))
+        return {str(k): str(v) for k, v in raw.items()} if isinstance(raw, dict) else {}
+    except (OSError, ValueError):
+        return {}
 
 
 def current_baked_in() -> dict[str, str]:
