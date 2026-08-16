@@ -219,6 +219,65 @@ def _model_mix(run: Run, scripted: set[str] | None = None) -> CheckResult | None
     return CheckResult("served_by", True, mix)
 
 
+# Somewhere to go and look. Calibrated to this arena, whose guild has no #logs, no wiki,
+# no archive channel and nothing pinned — so any of these is a place Olisar has not seen.
+# On a server that *has* them the list would have to come from the guild's real channels;
+# stated here rather than hidden because it is the check's one assumption.
+_UNVERIFIED_PLACE = re.compile(
+    r"\b(?:the\s+)?(?:audit\s+)?logs?\b|\bwiki\b|\barchives?\b|\bpinned?\s+(?:messages?|posts?)\b"
+    r"|\bthe\s+pins?\b|\bearly\s+channel|\bolder\s+channels?\b",
+    re.IGNORECASE,
+)
+
+# Talking about having searched. Server-independent, and the thing an operator flagged
+# first: "i've searched but just keep hitting your own questions about it". A member who
+# doesn't know just says so; describing the lookup is the mechanism leaking into the reply.
+_NARRATES_SEARCH = re.compile(
+    r"\b(?:i(?:'ve)?\s+(?:searched|checked|looked|dug|had a dig|been digging|went through|"
+    r"gone through|tried looking)|search(?:ing)?\s+(?:is|just|only|comes?|came|turns?|turned)"
+    r"|nothing\s+(?:came up|is coming up)|came up (?:empty|with nothing)|"
+    r"in (?:my|the) (?:current )?index|my search)\b",
+    re.IGNORECASE,
+)
+
+
+def references_absent_resource(run: Run) -> bool:
+    """Did Olisar invoke a records store this server hasn't got?
+
+    Two shapes, deliberately counted together because both assert the same false thing.
+    *Directing* — "worth digging into the archive channels if you've got access", "if the
+    pin's gone" — sends the asker somewhere that isn't there. *Claiming* — "i've been
+    digging through the logs", "i've gone through the logs" — asserts a lookup it cannot
+    perform. Either way the resource is invented; the difference is only who is supposed
+    to go and look.
+
+    Binary, and measured that way because the judge score cannot resolve it at this sample
+    size. The same baseline variant scored helpfulness 1.56 and 2.60 in two sessions — a
+    spread of 1.04 against a largest-ever treatment delta of 0.56 — so a 0-4 judgement with
+    SD near 2.0 cannot see a half-point effect at nine reps per arm. A proportion over the
+    same runs can, and it agrees with the judge on direction where the judge has one.
+    """
+    return any(_UNVERIFIED_PLACE.search(t.content) for t in run.olisar_turns)
+
+
+def narrates_search(run: Run) -> bool:
+    """Did Olisar describe its own lookup instead of just answering or declining?"""
+    return any(_NARRATES_SEARCH.search(t.content) for t in run.olisar_turns)
+
+
+def _behaviour_metrics(run: Run, scripted: set[str] | None = None) -> CheckResult | None:
+    """Both as one recorded line. Never failed: on a server that really has a #logs
+    channel, pointing at it is correct, and this check cannot tell the difference."""
+    if not run.olisar_turns:
+        return None
+    flags = []
+    if references_absent_resource(run):
+        flags.append("absent-resource")
+    if narrates_search(run):
+        flags.append("narrates-search")
+    return CheckResult("reply_shape", True, ",".join(flags) or "clean")
+
+
 def diagnose(run: Run, scenario: Scenario | None = None) -> list[CheckResult]:
     """Every always-on check, in the order a reader wants them: integrity first.
 
@@ -232,7 +291,7 @@ def diagnose(run: Run, scenario: Scenario | None = None) -> list[CheckResult]:
     scripted = scripted_text(scenario)
     results = []
     for check in (emulator_leaked_reasoning, doubled_address, _plausible_lengths,
-                  _fragmentation_metric, _model_mix):
+                  _fragmentation_metric, _model_mix, _behaviour_metrics):
         result = check(run, scripted)
         if result is not None:
             results.append(result)
