@@ -29,7 +29,13 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.context import name_map
-from olisar.db.models import ChannelContextItem, GuildChannelInfo, Message, snowflake_time
+from olisar.db.models import (
+    ChannelContextItem,
+    GuildChannelInfo,
+    GuildConfig,
+    Message,
+    snowflake_time,
+)
 from olisar.gemini.embeddings import embed_query
 from olisar.memory.vectors import knn
 
@@ -39,20 +45,40 @@ FTS_K = 40          # keyword candidates pulled before fusion
 VEC_K = 40          # semantic candidates pulled before fusion
 CONTEXT_K = 20      # context-channel LIKE-scan cap
 FINAL_K = 10        # rendered back to the model
-# Minimum fused score for a candidate to be shown to the model at all.
+# No absolute score floor. One was tried and removed: `kw` is normalised across the
+# returned set, so the best candidate always scores 1.0 on keyword however poor it is
+# absolutely, and every query topped out at the same 0.595 whether the fact existed or
+# not. Worse, a 0.30 floor discarded the *correct* answer in a control case while leaving
+# absent-fact noise in place. The fused score carries no absolute signal to threshold.
+# A question put to Olisar is not evidence about the server, and it is the single best
+# keyword match for a query about the same subject — so without this, asking "who posted
+# the setup guide?" returns ten earlier askings of that question and nothing else. Olisar
+# is then told to "skim these and answer", and it does, from the question.
 #
-# Without a floor this search cannot say "nothing relevant". It scores every candidate,
-# sorts, and hands back the top ten — and the recency term alone is worth up to 0.15, so a
-# message posted an hour ago with no keyword and no semantic match still ranks. Ask about
-# something the server never discussed and it gets ten confident-looking results anyway,
-# frequently including the asker's own question, which is what Olisar then answers from.
+# Self-reinforcing, and specific to a bot that indexes what is said *to* it: every asking
+# makes the next search worse. Verified against a live corpus, where the top four hits for
+# an absent fact were four phrasings of the question.
 #
-# 0.30 sits above what recency can produce unaided (0.15) and above a bare unranked keyword
-# brush (0.5 * 0.45 = 0.225 with no semantic support), while leaving any candidate with real
-# keyword or embedding signal well clear. It is a threshold on a hand-weighted score, so
-# it is a starting point to tune against the arena's server-fact scenarios, not a constant
-# derived from anything.
-MIN_RELEVANCE = 0.30
+# Deliberately narrow — both conditions must hold. "olisar said the schedule moved to
+# friday" names the bot and is real evidence; it survives because it isn't a question.
+_INTERROGATIVE = re.compile(
+    r"\b(who|what|when|where|which|why|how|do you|does anyone|did anyone|can you|"
+    r"could you|any(one|body))\b",
+    re.IGNORECASE,
+)
+
+
+def _is_question_to_bot(content: str, names: list[str]) -> bool:
+    """Whether a stored message is somebody asking the bot something."""
+    text_ = (content or "").strip()
+    if not text_:
+        return False
+    if not any(
+        re.search(rf"\b{re.escape(n.strip().lower())}\b", text_.lower())
+        for n in names if n and n.strip()
+    ):
+        return False
+    return "?" in text_ or bool(_INTERROGATIVE.search(text_))
 SNIPPET_CHARS = 240
 
 # Function words + contraction orphans dropped from the FTS query (kept short so
@@ -307,6 +333,17 @@ def _fuse(cands: list[_Cand]) -> list[_Cand]:
     return cands
 
 
+async def _name_triggers(session: AsyncSession, guild_id: int) -> list[str]:
+    """The names this guild answers to, for spotting questions aimed at the bot."""
+    if not guild_id:
+        return []
+    try:
+        config = await session.get(GuildConfig, guild_id)
+    except Exception:  # noqa: BLE001 — search must never fail over a config read
+        return []
+    return list(config.name_triggers or []) if config else []
+
+
 async def _channel_labels(
     session: AsyncSession, guild_id: int, channel_ids: set[int]
 ) -> dict[int, str]:
@@ -361,18 +398,25 @@ async def search_messages(
             log.exception("a search pass failed; continuing with the others")
 
     ranked = _fuse(_merge(passes))
+
+    # Drop questions put to the bot before ranking decides anything. See
+    # _is_question_to_bot: these are the strongest keyword match for a query on the same
+    # subject and carry no information about the answer.
+    names = await _name_triggers(session, guild_id)
+    if names:
+        before = len(ranked)
+        ranked = [c for c in ranked if not _is_question_to_bot(c.content, names)]
+        if before != len(ranked):
+            log.info(
+                "search_messages(%r): dropped %d question(s) addressed to the bot",
+                query, before - len(ranked),
+            )
     # Drop the merely-similar before taking the top k, so "nothing relevant" is a result
     # this function can actually return. Returning "" makes the tool answer "No matching
     # messages found in the server's history", which is the truth and is something the
     # model can act on — unlike ten near-misses it has no way to recognise as such.
-    cands = [c for c in ranked if c.score >= MIN_RELEVANCE][:k]
+    cands = ranked[:k]
     if not cands:
-        if ranked:
-            log.info(
-                "search_messages(%r): %d candidate(s), none above the relevance floor "
-                "(best %.2f < %.2f) — reporting nothing found",
-                query, len(ranked), ranked[0].score, MIN_RELEVANCE,
-            )
         return ""
 
     labels = await _channel_labels(
