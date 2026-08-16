@@ -21,6 +21,7 @@ import sys
 from typing import Any
 
 from arena import config as arena_config
+from arena import exclusive
 from arena.config import ArenaConfig, ConfigError
 from arena.experiments.variants import OVERRIDE_KEYS
 
@@ -794,12 +795,26 @@ _HANDLERS = {
 }
 
 
+# Commands that own the instance and the guild for their whole duration: they apply
+# variants (rewriting the shared override file, sometimes restarting the process) and
+# recreate channels. Two at once corrupt each other's runs without failing. Read-only
+# commands and one-shot edits are absent deliberately — `status` and `logs` must stay
+# usable while a round is in flight, which is the whole point of being able to watch one.
+_EXCLUSIVE = frozenset({"run", "ab", "loop", "overnight", "redteam"})
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_logging(args.verbose)
     cfg = arena_config.load()
     try:
+        if args.command in _EXCLUSIVE:
+            with exclusive.held(cfg, args.command):
+                return asyncio.run(_HANDLERS[args.command](cfg, args))
         return asyncio.run(_HANDLERS[args.command](cfg, args))
+    except exclusive.Busy as exc:
+        print(f"\n{exc}", file=sys.stderr)
+        return 3
     except ConfigError as exc:
         print(f"\n{exc}", file=sys.stderr)
         return 2
