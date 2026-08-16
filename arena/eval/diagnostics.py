@@ -26,6 +26,7 @@ both would train the wrong lesson.
 
 from __future__ import annotations
 
+import collections
 import re
 
 from arena.eval.transcript import CheckResult, Run
@@ -189,6 +190,35 @@ def _plausible_lengths(run: Run, scripted: set[str] | None = None) -> CheckResul
     return None
 
 
+# Which Gemini model actually answered. Olisar falls back down a seven-model chain as the
+# free tier rate-limits, so two arms of the same A/B can be served by different models —
+# and a stronger model confabulates less, which is the very thing several scenarios
+# measure. This was found by accident in a completed A/B whose arms drew 31% and 11% of
+# their calls from the strong end of the chain. Recorded per run so it is a column in the
+# data rather than something the next person has to think to check.
+_SERVED_BY = re.compile(r"gemini (\S+) served conversation")
+
+
+def serving_models(run: Run) -> collections.Counter:
+    """Model name -> calls, from the instance log slice saved beside the transcript."""
+    lines = run._olisar_log
+    if lines is None:
+        path = run.directory() / "olisar.log"
+        if not path.is_file():
+            return collections.Counter()
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return collections.Counter(m for line in lines for m in _SERVED_BY.findall(line))
+
+
+def _model_mix(run: Run, scripted: set[str] | None = None) -> CheckResult | None:
+    """Recorded, never failed — which model served this run is context, not a verdict."""
+    counts = serving_models(run)
+    if not counts:
+        return None
+    mix = " ".join(f"{name}x{n}" for name, n in counts.most_common())
+    return CheckResult("served_by", True, mix)
+
+
 def diagnose(run: Run, scenario: Scenario | None = None) -> list[CheckResult]:
     """Every always-on check, in the order a reader wants them: integrity first.
 
@@ -201,7 +231,8 @@ def diagnose(run: Run, scenario: Scenario | None = None) -> list[CheckResult]:
         return []
     scripted = scripted_text(scenario)
     results = []
-    for check in (emulator_leaked_reasoning, doubled_address, _plausible_lengths, _fragmentation_metric):
+    for check in (emulator_leaked_reasoning, doubled_address, _plausible_lengths,
+                  _fragmentation_metric, _model_mix):
         result = check(run, scripted)
         if result is not None:
             results.append(result)

@@ -101,10 +101,16 @@ async def run_ab(
     total = len(scenarios) * reps * 2
     done = 0
     for rep in range(reps):
-        for scenario in scenarios:
-            # Alternate which arm goes first across reps, so neither one is
-            # systematically the warmer or the more rate-limited of the pair.
-            order = (variant_a, variant_b) if rep % 2 == 0 else (variant_b, variant_a)
+        for index, scenario in enumerate(scenarios):
+            # Alternate on rep *and* scenario, not rep alone. Going first is worth
+            # something real — the free-tier chain depletes monotonically through a
+            # session, so the earlier arm of each pair gets the stronger model — and
+            # alternating on rep alone gives every scenario the same A,B,A pattern. At
+            # three reps that put arm A first in six pairs of nine, and it showed: in one
+            # A/B the first-positioned arm drew 31% of its calls from the strong models
+            # against the other's 11%, in the same direction as the result. Adding the
+            # scenario index staggers the pattern so the imbalance cancels across them.
+            order = (variant_a, variant_b) if (rep + index) % 2 == 0 else (variant_b, variant_a)
             for name in order:
                 done += 1
                 log.info("[%d/%d] %s / %s (rep %d)", done, total, name, scenario.id, rep + 1)

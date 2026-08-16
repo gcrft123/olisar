@@ -128,6 +128,31 @@ as instance env so each arm is a real restart of the same code.
 | server-fact-history *(absent)* | dropped, n=4 | invented a date in 3 of 4 — "late 2023", "august 2025", "early last year" |
 | server-fact-present *(control)* | both | retrieved the seeded answer, 2/2 each |
 
+**Checked for the confound that would have killed it, and it survives.** Olisar falls down
+a seven-model chain as the free tier rate-limits, and the two arms were *not* served
+equally: `kept` drew 31% of its calls from the strong end (3.5-flash, flash-latest),
+`dropped` only 11%. A stronger model confabulates less, so the confound ran in the same
+direction as the result — which is exactly the shape of a finding that is really about
+something else.
+
+It isn't. Stratifying by model rather than comparing arms in aggregate, on the lite-only
+tier where 14 of the 17 runs sit:
+
+| stratum | kept | dropped |
+|---|---|---|
+| **lite only** (n=14) | **0/6 invented** | **6/8 invented** |
+| touched a strong model (n=3) | 1/2 | 0/1 |
+
+Holding the model constant makes the separation cleaner, not weaker. The strong-model
+stratum is too small to carry any weight either way.
+
+Two instrument changes came out of this rather than a retraction. Which model served a run
+is now recorded on every run (`served_by`), so this is a column in the data instead of
+something the next person has to think to check. And the arm order now alternates on rep
+*and* scenario: alternating on rep alone gave every scenario the same A,B,A pattern, which
+at three reps put arm A first in six pairs of nine — and going first is worth something
+real when the resource depletes monotonically through a session.
+
 **Why the "bug" was load-bearing.** Ten hits that are all people *asking* X is the only
 absence signal this retrieval layer emits, and Olisar reads it correctly — it concludes
 nobody ever answered, and says so. Filtering the questions out does not leave silence. It
