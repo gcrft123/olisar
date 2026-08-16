@@ -39,6 +39,13 @@ Rules:
 
 _MAX_CHARS = 320
 
+_MESSAGE_SCHEMA = {
+    "type": "object",
+    "properties": {"message": {"type": "string"}},
+    "required": ["message"],
+    "additionalProperties": False,
+}
+
 
 def _transcript_block(messages: list[dict], limit: int = 14) -> str:
     """The recent channel, rendered the way a person scrolling up would read it."""
@@ -83,9 +90,16 @@ async def compose(
         f"What you want to do right now: {beat}\n\n"
         f"Write your next message."
     )
-    raw = await model.generate(
-        prompt, system=_SYSTEM, role=DIALOGUE, temperature=1.15, max_output_tokens=200
+    # Structured output rather than free text. A reasoning model asked for "only the
+    # message" will still narrate its plan first — one emulator posted "olisar, Checking
+    # rook's voice and what the setup guide actually is so the message stays specific.
+    # olisar who posted the setup guide..." straight into the channel, which makes the
+    # scenario input something the scenario never specified. A schema with one field
+    # removes the room for a preamble instead of asking again for it not to happen.
+    payload = await model.generate_json(
+        prompt, system=_SYSTEM, role=DIALOGUE, schema=_MESSAGE_SCHEMA, max_output_tokens=300
     )
+    raw = str(payload.get("message", "")) if payload else ""
     line = _tidy(raw, persona)
     if not line:
         log.warning("dialogue for %s came back empty (beat: %s)", persona.key, beat)

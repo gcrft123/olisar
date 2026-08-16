@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass
 
@@ -78,10 +79,18 @@ class _Speaker:
 
 
 def _address(text: str, mode: str | None, olisar_id: int, name_trigger: str) -> str:
-    """Prefix a line so it definitely triggers Olisar, when the scenario asks for that."""
+    """Prefix a line so it definitely triggers Olisar, when the scenario asks for that.
+
+    Skipped when the line already addresses it. The generated dialogue often names the bot
+    on its own, and prefixing anyway produced "olisar, ... olisar who posted the setup
+    guide" — a doubled address that reads as nothing a person would type and that the
+    addressing heuristic then has to classify.
+    """
     if mode == "mention":
-        return f"<@{olisar_id}> {text}"
+        return text if f"<@{olisar_id}>" in text else f"<@{olisar_id}> {text}"
     if mode == "name":
+        if re.search(rf"\b{re.escape(name_trigger.strip().lower())}\b", text.lower()):
+            return text
         return f"{name_trigger}, {text}"
     return text
 
