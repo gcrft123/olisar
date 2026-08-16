@@ -112,31 +112,46 @@ present ones alike. `MIN_RELEVANCE = 0.30` as shipped moves an absent-fact query
 results to 10, and another from 10 to 8. It is honest about intent and useless in effect;
 the fused score carries no absolute signal to threshold.
 
-**Fixed, partially.** Questions addressed to the bot are now dropped before ranking
-(both conditions required: names the bot *and* reads as a question, so "olisar said the
-schedule moved to friday" survives as evidence). Measured end to end:
+**The obvious fix was tried, measured, and reverted. It made things worse.** Dropping
+questions addressed to the bot before ranking (both conditions required: names the bot
+*and* reads as a question, so "olisar said the schedule moved to friday" survives) was
+A/B'd against keeping them — same scenarios, same judge, interleaved arms, the flag set
+as instance env so each arm is a real restart of the same code.
 
-| scenario | accuracy | reply |
+16 runs completed before the process died. Unbalanced, so this is counted, not scored:
+
+| scenario | arm | what Olisar did |
 |---|---|---|
-| server-fact-present *(control)* | **4.0** | "double elimination, 16 slots. seeding is based on last month's ladder." |
-| server-fact-social | 2.0 | "there was an old twitter ages ago but nobody uses it" |
-| server-fact-history | **0.0** | "it's definitely early 2024. i've been digging..." |
+| server-fact-social *(absent)* | kept, n=2 | "don't think we have any" / "nothing here… discord-only crew" — **correct, 2/2** |
+| server-fact-social *(absent)* | dropped, n=3 | "pretty sure there was a twitter at one point, dead for at least a year" — **invented, 3/3** |
+| server-fact-history *(absent)* | kept, n=3 | invented a date in 1 of 3 |
+| server-fact-history *(absent)* | dropped, n=4 | invented a date in 3 of 4 — "late 2023", "august 2025", "early last year" |
+| server-fact-present *(control)* | both | retrieved the seeded answer, 2/2 each |
 
-The control is the result that matters: it returned *nothing* under the abandoned
-relevance floor and now returns the seeded answer verbatim. Retrieval works when the
-answer exists.
+**Why the "bug" was load-bearing.** Ten hits that are all people *asking* X is the only
+absence signal this retrieval layer emits, and Olisar reads it correctly — it concludes
+nobody ever answered, and says so. Filtering the questions out does not leave silence. It
+promotes the next tier, which is members speculating, and **speculation reads as evidence
+in a way a question never does**. The filter swapped a legible absence signal for a
+plausible-looking false one.
 
-**What remains, and it is the same mechanism with a different input.** Absent facts no
-longer return the question — they return members speculating. The search surfaced Salt's
-"pretty sure that's been floating around since like 2024"; Olisar replied "it's
-definitely early 2024". It is still laundering whatever it is handed into a confident
-claim, and a hedge in the source becomes a certainty in the answer.
+Present facts retrieve correctly under either arm, so there was nothing on the other side
+of the trade. Shipped default is now off (`OLISAR_SEARCH_DROP_BOT_QUESTIONS=0`); the flag
+and the matcher stay, because the balance between question-noise and speculation-noise
+could differ on a corpus larger than this one.
 
-So the next lever is not filtering harder. It is making an empty result *reachable* —
-the fused score has no absolute component to threshold (a floor was tried and dropped the
-correct answer), so this needs raw bm25 or a real semantic distance. Note `search_message`
-has no embedding column and no vector table: this index is keyword-only, and the semantic
-half of the hybrid does not apply to it.
+**What this leaves.** The ugliness that started the investigation is real but was
+misdiagnosed as a retrieval fault. Olisar narrating "i keep hitting your own questions
+about it" is the *mechanism* leaking into the reply, and that belongs in the tool briefing
+— see `empty-search-offer-action`, which gives the live path the same rule the sandbox
+path already has, plus the missing half: offer an action it can actually take.
+
+Making an empty result reachable at the tool layer is still open, and still needs an
+absolute signal — the fused score has none (a floor was tried and dropped the correct
+answer), so it would need raw bm25 or a real semantic distance. Note `search_message` has
+no embedding column and no vector table: this index is keyword-only, and the semantic half
+of the hybrid does not apply to it. But it is now a lower priority than it looked, because
+the absence signal the corpus already carries turns out to work.
 
 ### Olisar fabricates facts about its own server
 
