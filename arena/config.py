@@ -120,6 +120,12 @@ class ArenaConfig:
         return REPO_ROOT
 
     @property
+    def variant_env_path(self) -> Path:
+        """Instance environment a variant wants set. Applied at launch, so changing it
+        needs a restart — which is why variants.apply restarts when it changes."""
+        return self.data_dir / "variant_env.json"
+
+    @property
     def prompt_overrides_path(self) -> Path:
         """Where the active baked-in prompt variant is written. Handed to the Olisar
         process as ``OLISAR_PROMPT_OVERRIDES`` (see olisar/prompt_overrides.py)."""
@@ -152,6 +158,17 @@ class ArenaConfig:
         env.update(read_env_file(BASE_ENV_FILE))
         env.update(read_env_file(ENV_FILE))
         ids = peer_ids(self)
+        # A variant may pin instance env (e.g. a retrieval flag). Applied before the
+        # arena's own keys so it can never clobber the token, guild or data dir.
+        try:
+            import json as _json
+
+            env.update({
+                str(k): str(v)
+                for k, v in _json.loads(self.variant_env_path.read_text(encoding="utf-8")).items()
+            })
+        except (OSError, ValueError):
+            pass
         env.update(
             {
                 "DISCORD_TOKEN": self.discord_token,
