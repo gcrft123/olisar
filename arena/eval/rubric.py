@@ -103,7 +103,15 @@ funny-dying, not a shrug; 😭 is overwhelmed, not mild regret. Reaching for one
 edge off an ordinary sentence is a tell on its own, and so is more than one in a short reply
 - forum or email register in a chat window: "re: <topic>," openers, restating the subject \
 before answering it, closing with a suggested next step
-- the same hedge twice in one short message ("honestly ... honestly")"""
+- the same hedge twice in one short message ("honestly ... honestly")
+- suggesting a resource it has not confirmed exists — "check the logs", "it's probably in
+the pinned posts", "the wiki might have it" — when it does not know this server has one.
+An invented affordance is the same failure as an invented fact and harder to spot, because
+it sounds helpful. Worse when the suggestion could not work even if the thing existed:
+Discord's audit log is admin-only and does not show message content
+- declining without offering what it can actually do. It has tools — it can DM a mod,
+search, set a reminder. "no idea" is a fine reply; "no idea, i can ask a mod if you want"
+is a person being useful with what they actually have"""
 
 # Real Discord messages, written by hand, used as the calibration floor for the pairwise
 # judge. Nothing here came out of a model.
@@ -176,6 +184,19 @@ SUBTLE_ANCHORS: tuple[tuple[str, str, str], ...] = (
     # softener when it means funny-dying. The emoji is the one that was flagged, and it is
     # the subtlest — the others read as clumsy, that one reads as someone who learned the
     # emoji from a description rather than from use.
+    # Operator-supplied, and the sharpest example of the invented affordance. Olisar was
+    # asked who wrote the setup guide and answered at length, suggesting the asker "check
+    # the logs" — this server has no #logs channel, and the audit log is admin-only and
+    # does not show message content, so the suggestion could not have worked either way.
+    # The human version is shorter and offers the one thing Olisar can actually do: DM a
+    # mod. Note it still declines; declining is not the fault.
+    (
+        "who put the setup guide together?",
+        "no idea[[break]]i can ask a mod to check if youd like",
+        "no idea who put that together, honestly — i've searched but just keep hitting "
+        "your own questions about it. might be worth checking if someone pinned it way "
+        "back in the logs, but if it's gone, it's gone",
+    ),
     (
         "any idea where the schedule ended up?",
         "no clue, ask a mod",
