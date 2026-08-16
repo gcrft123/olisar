@@ -78,5 +78,41 @@ class DefaultIsOff(unittest.TestCase):
                     self.assertFalse(_drop_bot_questions_enabled())
 
 
+
+class LabellingInsteadOfDropping(unittest.TestCase):
+    """The synthesis of two measured results.
+
+    Dropping questions made absent-fact fabrication worse. A tools_note forbidding
+    invented affordances landed inside the noise on every dimension while both arms went
+    on inventing wikis and archives. The reason both failed is the same: "when search
+    comes back with nothing, say you don't know" is an instruction Olisar cannot execute,
+    because search never comes back with nothing — `kw` is rank-normalised, so ten
+    near-misses and ten real answers look identical. Labelling makes the absence legible
+    at the only layer that can see it.
+    """
+
+    def test_off_unless_asked_for(self):
+        from olisar.memory.search import _label_questions_enabled
+
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("OLISAR_SEARCH_LABEL_QUESTIONS", None)
+            self.assertFalse(_label_questions_enabled())
+
+    def test_enabled(self):
+        from olisar.memory.search import _label_questions_enabled
+
+        with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": "1"}):
+            self.assertTrue(_label_questions_enabled())
+
+    def test_it_is_not_the_drop_flag(self):
+        """Opposite behaviours; enabling one must not enable the other."""
+        from olisar.memory.search import _drop_bot_questions_enabled, _label_questions_enabled
+
+        with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": "1"}):
+            os.environ.pop("OLISAR_SEARCH_DROP_BOT_QUESTIONS", None)
+            self.assertTrue(_label_questions_enabled())
+            self.assertFalse(_drop_bot_questions_enabled())
+
+
 if __name__ == "__main__":
     unittest.main()

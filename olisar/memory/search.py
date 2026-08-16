@@ -95,6 +95,15 @@ def _drop_bot_questions_enabled() -> bool:
     return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "0").strip() not in ("0", "false", "no")
 
 
+def _label_questions_enabled() -> bool:
+    """Whether to mark questions-to-the-bot in the rendered results. Off pending its A/B.
+
+    Separate from _drop_bot_questions_enabled and the opposite of it: that one removes
+    them from the ranking, this one leaves them ranked and says what they are.
+    """
+    return os.environ.get("OLISAR_SEARCH_LABEL_QUESTIONS", "0").strip() not in ("0", "false", "no")
+
+
 def _is_question_to_bot(content: str, names: list[str]) -> bool:
     """Whether a stored message is somebody asking the bot something."""
     text_ = (content or "").strip()
@@ -106,6 +115,8 @@ def _is_question_to_bot(content: str, names: list[str]) -> bool:
     ):
         return False
     return "?" in text_ or bool(_INTERROGATIVE.search(text_))
+
+
 SNIPPET_CHARS = 240
 
 # Function words + contraction orphans dropped from the FTS query (kept short so
@@ -450,13 +461,35 @@ async def search_messages(
         session, guild_id, {c.channel_id for c in cands if not c.channel_name and not c.is_dm}
     )
 
+    # Label, don't drop. Dropping questions addressed to the bot was tried and measured
+    # worse (see _drop_bot_questions_enabled): it promotes members' speculation into the
+    # top slots, and speculation reads as evidence in a way a question never does.
+    #
+    # But leaving them unmarked asks Olisar to infer absence from a wall of text that
+    # looks like ten ordinary hits, and the prompt cannot help — "when search comes back
+    # with nothing, say you don't know" is an instruction it cannot execute, because
+    # search never comes back with nothing. `kw` is rank-normalised, so ten near-misses
+    # and ten real answers are indistinguishable at this layer. An instruction that cannot
+    # be obeyed produces confabulation rather than refusal; a tools_note forbidding
+    # invented affordances was A/B'd against baseline and landed inside the noise on every
+    # dimension, while both arms went on inventing wikis, archives and log retention.
+    #
+    # Marking them makes the absence legible at the only layer that knows: the one that
+    # can see the hits are questions. It also gives Olisar words for what it is seeing —
+    # ungrounded, it narrates the mechanism instead ("i keep hitting your own questions").
+    question_names = await _name_triggers(session, guild_id) if _label_questions_enabled() else []
+    asked_count = 0
+
     lines: list[str] = []
     for c in cands:
         who = c.author_name or "someone"
         date = c.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        asked = bool(question_names) and _is_question_to_bot(c.content, question_names)
+        tag = " · [someone asking, not an answer]" if asked else ""
+        asked_count += 1 if asked else 0
         if c.is_dm:
             # Private 1:1 DM — no jump-link (only the participant could open it anyway).
-            lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"')
+            lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"{tag}')
             continue
         ch = c.channel_name or labels.get(c.channel_id) or str(c.channel_id)
         link = (
@@ -464,7 +497,7 @@ async def search_messages(
             if c.message_id
             else ""
         )
-        lines.append(f'- #{ch} · {who} · {date} · "{_snippet(c.content)}"{link}')
+        lines.append(f'- #{ch} · {who} · {date} · "{_snippet(c.content)}"{tag}{link}')
 
     log.info(
         "search_messages(%r): %d hit(s) — %s",
@@ -474,8 +507,17 @@ async def search_messages(
             for c in cands[:8]
         ),
     )
-    return (
+    header = (
         "Message search results (skim these and answer the question; include a "
-        "jump-link only if they're asking where or when something was posted):\n"
-        + "\n".join(lines)
+        "jump-link only if they're asking where or when something was posted):"
     )
+    if asked_count and asked_count >= len(cands) / 2:
+        # The stated conclusion, not just the evidence. Left to infer it, the model
+        # reports the search instead of the finding.
+        header += (
+            f"\nNOTE: {asked_count} of {len(cands)} results are people asking this same "
+            f"question rather than answering it. If the rest don't answer it either, then "
+            f"nobody in this server has — say you don't know, and don't send them to a "
+            f"channel, pin, wiki or log you haven't seen."
+        )
+    return header + "\n" + "\n".join(lines)
