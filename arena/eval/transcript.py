@@ -247,5 +247,13 @@ def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
 
 
 def apply_checks(run: Run, scenario: Scenario) -> Run:
-    run.checks = evaluate_checks(run, scenario.checks)
+    """The scenario's own assertions, plus the ones that hold for every run.
+
+    The always-on half is separate because opt-in checks only measure what somebody
+    remembered to declare, and the faults that survived longest here were the ones no
+    scenario had thought to assert. Imported late: diagnostics reads this module's types.
+    """
+    from arena.eval.diagnostics import diagnose
+
+    run.checks = evaluate_checks(run, scenario.checks) + diagnose(run, scenario)
     return run
