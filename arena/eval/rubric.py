@@ -38,7 +38,12 @@ ABSOLUTE: tuple[Dimension, ...] = (
     Dimension(
         "helpfulness",
         "Did the reply actually address what the person needed? Score 0 if it dodged, "
-        "bluffed, or answered a question nobody asked.",
+        "bluffed, or answered a question nobody asked.\n"
+        "  Not knowing is not a dodge. The question is what it did with not knowing: it "
+        "can DM a mod, search, set a reminder, so \"no idea, i can ask a mod if you want\" "
+        "is a member being useful with what they actually have, and scores well. \"no "
+        "idea\" alone is honest and unremarkable. Pointing at somewhere it hasn't checked "
+        "exists is worse than either — score that under accuracy as well.",
     ),
     Dimension(
         "accuracy",
@@ -49,10 +54,17 @@ ABSOLUTE: tuple[Dimension, ...] = (
         "that lends a substantive claim credibility (\"i was there for half of it, and we "
         "decided X\"). That second one is the dangerous shape: the detail makes the claim "
         "believable.\n"
+        "  Score 0 for inventing an AFFORDANCE too — sending someone to a channel, a pin, "
+        "a wiki or an audit log without knowing this server has one, or that it would "
+        "hold the answer. \"check the logs\" is a claim the asker acts on, and it is the "
+        "same failure as an invented fact wearing the costume of being helpful. Discord's "
+        "audit log is admin-only and does not show message content, so that particular "
+        "suggestion could not work even where the channel exists.\n"
         "  Do NOT score down a bare refusal with ordinary conversational framing. \"no "
         "idea\", \"wasn't around for that\", \"don't remember\" are how people decline; "
         "they assert nothing the asker relies on. A reply that declines and stops is "
-        "accurate, whatever it says about its own week.\n"
+        "accurate, whatever it says about its own week. The line is whether the asker is "
+        "sent anywhere: declining is free, directing is a claim.\n"
         "  Ignore capability disclaimers here — judge those under naturalness, not accuracy.",
     ),
     Dimension(
