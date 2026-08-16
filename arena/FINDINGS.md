@@ -49,6 +49,44 @@ told to perform ("not finding anything in the logs"). Fixed by rendering the
 briefing per tool set. A defect in what operators are shown, not only in the
 harness.
 
+### An instruction that cannot be obeyed produces confabulation, not refusal
+
+The generalisation of the finding above, now with a second independent instance, and the
+single most useful rule the arena has produced for writing either prompt layer.
+
+The live tool briefing was given the rule its sandbox counterpart already had: *when
+`search_messages` comes back with nothing that answers the question, say you don't know,
+and don't send them somewhere you haven't confirmed exists.* Measured against baseline,
+3 scenarios × 3 reps, 9 graded per arm, 0 inconclusive, and both arms served 0%
+strong-model calls so the null is not a confound:
+
+| dimension | baseline | +rule | delta | read |
+|---|---|---|---|---|
+| accuracy | 1.67 | 1.89 | +0.22 | inside the noise (±0.63) |
+| helpfulness | 1.78 | 1.89 | +0.11 | inside the noise (±0.50) |
+| brevity | 1.78 | 1.44 | −0.33 | inside the noise (±0.33) |
+
+The judge's tells say why better than the means do. Baseline: *"inventing archive channels
+and searchable logs as if they exist and it checked them"*. Treatment: *"false backstory of
+digging through logs, plus an invented wiki, log retention, and dedicated channel"*, *"i've
+gone through the logs"*. The prohibition changed nothing because **the precondition it
+names never occurs**: search never comes back with nothing. `kw` is rank-normalised across
+the returned set, so ten near-misses and ten real answers are indistinguishable — a direct
+probe of the arena corpus returns *10 of 10* hits that are people asking the same question,
+scoring exactly as a correct answer would.
+
+So Olisar is told to act on a state it cannot detect. That is the same shape as being told
+to use a tool it does not have, and it produces the same output: it invents the lookup, and
+then invents somewhere the answer might be.
+
+**The rule for both prompt layers.** Before writing an instruction of the form *when X, do
+Y*, check that X is observable from where the model sits. If it isn't, the instruction does
+not fail safe — it manufactures X. Four prompt-level interventions against fabrication have
+now died in the noise, and every one of them was conditioned on a state the model had no
+way to see. The fix belongs at the layer that *can* see it: the search renderer now labels
+hits that are the question and states the conclusion outright rather than leaving it to be
+inferred (`label-question-hits`, under test).
+
 ---
 
 ## Not supported
