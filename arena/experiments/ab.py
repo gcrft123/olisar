@@ -191,6 +191,52 @@ def _verdict(deltas: dict[str, float], a_sd: dict[str, float], b_sd: dict[str, f
     return out
 
 
+# Which end of the fallback chain answered. Olisar drops down a seven-model chain as the
+# free tier rate-limits, and a stronger model confabulates less — so an arm that happened
+# to draw more strong-model calls looks better for a reason that has nothing to do with
+# the variant. It has already happened once here: two arms drew 31% and 11% of their calls
+# from the strong end, in the same direction as the result.
+_STRONG = ("gemini-3.5-flash", "gemini-flash-latest", "gemini-3-flash-preview")
+
+
+def _model_mix(arm: Arm) -> dict:
+    """How much of this arm was served by the strong end of the chain.
+
+    Reported rather than corrected. With enough runs the alternating order evens it out;
+    the point of printing it is that when it *hasn't* evened out, the reader finds out
+    from the report instead of from a hunch.
+    """
+    from arena.eval.diagnostics import serving_models
+
+    strong = total = 0
+    for run in arm.runs:
+        for name, count in serving_models(run).items():
+            total += count
+            if name in _STRONG:
+                strong += count
+    return {
+        "calls": total,
+        "strong": strong,
+        "strong_share": round(strong / total, 2) if total else None,
+    }
+
+
+def _mix_warning(a_mix: dict, b_mix: dict) -> str:
+    """Whether the two arms were served differently enough to explain a small delta."""
+    a_share, b_share = a_mix.get("strong_share"), b_mix.get("strong_share")
+    if a_share is None or b_share is None:
+        return ""
+    gap = abs(a_share - b_share)
+    if gap < 0.15:
+        return ""
+    ahead = "a" if a_share > b_share else "b"
+    return (
+        f"arm {ahead} drew {max(a_share, b_share):.0%} of its calls from the strong end of "
+        f"the model chain against {min(a_share, b_share):.0%} — a gap this size can produce "
+        f"the delta on its own. Stratify by served_by before reading the result."
+    )
+
+
 def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
     a_means, b_means = a.means(), b.means()
     a_sd, b_sd = _spread(a), _spread(b)
@@ -199,6 +245,10 @@ def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
         for key, value in sorted(a_means.items())
     }
     read = _verdict(deltas, a_sd, b_sd, min(len(a.graded()), len(b.graded())))
+    a_mix, b_mix = _model_mix(a), _model_mix(b)
+    warning = _mix_warning(a_mix, b_mix)
+    if warning:
+        read = f"{read}\n\nCONFOUND: {warning}"
     per_scenario = []
     for scenario in scenarios:
         a_s = [s.mean for s in a.by_scenario(scenario.id)]
@@ -218,14 +268,17 @@ def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
             "variant": a.variant, "graded": len(a.graded()),
             "inconclusive": a.inconclusive, "means": {k: round(v, 2) for k, v in a_means.items()},
             "sd": {k: round(v, 2) for k, v in a_sd.items()},
+            "model_mix": a_mix,
         },
         "b": {
             "variant": b.variant, "graded": len(b.graded()),
             "inconclusive": b.inconclusive, "means": {k: round(v, 2) for k, v in b_means.items()},
             "sd": {k: round(v, 2) for k, v in b_sd.items()},
+            "model_mix": b_mix,
         },
         "delta_b_minus_a": deltas,
         "read": read,
+        "model_confound": warning,
         "per_scenario": per_scenario,
         "a_tells": a.tells(),
         "b_tells": b.tells(),

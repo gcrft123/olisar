@@ -156,3 +156,30 @@ class ErroredRuns(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelConfoundWarning(unittest.TestCase):
+    """An A/B report has to say when its arms weren't served by the same models.
+
+    The question-filter A/B drew 31% of one arm's calls from the strong end of the chain
+    against 11% of the other's, in the same direction as its result. It survived
+    stratification, but it was caught by hand — and the next one might not be.
+    """
+
+    def test_a_wide_gap_is_reported(self):
+        from arena.experiments.ab import _mix_warning
+
+        warning = _mix_warning({"strong_share": 0.31}, {"strong_share": 0.11})
+        self.assertIn("31%", warning)
+        self.assertIn("11%", warning)
+        self.assertIn("stratify", warning.lower())
+
+    def test_a_narrow_gap_is_not(self):
+        from arena.experiments.ab import _mix_warning
+
+        self.assertEqual(_mix_warning({"strong_share": 0.30}, {"strong_share": 0.24}), "")
+
+    def test_no_model_data_is_silent(self):
+        from arena.experiments.ab import _mix_warning
+
+        self.assertEqual(_mix_warning({"strong_share": None}, {"strong_share": 0.2}), "")
