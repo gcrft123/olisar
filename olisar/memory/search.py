@@ -95,13 +95,29 @@ def _drop_bot_questions_enabled() -> bool:
     return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "0").strip() not in ("0", "false", "no")
 
 
-def _label_questions_enabled() -> bool:
-    """Whether to mark questions-to-the-bot in the rendered results. Off pending its A/B.
+def _label_questions_mode() -> str:
+    """"off", "tags", or "tags+note" — how questions-to-the-bot are marked in the results.
 
-    Separate from _drop_bot_questions_enabled and the opposite of it: that one removes
-    them from the ranking, this one leaves them ranked and says what they are.
+    Separate from _drop_bot_questions_enabled and the opposite of it: that one removes them
+    from the ranking, this one leaves them ranked and says what they are.
+
+    The three-way split exists because "tags+note" was measured and lost. Spelling the
+    conclusion out in the tool result — *these are people asking, so nobody has answered* —
+    handed the model the vocabulary for its own retrieval mechanics, and it recited them:
+    "searched through the logs and nobody has ever actually posted a handle, just people
+    asking for it". The judge read that as an invented log-search used as authority, and
+    helpfulness fell 0.56 against baseline while the present-fact control held at 0.00.
+
+    A tag is evidence and belongs in tool output. What to *do* about it is an instruction,
+    and tool output is data — a weak place to put behaviour. So "tags" leaves the marks and
+    nothing else, and the interpretation moves to the tool briefing where instructions live.
     """
-    return os.environ.get("OLISAR_SEARCH_LABEL_QUESTIONS", "0").strip() not in ("0", "false", "no")
+    raw = os.environ.get("OLISAR_SEARCH_LABEL_QUESTIONS", "0").strip().lower()
+    if raw in ("0", "false", "no", ""):
+        return "off"
+    if raw in ("2", "note", "tags+note"):
+        return "tags+note"
+    return "tags"
 
 
 def _is_question_to_bot(content: str, names: list[str]) -> bool:
@@ -477,7 +493,8 @@ async def search_messages(
     # Marking them makes the absence legible at the only layer that knows: the one that
     # can see the hits are questions. It also gives Olisar words for what it is seeing —
     # ungrounded, it narrates the mechanism instead ("i keep hitting your own questions").
-    question_names = await _name_triggers(session, guild_id) if _label_questions_enabled() else []
+    label_mode = _label_questions_mode()
+    question_names = await _name_triggers(session, guild_id) if label_mode != "off" else []
     asked_count = 0
 
     lines: list[str] = []
@@ -511,9 +528,9 @@ async def search_messages(
         "Message search results (skim these and answer the question; include a "
         "jump-link only if they're asking where or when something was posted):"
     )
-    if asked_count and asked_count >= len(cands) / 2:
-        # The stated conclusion, not just the evidence. Left to infer it, the model
-        # reports the search instead of the finding.
+    if label_mode == "tags+note" and asked_count and asked_count >= len(cands) / 2:
+        # Measured worse than tags alone — see _label_questions_mode. Retained only so the
+        # comparison can be re-run, never as a default.
         header += (
             f"\nNOTE: {asked_count} of {len(cands)} results are people asking this same "
             f"question rather than answering it. If the rest don't answer it either, then "

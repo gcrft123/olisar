@@ -92,25 +92,36 @@ class LabellingInsteadOfDropping(unittest.TestCase):
     """
 
     def test_off_unless_asked_for(self):
-        from olisar.memory.search import _label_questions_enabled
+        from olisar.memory.search import _label_questions_mode
 
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("OLISAR_SEARCH_LABEL_QUESTIONS", None)
-            self.assertFalse(_label_questions_enabled())
+            self.assertEqual(_label_questions_mode(), "off")
 
-    def test_enabled(self):
-        from olisar.memory.search import _label_questions_enabled
+    def test_tags_only(self):
+        from olisar.memory.search import _label_questions_mode
 
-        with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": "1"}):
-            self.assertTrue(_label_questions_enabled())
+        for value in ("1", "tags", "yes"):
+            with self.subTest(value=value):
+                with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": value}):
+                    self.assertEqual(_label_questions_mode(), "tags")
+
+    def test_the_losing_mode_is_still_reachable(self):
+        """tags+note lost by 0.56 helpfulness; kept only so it can be re-run."""
+        from olisar.memory.search import _label_questions_mode
+
+        for value in ("2", "note", "tags+note"):
+            with self.subTest(value=value):
+                with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": value}):
+                    self.assertEqual(_label_questions_mode(), "tags+note")
 
     def test_it_is_not_the_drop_flag(self):
         """Opposite behaviours; enabling one must not enable the other."""
-        from olisar.memory.search import _drop_bot_questions_enabled, _label_questions_enabled
+        from olisar.memory.search import _drop_bot_questions_enabled, _label_questions_mode
 
         with mock.patch.dict(os.environ, {"OLISAR_SEARCH_LABEL_QUESTIONS": "1"}):
             os.environ.pop("OLISAR_SEARCH_DROP_BOT_QUESTIONS", None)
-            self.assertTrue(_label_questions_enabled())
+            self.assertEqual(_label_questions_mode(), "tags")
             self.assertFalse(_drop_bot_questions_enabled())
 
 
