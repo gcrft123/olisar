@@ -70,13 +70,29 @@ _INTERROGATIVE = re.compile(
 
 
 def _drop_bot_questions_enabled() -> bool:
-    """Whether to drop questions addressed to the bot. On unless explicitly disabled.
+    """Whether to drop questions addressed to the bot. **Off** unless explicitly enabled.
 
-    Exists so the behaviour can be A/B'd: it is a code path rather than a prompt, so the
-    harness cannot switch it by editing a variant's text, and an uncontrolled before/after
-    across different judges is not a measurement.
+    Off because the A/B said so, against the hypothesis that motivated writing it. On a
+    question about something the server never discussed, the question-loop is the only
+    absence signal the retrieval layer produces: ten hits that are all people *asking* X
+    legibly means nobody answered X, and Olisar reads it that way — "don't think we have
+    any", "nothing here", correct in every run. Filtering the questions out does not leave
+    silence. It promotes the next tier of hits, which is members speculating, and
+    speculation reads as evidence in a way that a question never does. Every run of the
+    dropped arm invented a plausible history from it: a Twitter account "dead for at least
+    a year" that never existed, three different confident dates for a guide nobody wrote.
+
+    So it made absent-fact fabrication worse, which is the failure it was written to fix.
+    Present facts retrieve correctly either way, so there is nothing on the other side of
+    the trade. Kept as a flag rather than deleted because the finding rests on 16 runs
+    across three scenarios and deserves re-testing on a larger corpus, where the balance
+    between question-noise and speculation-noise may not be the same.
+
+    The ugliness that prompted the whole investigation — Olisar narrating "i keep hitting
+    your own questions about it" — is real, but it is the *mechanism* leaking into the
+    reply, not the retrieval being wrong. That belongs in the tool briefing.
     """
-    return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "1").strip() not in ("0", "false", "no")
+    return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "0").strip() not in ("0", "false", "no")
 
 
 def _is_question_to_bot(content: str, names: list[str]) -> bool:
