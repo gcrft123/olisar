@@ -83,9 +83,39 @@ then invents somewhere the answer might be.
 Y*, check that X is observable from where the model sits. If it isn't, the instruction does
 not fail safe — it manufactures X. Four prompt-level interventions against fabrication have
 now died in the noise, and every one of them was conditioned on a state the model had no
-way to see. The fix belongs at the layer that *can* see it: the search renderer now labels
-hits that are the question and states the conclusion outright rather than leaving it to be
-inferred (`label-question-hits`, under test).
+way to see.
+
+**Necessary, not sufficient — and the obvious fix backfired.** Making X observable was
+tested directly: the search renderer labelled the question-hits per line *and* stated the
+conclusion in the result header ("N of 10 results are people asking this same question…
+say you don't know, and don't send them to a channel, pin, wiki or log you haven't seen").
+Against baseline, 9 graded per arm, 0 inconclusive, both arms at 0% strong-model calls:
+
+| dimension | baseline | +label | delta | read |
+|---|---|---|---|---|
+| helpfulness | 2.33 | 1.78 | **−0.56** | suggestive, under 2 SE |
+| accuracy | 2.22 | 1.67 | −0.56 | inside the noise (±0.62) |
+| brevity | 1.89 | 1.89 | 0.00 | — |
+| *control* `server-fact-present` | 3.45 | 3.45 | **0.00** | retrieval that works is unharmed |
+
+It made things worse, in a way worth naming. Handed the words for its own retrieval
+mechanics, Olisar recited them: *"searched through the logs and nobody has ever actually
+posted a handle, just people asking for it"*, *"searching the logs just brings up everyone
+else asking the same thing"*. The judge scored these as an invented log-search used as
+authority. This is the identical narration an operator flagged at the start of the
+investigation — and supplying the vocabulary amplified it. It also guessed a date
+(*"probably late 2024. maybe october?"*) with the note in front of it saying not to.
+
+So an observable precondition does not buy compliance. The working hypothesis for why is
+**placement**: the conclusion was written into the *tool result*, and tool output is data,
+which is a weak place to put behaviour. `tagged-hits-rule` splits them — the tag stays in
+the result as evidence, the interpretation moves to the tool briefing where instructions
+live, with an explicit ban on narrating the tags. Under test.
+
+Worth stating plainly: this is the third layer tried against absent-fact fabrication
+(ranking, prompt, tool output) and none has moved it yet. The present-fact control has
+stayed flat at ~3.45 throughout, so the retrieval that works has never been at risk — the
+whole problem is confined to what Olisar says when there is nothing to find.
 
 ---
 
