@@ -8,7 +8,5 @@
   "persona": {},
   "config": {},
   "proactivity": {},
-  "env": {
-    "OLISAR_SEARCH_DROP_BOT_QUESTIONS": "0"
-  }
+  "env": {}
 }
