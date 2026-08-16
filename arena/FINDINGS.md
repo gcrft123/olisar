@@ -84,6 +84,40 @@ rather than absent.
 
 ## Open
 
+### Olisar answers questions from a corpus of the same question
+
+**Root cause found, and it is not the prompt.** Queried the arena's own index directly
+for a fact the server has never discussed:
+
+```
+search_messages("who posted the setup guide")
+  0.595  "olisar, who posted the `setup-guide` again? need to check something with them"
+  0.565  "olisar, who posted that `setup-guide` again? need to ping them about..."
+  0.554  "olisar, who posted the `setup` guide a while back? need the original..."
+```
+
+Every top hit is *the question being asked*, from earlier runs. Olisar indexes messages
+addressed to it, so a question about X is the best keyword match for a query about X.
+The tool then hands back ten restatements of the question under the instruction "skim
+these and answer", and Olisar obliges. That is the fabrication: it is not inventing from
+nothing, it is summarising the only thing it was given.
+
+Specific to a bot that indexes what is said *to* it, and self-reinforcing — every asking
+makes the next search worse.
+
+**A relevance floor cannot fix it.** `kw` is normalised across the returned candidate
+set (`(hi - bm25) / (hi - lo)`), so the best candidate always scores 1.0 on keyword
+however poor it is in absolute terms. Every query tops out at 0.595 — absent facts and
+present ones alike. `MIN_RELEVANCE = 0.30` as shipped moves an absent-fact query from 10
+results to 10, and another from 10 to 8. It is honest about intent and useless in effect;
+the fused score carries no absolute signal to threshold.
+
+**What would work**, in rough order of confidence: exclude messages addressed to Olisar
+from `search_messages` results (a question is not evidence); or thi the fused score on an
+absolute component — raw bm25, or a real semantic distance — rather than a
+rank-normalised one. Note `search_message` has no embedding column and no vector table,
+so this index is keyword-only; the semantic half of "hybrid search" does not apply to it.
+
 ### Olisar fabricates facts about its own server
 
 The largest unresolved defect. Asked about the server's history, social accounts, or
