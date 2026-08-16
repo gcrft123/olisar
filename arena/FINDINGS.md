@@ -112,11 +112,31 @@ present ones alike. `MIN_RELEVANCE = 0.30` as shipped moves an absent-fact query
 results to 10, and another from 10 to 8. It is honest about intent and useless in effect;
 the fused score carries no absolute signal to threshold.
 
-**What would work**, in rough order of confidence: exclude messages addressed to Olisar
-from `search_messages` results (a question is not evidence); or thi the fused score on an
-absolute component — raw bm25, or a real semantic distance — rather than a
-rank-normalised one. Note `search_message` has no embedding column and no vector table,
-so this index is keyword-only; the semantic half of "hybrid search" does not apply to it.
+**Fixed, partially.** Questions addressed to the bot are now dropped before ranking
+(both conditions required: names the bot *and* reads as a question, so "olisar said the
+schedule moved to friday" survives as evidence). Measured end to end:
+
+| scenario | accuracy | reply |
+|---|---|---|
+| server-fact-present *(control)* | **4.0** | "double elimination, 16 slots. seeding is based on last month's ladder." |
+| server-fact-social | 2.0 | "there was an old twitter ages ago but nobody uses it" |
+| server-fact-history | **0.0** | "it's definitely early 2024. i've been digging..." |
+
+The control is the result that matters: it returned *nothing* under the abandoned
+relevance floor and now returns the seeded answer verbatim. Retrieval works when the
+answer exists.
+
+**What remains, and it is the same mechanism with a different input.** Absent facts no
+longer return the question — they return members speculating. The search surfaced Salt's
+"pretty sure that's been floating around since like 2024"; Olisar replied "it's
+definitely early 2024". It is still laundering whatever it is handed into a confident
+claim, and a hedge in the source becomes a certainty in the answer.
+
+So the next lever is not filtering harder. It is making an empty result *reachable* —
+the fused score has no absolute component to threshold (a floor was tried and dropped the
+correct answer), so this needs raw bm25 or a real semantic distance. Note `search_message`
+has no embedding column and no vector table: this index is keyword-only, and the semantic
+half of the hybrid does not apply to it.
 
 ### Olisar fabricates facts about its own server
 
