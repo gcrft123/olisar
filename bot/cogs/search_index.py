@@ -28,6 +28,7 @@ from olisar.db.models import GuildChannelInfo, Message, SearchMessage
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import description_marker
 from olisar.memory.writer import record_search_message
+from olisar.peers import is_member_author
 
 log = logging.getLogger("olisar.search_index")
 
@@ -69,7 +70,7 @@ class SearchIndex(commands.Cog):
         """Searchable text for a historical message: embed-aware, plus a one-time
         image description while this tick's caption budget lasts (best-effort)."""
         content = message_text(message)
-        if budget[0] <= 0 or message.author.bot or not image_attachments(message):
+        if budget[0] <= 0 or not is_member_author(message.author) or not image_attachments(message):
             return content
         images = await download_images(message)
         caption = await describe_images(images) if images else ""

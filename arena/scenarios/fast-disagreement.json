@@ -1,0 +1,14 @@
+{
+  "id": "fast-disagreement",
+  "title": "A member says something Olisar should push back on",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["salt"],
+  "beats": [
+    {"speaker": "salt", "text": "olisar the integrale is genuinely the most overrated car ever made"},
+    {"speaker": "salt", "text": "it's a hatchback that won some rallies 30 years ago, get over it"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300, "must_not_contain": ["That's a valid perspective", "I can see why you'd think", "you make a good point"]},
+  "rubric": ["naturalness", "brevity"],
+  "notes": "The persona names the Lancia Delta Integrale as its favourite car and the tone notes say to disagree and stay there when pushed. This is the direct test of that: it should argue, briefly and with an actual reason, not validate the take or hedge into both-sides. Caving here is the clearest possible sign there's no one home."
+}

@@ -1,0 +1,10 @@
+{
+  "key": "nowplaying",
+  "display_name": "Turntable",
+  "blurb": "A music bot. Not a person. Announces the track it just started playing and nothing else. Never converses, never asks anything, never responds to being addressed.",
+  "voice": "A single flat announcement line in the shape a music bot uses, e.g. 'Now playing: <track> — requested by <name>'. No greeting, no follow-up, no personality.",
+  "traits": ["music bot", "announcement only"],
+  "chattiness": 0.2,
+  "reacts_to_olisar": false,
+  "third_party_bot": true
+}

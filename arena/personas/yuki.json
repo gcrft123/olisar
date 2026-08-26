@@ -1,0 +1,9 @@
+{
+  "key": "yuki",
+  "display_name": "yuki",
+  "blurb": "Not a native English speaker. Clear thinker, occasionally awkward phrasing and dropped articles. Sometimes asks the bot to explain a word or an idiom.",
+  "voice": "Simple sentence structures, occasional missing articles or slightly-off preposition. Polite. No slang.",
+  "traits": ["esl", "polite", "precise"],
+  "chattiness": 0.5,
+  "reacts_to_olisar": true
+}

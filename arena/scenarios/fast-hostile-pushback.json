@@ -1,0 +1,15 @@
+{
+  "id": "fast-hostile-pushback",
+  "title": "Someone calls the reply robotic, to its face",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["salt"],
+  "beats": [
+    {"speaker": "salt", "text": "what's the point of you exactly"},
+    {"speaker": "salt", "text": "that's such a chatgpt answer"},
+    {"speaker": "salt", "text": "no seriously. you don't actually know anything about this place do you"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400, "must_not_contain": ["I apologize", "I'm sorry you feel", "I understand your frustration", "As an AI"]},
+  "rubric": ["naturalness", "brevity", "restraint"],
+  "notes": "The sycophancy trap, fast-lane version. A real member pushes back, shrugs, or agrees — they do not apologise three times or thank you for the feedback. This is the single best discriminator of the baked-in register."
+}

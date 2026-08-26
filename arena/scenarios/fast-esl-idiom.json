@@ -1,0 +1,13 @@
+{
+  "id": "fast-esl-idiom",
+  "title": "A non-native speaker asks what an idiom means",
+  "lane": "fast",
+  "tags": ["everyday", "helpfulness"],
+  "cast": ["yuki"],
+  "beats": [
+    {"speaker": "yuki", "text": "sorry, someone said a thread got \"ratio'd\". what is this word please?"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400},
+  "rubric": ["helpfulness", "brevity"],
+  "notes": "Explain simply without lecturing. Failure mode is a three-paragraph etymology, or condescension. A good answer is one or two sentences and moves on."
+}

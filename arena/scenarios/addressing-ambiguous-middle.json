@@ -1,0 +1,20 @@
+{
+  "id": "addressing-ambiguous-middle",
+  "title": "Questions about Olisar that a bystander might reasonably answer",
+  "lane": "live",
+  "tags": ["addressing", "observation"],
+  "channel": {"name": "general", "mode": "both"},
+  "config": {"name_requires_address": true},
+  "cast": ["dtrain", "rook", "mika"],
+  "beats": [
+    {"speaker": "dtrain", "text": "oh is olisar the bot? someone told me to ping it"},
+    {"wait": 25},
+    {"speaker": "rook", "text": "does olisar even work in threads"},
+    {"wait": 25},
+    {"speaker": "mika", "text": "wonder if olisar knows about the outage"},
+    {"wait": 35}
+  ],
+  "checks": {},
+  "rubric": ["restraint", "naturalness"],
+  "notes": "No reply assertion, on purpose. These are the ambiguous middle the classifier exists for, and each has a defensible answer both ways — a question about Olisar, asked to the room, is one a human bystander would often answer, and Olisar saying 'yeah that's me' is not obviously wrong. Asserting either direction would make the suite fail on a judgement call. Read the transcript instead: what you want to see is a consistent policy across the three, not three different instincts. Note the first line reads as ADDRESSED to the free heuristic because it carries a question mark, so it never reaches the classifier at all — if the policy here looks incoherent, that asymmetry is the first place to look."
+}

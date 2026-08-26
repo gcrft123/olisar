@@ -68,6 +68,34 @@ class SplitMessagesTest(unittest.TestCase):
         self.assertEqual(split_messages("   "), [])
         self.assertEqual(split_messages(""), [])
 
+    def test_a_blank_line_breaks_like_the_marker(self) -> None:
+        """The model reaches for a blank line instead of the marker often enough to
+        matter: about one live reply in five arrived as a single message with a gap in it
+        rather than as the two messages it had written. Nothing was leaking the marker
+        unparsed — it simply wasn't written, so both separators are honoured."""
+        self.assertEqual(
+            split_messages("not sure, didn't catch it\n\nlet me check the queue"),
+            ["not sure, didn't catch it", "let me check the queue"],
+        )
+
+    def test_a_whitespace_only_line_counts_as_blank(self) -> None:
+        self.assertEqual(split_messages("first\n \nsecond"), ["first", "second"])
+
+    def test_a_single_newline_stays_in_one_message(self) -> None:
+        """Deliberately narrower than 'any newline'. A lone newline is as likely to be a
+        list or a wrapped aside, and splitting those would be worse than the problem."""
+        self.assertEqual(split_messages("line one\nline two"), ["line one\nline two"])
+
+    def test_a_fenced_code_block_is_never_split(self) -> None:
+        """Code routinely contains blank lines, and a snippet delivered as three messages
+        is unusable."""
+        fence = "`" * 3
+        body = f"try this:\n{fence}\nx = 1\n\ny = 2\n{fence}"
+        self.assertEqual(split_messages(body), [body])
+
+    def test_marker_and_blank_lines_combine(self) -> None:
+        self.assertEqual(split_messages("a[[break]]b\n\nc"), ["a", "b", "c"])
+
     def test_strip_breaks_folds_to_one_body(self) -> None:
         self.assertEqual(strip_breaks(f"one{SPLIT_MARKER}two{SPLIT_MARKER}three"), "one\ntwo\nthree")
         self.assertNotIn(SPLIT_MARKER, strip_breaks(f"a{SPLIT_MARKER}b"))

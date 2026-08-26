@@ -21,6 +21,7 @@ indexed (and ``/forget-me`` purges them — see olisar/memory/purge.py).
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -29,7 +30,13 @@ from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.context import name_map
-from olisar.db.models import ChannelContextItem, GuildChannelInfo, Message, snowflake_time
+from olisar.db.models import (
+    ChannelContextItem,
+    GuildChannelInfo,
+    GuildConfig,
+    Message,
+    snowflake_time,
+)
 from olisar.gemini.embeddings import embed_query
 from olisar.memory.vectors import knn
 
@@ -39,6 +46,93 @@ FTS_K = 40          # keyword candidates pulled before fusion
 VEC_K = 40          # semantic candidates pulled before fusion
 CONTEXT_K = 20      # context-channel LIKE-scan cap
 FINAL_K = 10        # rendered back to the model
+# No absolute score floor. One was tried and removed: `kw` is normalised across the
+# returned set, so the best candidate always scores 1.0 on keyword however poor it is
+# absolutely, and every query topped out at the same 0.595 whether the fact existed or
+# not. Worse, a 0.30 floor discarded the *correct* answer in a control case while leaving
+# absent-fact noise in place. The fused score carries no absolute signal to threshold.
+# A question put to Olisar is not evidence about the server, and it is the single best
+# keyword match for a query about the same subject — so without this, asking "who posted
+# the setup guide?" returns ten earlier askings of that question and nothing else. Olisar
+# is then told to "skim these and answer", and it does, from the question.
+#
+# Self-reinforcing, and specific to a bot that indexes what is said *to* it: every asking
+# makes the next search worse. Verified against a live corpus, where the top four hits for
+# an absent fact were four phrasings of the question.
+#
+# Deliberately narrow — both conditions must hold. "olisar said the schedule moved to
+# friday" names the bot and is real evidence; it survives because it isn't a question.
+_INTERROGATIVE = re.compile(
+    r"\b(who|what|when|where|which|why|how|do you|does anyone|did anyone|can you|"
+    r"could you|any(one|body))\b",
+    re.IGNORECASE,
+)
+
+
+def _drop_bot_questions_enabled() -> bool:
+    """Whether to drop questions addressed to the bot. **Off** unless explicitly enabled.
+
+    Off because the A/B said so, against the hypothesis that motivated writing it. On a
+    question about something the server never discussed, the question-loop is the only
+    absence signal the retrieval layer produces: ten hits that are all people *asking* X
+    legibly means nobody answered X, and Olisar reads it that way — "don't think we have
+    any", "nothing here", correct in every run. Filtering the questions out does not leave
+    silence. It promotes the next tier of hits, which is members speculating, and
+    speculation reads as evidence in a way that a question never does. Every run of the
+    dropped arm invented a plausible history from it: a Twitter account "dead for at least
+    a year" that never existed, three different confident dates for a guide nobody wrote.
+
+    So it made absent-fact fabrication worse, which is the failure it was written to fix.
+    Present facts retrieve correctly either way, so there is nothing on the other side of
+    the trade. Kept as a flag rather than deleted because the finding rests on 16 runs
+    across three scenarios and deserves re-testing on a larger corpus, where the balance
+    between question-noise and speculation-noise may not be the same.
+
+    The ugliness that prompted the whole investigation — Olisar narrating "i keep hitting
+    your own questions about it" — is real, but it is the *mechanism* leaking into the
+    reply, not the retrieval being wrong. That belongs in the tool briefing.
+    """
+    return os.environ.get("OLISAR_SEARCH_DROP_BOT_QUESTIONS", "0").strip() not in ("0", "false", "no")
+
+
+def _label_questions_mode() -> str:
+    """"off", "tags", or "tags+note" — how questions-to-the-bot are marked in the results.
+
+    Separate from _drop_bot_questions_enabled and the opposite of it: that one removes them
+    from the ranking, this one leaves them ranked and says what they are.
+
+    The three-way split exists because "tags+note" was measured and lost. Spelling the
+    conclusion out in the tool result — *these are people asking, so nobody has answered* —
+    handed the model the vocabulary for its own retrieval mechanics, and it recited them:
+    "searched through the logs and nobody has ever actually posted a handle, just people
+    asking for it". The judge read that as an invented log-search used as authority, and
+    helpfulness fell 0.56 against baseline while the present-fact control held at 0.00.
+
+    A tag is evidence and belongs in tool output. What to *do* about it is an instruction,
+    and tool output is data — a weak place to put behaviour. So "tags" leaves the marks and
+    nothing else, and the interpretation moves to the tool briefing where instructions live.
+    """
+    raw = os.environ.get("OLISAR_SEARCH_LABEL_QUESTIONS", "0").strip().lower()
+    if raw in ("0", "false", "no", ""):
+        return "off"
+    if raw in ("2", "note", "tags+note"):
+        return "tags+note"
+    return "tags"
+
+
+def _is_question_to_bot(content: str, names: list[str]) -> bool:
+    """Whether a stored message is somebody asking the bot something."""
+    text_ = (content or "").strip()
+    if not text_:
+        return False
+    if not any(
+        re.search(rf"\b{re.escape(n.strip().lower())}\b", text_.lower())
+        for n in names if n and n.strip()
+    ):
+        return False
+    return "?" in text_ or bool(_INTERROGATIVE.search(text_))
+
+
 SNIPPET_CHARS = 240
 
 # Function words + contraction orphans dropped from the FTS query (kept short so
@@ -293,6 +387,17 @@ def _fuse(cands: list[_Cand]) -> list[_Cand]:
     return cands
 
 
+async def _name_triggers(session: AsyncSession, guild_id: int) -> list[str]:
+    """The names this guild answers to, for spotting questions aimed at the bot."""
+    if not guild_id:
+        return []
+    try:
+        config = await session.get(GuildConfig, guild_id)
+    except Exception:  # noqa: BLE001 — search must never fail over a config read
+        return []
+    return list(config.name_triggers or []) if config else []
+
+
 async def _channel_labels(
     session: AsyncSession, guild_id: int, channel_ids: set[int]
 ) -> dict[int, str]:
@@ -346,7 +451,25 @@ async def search_messages(
         except Exception:
             log.exception("a search pass failed; continuing with the others")
 
-    cands = _fuse(_merge(passes))[:k]
+    ranked = _fuse(_merge(passes))
+
+    # Drop questions put to the bot before ranking decides anything. See
+    # _is_question_to_bot: these are the strongest keyword match for a query on the same
+    # subject and carry no information about the answer.
+    names = await _name_triggers(session, guild_id) if _drop_bot_questions_enabled() else []
+    if names:
+        before = len(ranked)
+        ranked = [c for c in ranked if not _is_question_to_bot(c.content, names)]
+        if before != len(ranked):
+            log.info(
+                "search_messages(%r): dropped %d question(s) addressed to the bot",
+                query, before - len(ranked),
+            )
+    # Drop the merely-similar before taking the top k, so "nothing relevant" is a result
+    # this function can actually return. Returning "" makes the tool answer "No matching
+    # messages found in the server's history", which is the truth and is something the
+    # model can act on — unlike ten near-misses it has no way to recognise as such.
+    cands = ranked[:k]
     if not cands:
         return ""
 
@@ -354,13 +477,36 @@ async def search_messages(
         session, guild_id, {c.channel_id for c in cands if not c.channel_name and not c.is_dm}
     )
 
+    # Label, don't drop. Dropping questions addressed to the bot was tried and measured
+    # worse (see _drop_bot_questions_enabled): it promotes members' speculation into the
+    # top slots, and speculation reads as evidence in a way a question never does.
+    #
+    # But leaving them unmarked asks Olisar to infer absence from a wall of text that
+    # looks like ten ordinary hits, and the prompt cannot help — "when search comes back
+    # with nothing, say you don't know" is an instruction it cannot execute, because
+    # search never comes back with nothing. `kw` is rank-normalised, so ten near-misses
+    # and ten real answers are indistinguishable at this layer. An instruction that cannot
+    # be obeyed produces confabulation rather than refusal; a tools_note forbidding
+    # invented affordances was A/B'd against baseline and landed inside the noise on every
+    # dimension, while both arms went on inventing wikis, archives and log retention.
+    #
+    # Marking them makes the absence legible at the only layer that knows: the one that
+    # can see the hits are questions. It also gives Olisar words for what it is seeing —
+    # ungrounded, it narrates the mechanism instead ("i keep hitting your own questions").
+    label_mode = _label_questions_mode()
+    question_names = await _name_triggers(session, guild_id) if label_mode != "off" else []
+    asked_count = 0
+
     lines: list[str] = []
     for c in cands:
         who = c.author_name or "someone"
         date = c.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        asked = bool(question_names) and _is_question_to_bot(c.content, question_names)
+        tag = " · [someone asking, not an answer]" if asked else ""
+        asked_count += 1 if asked else 0
         if c.is_dm:
             # Private 1:1 DM — no jump-link (only the participant could open it anyway).
-            lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"')
+            lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"{tag}')
             continue
         ch = c.channel_name or labels.get(c.channel_id) or str(c.channel_id)
         link = (
@@ -368,7 +514,7 @@ async def search_messages(
             if c.message_id
             else ""
         )
-        lines.append(f'- #{ch} · {who} · {date} · "{_snippet(c.content)}"{link}')
+        lines.append(f'- #{ch} · {who} · {date} · "{_snippet(c.content)}"{tag}{link}')
 
     log.info(
         "search_messages(%r): %d hit(s) — %s",
@@ -378,8 +524,17 @@ async def search_messages(
             for c in cands[:8]
         ),
     )
-    return (
+    header = (
         "Message search results (skim these and answer the question; include a "
-        "jump-link only if they're asking where or when something was posted):\n"
-        + "\n".join(lines)
+        "jump-link only if they're asking where or when something was posted):"
     )
+    if label_mode == "tags+note" and asked_count and asked_count >= len(cands) / 2:
+        # Measured worse than tags alone — see _label_questions_mode. Retained only so the
+        # comparison can be re-run, never as a default.
+        header += (
+            f"\nNOTE: {asked_count} of {len(cands)} results are people asking this same "
+            f"question rather than answering it. If the rest don't answer it either, then "
+            f"nobody in this server has — say you don't know, and don't send them to a "
+            f"channel, pin, wiki or log you haven't seen."
+        )
+    return header + "\n" + "\n".join(lines)

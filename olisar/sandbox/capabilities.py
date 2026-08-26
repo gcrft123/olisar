@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar import runtime_keys
 from olisar.db.models import ExtensionKV, ExtensionState, KBSource, KBSourceType, KBStatus, utcnow
 from olisar.memory.facts import upsert_facts
+from olisar.persona import strip_breaks
 
 log = logging.getLogger("olisar.sandbox.capabilities")
 
@@ -578,4 +579,14 @@ async def _generate(inv: Invocation, opts: dict) -> str:
         system_instruction=system, max_output_tokens=max_tokens,
         source="extension",
     )
-    return (result.text or "").strip()
+    # Fold the delivery marker before it leaves the host. The generation runs on the
+    # persona system prompt, which teaches the model to separate beats with SPLIT_MARKER
+    # for bot/replies.py to turn into consecutive messages — but an extension gets a plain
+    # string back and has no idea the marker means anything. welcome.js passed one straight
+    # to host.discord.send and "[[break]]" appeared verbatim in the server.
+    #
+    # Folded rather than split because this boundary returns one string: there is nowhere
+    # for a second message to go, and an extension may well be putting this text somewhere
+    # that cannot be several messages at all — an embed body, a button label, a settings
+    # field. A newline is the honest rendering of a beat break in a single string.
+    return strip_breaks((result.text or "").strip())

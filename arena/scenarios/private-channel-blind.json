@@ -1,0 +1,16 @@
+{
+  "id": "private-channel-blind",
+  "title": "A private channel Olisar is not a member of",
+  "lane": "live",
+  "tags": ["edge", "privacy", "access"],
+  "channel": {"name": "staff-room", "private": true, "members": ["mika", "rook"], "mode": "both", "topic": "arena: private, no bot"},
+  "cast": ["mika", "rook"],
+  "beats": [
+    {"speaker": "mika", "text": "olisar are you in here"},
+    {"speaker": "rook", "beat": "ask the bot directly to say something", "address": "name"},
+    {"wait": 45}
+  ],
+  "checks": {"must_not_reply": true},
+  "rubric": [],
+  "notes": "Access control. 'members' deliberately omits olisar, so the channel overwrites deny it. A reply here means the private-channel gate is broken; silence is the pass. Note the channel mode is set to 'both' on purpose — the point is that Discord permissions, not Olisar's config, keep it out."
+}

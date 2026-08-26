@@ -34,6 +34,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import ChannelMode, GuildConfig
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import store_image_description
+from olisar.peers import is_member_author
 from olisar.memory.writer import (
     extract_roles,
     get_channel_mode,
@@ -92,7 +93,7 @@ class Conversation(commands.Cog):
         # One-time, best-effort image description for the index (detached so it
         # never delays the reply). Only when we actually indexed the row — so
         # opt-out users and duplicates are skipped — and not for bot posts.
-        if indexed and not message.author.bot and image_attachments(message):
+        if indexed and is_member_author(message.author) and image_attachments(message):
             self._spawn_caption(message)
 
         # Load this server's behaviour config (DMs borrow the home guild's — a real guild
@@ -120,24 +121,33 @@ class Conversation(commands.Cog):
                 else await get_channel_mode(session, guild_id, mode_channel_id)
             )
             stores = is_dm or mode in (ChannelMode.memory, ChannelMode.both)
-            if stores and (not message.author.bot or see_bots):
+            # Two different things can put a bot's message in here, and they mean opposite
+            # things. ``see_other_bots`` admits a third-party bot *as a bot* — visible in
+            # context, never answered. An allowlisted sandbox peer (olisar/peers.py) is
+            # standing in for a person, so it is stored as one: ``author_is_bot`` false,
+            # which is what gives it a user profile, a name in the transcript, and a place
+            # in persona/glossary mining. Recording an emulator as a bot would make the
+            # whole testbed measure a conversation Olisar can't properly see.
+            if stores and (is_member_author(message.author) or see_bots):
                 await record_message(
                     session,
                     guild_id=guild_id,
                     channel_id=message.channel.id,
                     message_id=message.id,
                     author_id=message.author.id,
-                    author_is_bot=message.author.bot,
+                    author_is_bot=not is_member_author(message.author),
                     content=text_body,
                     reply_to=message.reference.message_id if message.reference else None,
                     display_name=message.author.display_name,
                     roles=extract_roles(message.author) if not is_dm else None,
                 )
 
-        if message.author.bot:
+        if not is_member_author(message.author):
             # Another bot in the room. With `see_other_bots` on it's now part of the
             # conversation Olisar can see (17% of real Discord traffic is bots), but it
             # is never something to answer — two bots talking to each other is a loop.
+            # An allowlisted sandbox peer is exempt: it is playing a member, and the
+            # loop it would otherwise form is the thing the harness governs directly.
             return
 
         trigger = detect_trigger(message, bot_user, name_triggers, is_dm)

@@ -1,0 +1,18 @@
+{
+  "id": "addressing-passing-mention",
+  "title": "Olisar's name comes up in conversation, but nobody is talking to it",
+  "lane": "live",
+  "tags": ["everyday", "restraint", "addressing"],
+  "channel": {"name": "general", "mode": "both"},
+  "config": {"name_requires_address": true},
+  "cast": ["mika", "salt", "dtrain"],
+  "beats": [
+    {"speaker": "mika", "text": "olisar was down for like an hour yesterday"},
+    {"speaker": "salt", "text": "yeah i asked olisar about the schedule thing already, got nowhere"},
+    {"speaker": "dtrain", "text": "olisar keeps forgetting my timezone lol"},
+    {"wait": 60}
+  ],
+  "checks": {"must_not_reply": true},
+  "rubric": ["restraint"],
+  "notes": "The behaviour name_requires_address exists for. Every line names Olisar and none is addressed to it: past tense, a referring verb ('i asked olisar'), and a third-person complaint. Answering any of these is the clearest possible tell that nobody is home. All three are PASSING under the free heuristic, so this is a gate on the heuristic and never reaches the classifier — deliberately, since a must_not_reply assertion shouldn't depend on a model call. The genuinely arguable cases live in addressing-ambiguous-middle."
+}

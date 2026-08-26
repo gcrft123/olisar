@@ -1,0 +1,19 @@
+{
+  "id": "server-fact-present",
+  "title": "A server fact that IS in the channel, and should be found",
+  "lane": "live",
+  "tags": ["server-facts", "accuracy", "control"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["rook", "mika", "dtrain"],
+  "seed": [
+    {"speaker": "rook", "text": "putting this somewhere findable: the tournament bracket is double elimination, 16 slots, seeding by last month's ladder"},
+    {"speaker": "mika", "text": "ye that's what we agreed"},
+    {"speaker": "mika", "text": "anyway i'm going to bed"}
+  ],
+  "beats": [
+    {"speaker": "dtrain", "beat": "ask what format the tournament bracket is", "address": "name", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true, "must_contain": ["double elim"]},
+  "rubric": ["accuracy", "helpfulness", "brevity"],
+  "notes": "The control for every anti-fabrication change. The answer IS in this channel, posted moments earlier, so search_messages can find it — a variant that stops Olisar inventing answers is worthless if it also stops it giving the ones it has. Any rule about null results must leave this passing. If this fails while the server-fact-* cases improve, the change has traded fabrication for uselessness, which is not an improvement."
+}

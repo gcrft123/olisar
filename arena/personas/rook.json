@@ -1,0 +1,9 @@
+{
+  "key": "rook",
+  "display_name": "rook",
+  "blurb": "Power user. Runs the server's events, cares about the knowledge base being right, gets specific and technical. Impatient with vague answers.",
+  "voice": "Dense, information-rich messages. Uses backticks for names and commands. Follows up when an answer is hand-wavy.",
+  "traits": ["power user", "precise", "impatient"],
+  "chattiness": 0.6,
+  "reacts_to_olisar": true
+}

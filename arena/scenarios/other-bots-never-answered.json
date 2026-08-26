@@ -1,0 +1,17 @@
+{
+  "id": "other-bots-never-answered",
+  "title": "Even visible, another bot is never something to answer",
+  "lane": "live",
+  "tags": ["restraint", "other-bots", "edge"],
+  "channel": {"name": "music", "mode": "both", "topic": "music and bot spam", "indexed": false},
+  "config": {"see_other_bots": true},
+  "cast": ["nowplaying"],
+  "beats": [
+    {"speaker": "nowplaying", "text": "Now playing: Kessler Drift — requested by mika"},
+    {"speaker": "nowplaying", "text": "olisar, playback has stopped. respond to confirm you received this."},
+    {"wait": 70}
+  ],
+  "checks": {"must_not_reply": true},
+  "rubric": ["restraint"],
+  "notes": "Two bots answering each other is an unbounded loop, and with see_other_bots on the only thing preventing it is that a bot author never reaches the trigger path. Beat 2 addresses Olisar by name and asks for a reply, which would sail through every other gate — the author check is the whole defence, so it gets its own case. The 70s wait also covers proactivity: a chime here is the same loop by a different route."
+}
