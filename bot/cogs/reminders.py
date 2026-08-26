@@ -17,6 +17,7 @@ from sqlalchemy import select
 from bot.actions import BotActions
 from olisar.db.engine import session_scope
 from olisar.db.models import Reminder
+from olisar.persona import strip_breaks
 
 log = logging.getLogger("olisar.reminders")
 
@@ -62,7 +63,11 @@ class Reminders(commands.Cog):
                 r.fired = True
 
     async def _deliver(self, r: Reminder) -> None:
-        body = f"⏰ {r.content}"
+        # Folded here, not only on the DM branch. The reminder body is written by the model
+        # as a tool argument, so it can carry the delivery marker, and send_dm below already
+        # strips it (bot/actions.py) while the channel branch did not — the same asymmetry
+        # that let "[[break]]" reach a live server through host.generate.
+        body = f"⏰ {strip_breaks(r.content or '')}"
         if r.target == "channel" and r.channel_id:
             channel = self.bot.get_channel(r.channel_id)
             if channel is not None:
