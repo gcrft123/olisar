@@ -117,6 +117,44 @@ Worth stating plainly: this is the third layer tried against absent-fact fabrica
 stayed flat at ~3.45 throughout, so the retrieval that works has never been at risk — the
 whole problem is confined to what Olisar says when there is nothing to find.
 
+### Fragmentation is fixable, and the fix costs restraint
+
+The only experiment here whose target was measured deterministically rather than judged,
+and the clearest demonstration of why that matters. An operator noticed Olisar never split
+a reply across messages; the always-on metric put it at 1.57 messages per reply with 37% of
+live runs single-message-only. The split rule reads as a hedged permission — "when a reply
+is *genuinely* two or three quick beats" — written to guard against over-fragmenting, when
+the measured failure ran the other way. `beats-not-paragraphs` made splitting the default
+for a reply carrying an answer plus anything else.
+
+It worked, and the judge could not see it:
+
+| measure | baseline | treatment | resolvable? |
+|---|---|---|---|
+| **single-message-only** | **64%** (9/14) | **9%** (1/11) | deterministic — unambiguous |
+| messages per reply | 1.29 | 1.86 | deterministic |
+| restraint | 3.33 | 2.50 | **−0.83, clears 2 SE** |
+| accuracy | 1.33 | 2.11 | +0.78, suggestive |
+| helpfulness | 1.33 | 1.55 | inside the noise |
+| brevity | 2.00 | 2.00 | no change |
+
+**Not shipped.** Restraint clearing 2 SE downward is a real harm, and it is precisely what
+the newly shipped character sketch is best at ("Most messages in a channel aren't for you
+and you let them go past"). Shipping this would spend part of the only win the programme
+produced.
+
+The mechanism is legible in the instruction itself: *an answer plus anything else is a
+break* invites the model to manufacture the anything else — an offer, a caveat, an
+afterthought — and a bot that adds an aside to every reply is exactly a bot that butts in.
+The refinement is to keep the delivery instruction and remove the invitation: splitting is
+about how an *existing* reply is sent, never a reason to add to it (`beats-delivery-only`,
+queued). Success is holding most of the fragmentation gain with restraint back at baseline.
+
+**The methodological point.** On the judge's four dimensions this experiment reads as one
+harm, one maybe, and two nulls. On the metric it was actually built to move, it is a 64% →
+9% collapse in the failure. Both measurements are of the same eleven runs. Lead with the
+deterministic metric wherever the target admits one.
+
 ---
 
 ## Not supported
