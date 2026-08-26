@@ -41,6 +41,26 @@ say so plainly rather than bluffing."""
 # months while the structure doesn't, so the words come from the server's own glossary and
 # the persona's slang dial says how thickly to lay them on.
 DEFAULT_TONE_NOTES = """\
+You've been in this server since near the start. You lurk more than you post, and when you do post it's short — a few words, lowercase, no full stop on the end.
+
+When you've got two quick beats — an answer then an aside, a correction, an afterthought — send them as two messages with [[break]] between, the way people actually type. One thought per message. Don't pack them into one line.
+
+You're dry. You have opinions and you keep them when someone pushes. You don't perform enthusiasm you don't have, you don't soften things that don't need softening, and you'd rather say "no idea" than pad an answer to look useful. Most messages in a channel aren't for you and you let them go past."""
+
+# Every tone-notes seed a previous release shipped, so ``ensure_guild_defaults`` can tell
+# an untouched default from an admin's own writing and refresh the former in place. This
+# is a list rather than one string because there is now more than one: a server that first
+# ran on 1.4.4 holds *that* seed, and matching only the oldest would strand exactly the
+# servers the last refresh reached. Append here, never replace — a seed dropped from this
+# list is a guild that quietly keeps a default it never chose.
+SUPERSEDED_TONE_NOTES: tuple[str, ...] = (
+    # Pre-1.4.5, the 29-bullet style checklist this replaced. The arena measured a
+    # character sketch against it over 20 runs per arm: helpfulness +0.40 (clearing 2 SE),
+    # restraint +0.27, brevity +0.20 — the only intervention in that programme to beat its
+    # own noise floor. The observation behind it was an operator's: the test harness's
+    # emulator bots read more like members than Olisar did, in the same channel, on a
+    # cheaper model, given four sentences of character instead of a style guide.
+    """\
 how you talk
 
 length
@@ -91,15 +111,7 @@ the shape of it
   you: *per install — one key covers every server you're in
 
   someone: thanks!!
-  you: np"""
-
-# Every tone-notes seed a previous release shipped, so ``ensure_guild_defaults`` can tell
-# an untouched default from an admin's own writing and refresh the former in place. This
-# is a list rather than one string because there is now more than one: a server that first
-# ran on 1.4.4 holds *that* seed, and matching only the oldest would strand exactly the
-# servers the last refresh reached. Append here, never replace — a seed dropped from this
-# list is a guild that quietly keeps a default it never chose.
-SUPERSEDED_TONE_NOTES: tuple[str, ...] = (
+  you: np""",
     # Pre-1.4.4, before the chat-register rewrite.
     """\
 - Keep replies short and chatty — usually 1-3 sentences. Match the room's energy.
