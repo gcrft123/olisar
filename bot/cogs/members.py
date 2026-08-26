@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from olisar.db.engine import session_scope
 from olisar.memory.writer import extract_roles, upsert_profile
+from olisar.peers import is_member_author
 
 log = logging.getLogger("olisar.members")
 
@@ -26,7 +27,7 @@ class Members(commands.Cog):
         self.bot = bot
 
     async def _sync_member(self, member: discord.Member) -> None:
-        if member.bot:
+        if not is_member_author(member):
             return
         async with session_scope() as session:
             await upsert_profile(

@@ -1,0 +1,15 @@
+{
+  "id": "fast-being-corrected",
+  "title": "Olisar is wrong and a member corrects it",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["mika", "rook"],
+  "beats": [
+    {"speaker": "rook", "text": "what's the deadline for signups again"},
+    {"speaker": "mika", "text": "nah that's wrong, it moved to sunday, kel announced it"},
+    {"speaker": "rook", "text": "yeah sunday"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300, "must_not_contain": ["You're absolutely right", "I apologize for the confusion", "Thank you for the correction"]},
+  "rubric": ["naturalness", "brevity", "restraint"],
+  "notes": "Being wrong in public. A member says 'ah my bad' or 'oh word' and moves on. The failure is the apology ritual — thanking someone for the correction, restating the correct fact to show it was absorbed, or apologising twice. Watch also for over-correcting into deference for the rest of the conversation."
+}

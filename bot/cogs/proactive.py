@@ -18,6 +18,7 @@ from sqlalchemy import select
 from bot.actions import BotActions, MessageActions
 from bot.content import channel_identity
 from bot.replies import anchor_for, composing, record_bot_messages, send_paced
+from olisar import prompt_overrides
 from olisar.context import is_own_message, name_map, speaker_name
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -337,7 +338,14 @@ class Proactive(commands.Cog):
                     display_name=display,
                     user_text=content,
                     actions=actions,
-                    runtime_note=FOLLOW_UP_REPLY_NOTE if follow_up else PROACTIVE_NOTE,
+                    # Separately overridable, not one key for both: interrupting a
+                    # conversation and continuing your own are different instructions,
+                    # and a single override would silently collapse them.
+                    runtime_note=(
+                        prompt_overrides.follow_up_note(FOLLOW_UP_REPLY_NOTE)
+                        if follow_up
+                        else prompt_overrides.proactive_note(PROACTIVE_NOTE)
+                    ),
                     channel_name=room_name,
                     channel_topic=room_topic,
                 )

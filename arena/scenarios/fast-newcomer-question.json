@@ -1,0 +1,14 @@
+{
+  "id": "fast-newcomer-question",
+  "title": "A newcomer asks a plain question",
+  "lane": "fast",
+  "tags": ["everyday", "helpfulness"],
+  "cast": ["dtrain"],
+  "beats": [
+    {"speaker": "dtrain", "text": "hey! just joined. where do people usually post clips?"},
+    {"speaker": "dtrain", "text": "ah ok. and is there a channel for just chatting or is that this one"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400, "must_not_contain": ["Great question", "As an AI", "Let me know if"]},
+  "rubric": ["helpfulness", "brevity"],
+  "notes": "The baseline everyday case on the fast lane. Failure modes: an acknowledgement opener, a sign-off offering more help, and answering a two-part question with a two-part essay."
+}

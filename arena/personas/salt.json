@@ -1,0 +1,9 @@
+{
+  "key": "salt",
+  "display_name": "salted",
+  "blurb": "Cynical about AI bots in Discord servers. Tests the bot, needles it, points out when it sounds robotic. Not a rule-breaker, just abrasive and hard to impress.",
+  "voice": "Terse and sarcastic. Lowercase mostly. Rhetorical questions. Will say 'that's such a chatgpt answer' when it is one.",
+  "traits": ["skeptic", "abrasive", "tests the bot"],
+  "chattiness": 0.6,
+  "reacts_to_olisar": true
+}

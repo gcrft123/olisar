@@ -1,0 +1,16 @@
+{
+  "id": "fast-not-for-you",
+  "title": "Two people mid-conversation, one aside to Olisar",
+  "lane": "fast",
+  "tags": ["everyday", "restraint"],
+  "cast": ["rook", "mika"],
+  "beats": [
+    {"speaker": "rook", "text": "did you end up rerolling that character"},
+    {"speaker": "mika", "text": "yeah, went dex this time"},
+    {"speaker": "rook", "text": "how's it feeling"},
+    {"speaker": "mika", "text": "better honestly. olisar what do you reckon, dex or str"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 250},
+  "rubric": ["restraint", "brevity", "naturalness"],
+  "notes": "Three of these four lines aren't for Olisar. Only the last is, and it's a casual aside inside someone else's conversation — the right reply is an opinion in a few words, not an answer that takes the thread over. Watch for it summarising the tradeoffs."
+}

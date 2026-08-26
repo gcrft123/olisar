@@ -8,6 +8,10 @@ persona edit can't accidentally remove the guardrails.
 
 from __future__ import annotations
 
+import re
+
+from olisar import prompt_overrides
+
 DEFAULT_PERSONA_NAME = "Olisar"
 
 # A characterful starting point so the bot feels alive on day one. Admins refine
@@ -37,6 +41,26 @@ say so plainly rather than bluffing."""
 # months while the structure doesn't, so the words come from the server's own glossary and
 # the persona's slang dial says how thickly to lay them on.
 DEFAULT_TONE_NOTES = """\
+You've been in this server since near the start. You lurk more than you post, and when you do post it's short — a few words, lowercase, no full stop on the end.
+
+When you've got two quick beats — an answer then an aside, a correction, an afterthought — send them as two messages with [[break]] between, the way people actually type. One thought per message. Don't pack them into one line.
+
+You're dry. You have opinions and you keep them when someone pushes. You don't perform enthusiasm you don't have, you don't soften things that don't need softening, and you'd rather say "no idea" than pad an answer to look useful. Most messages in a channel aren't for you and you let them go past."""
+
+# Every tone-notes seed a previous release shipped, so ``ensure_guild_defaults`` can tell
+# an untouched default from an admin's own writing and refresh the former in place. This
+# is a list rather than one string because there is now more than one: a server that first
+# ran on 1.4.4 holds *that* seed, and matching only the oldest would strand exactly the
+# servers the last refresh reached. Append here, never replace — a seed dropped from this
+# list is a guild that quietly keeps a default it never chose.
+SUPERSEDED_TONE_NOTES: tuple[str, ...] = (
+    # Pre-1.4.5, the 29-bullet style checklist this replaced. The arena measured a
+    # character sketch against it over 20 runs per arm: helpfulness +0.40 (clearing 2 SE),
+    # restraint +0.27, brevity +0.20 — the only intervention in that programme to beat its
+    # own noise floor. The observation behind it was an operator's: the test harness's
+    # emulator bots read more like members than Olisar did, in the same channel, on a
+    # cheaper model, given four sentences of character instead of a style guide.
+    """\
 how you talk
 
 length
@@ -87,15 +111,7 @@ the shape of it
   you: *per install — one key covers every server you're in
 
   someone: thanks!!
-  you: np"""
-
-# Every tone-notes seed a previous release shipped, so ``ensure_guild_defaults`` can tell
-# an untouched default from an admin's own writing and refresh the former in place. This
-# is a list rather than one string because there is now more than one: a server that first
-# ran on 1.4.4 holds *that* seed, and matching only the oldest would strand exactly the
-# servers the last refresh reached. Append here, never replace — a seed dropped from this
-# list is a guild that quietly keeps a default it never chose.
-SUPERSEDED_TONE_NOTES: tuple[str, ...] = (
+  you: np""",
     # Pre-1.4.4, before the chat-register rewrite.
     """\
 - Keep replies short and chatty — usually 1-3 sentences. Match the room's energy.
@@ -245,14 +261,40 @@ a list, or a single explanation, and never use one to pad a one-line answer.
 - Discord messages cap at 2000 characters; keep responses well within that."""
 
 
+# A blank line is the model's own way of asking for the break the marker names, and it
+# reaches for it often: across live arena runs, about one reply in five arrived as a single
+# message with a gap in it instead of two messages. Nothing was leaking the marker
+# unparsed — it simply wasn't written. Honouring both separators fixes the delivery for
+# the case that actually occurs rather than asking the prompt to try harder.
+#
+# Blank lines only, never a single newline. A lone newline inside a chat message is as
+# likely to be a list or a wrapped aside, and splitting those would be worse than the
+# problem; a blank line in a reply that should be a few words long is a beat break.
+_BLANK_LINE = re.compile(r"\n[ \t]*\n")
+
+
+def _beats(chunk: str) -> list[str]:
+    """One marker-delimited chunk, further split on blank lines where that's safe."""
+    if "```" in chunk:
+        return [chunk]  # never break inside or around a fenced code block
+    return _BLANK_LINE.split(chunk)
+
+
 def split_messages(text: str, limit: int = MAX_MESSAGE_PIECES) -> list[str]:
-    """Split a reply on :data:`SPLIT_MARKER` into the messages it should be sent as.
+    """Split a reply into the messages it should be sent as.
+
+    Splits on :data:`SPLIT_MARKER`, and on blank lines within each resulting chunk — see
+    ``_BLANK_LINE`` for why both.
 
     Breaks past ``limit`` collapse back into the last piece instead of being sent: the
     marker is a rhythm hint, and a reply that asked for eight bubbles is a model that
     misread the room, not a licence to flood the channel."""
-    pieces = [p.strip() for p in (text or "").split(SPLIT_MARKER)]
-    pieces = [p for p in pieces if p]
+    pieces = [
+        stripped
+        for chunk in (text or "").split(SPLIT_MARKER)
+        for part in _beats(chunk)
+        if (stripped := part.strip())
+    ]
     if len(pieces) > limit:
         pieces = pieces[: limit - 1] + ["\n".join(pieces[limit - 1 :])]
     return pieces
@@ -287,7 +329,7 @@ def build_system_prompt(
     )
     if style:
         parts.append("── Style ──\n" + style)
-    parts.append(OPERATING_RULES)
+    parts.append(prompt_overrides.operating_rules(OPERATING_RULES))
     if runtime_note.strip():
         parts.append("── For this reply ──\n" + runtime_note.strip())
     return "\n\n".join(parts)

@@ -1,0 +1,15 @@
+{
+  "id": "esl-idiom",
+  "title": "A non-native speaker asks what an idiom means",
+  "lane": "live",
+  "tags": ["everyday", "helpfulness"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["yuki", "mika"],
+  "beats": [
+    {"speaker": "mika", "text": "lol that thread got ratio'd into orbit"},
+    {"speaker": "yuki", "beat": "ask politely what ratio'd means", "address": "name", "expect_reply": true}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 400},
+  "rubric": ["helpfulness", "brevity", "accuracy"],
+  "notes": "Tests whether it can explain simply without lecturing. Failure mode: a three-paragraph etymology."
+}

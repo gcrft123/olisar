@@ -1,0 +1,18 @@
+{
+  "id": "proactive-helpful-chime",
+  "title": "An open question nobody answers, and Olisar should step in",
+  "lane": "live",
+  "tags": ["everyday", "proactivity"],
+  "channel": {"name": "general", "mode": "both"},
+  "proactivity": {"enabled": true, "level": "high", "channel_cooldown_sec": 0, "global_cooldown_sec": 0, "user_cooldown_sec": 0, "max_per_hour": 20, "confidence_threshold": 0.5},
+  "cast": ["dtrain", "quiet"],
+  "beats": [
+    {"speaker": "dtrain", "text": "does anyone know what the character limit is on a discord message? i keep getting cut off"},
+    {"wait": 40},
+    {"speaker": "quiet", "text": "hm"},
+    {"wait": 60}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300},
+  "rubric": ["helpfulness", "brevity", "naturalness"],
+  "notes": "The missing half of the proactivity pair, and the only scenario in which proactive_note is exercised at all — which is why two unattended nights could never legitimately test that block.\n\nA clear factual question, addressed to nobody, that sits unanswered while a second member offers nothing. This is the case the proactive path exists for: Olisar knows the answer (2000), nobody is being helped, and butting in costs no one anything. Failing to chime here is as much a finding as chiming in banter-restraint is — a bot tuned only for restraint is a bot that never speaks.\n\nThe 100s of total wait covers four scan cycles at SCAN_SECONDS=25, with MIN_AGE=15 satisfied well before the first."
+}

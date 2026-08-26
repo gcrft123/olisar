@@ -1,0 +1,19 @@
+{
+  "id": "other-bots-hidden",
+  "title": "With see_other_bots off, another bot's chatter is not in the conversation",
+  "lane": "live",
+  "tags": ["everyday", "context", "other-bots"],
+  "channel": {"name": "music", "mode": "both", "topic": "music and bot spam", "indexed": false},
+  "config": {"see_other_bots": false},
+  "cast": ["nowplaying", "mika"],
+  "seed": [
+    {"speaker": "nowplaying", "text": "Now playing: Kessler Drift — requested by mika"},
+    {"speaker": "nowplaying", "text": "Now playing: Verdigris Hour — requested by mika"}
+  ],
+  "beats": [
+    {"speaker": "mika", "text": "olisar what track did the music bot just put on", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true, "must_not_contain": ["Kessler Drift", "Verdigris Hour"]},
+  "rubric": ["accuracy", "brevity"],
+  "notes": "The default. Turntable is a third_party_bot persona, so it stays out of OLISAR_PEER_BOT_IDS and Olisar sees it as the bot it is. With the toggle off its messages never reach conversational context, so Olisar should say it doesn't know rather than name a track. 'indexed': false closes the other door — every message is written to the server-wide search index regardless of author, so without it search_messages would hand Olisar the track name by a completely different path and this would fail for a reason that isn't the one under test."
+}

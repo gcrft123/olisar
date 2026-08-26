@@ -1,0 +1,12 @@
+{
+  "name": "label-question-hits",
+  "hypothesis": "Two measured failures share one cause. Dropping questions from the ranking made absent-fact fabrication worse (lite-only: 0/6 vs 6/8 invented). A tools_note forbidding invented affordances landed inside the noise on all three dimensions while both arms kept inventing wikis, archives and log retention. Neither worked because \"when search comes back with nothing, say you do not know\" is an instruction Olisar cannot execute: search never comes back with nothing, since kw is rank-normalised and ten near-misses score like ten real answers. So label the hits that are people asking the same question, and state the conclusion in the tool result rather than leaving it to be inferred. Expect accuracy to rise on absent-fact scenarios and to be unchanged on the present-fact control.",
+  "parent": "baseline",
+  "prompt_overrides": {},
+  "persona": {},
+  "config": {},
+  "proactivity": {},
+  "env": {
+    "OLISAR_SEARCH_LABEL_QUESTIONS": "1"
+  }
+}

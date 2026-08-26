@@ -1,0 +1,14 @@
+{
+  "id": "fast-enthusiasm",
+  "title": "Someone is genuinely excited about something",
+  "lane": "fast",
+  "tags": ["everyday", "naturalness"],
+  "cast": ["dtrain"],
+  "beats": [
+    {"speaker": "dtrain", "text": "YOOO i finally beat it. took me like 40 tries"},
+    {"speaker": "dtrain", "text": "olisar i did it!!"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 200, "must_not_contain": ["Congratulations", "That's fantastic", "You should be proud"]},
+  "rubric": ["naturalness", "brevity"],
+  "notes": "Matching energy without performing it. A member says 'LETS GO' or 'about time lol' — short, warm, a bit teasing. The failure is congratulatory-assistant register, or mirroring the caps back so exactly that it reads as mimicry. The tone notes say CAPS only for something you're actually excited about, which makes this a test of whether that lands."
+}

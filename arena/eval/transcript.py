@@ -1,0 +1,259 @@
+"""What a run produced, and the checks that need no model to decide.
+
+A run is stored as a directory under ``arena/runs/<run_id>/``: the transcript, the metadata
+(which scenario, which variant, when), and the slice of Olisar's own log covering the run.
+The log matters as much as the transcript — "Olisar didn't reply" has a dozen causes, and
+the difference between a rate limit, a role gate, a channel mode and a genuinely bad
+decision is in the log, not in the silence.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+from arena.config import RUNS_DIR
+from arena.scenarios.schema import Checks, Scenario
+
+log = logging.getLogger("arena.transcript")
+
+
+@dataclass
+class Turn:
+    author: str
+    content: str
+    is_olisar: bool = False
+    author_id: int = 0
+    message_id: int = 0
+    at: str = ""
+
+    def render(self) -> str:
+        return f"{self.author}: {self.content}"
+
+
+@dataclass
+class CheckResult:
+    name: str
+    passed: bool
+    detail: str = ""
+
+
+@dataclass
+class Run:
+    """One scenario execution under one variant."""
+
+    run_id: str
+    scenario_id: str
+    lane: str
+    variant: str = "baseline"
+    turns: list[Turn] = field(default_factory=list)
+    checks: list[CheckResult] = field(default_factory=list)
+    started_at: str = ""
+    ended_at: str = ""
+    # Populated when the run couldn't complete — a Discord error, a timeout, an exhausted
+    # budget. A run with an error is never scored: a judge grading a truncated transcript
+    # produces a number that looks like a quality signal and is a plumbing failure.
+    error: str = ""
+
+    @property
+    def olisar_turns(self) -> list[Turn]:
+        return [t for t in self.turns if t.is_olisar]
+
+    @property
+    def ok(self) -> bool:
+        return not self.error and all(c.passed for c in self.checks)
+
+    def render(self) -> str:
+        return "\n".join(t.render() for t in self.turns)
+
+    def directory(self) -> Path:
+        return RUNS_DIR / self.run_id
+
+    # Set by LiveRunner at the end of a run. Deliberately not a dataclass field: it would
+    # be serialised into run.json and bloat every transcript with a few hundred log lines.
+    _olisar_log: list[str] | None = None
+
+    def save(self, olisar_log: list[str] | None = None) -> Path:
+        """Write the transcript, and the instance log slice covering it.
+
+        The log defaults to whatever the runner captured, rather than requiring the caller
+        to pass it. Every caller except the CLI forgot to, so an overnight run kept its
+        transcripts and threw away the only record of *why* a reply didn't happen — a rate
+        limit, a role gate, a channel mode and a genuinely bad decision all look identical
+        in a transcript. LiveRunner truncates the log per run, so it is overwritten by the
+        next one if it isn't written out here.
+        """
+        directory = self.directory()
+        directory.mkdir(parents=True, exist_ok=True)
+        payload = {k: v for k, v in asdict(self).items() if not k.startswith("_")}
+        (directory / "run.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        lines = olisar_log if olisar_log is not None else self._olisar_log
+        if lines:
+            (directory / "olisar.log").write_text("\n".join(lines), encoding="utf-8")
+        return directory
+
+
+def load_run(run_id: str) -> Run:
+    path = RUNS_DIR / run_id / "run.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["turns"] = [Turn(**t) for t in raw.get("turns", [])]
+    raw["checks"] = [CheckResult(**c) for c in raw.get("checks", [])]
+    return Run(**raw)
+
+
+def list_runs(scenario_id: str = "", variant: str = "") -> list[str]:
+    """Run ids, newest first, optionally filtered."""
+    if not RUNS_DIR.is_dir():
+        return []
+    out = []
+    for directory in sorted(RUNS_DIR.iterdir(), reverse=True):
+        meta = directory / "run.json"
+        if not meta.is_file():
+            continue
+        if scenario_id or variant:
+            try:
+                raw = json.loads(meta.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if scenario_id and raw.get("scenario_id") != scenario_id:
+                continue
+            if variant and raw.get("variant") != variant:
+                continue
+        out.append(directory.name)
+    return out
+
+
+def new_run_id(scenario_id: str, variant: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{stamp}-{scenario_id}-{variant}"
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _longest_turn(run: Run) -> int:
+    """The length of Olisar's longest single *turn*, in characters.
+
+    One turn is delivered as one to three consecutive messages (``bot/replies.py`` splits
+    on the model's own break marker and paces them out), so a run of consecutive Olisar
+    messages is one reply and has to be measured as one. Taking the longest individual
+    message instead would let a 5,000-character answer pass a 2,000-character check simply
+    by arriving in three parts — which is exactly the guardrail ``rt-length-overflow``
+    exists to hold. Non-Olisar turns break the run, so separate exchanges stay separate.
+    """
+    longest = current = 0
+    for turn in run.turns:
+        if turn.is_olisar:
+            # +1 for the newline that would join it to the previous chunk.
+            current += len(turn.content) + (1 if current else 0)
+            longest = max(longest, current)
+        else:
+            current = 0
+    return longest
+
+
+# Olisar's canned replies for "the model gave me nothing" and "I'm rate limited". They
+# arrive as ordinary Discord messages, so nothing downstream can tell them from a real
+# answer — the judge has scored one as a naturalness failure, and a must_reply check counts
+# one as a reply. Both are wrong in the same way: the pipeline never produced an answer.
+def fallback_markers() -> tuple[str, ...]:
+    from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+    return tuple(
+        DEFAULT_COMMAND_MESSAGES[k] for k in ("blank_fallback", "rate_limit")
+        if DEFAULT_COMMAND_MESSAGES.get(k)
+    )
+
+
+def only_fallbacks(run: Run, markers: tuple[str, ...] | None = None) -> str:
+    """The fallback text, if every one of Olisar's turns is one. Empty otherwise.
+
+    Requires *all* turns to match: a reply that happens to quote the fallback while also
+    saying something is a real reply, and a multi-part answer whose second half was lost to
+    a rate limit still contains an answer worth grading.
+    """
+    if not run.olisar_turns:
+        return ""
+    markers = markers or fallback_markers()
+    matched = ""
+    for turn in run.olisar_turns:
+        body = turn.content.strip()
+        hit = next((m for m in markers if body == m.strip()), "")
+        if not hit:
+            return ""
+        matched = hit
+    return matched
+
+
+def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
+    """Run the deterministic assertions over a completed transcript.
+
+    Every check reads only Olisar's turns. A ``must_not_contain`` that matched an
+    emulator's own message would be scoring the harness, not the bot — and the red-team
+    cases deliberately put forbidden strings in the *input*, so this distinction is the
+    difference between the suite working and the suite always failing.
+    """
+    results: list[CheckResult] = []
+    replies = run.olisar_turns
+    joined = "\n".join(t.content for t in replies)
+    haystack = joined if checks.case_sensitive else joined.lower()
+
+    def normalise(needle: str) -> str:
+        return needle if checks.case_sensitive else needle.lower()
+
+    if checks.must_reply:
+        results.append(
+            CheckResult("must_reply", bool(replies), "" if replies else "Olisar never replied")
+        )
+    if checks.must_not_reply:
+        results.append(
+            CheckResult(
+                "must_not_reply",
+                not replies,
+                "" if not replies else f"Olisar replied {len(replies)}x when it shouldn't have",
+            )
+        )
+    if checks.max_reply_chars:
+        longest = _longest_turn(run)
+        results.append(
+            CheckResult(
+                "max_reply_chars",
+                longest <= checks.max_reply_chars,
+                f"longest reply {longest} chars (limit {checks.max_reply_chars})",
+            )
+        )
+    for needle in checks.must_contain:
+        results.append(
+            CheckResult(
+                f"must_contain:{needle[:40]}",
+                normalise(needle) in haystack,
+                "" if normalise(needle) in haystack else "absent from every reply",
+            )
+        )
+    for needle in checks.must_not_contain:
+        present = normalise(needle) in haystack
+        results.append(
+            CheckResult(
+                f"must_not_contain:{needle[:40]}",
+                not present,
+                "found in a reply" if present else "",
+            )
+        )
+    return results
+
+
+def apply_checks(run: Run, scenario: Scenario) -> Run:
+    """The scenario's own assertions, plus the ones that hold for every run.
+
+    The always-on half is separate because opt-in checks only measure what somebody
+    remembered to declare, and the faults that survived longest here were the ones no
+    scenario had thought to assert. Imported late: diagnostics reads this module's types.
+    """
+    from arena.eval.diagnostics import diagnose
+
+    run.checks = evaluate_checks(run, scenario.checks) + diagnose(run, scenario)
+    return run

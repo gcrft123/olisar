@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     # the Funnel auto-starts when ``TAILSCALE_AUTH`` is present. Off for the desktop app.
     headless: bool = Field(default=False, alias="OLISAR_HEADLESS")
 
+    # ── Sandbox: emulated members (local testing only) ───────────────────
+    # Discord bot ids that Olisar treats as ordinary members rather than bots —
+    # the member-emulator fleet in ``sandbox/``. Empty in every real deployment,
+    # where ``olisar.peers.is_member_author`` then reduces to "not a bot" and
+    # behaviour is byte-for-byte unchanged. See olisar/peers.py.
+    peer_bot_ids: Annotated[list[int], NoDecode] = Field(
+        default_factory=list, alias="OLISAR_PEER_BOT_IDS"
+    )
+
     # ── Mock auth (local dev/testing only) ───────────────────────────────
     # When set, the app counts as configured (skips onboarding) and Discord OAuth is
     # replaced by a mock consent → callback that signs you in as a mock allowlisted
@@ -120,7 +129,7 @@ class Settings(BaseSettings):
     control_host: str = Field(default="127.0.0.1", alias="CONTROL_HOST")
     control_port: int = Field(default=8765, alias="CONTROL_PORT")
 
-    @field_validator("admin_allowlist", mode="before")
+    @field_validator("admin_allowlist", "peer_bot_ids", mode="before")
     @classmethod
     def _split_allowlist(cls, v: object) -> list[int]:
         """Accept a comma-separated string (or single id) from the env -> ints."""
