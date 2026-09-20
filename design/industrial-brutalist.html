@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OLISAR® · Autonomous Operations Terminal</title>
+<meta name="description" content="Deploy self-directed agents, watch every signal in real time, and keep humans in command." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:ital,wght@1,600&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   OLISAR — MACHINE & EMBER (blended, machine-dominant)
+   One machine, warmly lit. The interface is rigid industrial
+   telemetry everywhere — square, monospace, 1px hairline grids,
+   scanlines. EMBER is not a separate room: it's the warmth and
+   lighting threaded through that machine — faint blooms behind
+   the grids, pastel pill tokens, warm accent text, ember-tinted
+   glows, and exactly one halftone serif word woven into an
+   otherwise uppercase headline. Structure stays machine; only
+   the temperature turns warm.
+   ============================================================ */
+
+:root{
+  /* substrate — near-black, never pure #000 */
+  --bg:        #0A0A0A;
+  --bg-panel:  #0E0D0C;
+  --bg-well:   #070605;
+  --bg-deep:   #050403;
+
+  /* warm near-white phosphor — softens the machine */
+  --fg:        #F3EEE7;
+  --fg-dim:    #B6AFA5;
+  --muted:     #7C766C;
+  --faint:     #4A453E;
+
+  /* the single accent family — HAZARD ORANGE */
+  --o:         #FF5A1F;   /* primary */
+  --o-bright:  #FF7E33;   /* hover / emphasis */
+  --o-ember:   #C7370B;   /* deep */
+
+  /* soft human-layer warmth (same hue family, no new accent) */
+  --amber:     #FFB25A;
+  --peach:     #FFCE9E;
+  --cream:     #FFF1E2;
+  --blush:     #FF8A4C;
+
+  /* one — and only one — terminal green, used in the CRT block */
+  --term-green:#4AF626;
+
+  /* structure */
+  --line:      rgba(243,238,231,0.11);
+  --line-2:    rgba(243,238,231,0.06);
+  --line-ember:rgba(255,120,60,0.20); /* warm hairline accent, used sparingly on hover/edges */
+  --edge:      #1B1916;
+
+  --ease:      cubic-bezier(.22,.61,.36,1);
+  --ease-out:  cubic-bezier(.16,1,.3,1);
+
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --grot: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --black:"Archivo Black", "Space Grotesk", system-ui, sans-serif;
+  --serif:"Playfair Display", Georgia, serif;
+
+  --pad: clamp(20px, 5vw, 88px);
+}
+
+*{ box-sizing:border-box; }
+html{ scroll-behavior:smooth; }
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font-family:var(--mono);
+  font-size:15px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+  cursor:crosshair;
+}
+::selection{ background:var(--o); color:#0A0A0A; }
+a{ color:inherit; text-decoration:none; }
+img,svg{ display:block; max-width:100%; }
+hr{ border:0; border-top:1px solid var(--line); margin:0; }
+
+/* --- global film grain + faint scan (physical media) --- */
+.grain{
+  position:fixed; inset:0; z-index:9000; pointer-events:none;
+  opacity:.05; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.scan{
+  position:fixed; inset:0; z-index:8999; pointer-events:none; opacity:.35;
+  background:repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.14) 2px 3px);
+}
+
+/* --- cursor-follow HUD crosshair (targeting reticle) --- */
+.reticle{ position:fixed; inset:0; z-index:8800; pointer-events:none; opacity:0; transition:opacity .4s; }
+.reticle.on{ opacity:1; }
+.reticle .vx,.reticle .hz{ position:absolute; background:rgba(255,90,31,.22); }
+.reticle .vx{ top:0; bottom:0; width:1px; }
+.reticle .hz{ left:0; right:0; height:1px; }
+.reticle .tag{
+  position:absolute; font-family:var(--mono); font-size:9.5px; letter-spacing:.12em;
+  color:var(--o); transform:translate(10px,10px); white-space:nowrap;
+  text-shadow:0 0 8px rgba(255,90,31,.5);
+}
+
+/* ============================== TEXT UTILITIES ============================== */
+.mono{ font-family:var(--mono); }
+.tele{ font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+.tele-o{ color:var(--o); }
+.frame::before{ content:"[ "; color:var(--o); }
+.frame::after{ content:" ]"; color:var(--o); }
+.reg{ font-family:var(--mono); font-weight:700; }
+
+/* ============================== TOP STATUS BAR ============================== */
+.statusbar{
+  position:sticky; top:0; z-index:7000;
+  display:flex; align-items:center; gap:0;
+  height:30px; background:var(--bg-deep);
+  border-bottom:1px solid var(--line);
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--fg-dim);
+}
+.statusbar > *{ padding:0 14px; height:100%; display:flex; align-items:center; gap:8px; border-right:1px solid var(--line-2); white-space:nowrap; }
+.statusbar .grow{ flex:1; border-right:1px solid var(--line-2); overflow:hidden; color:var(--muted); }
+.statusbar .last{ border-right:0; }
+.dot{ width:7px; height:7px; background:var(--o); box-shadow:0 0 10px var(--o); animation:blip 2.2s var(--ease) infinite; }
+@keyframes blip{ 0%,100%{opacity:1} 50%{opacity:.25} }
+.statusbar b{ color:var(--fg); font-weight:700; }
+
+/* ============================== NAV ============================== */
+nav{
+  position:sticky; top:30px; z-index:6000;
+  display:flex; align-items:center; justify-content:space-between;
+  height:64px; padding:0 var(--pad);
+  background:rgba(10,10,10,.72); backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.brand{ display:flex; align-items:baseline; gap:9px; }
+.brand .wm{ font-family:var(--black); font-size:20px; letter-spacing:-.02em; }
+.brand .sup{ font-family:var(--mono); font-size:10px; color:var(--o); transform:translateY(-6px); }
+.navlinks{ display:flex; gap:30px; }
+.navlinks a{ font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--fg-dim); position:relative; transition:color .2s; }
+.navlinks a::after{ content:""; position:absolute; left:0; bottom:-6px; width:0; height:1px; background:var(--o); transition:width .28s var(--ease); }
+.navlinks a:hover{ color:var(--fg); }
+.navlinks a:hover::after{ width:100%; }
+.nav-right{ display:flex; align-items:center; gap:16px; }
+
+/* buttons — machine layer: hard square */
+.btn{
+  display:inline-flex; align-items:center; gap:10px; height:44px; padding:0 22px;
+  font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; font-weight:500;
+  border:1px solid var(--line); background:transparent; color:var(--fg);
+  cursor:crosshair; transition:transform .12s var(--ease), background .2s, color .2s, border-color .2s;
+}
+.btn:hover{ border-color:var(--fg); }
+.btn:active{ transform:translateY(1px); }
+.btn.sm{ height:34px; padding:0 16px; font-size:11px; }
+.btn-primary{ background:var(--o); border-color:var(--o); color:#0A0A0A; font-weight:700; box-shadow:0 8px 26px -16px rgba(255,90,31,.85); }
+.btn-primary:hover{ background:var(--o-bright); border-color:var(--o-bright); box-shadow:0 0 0 1px var(--o-bright), 0 10px 34px -12px var(--o); }
+.btn-ghost{ background:transparent; }
+.btn .arw{ transition:transform .2s var(--ease); }
+.btn:hover .arw{ transform:translateX(4px); }
+
+/* ============================== HERO ============================== */
+.hero{ position:relative; overflow:hidden; min-height:calc(100dvh - 94px); display:grid; grid-template-columns:1.15fr .85fr; border-bottom:1px solid var(--line); }
+.hero::before{ /* faint scanline field over hero only */
+  content:""; position:absolute; inset:0; pointer-events:none; opacity:.5; z-index:1;
+  background:repeating-linear-gradient(0deg, transparent 0 3px, rgba(0,0,0,.10) 3px 4px);
+}
+.hero-l{ position:relative; z-index:2; padding:clamp(28px,5vw,68px) var(--pad); display:flex; flex-direction:column; justify-content:center; border-right:1px solid var(--line); }
+.hero-glow{ /* soft human-layer bloom bleeding into the machine hero */
+  position:absolute; z-index:0; top:-10%; right:-14%; width:70%; height:120%;
+  background:radial-gradient(closest-side, rgba(255,90,31,.32), rgba(255,138,76,.10) 45%, transparent 72%);
+  filter:blur(18px); pointer-events:none; animation:drift 15s var(--ease) infinite alternate;
+}
+@keyframes drift{ from{ transform:translate(0,0) scale(1);} to{ transform:translate(-4%,4%) scale(1.08);} }
+
+.eyebrow{ display:inline-flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--muted); margin-bottom:26px; }
+.eyebrow .bar{ width:26px; height:1px; background:var(--o); }
+
+.hero h1{
+  font-family:var(--black); font-weight:400;
+  font-size:clamp(4.5rem, 15vw, 13rem); line-height:.82; letter-spacing:-.045em;
+  text-transform:uppercase; margin:0; color:var(--fg);
+}
+.hero h1 .r{ font-family:var(--mono); font-size:.16em; vertical-align:top; color:var(--o); letter-spacing:0; }
+.hero .subhead{ font-family:var(--grot); font-weight:500; font-size:clamp(1.1rem,2.3vw,1.7rem); letter-spacing:-.01em; color:var(--fg); margin:22px 0 0; }
+.hero .subhead b{ color:var(--o); font-weight:700; }
+.hero p.lead{ font-family:var(--mono); font-size:13.5px; line-height:1.7; color:var(--fg-dim); max-width:46ch; margin:18px 0 0; }
+.hero .cta{ display:flex; gap:14px; margin-top:36px; flex-wrap:wrap; }
+.hero .meta-row{ display:flex; gap:26px; margin-top:40px; flex-wrap:wrap; }
+.hero .meta-row div{ font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); }
+.hero .meta-row b{ display:block; color:var(--fg); font-size:16px; letter-spacing:0; margin-top:3px; }
+
+/* hero right — telemetry HUD (generated readout, not a product mock) */
+.hud{ position:relative; z-index:2; padding:clamp(20px,3vw,34px); display:flex; flex-direction:column; gap:14px; justify-content:center; background:
+  linear-gradient(180deg, rgba(255,90,31,.02), transparent 30%), var(--bg-well); }
+.hud-card{ border:1px solid var(--line); background:var(--bg-panel); }
+.hud-hd{ display:flex; align-items:center; justify-content:space-between; padding:10px 14px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); }
+.hud-hd .live{ display:flex; align-items:center; gap:7px; color:var(--o); }
+.hud-hd .live i{ width:6px; height:6px; background:var(--o); border-radius:50%; box-shadow:0 0 8px var(--o); animation:blip 1.4s infinite; }
+.hud-body{ padding:16px 14px; }
+.signal{ display:flex; align-items:flex-end; gap:3px; height:56px; margin-bottom:14px; }
+.signal span{ flex:1; height:100%; background:linear-gradient(180deg,var(--o),var(--o-ember)); opacity:.85; animation:eq 1.6s var(--ease) infinite; transform-origin:bottom; }
+@keyframes eq{ 0%,100%{ transform:scaleY(.28);} 50%{ transform:scaleY(1);} }
+.readout{ display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); }
+.readout div{ background:var(--bg-panel); padding:11px 12px; }
+.readout .k{ font-family:var(--mono); font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+.readout .v{ font-family:var(--black); font-size:20px; margin-top:5px; color:var(--fg); }
+.readout .v em{ font-family:var(--mono); font-style:normal; font-size:11px; color:var(--o); }
+.hud-map{ position:relative; height:96px; border:1px solid var(--line); background:
+  linear-gradient(90deg, var(--line-2) 1px, transparent 1px) 0 0/22px 22px,
+  linear-gradient(0deg, var(--line-2) 1px, transparent 1px) 0 0/22px 22px, var(--bg-well); overflow:hidden; }
+.hud-map .ping{ position:absolute; width:8px; height:8px; border-radius:50%; background:var(--o); box-shadow:0 0 0 0 rgba(255,90,31,.5); animation:ping 2.6s var(--ease) infinite; }
+@keyframes ping{ 0%{ box-shadow:0 0 0 0 rgba(255,90,31,.5);} 70%{ box-shadow:0 0 0 22px rgba(255,90,31,0);} 100%{ box-shadow:0 0 0 0 rgba(255,90,31,0);} }
+.hud-map .cx{ position:absolute; color:var(--o); font-family:var(--mono); font-size:14px; transform:translate(-50%,-50%); }
+
+/* ============================== MARQUEE (the single one) ============================== */
+.marquee{ overflow:hidden; border-bottom:1px solid var(--line); background:var(--o); color:#0A0A0A; }
+.marquee .track{ display:inline-flex; white-space:nowrap; will-change:transform; animation:scroll 26s linear infinite; }
+.marquee span{ font-family:var(--black); font-size:clamp(1.4rem,3vw,2.4rem); letter-spacing:-.02em; text-transform:uppercase; padding:12px 0; }
+.marquee em{ font-style:normal; color:#0A0A0A; opacity:.42; padding:0 26px; }
+@keyframes scroll{ from{ transform:translateX(0);} to{ transform:translateX(-50%);} }
+
+/* ============================== SECTION SCAFFOLD ============================== */
+.sec-hd{ display:flex; align-items:flex-end; justify-content:space-between; gap:24px; padding:clamp(48px,7vw,96px) var(--pad) clamp(24px,3vw,40px); flex-wrap:wrap; }
+.sec-hd .id{ font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--o); }
+.sec-hd h2{ font-family:var(--black); font-weight:400; font-size:clamp(2rem,5.4vw,4.6rem); line-height:.9; letter-spacing:-.035em; text-transform:uppercase; margin:14px 0 0; max-width:16ch; }
+.sec-hd .note{ font-family:var(--mono); font-size:12px; line-height:1.7; color:var(--fg-dim); max-width:38ch; }
+
+/* ember warmth threaded behind a machine section (shows through header + grid gaps) */
+.sec-warm{ position:relative; }
+.sec-warm::before{ content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+  background:radial-gradient(64% 52% at 92% -4%, rgba(255,90,31,.10), transparent 60%); }
+.sec-warm > *{ position:relative; z-index:1; }
+
+/* reveal */
+.rv{ opacity:0; transform:translateY(26px); transition:opacity .7s var(--ease-out), transform .7s var(--ease-out); }
+.rv.in{ opacity:1; transform:none; }
+
+/* ============================== CAPABILITY GRID (machine, dense) ============================== */
+.grid-caps{ display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.cap{ background:var(--bg); padding:30px 26px 34px; min-height:238px; display:flex; flex-direction:column; position:relative; transition:background .3s, box-shadow .4s; }
+.cap:hover{ background:linear-gradient(180deg, rgba(255,138,76,.05), transparent 55%), var(--bg-panel); box-shadow:inset 0 1.5px 0 -0.5px var(--line-ember); }
+.cap:hover .cx{ color:var(--o); }
+.cap .cx{ position:absolute; top:-6px; left:-6px; color:var(--faint); font-family:var(--mono); font-size:13px; transition:color .3s; }
+.cap .idx{ font-family:var(--mono); font-size:11px; letter-spacing:.16em; color:var(--o); }
+.cap h3{ font-family:var(--grot); font-weight:700; font-size:1.4rem; letter-spacing:-.02em; margin:18px 0 10px; }
+.cap p{ font-family:var(--mono); font-size:12px; line-height:1.7; color:var(--fg-dim); margin:0; flex:1; }
+.cap .stat{ margin-top:20px; font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); display:flex; align-items:center; gap:8px; }
+.cap .stat b{ color:var(--fg); }
+.cap:hover h3{ color:var(--o); transition:color .3s; }
+
+/* ============================== HUMAN LAYER (ember blended into the machine) ============================== */
+/* Structurally machine: square cells, 1px hairlines, crosshairs.
+   Tonally ember: warm blooms, pastel pill tokens, warm text, one halftone serif word. */
+.human{ position:relative; overflow:hidden; border-bottom:1px solid var(--line);
+  background:
+    radial-gradient(70% 60% at 84% 4%, rgba(255,138,76,.14), transparent 58%),
+    radial-gradient(76% 70% at 4% 104%, rgba(255,178,90,.07), transparent 55%),
+    transparent; }
+.human > *{ position:relative; z-index:1; }
+/* the single halftone serif word, woven inline into an uppercase Archivo headline */
+.human .sec-hd h2 .dither{ font-family:var(--serif); font-style:italic; font-weight:600;
+  text-transform:none; letter-spacing:0; color:var(--peach); padding:0 .04em;
+  -webkit-mask-image:radial-gradient(circle at center, #000 39%, transparent 42%);
+  mask-image:radial-gradient(circle at center, #000 39%, transparent 42%);
+  -webkit-mask-size:5px 5px; mask-size:5px 5px; }
+.human-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line);
+  border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.hcell{ position:relative; padding:32px 26px 34px; min-height:210px; display:flex; flex-direction:column;
+  background:linear-gradient(180deg, rgba(255,138,76,.04), transparent 58%), var(--bg);
+  transition:background .3s, box-shadow .4s; }
+.hcell:hover{ background:linear-gradient(180deg, rgba(255,138,76,.09), transparent 60%), var(--bg-panel);
+  box-shadow:inset 0 1.5px 0 -0.5px var(--line-ember); }
+.hcell .cx{ position:absolute; top:-6px; left:-6px; color:var(--faint); font-family:var(--mono); font-size:13px; transition:color .3s; }
+.hcell:hover .cx{ color:var(--amber); }
+/* pill = the one rounded detail token allowed inside the square machine */
+.chip{ display:inline-flex; align-items:center; gap:7px; height:28px; padding:0 13px; border-radius:999px; align-self:flex-start;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; }
+.chip-amber{ background:rgba(255,178,90,.14); color:var(--amber); }
+.chip-peach{ background:rgba(255,206,158,.14); color:var(--peach); }
+.chip-cream{ background:rgba(255,241,226,.12); color:var(--cream); }
+.hcell h3{ font-family:var(--grot); font-weight:600; font-size:1.3rem; letter-spacing:-.02em; margin:18px 0 10px; color:var(--cream); }
+.hcell p{ font-family:var(--grot); font-size:.98rem; line-height:1.6; color:var(--peach); opacity:.82; margin:0; flex:1; }
+.hcell .foot{ margin-top:20px; font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+
+/* ============================== TELEMETRY / STATS ============================== */
+.stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px; background:var(--line); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.stat-cell{ background:var(--bg); padding:44px 30px; position:relative; }
+.stat-cell .cx{ position:absolute; top:-7px; right:-7px; color:var(--faint); font-family:var(--mono); font-size:14px; }
+.stat-cell .k{ font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+.stat-cell .n{ font-family:var(--black); font-size:clamp(2.6rem,5vw,4rem); line-height:1; letter-spacing:-.04em; margin:14px 0 6px; color:var(--fg); }
+.stat-cell .n em{ font-family:var(--mono); font-style:normal; font-size:.32em; color:var(--o); vertical-align:super; }
+.stat-cell .sub{ font-family:var(--mono); font-size:11px; color:var(--fg-dim); }
+.stat-cell:nth-child(2) .n, .stat-cell:nth-child(3) .n{ color:var(--o); }
+
+/* ============================== CRT TERMINAL ============================== */
+.term-wrap{ padding:clamp(48px,7vw,96px) var(--pad); }
+.term{ max-width:1000px; margin:0 auto; border:1px solid var(--line); background:var(--bg-well); position:relative; box-shadow:0 40px 120px -50px rgba(255,90,31,.35); }
+.term::after{ content:""; position:absolute; inset:0; pointer-events:none; opacity:.5;
+  background:repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,.15) 2px 3px); }
+.term-bar{ display:flex; align-items:center; gap:12px; padding:11px 16px; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+.term-bar .dots{ display:flex; gap:6px; }
+.term-bar .dots i{ width:9px; height:9px; border:1px solid var(--line); display:block; }
+.term-bar .dots i:first-child{ background:var(--o); border-color:var(--o); }
+.term-body{ padding:22px 20px 26px; font-family:var(--mono); font-size:13px; line-height:1.85; min-height:280px; position:relative; z-index:2; }
+.term-body .ln{ white-space:pre-wrap; }
+.term-body .pr{ color:var(--o); }
+.term-body .cmd{ color:var(--fg); }
+.term-body .out{ color:var(--fg-dim); }
+.term-body .ok{ color:var(--term-green); } /* the single terminal-green element */
+.term-body .warn{ color:var(--amber); }
+.term-body .cur{ display:inline-block; width:9px; height:16px; background:var(--o); vertical-align:-3px; animation:cur 1s steps(1) infinite; }
+@keyframes cur{ 50%{ opacity:0; } }
+
+/* ============================== PRICING ============================== */
+.tiers{ display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--line); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.tier{ background:var(--bg); padding:34px 30px 38px; display:flex; flex-direction:column; }
+.tier.feat{ background:var(--bg-panel); position:relative; box-shadow:inset 0 0 0 1px var(--o); }
+.tier.feat::before{ content:"◆ RECOMMENDED"; position:absolute; top:0; left:0; background:var(--o); color:#0A0A0A; font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.16em; padding:5px 11px; }
+.tier .tn{ font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); margin-top:14px; }
+.tier.feat .tn{ color:var(--o); }
+.tier .price{ font-family:var(--black); font-size:3.2rem; letter-spacing:-.04em; margin:18px 0 2px; }
+.tier .price em{ font-family:var(--mono); font-style:normal; font-size:.9rem; color:var(--muted); letter-spacing:.05em; }
+.tier .pnote{ font-family:var(--mono); font-size:11px; color:var(--fg-dim); min-height:34px; }
+.tier ul{ list-style:none; margin:22px 0 26px; padding:20px 0 0; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:12px; flex:1; }
+.tier li{ font-family:var(--mono); font-size:12px; color:var(--fg-dim); display:flex; gap:11px; align-items:baseline; }
+.tier li::before{ content:"+"; color:var(--o); font-weight:700; }
+
+/* ============================== FINAL CTA ============================== */
+.final{ position:relative; overflow:hidden; padding:clamp(72px,11vw,160px) var(--pad); text-align:center; border-bottom:1px solid var(--line);
+  background:radial-gradient(120% 120% at 50% 120%, rgba(255,90,31,.22), transparent 60%), var(--bg-deep); }
+.final .eyebrow{ justify-content:center; }
+.final h2{ font-family:var(--black); font-weight:400; font-size:clamp(2.6rem,9vw,7.5rem); line-height:.86; letter-spacing:-.045em; text-transform:uppercase; margin:0 auto; max-width:14ch; }
+.final p{ font-family:var(--grot); font-size:clamp(1rem,1.7vw,1.25rem); color:var(--peach); max-width:48ch; margin:26px auto 0; }
+.final .cta{ display:flex; gap:14px; justify-content:center; margin-top:40px; flex-wrap:wrap; }
+
+/* ============================== FOOTER ============================== */
+footer{ background:var(--bg-deep); }
+.foot-grid{ display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:1px; background:var(--line); }
+.foot-grid > div{ background:var(--bg-deep); padding:34px var(--pad); }
+.foot-grid > div:not(:first-child){ padding:34px 26px; }
+.foot-brand .wm{ font-family:var(--black); font-size:26px; letter-spacing:-.02em; }
+.foot-brand p{ font-family:var(--mono); font-size:11.5px; line-height:1.7; color:var(--muted); max-width:34ch; margin:14px 0 0; }
+.foot-col h4{ font-family:var(--mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--o); margin:0 0 16px; }
+.foot-col a{ display:block; font-family:var(--mono); font-size:12px; color:var(--fg-dim); padding:5px 0; transition:color .2s; }
+.foot-col a:hover{ color:var(--fg); }
+.foot-mega{ font-family:var(--black); font-size:clamp(4rem,22vw,20rem); line-height:.7; letter-spacing:-.05em; text-transform:uppercase; padding:40px var(--pad) 0; color:var(--edge); user-select:none; overflow:hidden; white-space:nowrap; }
+.foot-mega span{ color:var(--o); }
+.foot-bottom{ display:flex; align-items:center; justify-content:space-between; gap:18px; flex-wrap:wrap; padding:20px var(--pad); border-top:1px solid var(--line); font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+
+/* ============================== RESPONSIVE ============================== */
+@media (max-width:1024px){
+  .hero{ grid-template-columns:1fr; }
+  .hero-l{ border-right:0; border-bottom:1px solid var(--line); }
+  .grid-caps, .human-grid, .tiers{ grid-template-columns:repeat(2,1fr); }
+  .stats{ grid-template-columns:repeat(2,1fr); }
+  .foot-grid{ grid-template-columns:1fr 1fr; }
+}
+@media (max-width:640px){
+  body{ cursor:auto; }
+  .statusbar .hide-sm{ display:none; }
+  .navlinks{ display:none; }
+  .grid-caps, .human-grid, .tiers, .stats, .foot-grid{ grid-template-columns:1fr; }
+  .hero h1{ font-size:clamp(3.4rem,22vw,6rem); }
+  .reticle{ display:none; }
+  .sec-hd{ flex-direction:column; align-items:flex-start; }
+}
+@media (prefers-reduced-motion:reduce){
+  *{ animation:none !important; scroll-behavior:auto; }
+  .rv{ opacity:1; transform:none; }
+  .marquee .track{ animation:none; }
+}
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="scan"></div>
+<div class="reticle" id="reticle"><span class="vx"></span><span class="hz"></span><span class="tag" id="rtag">+00.000 / +00.000</span></div>
+
+<!-- ============ STATUS BAR ============ -->
+<div class="statusbar">
+  <div><span class="dot"></span> <b>OLISAR</b><span class="reg" style="color:var(--o)">®</span></div>
+  <div class="hide-sm">UNIT / D-01</div>
+  <div class="hide-sm">SYS · <b>OPERATIONAL</b></div>
+  <div class="grow hide-sm">// LIVE FEED · 12,481 AGENTS ONLINE · 0 INCIDENTS · CORE TEMP 41°C · REV 2.6</div>
+  <div>LAT 47.6062</div>
+  <div class="last" id="clock">--:--:-- UTC</div>
+</div>
+
+<!-- ============ NAV ============ -->
+<nav>
+  <a class="brand" href="#top"><span class="wm">OLISAR</span><span class="sup">®</span></a>
+  <div class="navlinks">
+    <a href="#systems">Systems</a>
+    <a href="#telemetry">Telemetry</a>
+    <a href="#terminal">Terminal</a>
+    <a href="#pricing">Pricing</a>
+  </div>
+  <div class="nav-right">
+    <a href="#" class="tele" style="color:var(--fg-dim)">Sign in</a>
+    <a href="#pricing" class="btn btn-primary sm">Deploy agent <span class="arw">→</span></a>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="hero-glow"></div>
+  <div class="hero-l">
+    <span class="eyebrow"><span class="bar"></span> SEC.00 / SYSTEM ONLINE</span>
+    <h1>OLISAR<span class="r">®</span></h1>
+    <p class="subhead">Autonomous operations terminal. <b>Machines run the loop.</b> Humans keep command.</p>
+    <p class="lead">Deploy self-directed agents, watch every signal in real time, and intervene the instant a human should. Built for teams that ship under load.</p>
+    <div class="cta">
+      <a href="#pricing" class="btn btn-primary">Deploy agent <span class="arw">→</span></a>
+      <a href="#telemetry" class="btn btn-ghost">View telemetry</a>
+    </div>
+    <div class="meta-row">
+      <div>Uptime <b id="m1">99.98%</b></div>
+      <div>p50 latency <b id="m2">47ms</b></div>
+      <div>Deploy time <b>&lt; 60s</b></div>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="hud-card">
+      <div class="hud-hd"><span>◊ AGENT_FLEET / D-01</span><span class="live"><i></i> LIVE</span></div>
+      <div class="hud-body">
+        <div class="signal" id="signal"></div>
+        <div class="readout">
+          <div><div class="k">Throughput</div><div class="v" id="rt">12.4<em>M/day</em></div></div>
+          <div><div class="k">Queue depth</div><div class="v" id="qd">0<em>waiting</em></div></div>
+          <div><div class="k">Agents</div><div class="v">12,481</div></div>
+          <div><div class="k">Error rate</div><div class="v">0.02<em>%</em></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="hud-card">
+      <div class="hud-hd"><span>◊ REGION_MAP / GLOBAL</span><span>47.6°N 122.3°W</span></div>
+      <div class="hud-body" style="padding:12px 14px">
+        <div class="hud-map">
+          <span class="cx" style="left:24%; top:38%">+</span>
+          <span class="cx" style="left:62%; top:60%">+</span>
+          <span class="ping" style="left:41%; top:47%"></span>
+          <span class="ping" style="left:73%; top:30%; animation-delay:1.1s"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ MARQUEE (single) ============ -->
+<div class="marquee" aria-hidden="true">
+  <div class="track">
+    <span>DEPLOY<em>///</em>MONITOR<em>///</em>GOVERN<em>///</em>OBSERVE<em>///</em>INTERVENE<em>///</em>SCALE<em>///</em></span>
+    <span>DEPLOY<em>///</em>MONITOR<em>///</em>GOVERN<em>///</em>OBSERVE<em>///</em>INTERVENE<em>///</em>SCALE<em>///</em></span>
+  </div>
+</div>
+
+<!-- ============ CAPABILITIES (machine, dense) ============ -->
+<section id="systems" class="sec-warm">
+  <div class="sec-hd">
+    <div>
+      <div class="id">SEC.01 / CAPABILITIES · 06 UNITS</div>
+      <h2>Everything the fleet needs</h2>
+    </div>
+    <p class="note">Six subsystems, one control plane. Every unit reports telemetry to the same terminal, so nothing runs where you can't see it.</p>
+  </div>
+  <div class="grid-caps">
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 01 ]</span><h3>Autonomous agents</h3><p>Self-directed workers plan, act, and recover from failure without a human in the tight loop, then hand control back the moment one is needed.</p><span class="stat">RUNTIME · <b>QuickJS + Python</b></span></article>
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 02 ]</span><h3>Live telemetry</h3><p>Every action, token, and decision streams to a single feed. Trace any run end-to-end, replay it, and export the trace.</p><span class="stat">LATENCY · <b>47ms p50</b></span></article>
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 03 ]</span><h3>Extension marketplace</h3><p>Install capabilities as signed <samp>.olx</samp> bundles. Requested vs. granted permissions are split and shown before anything runs.</p><span class="stat">CATALOG · <b>340+ modules</b></span></article>
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 04 ]</span><h3>Knowledge crawler</h3><p>Point it at docs, PDFs, or a URL tree. It extracts, chunks, and embeds, then keeps the index warm as sources change.</p><span class="stat">INGEST · <b>PDF · HTML · MD</b></span></article>
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 05 ]</span><h3>Access governance</h3><p>Allowlists, role re-checks, and per-channel policy. Operators are exempt from re-checks; everyone else is verified on entry.</p><span class="stat">POLICY · <b>RBAC + allowlist</b></span></article>
+    <article class="cap rv"><span class="cx">+</span><span class="idx">[ 06 ]</span><h3>Image synthesis</h3><p>Generate visuals inline from any agent run through a pluggable image backend, with prompts and outputs logged to the trace.</p><span class="stat">BACKEND · <b>FLUX / Workers AI</b></span></article>
+  </div>
+</section>
+
+<!-- ============ HUMAN LAYER (ember blended into the machine) ============ -->
+<section class="human" id="human">
+  <div class="sec-hd">
+    <div>
+      <div class="id">SEC.02 / HUMAN LAYER</div>
+      <h2>Loud machine, <span class="dither">calm</span> command</h2>
+    </div>
+    <p class="note">The telemetry runs hot on purpose. The controls you actually touch stay quiet, plain, and warm, so intervening is a decision, not a scramble.</p>
+  </div>
+  <div class="human-grid">
+    <div class="hcell rv"><span class="cx">+</span><span class="chip chip-amber">● Clarity</span><h3>One glance, full picture</h3><p>Fleet health, spend, and every agent's state resolve into a single view. Depth is one click away, never in your face.</p><span class="foot">VIEW · UNIFIED</span></div>
+    <div class="hcell rv"><span class="cx">+</span><span class="chip chip-peach">● Consent</span><h3>Nothing runs unseen</h3><p>Permissions are asked in plain words before an action, not buried in a policy file. You approve intent, not JSON.</p><span class="foot">GRANT · EXPLICIT</span></div>
+    <div class="hcell rv"><span class="cx">+</span><span class="chip chip-cream">● Calm</span><h3>Quiet until it matters</h3><p>No alert storms. The terminal stays silent while things are fine and speaks up only when a human should step in.</p><span class="foot">SIGNAL · LOW-NOISE</span></div>
+  </div>
+</section>
+
+<!-- ============ TELEMETRY / STATS ============ -->
+<section id="telemetry" class="sec-warm">
+  <div class="sec-hd">
+    <div>
+      <div class="id">SEC.03 / TELEMETRY · SAMPLE FEED</div>
+      <h2>Numbers that don't blink</h2>
+    </div>
+    <p class="note">Sample figures from a reference deployment. Your feed is live from the first agent you deploy.</p>
+  </div>
+  <div class="stats">
+    <div class="stat-cell rv"><span class="cx">+</span><div class="k">Fleet uptime</div><div class="n"><span class="count" data-to="99.98" data-dec="2">0</span><em>%</em></div><div class="sub">rolling 90-day window</div></div>
+    <div class="stat-cell rv"><span class="cx">+</span><div class="k">Median latency</div><div class="n"><span class="count" data-to="47">0</span><em>ms</em></div><div class="sub">p50, agent action → ack</div></div>
+    <div class="stat-cell rv"><span class="cx">+</span><div class="k">Events / day</div><div class="n"><span class="count" data-to="12.4" data-dec="1">0</span><em>M</em></div><div class="sub">streamed to trace</div></div>
+    <div class="stat-cell rv"><span class="cx">+</span><div class="k">Extensions</div><div class="n"><span class="count" data-to="340">0</span><em>+</em></div><div class="sub">signed & permission-scoped</div></div>
+  </div>
+</section>
+
+<!-- ============ CRT TERMINAL ============ -->
+<section class="term-wrap" id="terminal">
+  <div class="sec-hd" style="padding-left:0;padding-right:0">
+    <div>
+      <div class="id">SEC.04 / CONSOLE</div>
+      <h2>Command the loop</h2>
+    </div>
+    <p class="note">The same terminal your agents report to. One command deploys; every line after is live telemetry.</p>
+  </div>
+  <div class="term">
+    <div class="term-bar"><span class="dots"><i></i><i></i><i></i></span><span>OLISAR · /bin/olisar · UNIT D-01</span></div>
+    <div class="term-body" id="term"></div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section id="pricing">
+  <div class="sec-hd">
+    <div>
+      <div class="id">SEC.05 / DEPLOYMENT TIERS</div>
+      <h2>Scale by squadron</h2>
+    </div>
+    <p class="note">Same terminal at every tier. You only pay for the size of the fleet you run.</p>
+  </div>
+  <div class="tiers">
+    <div class="tier rv">
+      <div class="tn">Operator</div>
+      <div class="price">$0<em></em></div>
+      <div class="pnote">Solo builders and evaluation. Full terminal, no card.</div>
+      <ul>
+        <li>1 active agent</li>
+        <li>Live telemetry, 24h retention</li>
+        <li>Community extensions</li>
+        <li>1 operator seat</li>
+      </ul>
+      <a href="#" class="btn btn-ghost">Deploy agent</a>
+    </div>
+    <div class="tier feat rv">
+      <div class="tn">Squadron</div>
+      <div class="price">$40<em>/seat · mo</em></div>
+      <div class="pnote">Teams running fleets in production.</div>
+      <ul>
+        <li>Unlimited agents</li>
+        <li>90-day trace retention + replay</li>
+        <li>Signed extension marketplace</li>
+        <li>RBAC + access governance</li>
+        <li>Image synthesis backend</li>
+      </ul>
+      <a href="#" class="btn btn-primary">Deploy agent <span class="arw">→</span></a>
+    </div>
+    <div class="tier rv">
+      <div class="tn">Fleet</div>
+      <div class="price">Custom<em></em></div>
+      <div class="pnote">Org-wide, self-hosted, or air-gapped.</div>
+      <ul>
+        <li>Everything in Squadron</li>
+        <li>Self-hosted control plane</li>
+        <li>SSO + audit export</li>
+        <li>Private extension registry</li>
+        <li>Dedicated support unit</li>
+      </ul>
+      <a href="#" class="btn btn-ghost">Deploy agent</a>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section class="final">
+  <span class="eyebrow"><span class="bar"></span> SEC.06 / READY</span>
+  <h2>Put the fleet online</h2>
+  <p>One command stands up your first agent and opens the terminal. Everything after that, you watch happen.</p>
+  <div class="cta">
+    <a href="#pricing" class="btn btn-primary">Deploy agent <span class="arw">→</span></a>
+    <a href="#terminal" class="btn btn-ghost">Read the docs</a>
+  </div>
+</section>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="foot-grid">
+    <div class="foot-brand">
+      <div class="wm">OLISAR<span style="color:var(--o)">®</span></div>
+      <p>Autonomous operations terminal. Machines run the loop; humans keep command.</p>
+    </div>
+    <div class="foot-col">
+      <h4>Systems</h4>
+      <a href="#systems">Agents</a><a href="#telemetry">Telemetry</a><a href="#systems">Marketplace</a><a href="#systems">Crawler</a>
+    </div>
+    <div class="foot-col">
+      <h4>Company</h4>
+      <a href="#">Manifest</a><a href="#">Changelog · REV 2.6</a><a href="#">Status</a><a href="#">Security</a>
+    </div>
+    <div class="foot-col">
+      <h4>Contact</h4>
+      <a href="#">Deploy agent</a><a href="#">Sign in</a><a href="#">unit@olisar.sys</a>
+    </div>
+  </div>
+  <div class="foot-mega">OLIS<span>A</span>R</div>
+  <div class="foot-bottom">
+    <span>© 2026 OLISAR® SYSTEMS · ALL UNITS RESERVED</span>
+    <span>LAT 47.6062 / LON -122.3321 · UNIT D-01</span>
+    <span>BUILD 1.2.3 · REV 2.6</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* live UTC clock */
+  var clk = document.getElementById("clock");
+  function tick(){
+    var d = new Date();
+    function p(n){ return (n<10?"0":"")+n; }
+    clk.textContent = p(d.getUTCHours())+":"+p(d.getUTCMinutes())+":"+p(d.getUTCSeconds())+" UTC";
+  }
+  tick(); setInterval(tick, 1000);
+
+  /* hero signal bars */
+  var sig = document.getElementById("signal");
+  if(sig){
+    for(var i=0;i<28;i++){
+      var b=document.createElement("span");
+      b.style.animationDelay=(-(i*0.09))+"s";
+      b.style.animationDuration=(1.2+(i%5)*0.18)+"s";
+      sig.appendChild(b);
+    }
+  }
+
+  /* cursor-follow HUD reticle (targeting) — desktop only */
+  var ret = document.getElementById("reticle");
+  var rtag = document.getElementById("rtag");
+  if(ret && !reduce && matchMedia("(pointer:fine)").matches){
+    var vx=ret.querySelector(".vx"), hz=ret.querySelector(".hz");
+    var tx=0, ty=0, cx=0, cy=0, shown=false, raf=0;
+    window.addEventListener("mousemove", function(e){
+      tx=e.clientX; ty=e.clientY;
+      if(!shown){ ret.classList.add("on"); shown=true; }
+      if(!raf) raf=requestAnimationFrame(loop);
+    }, {passive:true});
+    function loop(){
+      cx += (tx-cx)*0.18; cy += (ty-cy)*0.18;
+      vx.style.transform="translateX("+cx+"px)";
+      hz.style.transform="translateY("+cy+"px)";
+      rtag.style.left=cx+"px"; rtag.style.top=cy+"px";
+      var lat=(47.6062 + (cy/window.innerHeight-0.5)*0.4).toFixed(3);
+      var lon=(-122.3321 + (cx/window.innerWidth-0.5)*0.5).toFixed(3);
+      rtag.textContent = lat+" / "+lon;
+      if(Math.abs(tx-cx)>0.4||Math.abs(ty-cy)>0.4){ raf=requestAnimationFrame(loop); } else { raf=0; }
+    }
+  }
+
+  /* scroll reveal + count-up */
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(en){
+      if(!en.isIntersecting) return;
+      en.target.classList.add("in");
+      var counters = en.target.querySelectorAll ? en.target.querySelectorAll(".count") : [];
+      counters.forEach(function(c){ countUp(c); });
+      io.unobserve(en.target);
+    });
+  }, {threshold:0.18});
+  document.querySelectorAll(".rv").forEach(function(el){ io.observe(el); });
+
+  function countUp(el){
+    if(reduce){ el.textContent = el.getAttribute("data-to"); return; }
+    var to=parseFloat(el.getAttribute("data-to")), dec=parseInt(el.getAttribute("data-dec")||"0",10);
+    var start=null, dur=1400;
+    function step(ts){
+      if(!start) start=ts;
+      var p=Math.min((ts-start)/dur,1);
+      var e=1-Math.pow(1-p,3);
+      el.textContent=(to*e).toFixed(dec);
+      if(p<1) requestAnimationFrame(step); else el.textContent=to.toFixed(dec);
+    }
+    requestAnimationFrame(step);
+  }
+
+  /* terminal typewriter */
+  var term = document.getElementById("term");
+  var script = [
+    {t:"pr",x:"olisar@d-01:~$ "},{t:"cmd",x:"olisar deploy --agent scout --region us-w\n"},
+    {t:"out",x:"→ resolving control plane .......... "},{t:"ok",x:"OK\n"},
+    {t:"out",x:"→ signing extension bundle (.olx) ... "},{t:"ok",x:"OK\n"},
+    {t:"out",x:"→ permissions requested: net.read, kb.query\n"},
+    {t:"warn",x:"  ? grant 2 permissions for scout? [Y/n] "},{t:"cmd",x:"Y\n"},
+    {t:"ok",x:"✓ agent scout online · unit D-01\n"},
+    {t:"out",x:"→ telemetry streaming to terminal ...\n"},
+    {t:"out",x:"  12,481 agents · 0 incidents · 47ms p50\n"},
+    {t:"pr",x:"olisar@d-01:~$ "},{t:"cur",x:""}
+  ];
+  function typeTerm(){
+    var si=0;
+    function next(){
+      if(si>=script.length) return;
+      var seg=script[si++];
+      if(seg.t==="cur"){ var c=document.createElement("span"); c.className="cur"; term.appendChild(c); return; }
+      var span=document.createElement("span"); span.className=seg.t; term.appendChild(span);
+      var ci=0, txt=seg.x;
+      var speed = (seg.t==="out"||seg.t==="ok"||seg.t==="warn") ? 8 : 34;
+      (function chr(){
+        if(ci<txt.length){ span.textContent+=txt[ci++]; setTimeout(chr, speed + (txt[ci-1]==="\n"?120:0)); }
+        else { setTimeout(next, seg.t==="cmd"?260:70); }
+      })();
+    }
+    next();
+  }
+  if(reduce){
+    script.forEach(function(seg){ if(seg.t==="cur"){var c=document.createElement("span");c.className="cur";term.appendChild(c);return;} var s=document.createElement("span"); s.className=seg.t; s.textContent=seg.x; term.appendChild(s); });
+  } else {
+    var tio=new IntersectionObserver(function(e){ if(e[0].isIntersecting){ typeTerm(); tio.disconnect(); } },{threshold:0.3});
+    tio.observe(term);
+  }
+})();
+</script>
+</body>
+</html>

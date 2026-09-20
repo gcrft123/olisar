@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Icon } from './icons'
+import { Icon, CopyGlyph } from './icons'
 
 export function Card(props: { title?: string; hint?: React.ReactNode; badge?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -718,7 +718,7 @@ function highlight(code: string, lang: string): React.ReactNode {
 }
 
 // A docs code-preview box (DESIGN.md): filename head + a trailing copy button whose
-// glyph swaps to a green check-circle with a small pop on click.
+// glyph cross-fades to a green check-circle on click (icons.tsx CopyGlyph).
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
@@ -733,7 +733,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
       <div className="head">
         <span className="file">{LANG_LABEL[lang.toLowerCase()] || lang || 'typescript'}</span>
         <button className="cb-copy" onClick={copy} data-tip={copied ? 'Copied' : 'Copy'} aria-label="Copy code">
-          {copied ? <Icon.check size={15} weight="Bold" className="cb-check" /> : <Icon.copy size={15} />}
+          <CopyGlyph copied={copied} size={15} />
         </button>
       </div>
       <pre><code>{highlight(code, lang)}</code></pre>
