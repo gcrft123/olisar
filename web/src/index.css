@@ -98,9 +98,20 @@
      2.4.11) — and on --primary-bg, which every primary button is, it was 1.14:1. */
   --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
 
-  /* Motion — quiet and quick */
+  /* Motion — quiet and quick. --ease-out is the default for every transition in the file;
+     bare `ease` is the browser's own curve and reads visibly slower off the mark on the
+     same 160ms move, so the two side by side look like two systems. */
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* Icon cross-fades only. Flatter in and harder out than --ease-out, so a glyph swapping
+     under the cursor lands rather than settles. Kept separate because using it anywhere
+     with travel makes the move look clipped. */
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: 0.12s; --dur-mid: 0.16s; --dur-slow: 0.3s;
+  /* Raster images only — avatars, the logo, server icons. User-supplied art on a #020203
+     ground has no edge of its own: a dark avatar dissolves into the surface and a light one
+     bleeds past where it stops. Pure white at 10%, never a tinted neutral, which would pick
+     up whatever sits under it and read as dirt on the image edge. */
+  --img-edge: oklch(1 0 0 / 0.1);
 }
 
 * { box-sizing: border-box; }
@@ -198,6 +209,14 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .brand .sub { font-size: 11px; color: var(--text-3); margin-top: -1px; letter-spacing: 0; }
 
 /* The app-icon logo (shield mark) used in place of the old glyph, sized per surface. */
+/* Every raster image in the console carries the same 1px edge — see --img-edge. Scoped to
+   `img` on purpose: .server-icon.ph, .member-av and .mp-who .avatar all have tinted-initial
+   fallbacks that are drawn chrome, not art, and already have a ground of their own.
+   outline-offset is negative so the hairline lands inside the box and follows the radius
+   clip rather than boxing a circular avatar. */
+img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar {
+  outline: 1px solid var(--img-edge); outline-offset: -1px;
+}
 .brand-logo { display: block; object-fit: cover; flex: none; }
 .brand .brand-logo { width: 30px; height: 30px; border-radius: var(--radius-sm); }
 .login .brand-logo { width: 56px; height: 56px; border-radius: var(--radius); margin: 0 auto 20px; }
@@ -208,7 +227,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   display: flex; align-items: center; gap: 8px;
   margin: 2px 8px 16px; padding: 5px 8px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--input-bg);
-  transition: border-color 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 .server-switch:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
 .server-icon { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; flex: none; }
@@ -220,7 +239,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 }
 .server-select-btn:hover { background: transparent; }
 .server-name { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.server-chev { color: var(--text-3); flex: none; transition: transform 0.16s var(--ease-out); }
+.server-chev { color: var(--text-3); flex: none; transition: transform var(--dur-mid) var(--ease-out); }
 .server-switch.open .server-chev { transform: rotate(180deg); }
 .server-menu {
   position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 50;
@@ -245,7 +264,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: var(--radius-sm); cursor: pointer;
   color: var(--text-2); font-weight: 400; font-size: 13.5px; user-select: none;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 /* Separates the configuration items from Developer / Docs, which aren't configuration.
    Its own element rather than a border on the row, so the active row keeps its radius. */
@@ -296,7 +315,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   position: relative; flex: none; width: 38px; height: 38px; border-radius: 50%;
   display: grid; place-items: center; padding: 0; cursor: pointer;
   background: var(--panel); border: 1px solid var(--border-strong); color: var(--text-2);
-  transition: color 0.2s, border-color 0.2s, box-shadow 0.2s; touch-action: none; user-select: none;
+  transition: color 0.2s var(--ease-out), border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out); touch-action: none; user-select: none;
 }
 .power-btn:disabled { cursor: default; }
 .power-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; }
@@ -304,7 +323,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   fill: none; stroke: var(--danger); stroke-width: 2.5; stroke-linecap: round;
   stroke-dasharray: 119.4; stroke-dashoffset: 119.4;        /* 2π·19 ≈ 119.4, empty */
   transform: rotate(-90deg); transform-origin: 50% 50%;
-  opacity: 0; transition: stroke-dashoffset 0.25s ease, opacity 0.2s ease;
+  opacity: 0; transition: stroke-dashoffset 0.25s var(--ease-out), opacity 0.2s var(--ease-out);
 }
 .botpower-text { min-width: 0; }
 .bp-status { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: var(--text); }
@@ -315,7 +334,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 .botpower.online .power-btn { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); box-shadow: 0 0 0 3px var(--ok-soft); }
 
 .botpower.holding .power-btn { color: var(--danger); border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
-.botpower.holding .power-ring circle { opacity: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1.4s linear, opacity 0.15s ease; }
+.botpower.holding .power-ring circle { opacity: 1; stroke-dashoffset: 0; transition: stroke-dashoffset 1.4s linear, opacity 0.15s var(--ease-out); }
 .botpower.holding .bp-status { color: var(--danger); }
 
 .botpower.stopping .power-btn { color: var(--danger); border-color: var(--danger); animation: bp-shutdown 0.9s ease-out; }
@@ -438,7 +457,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
   .nav-backdrop {
     position: fixed; inset: 0; z-index: 120; display: block;
     background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px);
-    opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) ease;
+    opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out);
   }
   .nav-backdrop.open { opacity: 1; pointer-events: auto; }
   .main { padding: 24px 18px 72px; }
@@ -500,7 +519,7 @@ input[type=text], input[type=password], input[type=number], textarea, select {
   width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
   font: inherit; font-size: 13.5px; outline: none;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 input[type=text], input[type=password], input[type=number], select { height: 34px; padding: 0 12px; }
 textarea { padding: 8px 12px; resize: none; min-height: 70px; line-height: 1.55; overflow: hidden; }
@@ -509,7 +528,7 @@ input:focus, textarea:focus, select:focus {
   border-color: var(--accent); box-shadow: var(--ring);
 }
 select { appearance: none; cursor: pointer;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239d9da7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239d9da7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 .mono { font-family: var(--mono); font-size: 12.5px; }
@@ -531,14 +550,18 @@ select { appearance: none; cursor: pointer;
 }
 .toggle .track {
   width: 38px; height: 22px; border-radius: var(--radius-pill); background: var(--border-strong);
-  position: relative; transition: background 0.16s; flex: none;
+  position: relative; transition: background var(--dur-mid) var(--ease-out); flex: none;
 }
+/* The knob travels on `transform`, not `left`. `left` is a layout property, so every frame
+   of every toggle re-laid out the track — on the control this console is densest in. The
+   16px is the trip: 2px inset to 18px inset across a 38px track with an 18px knob. */
 .toggle .track .knob {
   position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
-  border-radius: 50%; background: #fff; transition: left 0.16s;
+  border-radius: 50%; background: #fff;
+  transition: transform var(--dur-mid) var(--ease-out);
 }
 .toggle.on .track { background: var(--accent); }
-.toggle.on .track .knob { left: 18px; }
+.toggle.on .track .knob { transform: translateX(16px); }
 .toggle .lbl { font-weight: 500; font-size: 13px; color: var(--text); }
 /* The ring belongs on the track — the switch's visible mark — not around the whole row.
    As a <button> it now also matches the global `button:focus-visible`, so that one is
@@ -554,7 +577,7 @@ select { appearance: none; cursor: pointer;
   display: inline-flex; align-items: center; height: 34px; padding: 0 14px;
   border-radius: var(--radius-sm); border: 1px solid var(--border-strong);
   background: var(--panel); color: var(--text-2); font-size: 13px; font-weight: 550;
-  cursor: pointer; user-select: none; transition: background 0.12s, border-color 0.12s, color 0.12s;
+  cursor: pointer; user-select: none; transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .choice:hover { background: var(--bg-inset); color: var(--text); }
 .choice.on { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
@@ -570,11 +593,13 @@ button {
   font: inherit; font-weight: 550; font-size: 13px; white-space: nowrap; cursor: pointer;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
-  transition: background 0.12s, opacity 0.12s, border-color 0.12s, transform 0.08s var(--ease-out), box-shadow 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), transform 0.08s var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
   display: inline-flex; align-items: center; justify-content: center; gap: 7px; line-height: 1;
 }
 button:hover { background: var(--bg-inset); }
-button:active:not(:disabled) { transform: scale(0.97); }
+button:active:not(:disabled) { transform: scale(0.96); }
 button:focus-visible { outline: none; box-shadow: var(--ring); }
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 button.primary {
@@ -615,13 +640,17 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   position: fixed; left: calc(50% + 122px); bottom: 22px;   /* +122px ≈ half the 244px sidebar, so it centers over the content */
   transform: translate(-50%, 160%);
   z-index: 60; opacity: 0; pointer-events: none;
-  transition: transform 0.3s var(--ease-out), opacity 0.22s ease;
+  transition: transform var(--dur-slow) var(--ease-out), opacity 0.22s var(--ease-out);
 }
 .savedock.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+/* 4px around the buttons, 18px of lead-in for the message. The buttons are --radius-sm
+   (12px) inside a --radius (16px) dock, so 4px is the only padding that makes the two
+   corners concentric — at 10px the Save button was visibly rounder than the dock framing
+   it. This takes the dock from 52px tall to 42px; that compaction is the cost. */
 .savedock-inner {
   display: flex; align-items: center; gap: 22px;
   min-width: 420px; max-width: calc(var(--vw) * 0.9);
-  padding: 9px 10px 9px 18px;
+  padding: 4px 4px 4px 18px;
   background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: var(--radius); box-shadow: var(--shadow-pop);
 }
@@ -636,12 +665,16 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   .savedock-inner { min-width: 0; width: calc(var(--vw) * 0.92); gap: 12px; padding-left: 15px; }
 }
 @media (max-width: 620px) {
-  .savedock-inner { flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; }
+  /* Wrapped: the message takes row one and the buttons stretch across row two, so the 4px
+     has to come off the container (it now touches all four corners) and the message carries
+     its own lead-in instead. */
+  .savedock-inner { flex-wrap: wrap; gap: 8px 12px; padding: 4px; }
+  .savedock-inner .savedock-msg { padding: 6px 8px 0; }
   .savedock-actions { margin-left: 0; width: 100%; }
   .savedock-actions button { flex: 1 1 0; min-width: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .savedock { transition: opacity 0.2s ease; }
+  .savedock { transition: opacity 0.2s var(--ease-out); }
   .savedock:not(.show) { transform: translate(-50%, 0); }
 }
 
@@ -979,9 +1012,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .ext-rail { display: flex; flex-direction: column; gap: 11px; position: sticky; top: 6px; }
 .ext-rail-head { display: flex; gap: 8px; }
 .ext-rail-head input[type=text] { flex: 1; }
+/* padding 4, not 3: the chip is --radius-xs (8px) and the shell --radius-sm (12px), so the
+   gap between them has to be the 4px difference or the inner corner is tighter than the well
+   that frames it. Concentric = outer radius - padding. */
 .ext-seg {
   display: flex; gap: 3px; background: var(--bg-inset);
-  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px;
 }
 .ext-seg button {
   flex: 1; height: 28px; justify-content: center; padding: 0 6px; font-size: 12px; font-weight: 550;
@@ -1005,11 +1041,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .ext-item {
   display: flex; align-items: center; justify-content: flex-start; gap: 10px; width: 100%; text-align: left;
   padding: 9px 10px; border-radius: var(--radius-sm); border: 1px solid transparent;
-  background: transparent; color: var(--text); animation: extIn 0.24s ease both;
+  background: transparent; color: var(--text); animation: extIn 0.24s var(--ease-out) both;
 }
 .ext-item:hover { background: var(--bg-inset); }
 .ext-item.active { background: var(--bg-inset); border-color: var(--border); }
-.ext-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: none; transition: background 0.16s; }
+.ext-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--border-strong); flex: none; transition: background var(--dur-mid) var(--ease-out); }
 .ext-item.on .dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 .ext-item .nm { flex: 1; min-width: 0; font-weight: 550; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Marks a user-authored extension in the rail. Was 9px mono — the smallest type anywhere
@@ -1057,7 +1093,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .btn-discord {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
   background: #5865f2; color: #fff; padding: 11px 20px; border-radius: var(--radius-sm);
-  font-weight: 600; font-size: 14px; transition: background 0.12s;
+  font-weight: 600; font-size: 14px; transition: background var(--dur-fast) var(--ease-out);
   border: 0; cursor: pointer; font-family: inherit; appearance: none;
 }
 .btn-discord:hover { background: #4752e0; text-decoration: none; }
@@ -1142,7 +1178,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup h1 { font-size: 20px; margin: 0 0 4px; }
 .setup .step-sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 18px; }
 .setup .steps { display: flex; gap: 6px; margin-bottom: 24px; }
-.setup .steps i { height: 3px; flex: 1; border-radius: 2px; background: var(--border); transition: background 0.15s; }
+.setup .steps i { height: 3px; flex: 1; border-radius: 2px; background: var(--border); transition: background 0.15s var(--ease-out); }
 .setup .steps i.on { background: var(--accent); }
 .setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 .setup .wiz-foot .grow { flex: 1; }
@@ -1188,14 +1224,14 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .cta-reveal .reveal-btn {
   flex: none; margin-right: 8px; opacity: 0;
   white-space: nowrap; pointer-events: none;
-  transition: opacity .18s ease;
+  transition: opacity .18s var(--ease-out);
 }
 .setup .cta-reveal:hover .reveal-btn,
 .setup .cta-reveal:focus-within .reveal-btn { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) { .setup .cta-reveal { transition: none; } }
 .setup .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
-  background: var(--bg-inset); transition: border-color 0.12s;
+  background: var(--bg-inset); transition: border-color var(--dur-fast) var(--ease-out);
 }
 .setup .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .setup .mode-card b { font-size: 13.5px; }
@@ -1262,7 +1298,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   background: none; border: 0; font: inherit;
   padding: 6px 9px; border-radius: var(--radius-sm); cursor: pointer;
   color: var(--text-2); font-size: 13px; line-height: 1.35; user-select: none;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 .docs-nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .docs-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
@@ -1305,7 +1341,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .docs-toc a {
   display: block; color: var(--text-3); font-size: 12.5px; text-decoration: none;
   padding: 4px 0 4px 12px; line-height: 1.4; border-left: 2px solid transparent; margin-left: -1px;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .docs-toc a:hover { color: var(--text); }
 .docs-toc a.lvl2 { padding-left: 24px; }
@@ -1378,12 +1414,29 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   margin-left: auto; width: 30px; height: 30px; padding: 0; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; border-radius: var(--radius-xs);
-  background: transparent; color: var(--text-3); cursor: pointer; transition: color 0.12s, background 0.12s;
+  background: transparent; color: var(--text-3); cursor: pointer; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
 }
 .cb-copy:hover { color: var(--text); background: var(--bg-inset); }
 .cb-copy:focus-visible { outline: none; box-shadow: var(--ring); }
-.cb-check { color: var(--ok); animation: copy-pop 0.4s var(--ease-out); }
-@keyframes copy-pop { 0% { transform: scale(0.4); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
+
+/* Copy → copied cross-fade (icons.tsx CopyGlyph). Both glyphs are stacked in the same box
+   so neither reflows the button, and each animates scale + opacity + blur — the blur is
+   what keeps a 15px icon from looking like it merely resized. --ease-icon, not --ease-out:
+   this is a swap in place, not travel. */
+.copyglyph { position: relative; display: inline-grid; place-items: center; flex: none; }
+.copyglyph > svg {
+  grid-area: 1 / 1;
+  transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon),
+    filter var(--dur-mid) var(--ease-icon);
+}
+.copyglyph > svg:last-child { scale: 0.25; opacity: 0; filter: blur(4px); color: var(--ok); }
+.copyglyph.on > svg:first-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.copyglyph.on > svg:last-child { scale: 1; opacity: 1; filter: blur(0); }
+@media (prefers-reduced-motion: reduce) {
+  /* The colour and the glyph still change; only the travel goes. */
+  .copyglyph > svg { transition: opacity var(--dur-fast) var(--ease-out); scale: 1; filter: none; }
+  .copyglyph.on > svg:first-child, .copyglyph > svg:last-child { scale: 1; filter: none; }
+}
 
 /* Callouts (Resend-style: tinted fill + colored hairline + leading icon, no eyebrow).
    Tones via --cc: tip→ok, note/info→accent, warning→warn. */
@@ -1438,7 +1491,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   text-decoration-color: var(--text-3);
   text-underline-offset: 2px;
   text-decoration-thickness: 1px;
-  transition: color 0.12s ease, text-decoration-color 0.12s ease;
+  transition: color var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out);
 }
 .doc a:hover { color: #fff; text-decoration-color: #fff; }
 .doc code { font-family: var(--mono); background: var(--bg-inset); border: 1px solid var(--border); padding: 1px 5px; border-radius: 5px; font-size: 12px; color: var(--text); }
@@ -1552,17 +1605,23 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
   font: inherit; font-weight: 550; font-size: 13px; cursor: pointer;
   box-shadow: var(--shadow-pop);
-  transition: background 0.12s, border-color 0.12s, transform 0.08s var(--ease-out);
+  /* `translate` and `transform` are separate properties, and that separation is the point:
+     the save-dock lift below writes `translate` while the press writes `transform`. Sharing
+     one property meant the dock rule (0,3,1) outranked `:active` (0,2,0) and the button
+     silently lost its press feedback for as long as the dock was up — and the 64px lift
+     inherited the 0.08s meant for a 4% scale, which reads as a teleport. */
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    transform 0.08s var(--ease-out), translate var(--dur-slow) var(--ease-out);
 }
 .testchat-fab svg { color: var(--accent); }
 .testchat-fab:hover { background: var(--bg-inset); border-color: var(--accent); }
-.testchat-fab:active { transform: scale(0.97); }
+.testchat-fab:active { transform: scale(0.96); }
 .testchat-fab:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
 
 .chatdrawer-backdrop {
   position: fixed; inset: 0; z-index: 100;
   background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
-  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) ease;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out);
 }
 .chatdrawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
@@ -1591,11 +1650,29 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   position: fixed; inset: 0; z-index: 100;
   background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; padding: 24px;
-  animation: fade-in 0.12s ease;
+  animation: fade-in var(--dur-fast) var(--ease-out);
 }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 /* Shared modal entrance — scales-and-lifts in, per the Overlays recipe. */
 @keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+/* Exit. Softer than the entrance and half its length: 6px of drop against 12px of lift,
+   no scale. Driven by the frozen clone overlays.tsx leaves behind on unmount, so `> *`
+   catches whichever card class was inside — .confirm-dialog, .settings-modal,
+   .import-modal, .dev-code-modal, .deny-modal, .cmdk.
+
+   The drop rides --ease-out and the opacity ramp is linear, and that split is deliberate.
+   --ease-out is heavily front-loaded — most of its travel is spent in the first third —
+   which is right for an arrival, where the thing should be legible at once and settle
+   after. On a fade it collapses the whole exit into the first ~30ms and reads as a cut;
+   a 25fps capture of it caught exactly one intermediate frame. Linear spends the 140ms,
+   while the drop still decelerates into place. */
+.modal-backdrop.closing { pointer-events: none; animation: fade-out 0.14s linear both; }
+.modal-backdrop.closing > * {
+  animation: modal-out-fade 0.14s linear both, modal-out-drop 0.14s var(--ease-out) both;
+}
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modal-out-fade { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modal-out-drop { from { transform: none; } to { transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) {
   .settings-modal, .import-modal, .dev-code-modal, .deny-modal, .server-menu { animation: none; }
 }
@@ -1741,7 +1818,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .deny-modal.warn { --dc: var(--warn); --dc-soft: var(--warn-soft); }
 .deny-modal.ok { --dc: var(--ok); --dc-soft: var(--ok-soft); }
 .deny-modal.scan { --dc: var(--accent); --dc-soft: var(--accent-soft); }
-@keyframes denyIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes denyIn { from { opacity: 0; transform: translateY(10px) scale(0.96); } to { opacity: 1; transform: none; } }
 .deny-title { margin: 0; font-size: 19px; letter-spacing: -0.01em; }
 .deny-sub { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
 
@@ -1943,7 +2020,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .progress { height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
 .progress.sm { height: 6px; }
 .progress-fill { height: 100%; width: 100%; background: var(--accent); border-radius: var(--radius-pill);
-  transform-origin: 0 50%; transition: transform 0.5s ease; }
+  transform-origin: 0 50%; transition: transform 0.5s var(--ease-out); }
 .progress.indeterminate { position: relative; }
 .progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: var(--radius-pill); animation: rx-indef 1.2s ease-in-out infinite; }
 /* `left` is a layout property; the bar is the only moving thing in an indeterminate
@@ -1963,24 +2040,44 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* ── Toast (bottom-right status) ─────────────────────────────────────────── */
 /* Same tinting as the callout, fixed bottom-right, slides in from the right.
    Driven imperatively from overlays.tsx; tones: success / warning / danger / info / neutral. */
+/* The stack sits at a fixed 24px and gets out of the way with `transform`, not `bottom`:
+   `bottom` is laid out, so it can't transition, and the dock appears on the operator's first
+   keystroke — which is exactly when a toast is most likely to be on screen reading itself.
+   Jumping 72px in one frame is how the receipt naming what changed becomes unreadable. */
 .toast-stack {
   position: fixed; right: 24px; bottom: 24px; z-index: 200;
   display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;
+  transition: transform var(--dur-slow) var(--ease-out);
 }
 /* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
    about the thing the operator just did there — landed on top of it. Sit above it instead. */
-body:has(.testchat-fab) .toast-stack { bottom: 76px; }
+body:has(.testchat-fab) .toast-stack { transform: translateY(-52px); }
 /* The save dock is centred but wide, and at common widths its right edge runs under the
    toast stack — measured 113x57px of overlap at 1440. Every bulk "Set all N…" fires both
    at once, so the receipt naming what just changed was the thing you couldn't read. Lift
    the toasts clear while the dock is up. */
-body:has(.savedock.show) .toast-stack { bottom: 96px; }
-body:has(.savedock.show):has(.testchat-fab) .toast-stack { bottom: 148px; }
+body:has(.savedock.show) .toast-stack { transform: translateY(-72px); }
+/* Both up and the FAB has not moved: the two share a vertical band (dock 22–64 from the
+   bottom, FAB 24–64), so the dock's own clearance already covers the button. Stated at the
+   combined specificity or the -72px above loses to it. */
+body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-72px); }
+
 /* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
    the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
    is that nothing applies until you press Save. The dock wins the corner; the FAB steps
-   aside while it is up. */
-body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
+   aside while it is up.
+
+   But only where they actually meet, which is 1024px and below. The dock is centred over
+   the content column and the FAB is pinned to the right edge, so the gap between them grows
+   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
+   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
+   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
+   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
+@media (max-width: 1120px) {
+  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
+  /* Now the stack has to clear a button that has itself moved up. */
+  body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-124px); }
+}
 @media (max-width: 720px) {
   body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
 }
@@ -1991,7 +2088,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
   border: 1px solid var(--tc-border); background: color-mix(in srgb, var(--tc) 11%, var(--panel));
   box-shadow: var(--shadow-pop); color: var(--text);
   transform: translateX(24px); opacity: 0;
-  transition: transform 0.3s var(--ease-out), opacity 0.24s ease;
+  transition: transform var(--dur-slow) var(--ease-out), opacity 0.24s var(--ease-out);
 }
 .toast.show { transform: translateX(0); opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
@@ -2009,7 +2106,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
-@media (prefers-reduced-motion: reduce) { .toast { transition: opacity 0.2s ease; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { transition: opacity 0.2s var(--ease-out); transform: none; } }
 
 /* ── Confirm dialog (centered; replaces native confirm/prompt) ───────────── */
 .confirm-dialog {
@@ -2044,10 +2141,11 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-inset); }
 .copy .val { display: inline-flex; align-items: center; padding: 0 12px; font-family: var(--mono); font-size: 12.5px; color: var(--text); }
 .copy .btn { width: 36px; flex: none; height: auto; padding: 0; border: none; border-left: 1px solid var(--border); border-radius: 0;
-  display: grid; place-items: center; background: transparent; color: var(--text-3); cursor: pointer; transition: color 0.12s, background 0.12s; }
+  display: grid; place-items: center; background: transparent; color: var(--text-3); cursor: pointer; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
 .copy .btn:hover { color: var(--text); background: var(--border); }
 .copy .btn.done { color: var(--ok); }
-.copy .btn.done svg { animation: copy-pop 0.4s var(--ease-out); }
+/* The glyph swap is .copyglyph's job now — this rule pointed at the deleted copy-pop
+   keyframe, which browsers drop silently, so it animated nothing either way. */
 @media (prefers-reduced-motion: reduce) { .confirm-dialog { animation: none; } }
 
 /* ── Tooltip (delegated; driven by overlays.tsx TooltipHost) ─────────────── */
@@ -2056,7 +2154,7 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
   padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
   background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
   font-size: 11.5px; font-weight: 500; line-height: 1.3;
-  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s ease;
+  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s var(--ease-out);
 }
 .tooltip.below { transform: translate(-50%, 0); }
 /* Stem: a small bordered diamond pointing at the target. */
@@ -2082,7 +2180,8 @@ body:has(.savedock.show) .testchat-fab { transform: translateY(-64px); }
 
 /* ── Usage & rate-limit page ─────────────────────────────────────────────── */
 .u-tfrow { display: flex; justify-content: flex-end; margin-bottom: 14px; }
-.useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px; }
+/* padding 4 for the same reason as .ext-seg: 8px chip inside a 12px shell. */
+.useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; }
 .useg button { font: inherit; font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
 .useg button.on { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); font-weight: 500; }
 
@@ -2364,7 +2463,7 @@ th.num .th-sortbtn { text-align: right; }
   cursor: pointer; color: currentColor;
   background: color-mix(in srgb, currentColor 13%, transparent);
   border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
-  transition: background 0.12s, border-color 0.12s;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
 }
 .mp-chip:hover, .mp-chip[aria-expanded='true'] {
   background: color-mix(in srgb, currentColor 24%, transparent);

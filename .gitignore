@@ -60,3 +60,7 @@ CLAUDE.md
 
 # Design-lint hook caches
 .impeccable/
+
+# Recorded UI proof runs. record.py regenerates these on demand and the .mp4/.webm are
+# several MB each — a git object store is the wrong place for them.
+design/proof/out/

@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
-import { Icon, type IconName } from './icons'
+import { Icon, CopyGlyph, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
@@ -986,7 +986,7 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
       <div className="weblink-row">
         <a href={url} target="_blank" rel="noreferrer" aria-label={`Open ${url} in a new tab`}>{host}</a>
         <button className="ghost icon-btn sm" onClick={copy} data-tip="Copy link" aria-label="Copy link">
-          {copied ? <Icon.check size={14} weight="Bold" style={{ color: 'var(--ok)' }} /> : <Icon.copy size={14} />}
+          <CopyGlyph copied={copied} size={14} />
         </button>
       </div>
     </div>
