@@ -103,8 +103,25 @@ export const Icon = {
 
 export type IconName = keyof typeof Icon
 
+// The copy → copied swap, shared by every copy affordance in the console.
+//
+// Both glyphs stay mounted and cross-fade. The ternary this replaces unmounted the copy
+// icon on the frame the check appeared, so only the arrival was ever animated — and it
+// arrived on a `scale(0.4) → 1.12 → 1` keyframe, whose overshoot is the one thing an icon
+// transition should never have.
+export function CopyGlyph({ copied, size = 15 }: { copied: boolean; size?: number }) {
+  return (
+    <span className={'copyglyph' + (copied ? ' on' : '')} style={{ width: size, height: size }}>
+      <Copy size={size} aria-hidden />
+      <CheckCircle size={size} weight="Bold" aria-hidden />
+    </span>
+  )
+}
+
 // A plain line-stroke "×" for modal/menu close affordances — lighter than the
-// circled Solar CloseCircle, which reads too heavy at small sizes.
+// circled Solar CloseCircle, which reads too heavy at small sizes. Deliberately 2 where
+// the Solar Linear set is 1.5: a two-stroke × carries a fraction of a full glyph's ink,
+// so matching the number would make it optically lighter, not equal.
 export function CloseX({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
