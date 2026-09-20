@@ -193,9 +193,18 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --vw: calc(100vw / var(--ui-scale));
   --dvh: calc(100dvh / var(--ui-scale));
 
-  /* Motion — quiet and quick */
+  /* Motion — quiet and quick. --ease-out is the default for every transition; bare `ease`
+     is the browser's own curve and reads visibly slower off the mark on the same move, so
+     the two side by side look like two systems. Route .12/.16/.3s through the tokens. */
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* Icon cross-fades only (see Button & IconButton). Flatter in, harder out. */
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
   --dur-fast: .12s;  --dur-mid: .16s;  --dur-slow: .3s;
+
+  /* Raster images only. User art on a near-black ground has no edge of its own: a dark
+     avatar dissolves into the surface, a light one bleeds past where it stops. Pure white
+     at 10% — never a tinted neutral, which picks up the surface and reads as dirt. */
+  --img-edge: oklch(1 0 0 / 0.1);
 }
 ```
 
@@ -326,7 +335,21 @@ making a word look technical. "Community", "Games" and "Custom" are labels; they
 
 Common semantic names: `user-circle` (persona), `tuning-2` (behavior), `hashtag` (channels), `shield-keyhole` (access), `book-bookmark` (knowledge), `plug-circle` (extensions), `settings`, `power`, `magnifer` (search), `copy`, `trash-bin-minimalistic`, `check-circle`, `danger-triangle`, `info-circle`.
 
+**One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The one exception is `<CloseX>`, which stays at 2: a two-stroke × carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
+
 **Logo:** a rounded-square shield with a centered star (slate blue, navy star). Place it on `--bg`, `--bg-inset`, or `--accent-soft` tiles; don't recolor it.
+
+### Raster images
+
+Every `<img>` in the console — the logo, server icons, Discord avatars — carries a 1px inset edge:
+
+```css
+img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar {
+  outline: 1px solid var(--img-edge); outline-offset: -1px;
+}
+```
+
+`outline`, not `border`, so it costs no layout; the negative offset keeps the hairline inside the box and following the radius clip rather than boxing a circular avatar. Scope it to `img` — the tinted-initial fallbacks behind these classes are drawn chrome with a ground of their own, not art.
 
 ---
 
@@ -383,6 +406,28 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 
 The host sets `aria-label` from a stripped `title` as a backstop, but write it yourself: the backstop can only repeat the tooltip, and the two want different words — the tooltip is a hint (`Copy`), the label names the object (`Copy the public web address`).
 
+### CopyGlyph (copy → copied)
+
+Every copy affordance in the console swaps one glyph for another. Both stay mounted and
+cross-fade; nothing unmounts, so the *departure* is animated too.
+
+```css
+.copyglyph { position: relative; display: inline-grid; place-items: center; flex: none; }
+.copyglyph > svg { grid-area: 1 / 1;
+  transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon),
+              filter var(--dur-mid) var(--ease-icon); }
+.copyglyph > svg:last-child      { scale: .25; opacity: 0; filter: blur(4px); color: var(--ok); }
+.copyglyph.on > svg:first-child  { scale: .25; opacity: 0; filter: blur(4px); }
+.copyglyph.on > svg:last-child   { scale: 1;   opacity: 1; filter: blur(0); }
+```
+
+Both glyphs share one grid cell, so neither reflows the button. The values are fixed: `.25 → 1`
+scale, `0 → 1` opacity, `4px → 0` blur — the blur is what keeps a 15px icon from looking like it
+merely resized. **No overshoot.** The version this replaced ran `scale(.4) → 1.12 → 1`, and a
+bounce is the one thing an icon transition should never have. Use `--ease-icon`, not
+`--ease-out`: this is a swap in place, not travel. Under `prefers-reduced-motion` drop the scale
+and blur and keep the opacity cross-fade — the colour and the glyph still change.
+
 ### TextField, TextArea & Select
 
 `.input` = **TextField**, `.textarea` = **TextArea**, `.select` = **Select** (add a custom chevron via a background SVG; `appearance: none`).
@@ -402,11 +447,16 @@ The host sets `aria-label` from a stripped `title` as a backstop, but write it y
 
 ```css
 .toggle { display: inline-flex; align-items: center; gap: 11px; cursor: pointer; }
-.toggle .track { width: 38px; height: 22px; border-radius: 99px; background: var(--border-strong); position: relative; transition: background .16s; }
-.toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: left .16s; }
+.toggle .track { width: 38px; height: 22px; border-radius: 99px; background: var(--border-strong); position: relative; transition: background var(--dur-mid) var(--ease-out); }
+.toggle .knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: #fff;
+  transition: transform var(--dur-mid) var(--ease-out); }
 .toggle.on .track { background: var(--accent); }
-.toggle.on .knob { left: 18px; }
+.toggle.on .knob { transform: translateX(16px); }   /* NOT left: 18px */
 ```
+
+The knob travels on `transform`. `left` is a layout property, so animating it re-laid out
+the track on every frame of every toggle — on the control a settings console is densest in.
+The 16px is the trip, not the destination: 2px inset either end of a 38px track.
 
 ### Field (label + description + control)
 
@@ -582,7 +632,7 @@ announces as `status` rather than interrupting as an alert.
 
 - **Dialog** (centered info+action): blurred backdrop `rgba(0,0,0,.55)` + `backdrop-filter: blur(3px)` fading in; the card (`--panel`, `--border-strong`, `--shadow-modal`) scales-and-lifts from `translateY(12px) scale(.96)` → `0/1` over `.22s var(--ease-out)`. Optional tinted icon tile (46px, `--radius` 15px) + footer actions. Close on backdrop click / Escape.
 - **Modal** (full-UI sheet): same backdrop; a `min(900px,94vw) × min(620px,90vh)` sheet with a header (title + close ×), a scrollable body (put a two-pane nav+content inside), and an optional footer.
-- **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. A `--panel` pill, message + Reset/Save. It carries `role="status"`: "You have unsaved changes." → "Saved" → the failure text is the state machine the whole product is organised around, and it should be announced, not just drawn.
+- **SaveDock** (unsaved-changes bar): `position: fixed; bottom: 22px; left: 50%`; slides up from `translate(-50%,170%)` → `translate(-50%,0)` over `.3s var(--ease-out)`. Inner padding is `4px 4px 4px 18px` — 4 around the buttons so their `--radius-sm` corners sit concentric inside the dock's `--radius`, 18 of lead-in for the message. It owns the bottom corner when something else is already there, but **only where the two actually overlap**: the dock is centred over the content column and the test-chat FAB is pinned right, so the gap between them grows with the viewport (25px at 1100, 115px at 1280, 435px at 1920). Gate the dodge behind the breakpoint where they meet — a control that jumps 64px to avoid something nowhere near it is worse than the collision it was written for. A `--panel` pill, message + Reset/Save. It carries `role="status"`: "You have unsaved changes." → "Saved" → the failure text is the state machine the whole product is organised around, and it should be announced, not just drawn.
 - **ActionMenu** (click-to-open dropdown anchored to a trigger): a `--panel` menu (`--border-strong`, `--shadow-pop`, `--radius-sm`) that pops in with a `.14s` fade + scale from the top (`translateY(-6px) scale(.97)` → `0/1`). Items are `7px 9px` rows with a leading icon, optional right-aligned mono shortcut, hover → `--bg-inset`; a `danger` item is `--danger` (hover `--danger-soft`); thin `--border` dividers and uppercase section labels. Closes on outside-click / Escape / select.
 - **HoverCard** (expand-on-hover detail, e.g. a roles/members row): a `--panel` card (`--border-strong`, `--shadow-pop`, `--radius`) absolutely positioned above the trigger; fades + lifts in (`translateY(6px) scale(.98)` → `0/1`, `.15s`) **after a ~.18s delay**, closes immediately on leave. Make the trigger `tabindex=0` so `:focus-within` opens it too.
 
@@ -595,6 +645,23 @@ system ends up with some dialogs that close on Escape and some that don't. The s
 | Focus | move to the first focusable on open — unless an `autoFocus` input already claimed it — trap Tab/Shift-Tab inside, and **return focus to the trigger** on close |
 | Escape | always closes, except while an irreversible action is in flight (`dismissable={false}` during a publish, a move, an install) |
 | Backdrop | closes on **`mousedown` on the backdrop itself** — an `onClick` handler fires when a text selection starts inside the card and releases outside it, closing the dialog mid-drag |
+| Exit | a `.14s` fade + `translateY(6px)` on the way out — softer and shorter than the `.22s` entrance, ease-out both directions |
+
+**The exit belongs to the shell, not the caller.** Every overlay entered over `.22s` and left on
+the frame it closed, because the *caller* owns the mounting (`{open && <Thing/>}`) and React
+can't hold an unmount open from inside the child. Threading a `closing` flag out to all eleven
+call sites — `SettingsModal` alone is rendered from five files — would put the same four lines
+in five places and guarantee the sixth forgets. Instead the shell hands off its own corpse on
+the way out: a frozen, `inert`, `aria-hidden` clone of the backdrop plays the exit and removes
+itself. What a clone loses (handlers, focus) is what an exiting dialog shouldn't have anyway.
+
+Two things that will bite you if you rebuild it:
+
+- **Capture the node at mount, not in the cleanup.** React detaches object refs *before* it runs
+  effect cleanups for a deleted tree, so `ref.current` is already `null` down there and the exit
+  silently does nothing. This looked exactly like a broken keyframe.
+- **Copy `scrollTop` into the clone.** A tall scrollable sheet that snaps to the top for its last
+  140ms is a worse artifact than no animation at all.
 
 The visual recipe above is unchanged; the shell only adds behaviour. A drawer that stays
 mounted while closed (so it slides rather than pops) sets `inert` while hidden — `aria-hidden`
@@ -665,6 +732,8 @@ Plex Serif is the superfamily sibling of `--font-sans`, so the site reads as one
 ### Tabs
 
 Three idioms: **underline** (hairline `border-bottom`, active item bold `--text` with a 2px foreground indicator that slides between tabs), **pill** (bordered `--panel` pills, active fills `--bg-inset`), **segmented** (enclosed control on `--bg-inset`, active raises a `--panel` chip with a faint shadow). Tabs take an optional leading icon and a trailing count chip.
+
+**Segmented padding is 4px, and that number is arithmetic, not taste.** Outer radius minus padding equals inner radius: the shell is `--radius-sm` (12px) and the chip `--radius-xs` (8px), so the gap has to be 4. At 3px the chip's corner is tighter than the well around it, which is the single most common thing that makes a control look slightly wrong without anyone being able to say why. The same sum governs the ActionMenu (`--radius-sm` shell, 4px padding, `--radius-xs` rows) and the SaveDock (`--radius` shell, 4px padding, `--radius-sm` buttons).
 
 ### Navigation (NavItem / PageNav / Avatar)
 
@@ -934,6 +1003,9 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Do** reserve the accent for selection, links, focus, and active state — never as a fill for big surfaces.
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
 - **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
+- **Do** write the tokens: `var(--dur-fast|mid|slow)` and `var(--ease-out)`, not `.12s` and a bare `ease`. Bespoke durations are fine for bespoke moves (a .5s progress fill, a 1.4s press-and-hold) — it's the three canonical values drifting into literals that turns one motion system into twenty-eight.
+- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other.
+- **Don't** let a press scale go past `.96`. Below that it reads as a bounce rather than a press.
 - **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
 - **Don't** use emoji, bluish-purple gradients, drop shadows on cards, or Title Case headings.
 - **Don't** introduce new hues — use the accent or a semantic state.

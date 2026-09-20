@@ -137,6 +137,41 @@ let openModals = 0
 // Mount order of the open modals. The last one is the top-most and owns Escape.
 const escStack: symbol[] = []
 
+/** Matches `.modal-backdrop.closing` / `.closing > *` in index.css. */
+const EXIT_MS = 140
+
+// Overlays enter over .22s and used to leave on the frame they closed, because the caller
+// owns the mounting (`{open && <Thing/>}`) and React can't hold an unmount open from
+// inside the child. Rather than thread a `closing` flag through all eleven call sites —
+// SettingsModal alone is rendered from five files — the shell hands its own corpse off on
+// the way out: a frozen, inert copy of the backdrop plays the exit and removes itself.
+//
+// It's display-only, so the things a clone loses (React handlers, focus) are things an
+// exiting dialog shouldn't have anyway — focus has already gone back to the trigger above.
+// Scroll offsets ARE copied: a tall Settings modal that snapped to the top for the last
+// 140ms would be a worse artifact than no animation at all.
+function playExit(back: HTMLDivElement | null) {
+  // No isConnected check: React may already have detached the node by now, and a detached
+  // node still clones and still reports the scrollTops we want. Layout comes from the
+  // stylesheet once the clone is in the document, not from the original's box.
+  if (!back || !back.firstElementChild) return
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+  const ghost = back.cloneNode(true) as HTMLDivElement
+  const from = [back, ...back.querySelectorAll<HTMLElement>('*')]
+  const to = [ghost, ...ghost.querySelectorAll<HTMLElement>('*')]
+  for (let i = 0; i < from.length; i++) {
+    if (from[i].scrollTop) to[i].scrollTop = from[i].scrollTop
+    if (from[i].scrollLeft) to[i].scrollLeft = from[i].scrollLeft
+  }
+
+  ghost.classList.add('closing')
+  ghost.setAttribute('aria-hidden', 'true')
+  ghost.inert = true
+  document.body.appendChild(ghost)
+  setTimeout(() => ghost.remove(), EXIT_MS)
+}
+
 export function Modal(props: {
   /** Class on the dialog card itself — `.settings-modal`, `.import-modal`, `.confirm-dialog`, … */
   className: string
@@ -149,6 +184,7 @@ export function Modal(props: {
   children: React.ReactNode
 }) {
   const card = useRef<HTMLDivElement>(null)
+  const backdrop = useRef<HTMLDivElement>(null)
   const dismissable = props.dismissable !== false
   const close = props.onClose
 
@@ -175,10 +211,15 @@ export function Modal(props: {
       openModals += 1
       app.inert = true
     }
+    // Read at mount, not in the cleanup: React detaches object refs before it runs effect
+    // cleanups for a deleted tree, so `backdrop.current` is already null down there and the
+    // exit silently did nothing.
+    const leaving = backdrop.current
     return () => {
       if (app && --openModals <= 0) { openModals = 0; app.inert = false }
       const back = returnTo.current
       if (back?.isConnected) back.focus()
+      playExit(leaving)
     }
   }, [])
 
@@ -227,6 +268,7 @@ export function Modal(props: {
   // are unaffected, and the backdrop was already fixed-positioned.
   return createPortal(
     <div
+      ref={backdrop}
       className="modal-backdrop"
       // mousedown, not click: a text selection that starts inside the card and releases on
       // the backdrop fires a click on this element and used to close the dialog mid-drag.
