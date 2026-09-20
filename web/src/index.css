@@ -2057,12 +2057,27 @@ body:has(.testchat-fab) .toast-stack { transform: translateY(-52px); }
    at once, so the receipt naming what just changed was the thing you couldn't read. Lift
    the toasts clear while the dock is up. */
 body:has(.savedock.show) .toast-stack { transform: translateY(-72px); }
-body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-124px); }
+/* Both up and the FAB has not moved: the two share a vertical band (dock 22–64 from the
+   bottom, FAB 24–64), so the dock's own clearance already covers the button. Stated at the
+   combined specificity or the -72px above loses to it. */
+body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-72px); }
+
 /* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
    the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
    is that nothing applies until you press Save. The dock wins the corner; the FAB steps
-   aside while it is up. */
-body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
+   aside while it is up.
+
+   But only where they actually meet, which is 1024px and below. The dock is centred over
+   the content column and the FAB is pinned to the right edge, so the gap between them grows
+   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
+   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
+   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
+   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
+@media (max-width: 1120px) {
+  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
+  /* Now the stack has to clear a button that has itself moved up. */
+  body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-124px); }
+}
 @media (max-width: 720px) {
   body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
 }
