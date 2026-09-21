@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+
+[a3e92ef] — The app applies a release to your server itself whenever it starts up on a newer version than the VM, which is every launch after it updates itself.
+
+[a3e92ef] — Reconnecting to a VM, or switching to a server-hosted bot, brings that server up to this build too.
+
+[a3e92ef] — The control panel reports an update it didn't start: **Updating…** while it runs, and the outcome when it lands, instead of reading the restarting container as a server that fell over.
+
+[a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
