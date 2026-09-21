@@ -41,6 +41,14 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
     "rate_limit": "i'm a bit rate-limited right now — give me a minute and try again?",
     "blank_fallback": "…my mind just went blank there. mind rephrasing?",
     "access_denied": "sorry — you don't have access to me here.",
+    # The tool PIN (olisar/toolpin.py): the one thing the prompt says. There are no
+    # outcome lines to go with it — the prompt is deleted once it's answered, and what
+    # happened is in Olisar's own reply rather than in a second system message. `{seconds}`
+    # is the wait, for an operator who wants to put the deadline in their own wording.
+    "tool_pin_prompt": (
+        "A PIN is required for Olisar to run **{tool}**. See Settings > Security in the "
+        "console or ask an admin if you don't have access."
+    ),
     "privacy": (
         "**How Olisar handles your data**\n"
         "In channels an admin has enabled, I store messages so I can follow a conversation "
@@ -80,6 +88,7 @@ PLACEHOLDERS: dict[str, list[str]] = {
     # privacy text should know the slot exists and that it can render as nothing.
     "privacy": ["portal"],
     "privacy_portal": ["url"],
+    "tool_pin_prompt": ["tool", "seconds"],
 }
 
 

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft } from './ui'
+import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
@@ -11,12 +11,13 @@ import { SCALES, getScale, setScale } from './theme'
 // right content pane. App-wide operator settings (not per-server) live here.
 // 'size' is the member portal's cut-down General — the size control alone, without the
 // console-only keyboard shortcuts. 'bot' (the multi-bot profile switcher) was removed.
-export type SectionId = 'general' | 'size' | 'activity' | 'logs' | 'remote' | 'updates' | 'desktop' | 'feedback'
+export type SectionId = 'general' | 'size' | 'activity' | 'logs' | 'security' | 'remote' | 'updates' | 'desktop' | 'feedback'
 export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
   { id: 'size', label: 'Size', ic: 'palette' },
   { id: 'activity', label: 'Activity', ic: 'docs' },
   { id: 'logs', label: 'Logs', ic: 'pulse' },
+  { id: 'security', label: 'Security', ic: 'access' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
@@ -111,6 +112,7 @@ export function SettingsModal(
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
           {section === 'logs' && <Logs />}
+          {section === 'security' && <Security />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
@@ -571,6 +573,156 @@ function SizeChoice() {
       onChange={(v) => { setScale(v); setScaleState(v) }}
       options={SCALES.map((x) => ({ value: x.value, label: x.label }))}
     />
+  )
+}
+
+// ── Security (the tool PIN) ──────────────────────────────────────────────────
+// One PIN for the whole install, so it lives here rather than on a per-server page: the
+// bot is one Discord account however many servers it's in, and a PIN that differed by
+// server would be four digits nobody could keep straight.
+
+const WAIT_OPTS = [
+  { value: '30', label: '30 seconds' },
+  { value: '60', label: '1 minute' },
+  { value: '120', label: '2 minutes' },
+  { value: '300', label: '5 minutes' },
+]
+
+// A four-digit field: numeric keypad on a phone, masked by default, and never offered to a
+// password manager. `inputMode` rather than `type="number"`, which would bring spinners and
+// strip a leading zero — 0042 is a PIN, not the number forty-two.
+function PinInput(props: { value: string; onChange: (v: string) => void; label: string }) {
+  const f = useFieldIds()
+  const [shown, setShown] = useState(false)
+  return (
+    <div className="key-input">
+      <input
+        type={shown ? 'text' : 'password'}
+        id={f?.id}
+        aria-labelledby={f?.labelId}
+        aria-describedby={f?.descId}
+        inputMode="numeric"
+        autoComplete="off"
+        maxLength={4}
+        className="mono"
+        placeholder="••••"
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+        onBlur={() => setShown(false)}
+      />
+      {!!props.value && (
+        <button
+          type="button"
+          className="ghost icon-btn key-reveal"
+          onClick={() => setShown((v) => !v)}
+          data-tip={shown ? 'Hide' : 'Reveal'}
+          aria-label={shown ? `Hide the ${props.label.toLowerCase()}` : `Reveal the ${props.label.toLowerCase()}`}
+          aria-pressed={shown}
+        >
+          {shown ? <Icon.eyeOff size={16} /> : <Icon.eye size={16} />}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function Security() {
+  const [data, setData] = useState<any>(null)
+  const [pin, setPin] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = () => api.getPin().then(setData).catch((e: any) => setErr(e?.message || 'Could not load the PIN status'))
+  useEffect(() => { load() }, [])
+
+  const save = async () => {
+    if (pin.length !== 4) { setErr('The PIN is four digits.'); return }
+    if (pin !== confirm) { setErr('The two PINs don’t match.'); return }
+    setErr('')
+    setBusy(true)
+    try {
+      await api.putPin({ pin })
+      setPin(''); setConfirm('')
+      await load()
+      toast(data?.is_set ? 'PIN changed' : 'PIN set', 'success')
+    } catch (e: any) {
+      setErr(e?.message || 'Could not save the PIN')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const remove = async () => {
+    const ok = await confirmDialog({
+      title: 'Remove the PIN?',
+      message: 'Anything that asks for it can’t be confirmed, so Olisar won’t run it.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Keep it',
+      tone: 'danger',
+    })
+    if (ok !== true) return
+    setErr('')
+    setBusy(true)
+    try { await api.clearPin(); await load(); toast('PIN removed', 'neutral') }
+    catch (e: any) { setErr(e?.message || 'Could not remove the PIN') }
+    finally { setBusy(false) }
+  }
+
+  const setWait = async (v: string) => {
+    setErr('')
+    setData({ ...data, timeout_sec: Number(v) })
+    try { await api.putPin({ timeout_sec: Number(v) }) }
+    catch (e: any) { setErr(e?.message || 'Could not save that'); load() }
+  }
+
+  const isSet = !!data?.is_set
+  return (
+    <>
+      <Head
+        title="Security"
+        sub="[COMING SOON™] A 4-digit PIN to allow Olisar to make certain tool calls. Any member who has this PIN can allow these requests. Currently, no tool calls require a PIN."
+      />
+      {err && <div className="settings-err" role="alert">{err}</div>}
+      {!data ? <Spinner /> : (
+        <>
+          <div className="status-card">
+            <span className={'dot' + (isSet ? ' on' : ' warn')} />
+            <div>
+              <div className="status-line">{isSet ? 'PIN set' : 'No PIN set'}</div>
+              {isSet && (
+                <span className="settings-muted">
+                  {`Last changed ${data.updated_at ? new Date(data.updated_at).toLocaleString() : 'recently'}`}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-subhead">{isSet ? 'Change the PIN' : 'Set a PIN'}</div>
+          {/* Entered twice because it's masked, four characters long, and the first place a
+              typo would show up is a prompt in Discord that won't accept it. */}
+          <Field label="New PIN">
+            <PinInput value={pin} onChange={setPin} label="New PIN" />
+          </Field>
+          <Field label="Confirm">
+            <PinInput value={confirm} onChange={setConfirm} label="Confirm" />
+          </Field>
+          <Field label="PIN prompt timer">
+            <Select
+              value={String(data.timeout_sec ?? 120)}
+              onChange={setWait}
+              options={WAIT_OPTS}
+              ariaLabel="PIN prompt timer"
+            />
+          </Field>
+          <div className="settings-row end">
+            {isSet && <button className="danger" onClick={remove} disabled={busy}>Remove PIN</button>}
+            <button className="primary" onClick={save} disabled={busy || !pin || !confirm}>
+              {isSet ? 'Change PIN' : 'Set PIN'}
+            </button>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 

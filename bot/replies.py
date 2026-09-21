@@ -11,8 +11,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 
 import discord
 
@@ -180,12 +181,63 @@ async def _pace(channel: discord.abc.Messageable, seconds: float) -> None:
         await asyncio.sleep(seconds)
 
 
-async def _type_after(channel: discord.abc.Messageable, delay: float) -> None:
-    """Raise the typing indicator once ``delay`` has passed, and hold it until cancelled."""
-    await asyncio.sleep(delay)
-    with contextlib.suppress(Exception):  # a typing indicator is never worth an exception
-        async with channel.typing():
-            await asyncio.sleep(3600)  # the caller cancels us; this is just "until then"
+class _Composing:
+    """The typing indicator for one reply in progress, and the handle that pauses it.
+
+    Pausing exists for the tool PIN (bot/toolpin.py): while a prompt is sitting in the
+    channel waiting for someone to type four digits, Olisar is not writing anything, and
+    showing "typing…" for two minutes says otherwise. Discord has no "stop typing" call —
+    the indicator is a ping that expires on its own — so pausing means leaving the
+    ``channel.typing()`` context and letting it lapse, and resuming means re-entering it.
+    """
+
+    def __init__(self, channel: discord.abc.Messageable) -> None:
+        self.channel = channel
+        self._paused = False
+        self._changed = asyncio.Event()
+
+    def pause(self) -> None:
+        self._paused = True
+        self._changed.set()
+
+    def resume(self) -> None:
+        self._paused = False
+        self._changed.set()
+
+    async def _await_change(self) -> None:
+        await self._changed.wait()
+        self._changed.clear()
+
+    async def run(self, delay: float) -> None:
+        """Wait out the quiet window, then hold the indicator until cancelled — dropping
+        it whenever the reply is paused, and picking it back up when it resumes."""
+        await asyncio.sleep(delay)
+        while True:
+            while self._paused:
+                await self._await_change()
+            with contextlib.suppress(Exception):  # an indicator is never worth an exception
+                async with self.channel.typing():
+                    while not self._paused:
+                        await self._await_change()
+
+
+# The reply currently being composed in this task, so a nested tool call can quiet the
+# indicator without the pipeline having to carry a Discord object down to it.
+_composing: ContextVar[_Composing | None] = ContextVar("olisar_composing", default=None)
+
+
+@contextmanager
+def typing_paused() -> Iterator[None]:
+    """Drop the typing indicator for the duration of the block, if one is up."""
+    state = _composing.get()
+    if state is None:
+        yield
+        return
+    state.pause()
+    try:
+        yield
+    finally:
+        state.resume()
 
 
 @asynccontextmanager
@@ -198,13 +250,16 @@ async def composing(channel: discord.abc.Messageable) -> AsyncIterator[None]:
     to :func:`send_paced` — while a slow answer still brings the indicator up, so the
     channel doesn't look dead.
     """
-    task = asyncio.create_task(_type_after(channel, QUIET_THINKING))
+    state = _Composing(channel)
+    token = _composing.set(state)
+    task = asyncio.create_task(state.run(QUIET_THINKING))
     try:
         yield
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError, Exception):
             await task
+        _composing.reset(token)
 
 
 async def send_paced(

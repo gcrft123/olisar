@@ -516,6 +516,7 @@ const MSG_LABELS: Record<string, string> = {
   proactive: '/olisar proactive', privacy: '/privacy',
   rate_limit: 'When rate-limited', blank_fallback: 'When it draws a blank',
   access_denied: 'When access is denied',
+  tool_pin_prompt: 'When a tool needs the PIN',
 }
 
 // What a reply actually looks like where the reader will see it. The console's job on

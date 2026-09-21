@@ -416,6 +416,20 @@ class BotActions:
             return f"couldn't post in {where}: {exc}"
         return f"Posted in {where}." if getattr(target, "name", None) else "Posted it here."
 
+    async def request_pin(
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+    ) -> str:
+        """Put a PIN prompt in the active channel and wait for it (see bot/toolpin.py).
+
+        The reply calling this is parked until someone answers or the deadline passes;
+        the outcome decides whether the gated tool runs at all.
+        """
+        from bot.toolpin import request_pin as ask
+
+        return await ask(
+            self.channel, tool=tool, guild_id=guild_id, user_id=user_id, timeout=timeout,
+        )
+
     async def send_image(
         self, data: bytes, *, filename: str = "olisar.png", caption: str = ""
     ) -> str:

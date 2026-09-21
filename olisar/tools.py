@@ -17,6 +17,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from olisar import toolpin
 from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.imaging import generate_image, is_configured as image_is_configured
@@ -49,6 +50,11 @@ class DiscordActions(Protocol):
         self, *, channel: object, content: object, embed: object,
         components: object, ext_key: str, home_guild_id: int,
     ) -> str: ...
+    # Ask the channel to confirm a gated tool call with the 4-digit PIN, and wait for the
+    # answer. Returns one of the outcome constants in olisar.toolpin.
+    async def request_pin(
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+    ) -> str: ...
 
 
 @dataclass
@@ -65,6 +71,10 @@ class ToolContext:
     # tool name -> async handler(args, ctx), supplied per-reply for enabled
     # extensions (olisar/extensions). execute_tool dispatches to these first.
     extension_tools: dict = field(default_factory=dict)
+    # Gated tools whose PIN prompt already came back "no" this reply, and why. A denial
+    # holds for the rest of the reply: without it the model's retry would post a second
+    # prompt, and someone who just declined would be asked again for the same call.
+    pin_denied: dict = field(default_factory=dict)
 
 
 def _str(desc: str) -> types.Schema:
@@ -661,10 +671,43 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         return f"Tool {name} errored."
 
 
+async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:
+    """Put a PIN prompt in the channel and wait for it. Returns an ``olisar.toolpin``
+    outcome; anything but ``APPROVED`` means the call doesn't run.
+
+    Fails closed. A tool gated with no PIN set, or gated somewhere there's no Discord
+    surface to ask in (the console's test chat), is refused rather than waved through:
+    the point of the gate is that the call doesn't happen unless a person said so.
+    """
+    state = await toolpin.get_state(ctx.session)
+    ask = getattr(ctx.actions, "request_pin", None)
+    if not state.is_set or ask is None:
+        return toolpin.UNAVAILABLE
+    # Let go of the reply's write transaction before parking on a human. SQLite locks the
+    # whole database for a writer, so holding one open for the length of a PIN prompt would
+    # stall every other reply the bot is working on.
+    try:
+        await ctx.session.commit()
+    except Exception:
+        log.exception("couldn't commit before the PIN prompt; waiting anyway")
+    return await ask(
+        tool=name,
+        guild_id=ctx.cfg_guild,
+        user_id=ctx.user_id,
+        timeout=float(state.timeout_sec),
+    )
+
+
 async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Run a tool, logging the call and a one-line summary of what it returned
     (search-type tools also log the specific items they used, in their modules)."""
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
+    if toolpin.requires_pin(name):
+        outcome = ctx.pin_denied.get(name) or await _confirm_with_pin(name, ctx)
+        if outcome != toolpin.APPROVED:
+            ctx.pin_denied[name] = outcome
+            log.info("tool %s refused by the PIN gate (%s)", name, outcome)
+            return toolpin.denial_note(name, outcome)
     result = await _dispatch(name, args, ctx)
     log.info("tool result: %s -> %s", name, _summarize(result))
     return result
