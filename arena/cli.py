@@ -49,7 +49,7 @@ def _print(payload: Any) -> None:
 
 async def cmd_doctor(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     """Check every prerequisite and say what's missing."""
-    from arena.backends import ClaudeCliBackend
+    from arena.backends import BACKENDS, ClaudeCliBackend, GrokCliBackend
     from arena.control import supervisor
     from arena.control.dashboard import wait_until_healthy
     from arena.discord_rest import DiscordRest
@@ -95,8 +95,14 @@ async def cmd_doctor(cfg: ArenaConfig, args: argparse.Namespace) -> int:
                   f"ARENA_{role.upper()}_BACKEND=gemini")
         elif backend == "gemini":
             check(f"{role}: gemini/{model}", bool(cfg.gemini_api_key), "needs GEMINI_API_KEY")
+        elif backend == "grok":
+            found = GrokCliBackend.available(cfg.grok_binary)
+            check(f"{role}: grok/{model}", found,
+                  f"{cfg.grok_binary!r} is not on PATH — install the Grok CLI or set "
+                  f"ARENA_{role.upper()}_BACKEND=claude")
         else:
-            check(f"{role}: {backend!r}", False, "backend must be 'claude' or 'gemini'")
+            check(f"{role}: {backend!r}",
+                  False, f"backend must be one of {', '.join(BACKENDS)}")
 
     print("\ncontent")
     personas = load_personas()
@@ -408,16 +414,25 @@ async def cmd_models(cfg: ArenaConfig, args: argparse.Namespace) -> int:
     CLI is logged out or the Gemini key is stale before a scenario discovers it halfway
     through a run.
     """
+    from arena.fleet.dialogue import MESSAGE_SCHEMA
     from arena.model import DIALOGUE, JUDGE, ModelClient
 
     client = ModelClient(cfg)
     out: dict = {"roles": client.describe(), "budget": client.usage()}
     if args.test:
-        out["dialogue_sample"] = await client.generate(
+        # Through the schema the emulators actually use, not free text. Asking a reasoning
+        # model for "only the message" gets its plan narrated first — which is a fault
+        # `compose` fixed by removing the room for a preamble, and which this probe then
+        # reproduced every time it ran, reporting a working backend as a broken one.
+        sample = await client.generate_json(
             "Someone in the channel just said the server wiki is out of date. "
             "Reply in one short lowercase line, like a regular member would.",
-            system="You write a single Discord message. Output only the message text.",
+            system="You write a single Discord message.",
             role=DIALOGUE,
+            schema=MESSAGE_SCHEMA,
+        )
+        out["dialogue_sample"] = (
+            str(sample.get("message", "")) if sample else ""
         ) or "(empty — see the log)"
         verdict = await client.generate_json(
             'Return {"ok": true} and nothing else.',

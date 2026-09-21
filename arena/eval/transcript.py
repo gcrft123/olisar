@@ -21,16 +21,33 @@ from arena.scenarios.schema import Checks, Scenario
 log = logging.getLogger("arena.transcript")
 
 
+MESSAGE = "message"
+REACTION = "reaction"
+
+
 @dataclass
 class Turn:
+    """One thing that appeared in the channel.
+
+    ``kind`` separates a message from a reaction, which matters because Olisar can now
+    answer with one instead of the other (``olisar.tools``' ``acknowledge``). Folding a
+    reaction in as an ordinary turn would make ``must_not_reply`` fail on exactly the
+    scenarios that exist to prove Olisar stayed quiet, and would hand the judge a 👍 to
+    score as a written reply. For a reaction, ``content`` is the emoji and ``message_id``
+    is the message it was added to.
+    """
+
     author: str
     content: str
     is_olisar: bool = False
     author_id: int = 0
     message_id: int = 0
     at: str = ""
+    kind: str = MESSAGE
 
     def render(self) -> str:
+        if self.kind == REACTION:
+            return f"[{self.author} reacted {self.content}]"
         return f"{self.author}: {self.content}"
 
 
@@ -60,7 +77,13 @@ class Run:
 
     @property
     def olisar_turns(self) -> list[Turn]:
-        return [t for t in self.turns if t.is_olisar]
+        """What Olisar *said*. Reactions are deliberately not here — every check and the
+        judge read this, and all of them mean words."""
+        return [t for t in self.turns if t.is_olisar and t.kind == MESSAGE]
+
+    @property
+    def olisar_reactions(self) -> list[Turn]:
+        return [t for t in self.turns if t.is_olisar and t.kind == REACTION]
 
     @property
     def ok(self) -> bool:
@@ -215,6 +238,27 @@ def evaluate_checks(run: Run, checks: Checks) -> list[CheckResult]:
                 "must_not_reply",
                 not replies,
                 "" if not replies else f"Olisar replied {len(replies)}x when it shouldn't have",
+            )
+        )
+    if checks.must_react:
+        reactions = run.olisar_reactions
+        results.append(
+            CheckResult(
+                "must_react",
+                bool(reactions),
+                "" if reactions else "Olisar never reacted to anything",
+            )
+        )
+    if checks.must_react_with:
+        got = {t.content for t in run.olisar_reactions}
+        wanted = set(checks.must_react_with)
+        hit = got & wanted
+        results.append(
+            CheckResult(
+                "must_react_with",
+                bool(hit),
+                "" if hit else f"reacted with {sorted(got) or 'nothing'}, wanted one of "
+                f"{sorted(wanted)}",
             )
         )
     if checks.max_reply_chars:

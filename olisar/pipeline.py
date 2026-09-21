@@ -147,9 +147,13 @@ _TOOL_LINES: dict[str, str] = {
     ),
     "react": "- react / set_status — a light, alive touch.\n",
     "acknowledge": (
-        "- acknowledge — end the turn with a reaction and no message, when there's nothing "
-        "worth writing: you've just done what they asked, or they only said thanks. It's "
-        "the reply, not an extra on one, so don't also write 'done'.\n"
+        "- acknowledge — end the turn with a reaction and no message. Once you've done what "
+        "was asked — a DM sent, something posted, a fact remembered, a reminder set — this "
+        "REPLACES the sentence you'd have written about it: \"done\", \"got it\", \"sent\", "
+        "\"noted\", \"written down\", \"i'll remember that\". Send the reaction instead of "
+        "the sentence, not as well as it. Same for a message that only needs acknowledging "
+        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Not for a "
+        "question, and not when something went wrong — say so.\n"
     ),
 }
 

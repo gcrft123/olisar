@@ -1,0 +1,36 @@
+{
+  "id": "silent-action-relay",
+  "title": "Asked to post something in another channel, Olisar posts it and reacts instead of replying",
+  "lane": "live",
+  "tags": [
+    "everyday",
+    "silent-acks",
+    "actions"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "rook",
+    "mika"
+  ],
+  "beats": [
+    {
+      "speaker": "rook",
+      "text": "olisar can you drop \"maintenance window is 02:00-04:00 UTC saturday\" in #arena-announcements for me",
+      "expect_reply": true,
+      "timeout": 180
+    }
+  ],
+  "checks": {
+    "must_not_reply": true,
+    "must_react": true
+  },
+  "rubric": [
+    "restraint",
+    "helpfulness"
+  ],
+  "notes": "The shape the feature exists for. Olisar has done the thing; 'done' adds nothing, so the reaction is the reply. The target channel is checked by eye — the run only asserts that something visible happened here and that it wasn't words. Two failures to watch for: a reaction AND a 'posted it!', which is the tool being treated as a garnish rather than the reply; and a reaction with nothing posted in #arena-announcements, which is silence hiding a failed action."
+}
