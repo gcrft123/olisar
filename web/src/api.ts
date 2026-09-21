@@ -319,6 +319,12 @@ export const api = {
   getReport: (token: string) => req(`/api/settings/report/${encodeURIComponent(token)}`),
   getUpdates: () => req('/api/settings/updates'),
   getRemote: () => req('/api/settings/remote'),
+  // The tool PIN. The GET never returns the PIN itself — only whether one is set.
+  getPin: () => req('/api/settings/pin'),
+  putPin: (b: { pin?: string; timeout_sec?: number }) =>
+    req('/api/settings/pin', { method: 'PUT', body: JSON.stringify(b) }),
+  clearPin: () => req('/api/settings/pin', { method: 'DELETE' }),
+
   getDesktop: () => req('/api/settings/desktop'),
   putDesktop: (b: { show_in_menu_bar: boolean }) =>
     req('/api/settings/desktop', { method: 'PUT', body: JSON.stringify(b) }),

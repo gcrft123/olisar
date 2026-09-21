@@ -596,6 +596,24 @@ Recent log lines, for when something isn't behaving. **This app** is the local c
 and **Funnel** (the public web link) are read from your VM and only apply if you
 [host on a server](#host-on-a-server).
 
+#### Security
+The **tool PIN**: four digits that confirm a tool call before Olisar runs it. Set one here, change it
+here, and pick **how long a prompt waits** — 30 seconds to 5 minutes.
+
+When a tool asks for the PIN, Olisar posts a prompt in the channel with **Enter PIN** and **Cancel**
+buttons, and stops showing as typing until it's answered. The digits are typed into a Discord form, so
+they never appear as a message anyone can read back, and knowing them is the whole credential —
+anyone you give the PIN to can answer a prompt.
+
+Three wrong entries, **Cancel**, or the wait running out all land the same way: the call doesn't run,
+the prompt disappears, and Olisar's own reply says it couldn't do that part. Only the prompt's wording
+is yours to change, under [Command replies](#command-replies); there is no second system message
+announcing the outcome.
+
+The PIN is stored hashed and is never shown again, including to you — forgetting it means setting a
+new one, not recovering the old one. No tool asks for it yet, so setting one changes nothing in
+Discord today.
+
 #### Remote access
 The status and **on/off switch** for the public web link, plus the list of who has signed in. Covered in
 full under [Remote access](#remote-access).
@@ -985,6 +1003,7 @@ for its fixed conversational fallbacks. Leave a field blank to use the built-in 
 | **When rate-limited** | every model is busy | — |
 | **When it draws a blank** | a reply came back empty | — |
 | **When access is denied** | a role-gated user is refused | — |
+| **When a tool needs the PIN** | a gated tool call is waiting on the [PIN](#console-settings) | `{tool}`, `{seconds}` |
 
 > [!NOTE]
 > **Example**
