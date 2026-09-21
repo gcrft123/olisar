@@ -173,6 +173,7 @@ class ConfigIn(BaseModel):
     user_persona_msg_threshold: int | None = Field(None, ge=5)
     context_message_limit: int | None = Field(None, ge=3, le=100)
     presence_tools_enabled: bool | None = None
+    silent_acks_enabled: bool | None = None
     name_requires_address: bool | None = None
     see_other_bots: bool | None = None
     # Mention types the bot may not ping: any of "everyone", "here", "roles".

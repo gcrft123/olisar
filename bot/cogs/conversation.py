@@ -5,6 +5,10 @@ Pipeline (Phase 1):
   speak: compose (quiet, then typing if it drags) -> generate reply -> send it at
   human pace, as the one to three messages it was written as -> record the reply.
 
+A reply can also come back silent — Olisar reacted to the message and chose to say
+nothing (``olisar.tools``' ``acknowledge``). Then there is nothing to send and nothing
+sent to record, only the marker row that keeps the turn in the transcript.
+
 Speaking is gated by the channel's mode (respond/both) or being a DM, so admins
 control where Olisar talks. Memory is gated separately by memory/both.
 """
@@ -39,6 +43,7 @@ from olisar.memory.writer import (
     extract_roles,
     get_channel_mode,
     record_message,
+    record_reaction_ack,
     record_search_message,
 )
 from olisar.pipeline import generate_reply
@@ -226,6 +231,25 @@ class Conversation(commands.Cog):
                     if reply.blanked
                     else ""
                 )
+                # A turn answered with a reaction. The reaction is already on the message —
+                # `acknowledge` put it there — so all that's left is the transcript row that
+                # stops the next reply reading this as Olisar having ignored the request.
+                # Written inside the same session, under the same gate as a sent reply.
+                if reply.silent:
+                    log.info(
+                        "answered %s with %s and sent nothing", message.author, reply.emoji
+                    )
+                    if stores:
+                        await record_reaction_ack(
+                            session,
+                            guild_id=guild_id,
+                            channel_id=message.channel.id,
+                            trigger_message_id=message.id,
+                            bot_user_id=bot_user.id,
+                            emoji=reply.emoji,
+                        )
+        if reply.silent:
+            return
         sent = await send_paced(
             message.channel,
             reply.text,

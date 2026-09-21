@@ -418,6 +418,9 @@ export function Behavior() {
         <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
         </Field>
+        <Field label="Silent acknowledgments" desc="Let Olisar react to a message instead of writing “done” after it sends, posts or saves something.">
+          <Toggle value={data.silent_acks_enabled} onChange={(v) => set('silent_acks_enabled', v)} label="Allow reactions instead of replies" />
+        </Field>
       </Card>
       <Card title="Memory & summaries">
         <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">

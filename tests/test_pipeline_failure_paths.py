@@ -25,6 +25,16 @@ from olisar.pipeline import (
     _force_final_answer,
     _run_tool_loop,
 )
+from olisar.tools import ToolContext
+
+
+def _ctx() -> ToolContext:
+    """A real context rather than a MagicMock: the loop reads flags off it (``silent``),
+    and every attribute of a MagicMock is truthy, so a stub would silently take whichever
+    branch a new flag added."""
+    return ToolContext(
+        session=None, cfg_guild=0, channel_id=0, user_id=0, display_name="tester"
+    )
 
 
 def _call(name: str, **args):
@@ -99,7 +109,7 @@ class LookupCapTests(unittest.TestCase):
         with patch("olisar.pipeline.get_gemini", return_value=client), patch(
             "olisar.pipeline.execute_tool", new=AsyncMock(side_effect=fake_execute)
         ), patch("olisar.pipeline.MAX_TOOL_ITERS", rounds):
-            out = asyncio.run(_run_tool_loop([], "sys", None, MagicMock(), blank_fallback="blank"))
+            out = asyncio.run(_run_tool_loop([], "sys", None, _ctx(), blank_fallback="blank"))
         return executed, out
 
     def test_lookup_tool_stops_executing_past_the_cap(self):
@@ -151,7 +161,7 @@ class FunctionResponseRoleTests(unittest.TestCase):
             new=AsyncMock(return_value="**Starlancer TAC** — MISC role: Gunship"),
         ):
             out = asyncio.run(
-                _run_tool_loop(contents, "sys", None, MagicMock(), blank_fallback="blank")
+                _run_tool_loop(contents, "sys", None, _ctx(), blank_fallback="blank")
             )
 
         self.assertEqual(out, "The Starlancer TAC is a MISC gunship.")

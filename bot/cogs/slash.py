@@ -44,6 +44,7 @@ from olisar.messages import get_command_messages, render_message
 from olisar.persona import split_messages
 from olisar.pipeline import generate_reply
 from olisar.runtime.paths import kb_uploads_dir
+from olisar.tools import DEFAULT_ACK_EMOJI
 
 KB_UPLOAD_DIR = kb_uploads_dir()  # per-user data dir when packaged; repo data/ in dev
 MAX_DOC_BYTES = 10 * 1024 * 1024  # 10 MB
@@ -123,11 +124,18 @@ class Slash(commands.Cog):
         am = mention_policy(mention_block)
         # Followups honour the split marker too, so /ask arrives in the same rhythm a reply
         # in the channel would (no typing pacing — the interaction already showed "thinking").
+        #
+        # `or [DEFAULT_ACK_EMOJI]` covers the one case where the reply is deliberately
+        # empty. `acknowledge` refuses on this path — /ask hands the pipeline a `BotActions`,
+        # which has no message to react to — so a silent reply shouldn't be reachable here.
+        # If one ever is, a deferred interaction with no followup sits on "thinking…" until
+        # Discord times it out, and a thumbs-up is a far better answer to that than a hang.
+        empty = (reply.emoji or DEFAULT_ACK_EMOJI) if reply.silent else "…"
         chunks = [
             c
             for piece in split_messages(sanitize_mentions(reply.text, mention_block))
             for c in chunk_text(piece)
-        ] or ["…"]
+        ] or [empty]
         # The view goes on the last chunk, matching send_reply — a blank is one chunk, but
         # the two paths shouldn't disagree about where the button lands.
         view = report_view(report_url)

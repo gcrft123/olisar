@@ -55,6 +55,19 @@ class DiscordActions(Protocol):
     async def request_pin(
         self, *, tool: str, guild_id: int, user_id: int, timeout: float
     ) -> str: ...
+    # React to the message that triggered this reply and end the turn without sending
+    # anything. Returns a success string, or a refusal when there's no message to react
+    # to (the /ask path) or the reaction itself failed.
+    async def acknowledge(self, emoji: str) -> str: ...
+
+
+# The lookup tools, as opposed to the ones that change something. Two rules lean on the
+# distinction: the pipeline's per-reply call cap (a model left alone re-queries these with
+# reworded arguments until the iteration budget is gone), and `acknowledge` (a reply that
+# searched for something owes an answer, so silence is refused once one of these has run).
+LOOKUP_TOOLS = frozenset(
+    {"search_messages", "recall_memory", "query_knowledge", "web_search"}
+)
 
 
 @dataclass
@@ -75,6 +88,14 @@ class ToolContext:
     # holds for the rest of the reply: without it the model's retry would post a second
     # prompt, and someone who just declined would be asked again for the same call.
     pin_denied: dict = field(default_factory=dict)
+    # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
+    # silence after a lookup; nothing else depends on the ordering yet.
+    tools_run: list = field(default_factory=list)
+    # The emoji Olisar reacted with instead of replying — set only once the reaction has
+    # actually landed. Non-empty means this turn is over and nothing gets sent, so it must
+    # never be set optimistically: a failed reaction that still silenced the reply would be
+    # a bot that swallowed the request without a trace anyone can see.
+    silent: str = ""
 
 
 def _str(desc: str) -> types.Schema:
@@ -344,6 +365,33 @@ def presence_declarations() -> list:
     return _PRESENCE_DECLARATIONS
 
 
+# Ending a turn without saying anything. Added to a reply's tool set only when the server
+# has silent_acks_enabled, and never in the console's test chat — there is no message to
+# react to there, so the whole tool reduces to a way of producing an empty test reply.
+_ACK_DECLARATIONS = [
+    types.FunctionDeclaration(
+        name="acknowledge",
+        description=(
+            "React to the message you're answering and finish your turn there, sending no "
+            "message at all. Use it when writing something would add nothing: you've just "
+            "done what they asked with another tool (sent the DM, posted it, saved it, set "
+            "the reminder) and 'done' is the only thing left to say, or their message only "
+            "needs acknowledging — 'thanks', 'sounds good', 'ok cool'. This ENDS the reply: "
+            "call it last, and never as a way to duck a question or to avoid admitting a "
+            "tool failed. If anything you did went wrong, say so instead."
+        ),
+        parameters=_obj(
+            {"emoji": _str("one emoji to react with, e.g. 👍 or 🔥 — defaults to 👍")}, []
+        ),
+    ),
+]
+
+
+def ack_declarations() -> list:
+    """Function declarations for the silent-acknowledgment tool."""
+    return _ACK_DECLARATIONS
+
+
 def tools_with_extensions(extra_declarations: list) -> list:
     """The tool set for one reply: the core tools plus any enabled extensions'
     function declarations. Returns the shared TOOLS when there are no extras."""
@@ -389,6 +437,63 @@ def _summarize(text: str, limit: int = 200) -> str:
     """Collapse a tool result to one short line for logging."""
     s = " ".join((text or "").split())
     return (s[:limit] + "…") if len(s) > limit else s
+
+
+# What Olisar reacts with when it ends a turn without saying anything and doesn't pick an
+# emoji itself. A thumbs-up is the one reaction that reads as "got it" in every room.
+DEFAULT_ACK_EMOJI = "👍"
+
+# The contract between the Discord layer and this one. ``bot/actions.py`` opens a successful
+# acknowledgment with this prefix and returns ordinary prose for every failure, so whether
+# the reaction landed is something the action *reports* rather than something this module
+# infers from the wording — which matters more here than elsewhere, because guessing wrong
+# in the optimistic direction means a request vanishing with nothing to show for it. The
+# model never sees it: ``_acknowledge`` writes its own result.
+ACK_OK = "reacted:"
+
+# Refusals handed back when silence isn't available. Each one has to tell the model what to
+# do *instead*, because the alternative — a bare "no" — leaves it holding a turn it thinks
+# is finished, and an unfinished turn comes out as the blank fallback.
+_ACK_NO_SURFACE = (
+    "There's no message to react to here, so you can't end this without saying something. "
+    "Reply normally: tell them briefly what you did."
+)
+_ACK_AFTER_LOOKUP = (
+    "You looked something up this turn ({tools}), so a reaction isn't an answer — you owe "
+    "them what you found, or a plain admission that you found nothing. Reply normally."
+)
+
+
+async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
+    """React to the message being answered and mark the turn finished, or explain why not.
+
+    Three ways this refuses, and all three exist because the failure they prevent looks
+    identical from the channel — Olisar read the message and did nothing:
+
+    * nothing to react to (the ``/ask`` path builds ``BotActions``, which has no message);
+    * a lookup ran this turn, so a reaction would be the answer going missing;
+    * the reaction itself didn't land, which is the one case where silence would also hide
+      the reason it didn't.
+
+    ``ctx.silent`` is set only on the far side of a reaction Discord accepted.
+    """
+    if ctx.actions is None:
+        return _ACK_NO_SURFACE
+    used = [name for name in ctx.tools_run if name in LOOKUP_TOOLS]
+    if used:
+        return _ACK_AFTER_LOOKUP.format(tools=", ".join(dict.fromkeys(used)))
+    from olisar.proactivity import first_emoji
+
+    picked = first_emoji(emoji) or DEFAULT_ACK_EMOJI
+    result = await ctx.actions.acknowledge(picked)
+    if not result.startswith(ACK_OK):
+        return result  # the reaction failed — the model has to reply after all
+    ctx.silent = picked
+    log.info("acknowledged with %s — this reply sends nothing", picked)
+    return (
+        f"Reacted with {picked}. This turn is finished — write nothing further, and don't "
+        "call another tool."
+    )
 
 
 async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
@@ -544,6 +649,9 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             if ctx.actions is None:
                 return "Can't react from here."
             return await ctx.actions.react(args.get("emoji") or "")
+
+        if name == "acknowledge":
+            return await _acknowledge(args.get("emoji") or DEFAULT_ACK_EMOJI, ctx)
 
         if name == "send_dm":
             if ctx.actions is None:
@@ -708,6 +816,8 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
             ctx.pin_denied[name] = outcome
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)
             return toolpin.denial_note(name, outcome)
+    # Recorded after the PIN gate, so a call that never ran doesn't count as one that did.
+    ctx.tools_run.append(name)
     result = await _dispatch(name, args, ctx)
     log.info("tool result: %s -> %s", name, _summarize(result))
     return result

@@ -200,6 +200,7 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
             "context_message_limit": c.context_message_limit,
             "presence_tools_enabled": c.presence_tools_enabled,
+            "silent_acks_enabled": c.silent_acks_enabled,
             "name_requires_address": c.name_requires_address,
             "see_other_bots": c.see_other_bots,
             "blocked_mentions": list(c.blocked_mentions or []),
