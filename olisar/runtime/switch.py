@@ -102,6 +102,12 @@ async def switch_profile(app, target_id: str) -> dict:
         await _prepare(target_id)
         if await runtime_config.hosting_mode() == "local":
             await server.start_supervisor(app, target_id)  # server mode: no local bot
+        else:
+            # Switching *to* a server-hosted bot is the same moment as launching into one:
+            # if this app is ahead of that VM, bring the VM along (in the background).
+            from olisar.runtime import remote
+
+            remote.spawn_autoupdate()
         return await _status()
     except Exception:
         log.exception("switch to profile %s failed; rolling back to %s", target_id, prev)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
@@ -17,6 +17,8 @@ type Status = {
   digest?: string
   url?: string
   host?: string
+  /** An update the app started by itself is in flight (see remote.autoupdate). */
+  auto_updating?: boolean
   error?: string
 }
 
@@ -49,9 +51,9 @@ function isNewer(remote: string, local: string): boolean {
  *  the panel used to print the server's version as "vv1.4.2". */
 const bareVersion = (v: string | undefined): string => String(v || '').replace(/^v/i, '')
 
-/** What an update attempt should say — ours, or one the VM's timer ran unattended.
- *  Tone drives how it's delivered: a success expires on its own, a rollback or failure
- *  is something the operator has to act on, so it sticks until dismissed. */
+/** What an update attempt should say — the one we pressed, or the one the app applied for
+ *  us at launch. Tone drives how it's delivered: a success expires on its own, a rollback or
+ *  failure is something the operator has to act on, so it sticks until dismissed. */
 function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone } | null {
   if (!r || !r.at) return null
   const tag = r.tag ? `v${bareVersion(r.tag)}` : 'the latest release'
@@ -67,9 +69,10 @@ function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone
  *  A reconnect flow re-adopts the VM after a reinstall / reset / IP change.
  *
  *  Opening the panel only *reads* status. It used to fire an image pull from a mount
- *  effect, which locked every button — including "Open console" — for minutes, and meant
- *  a server whose operator rarely opened the app never updated at all. The VM now runs its
- *  own daily update timer; "Update now" here is the same script, on demand. */
+ *  effect, which locked every button — including "Open console" — for minutes. Updates now
+ *  start in the backend the moment it notices this app is ahead of the VM (which is what a
+ *  relaunch after a self-update looks like); the panel reports one it finds in flight, and
+ *  "Update to vX" runs the same script on demand. */
 export function ServerControlPanel() {
   const [st, setSt] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
@@ -89,17 +92,38 @@ export function ServerControlPanel() {
   // fetch it lazily when the operator expands the disclosure — never blocks the panel.
   const pk = usePubkey(reconnect && showKey)
 
-  async function refresh() {
+  // Whether the last reading had an automatic update in flight. Read by `refresh` below as
+  // well as the effect that announces one landing, so it's declared before both.
+  const wasAuto = useRef(false)
+
+  async function refresh(): Promise<Status> {
     // Degrade gracefully: a failed status read (VM down, container restarting, timeout)
     // resolves to "Unreachable" with the real error — never a stuck "Checking…".
+    let next: Status
     try {
-      setSt(await api.serverStatus())
+      next = await api.serverStatus()
     } catch (e: any) {
-      setSt({
+      // `auto_updating` is carried over rather than dropped. The backend puts it on its own
+      // failure answers precisely so a container being recreated isn't painted as a dead
+      // server; a fetch that fails here is the same situation, and letting it read as false
+      // would both flash "Unreachable" and fire the finished-update toast a poll early.
+      next = {
         configured: true,
         reachable: false,
+        auto_updating: wasAuto.current,
         error: e?.message || 'status check failed',
-      })
+      }
+    }
+    setSt(next)
+    return next
+  }
+
+  /** What the VM's last update attempt has to say, whatever started it, or null. */
+  async function lastUpdateNote() {
+    try {
+      return noteFor(await api.serverLastUpdate())
+    } catch {
+      return null  // informational only
     }
   }
 
@@ -107,16 +131,16 @@ export function ServerControlPanel() {
     // Holder so the unmount cleanup always sees the latest interval id.
     const life = { cancelled: false, poll: undefined as ReturnType<typeof setInterval> | undefined }
     ;(async () => {
-      await refresh()
+      const first = await refresh()
       if (life.cancelled) return
-      // Surface what the VM's update timer did while the app was closed. Only the outcomes
-      // that need attention: a *successful* unattended update already shows as the version
-      // below, so toasting it too would announce the same news on every open, days later.
-      try {
-        const last = await api.serverLastUpdate()
-        const note = noteFor(last)
+      // Surface what the last update did while nobody was watching. Only the outcomes that
+      // need attention: a *successful* one already shows as the version below, so toasting
+      // it too would announce the same news on every open, days later. Skipped entirely
+      // while an update is running — that one reports itself when it lands.
+      if (!first.auto_updating) {
+        const note = await lastUpdateNote()
         if (!life.cancelled && note && note.tone !== 'success') toast(note.text, note.tone)
-      } catch { /* informational only */ }
+      }
       if (life.cancelled) return
       life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
     })()
@@ -125,6 +149,19 @@ export function ServerControlPanel() {
       if (life.poll) clearInterval(life.poll)
     }
   }, [])
+
+  // An update the app started for itself (a launch onto a newer build than the VM) finishes
+  // while the panel is open. Nothing else would say how it went, so say it here — including
+  // the success, since the operator is watching this one happen.
+  useEffect(() => {
+    const now = !!st?.auto_updating
+    const finished = wasAuto.current && !now
+    wasAuto.current = now
+    if (!finished) return
+    let alive = true
+    lastUpdateNote().then((note) => { if (alive && note) toast(note.text, note.tone) })
+    return () => { alive = false }
+  }, [st?.auto_updating])
 
   // Is there a newer release than what the VM is actually running? Compared against the
   // server's version (from its image labels), not this app's — they update separately.
@@ -195,7 +232,11 @@ export function ServerControlPanel() {
   // `restart: unless-stopped` is "running", and reporting that as healthy was a lie.
   const unhealthy = running && st?.health === 'unhealthy'
   const starting = running && st?.health === 'starting'
-  const stateLabel = updating
+  // One "Updating…" state, whether we pressed the button or the backend started it at
+  // launch. It outranks every other reading: mid-update the container is *meant* to be
+  // recreated, so "Stopped" or "Unreachable" would be alarming and wrong.
+  const busyUpdating = updating || !!st?.auto_updating
+  const stateLabel = busyUpdating
     ? 'Updating…'
     : loading
       ? 'Checking…'
@@ -208,14 +249,14 @@ export function ServerControlPanel() {
             : starting
               ? 'Starting…'
               : 'Running'
-  const stateTone = updating || loading || starting
+  const stateTone = busyUpdating || loading || starting
     ? 'info'
     : !reachable || unhealthy
       ? 'error'
       : running
         ? 'success'
         : 'warning'
-  const actionsLocked = busy || updating
+  const actionsLocked = busy || busyUpdating
 
   if (reconnect) {
     return (
@@ -274,13 +315,13 @@ export function ServerControlPanel() {
           <span className="grow" />
           {available && (
             <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
-              {updating ? 'Updating…' : `Update to v${bareVersion(available)}`}
+              {busyUpdating ? 'Updating…' : `Update to v${bareVersion(available)}`}
             </button>
           )}
           {running
             ? <button className="caution" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
             : <button disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
-          <button className="primary" disabled={!st?.url || updating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
+          <button className="primary" disabled={!st?.url || busyUpdating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
         </div>
 
         {st?.version && (
@@ -289,16 +330,16 @@ export function ServerControlPanel() {
             {available ? <>, and <b>v{bareVersion(available)}</b> is available.</> : <>, up to date.</>}
           </p>
         )}
-        {updating && (
+        {busyUpdating && (
           <p className="srv-hint">
-            Updating the VM. If the new version doesn’t come up, the previous one is restored
-            automatically. This can take a few minutes…
+            Updating the VM to match this app. If the new version doesn’t come up, the previous
+            one is restored automatically. This can take a few minutes…
           </p>
         )}
-        {!loading && !updating && unhealthy && (
+        {!loading && !busyUpdating && unhealthy && (
           <p className="srv-hint">Olisar is running but failing its healthcheck. Check the logs under Settings.</p>
         )}
-        {!loading && !updating && !reachable && (
+        {!loading && !busyUpdating && !reachable && (
           <p className="srv-hint">Couldn’t reach your server{st?.error ? `: ${st.error}.` : '. Check that the VM is running.'} Still retrying, or use <b>Reconnect</b>.</p>
         )}
         {err && <div className="err">{err}</div>}
