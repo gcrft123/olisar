@@ -179,27 +179,44 @@ On **Windows**, which isn't signed, `npm run release` still does build-and-publi
 
 ## 4. Write the release notes
 
-CI publishes the GitHub Release with an **empty body**, so add the notes by hand afterward
-(`gh release edit vX.Y.Z --notes-file notes.md`, or in the GitHub web UI).
+[`CHANGELOG.md`](CHANGELOG.md) **is** the release notes. Entries go under `## [Unreleased]`
+as the work is done, by hand — never generated from commit subjects or `git log` afterwards.
+A version with nothing written under it shouldn't go out.
 
-Title the release **`vX.Y.Z — <short summary>`**, and write the body with these four sections
-**in this order** — omit any that has nothing, but always keep **Install**:
+Cutting a release renames that section to `## [X.Y.Z] — YYYY-MM-DD` (em dash, ISO date) and
+leaves `## [Unreleased]` empty above it. CI publishes the GitHub Release with an **empty
+body**, so paste the section in afterwards — it ships verbatim:
 
-```md
-## Fixes
-- bug fixes / regressions
-
-## New
-- new features
-
-## Other
-- everything else: docs, refactors, dependency bumps, hardening, chores
-
-## Install
-Download the macOS `.dmg` (Apple Silicon) or Windows `.exe` below.
-- **macOS** — signed and notarized; open the `.dmg` and drag Olisar to Applications.
-- **Windows** — unsigned, so SmartScreen may warn; choose **More info → Run anyway**.
+```sh
+gh release edit vX.Y.Z --notes-file notes.md   # notes.md = that section, minus its heading
 ```
+
+Title the release **`vX.Y.Z — <short summary>`**.
+
+The shape of a section:
+
+```markdown
+## [2.1.0] — 2026-09-13
+
+One or two paragraphs on what was wrong and what the release does about it.
+The reasoning lives here.
+
+### Changed
+
+[90ad8a4] — The exporter writes one file per locale instead of one combined file.
+
+[90ad8a4] — `--locale` picks a single one.
+```
+
+- Newest release first; `## [Unreleased]` sits at the top and is empty between releases.
+- Groups are `### New`, `### Changed`, `### Fixed`, in that order. Omit the empty ones; don't
+  invent other names.
+- Every entry is one change on one line: the short hash of the commit carrying it, an em dash,
+  then one plain sentence. Hashes are plain text, not links.
+- Entries are paragraphs separated by blank lines, not bullets, and never wrap.
+- A commit that changed several things gets several entries; an entry covering more than one
+  commit gets split by commit.
+- The summary carries the why, the entries carry the what. Don't restate one in the other.
 
 ## 5. Verify
 
