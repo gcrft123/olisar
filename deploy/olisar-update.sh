@@ -2,12 +2,16 @@
 #
 # Olisar server self-update — pull the newest *release* and apply it, health-gated, with
 # automatic rollback. Installed to ~/olisar/olisar-update.sh by the desktop app's deploy
-# (and by deploy/bootstrap.sh), then driven from two places:
+# (and by deploy/bootstrap.sh), then driven over SSH by the client:
 #
-#   * olisar-update.timer  — daily, so a server updates even when nobody opens the app
-#   * the desktop control panel's "Update now" — same script over SSH
+#   * automatically, when the app finds itself on a newer build than the VM — which is the
+#     case every time it relaunches after updating itself
+#   * on demand, from the control panel's "Update now"
+#   * by hand on the VM: ./olisar-update.sh
 #
-# One implementation, two triggers: the client no longer reimplements any of this.
+# One implementation, every trigger: the client never reimplements any of this. (There used
+# to be a daily systemd timer here as well; the client drives updates now, so a VM that
+# still has that timer installed gets it removed on the next connect.)
 #
 # The compose file is rewritten on every run and pinned to an immutable digest, so
 # "what is deployed" is a fact on disk rather than whatever :latest happened to be. The
@@ -24,8 +28,8 @@ set -uo pipefail
 
 REPO="gcrft123/olisar"
 IMAGE="ghcr.io/${REPO}"
-# Resolve our own directory so this works identically from SSH, cron and systemd (where
-# $HOME may be unset).
+# Resolve our own directory so this works identically over SSH and from a login shell
+# (where $HOME may or may not be set).
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HEALTH_TIMEOUT="${OLISAR_HEALTH_TIMEOUT:-180}"   # Dockerfile start-period is 60s
 

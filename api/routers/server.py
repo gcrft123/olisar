@@ -60,19 +60,23 @@ async def power(body: PowerIn) -> dict:
 
 @router.post("/update")
 async def update() -> dict:
-    """Apply the newest Olisar release on the VM, health-gated, rolling back on failure."""
+    """Apply the newest Olisar release on the VM, health-gated, rolling back on failure.
+
+    On demand. The backend also runs this by itself, whenever it starts up ahead of the VM
+    (see ``remote.autoupdate``) — ``/status`` reports that one as ``auto_updating``."""
     return await remote.update_image()
 
 
 @router.get("/last-update")
 async def last_update() -> dict:
-    """The VM's last update attempt — including one its timer ran while the app was shut."""
+    """The VM's last update attempt — including one the app applied at launch, unwatched."""
     return await remote.last_update()
 
 
 @router.get("/status")
 async def status() -> dict:
-    """What's on the VM: run state, health, version/digest, public URL, and recent logs."""
+    """What's on the VM: run state, health, version/digest, public URL, recent logs, and
+    whether an automatic update is in flight."""
     return await remote.status()
 
 

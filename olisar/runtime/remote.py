@@ -6,6 +6,7 @@ with no terminal work from the operator:
   - install Docker + write the .env / compose file + start the container (`deploy`)
   - start/stop it later from the in-app control panel (`power`)
   - pull a newer image and recreate the container when running (`update_image`)
+  - do that unattended whenever this client is ahead of the VM (`autoupdate`)
   - read whether it's running, recent logs, and the public URL (`status`)
 
 Host-key checking is disabled: the target is the operator's own freshly-created VM,
@@ -27,6 +28,7 @@ from sqlalchemy import select
 from olisar import runtime_config
 from olisar.db.engine import session_scope
 from olisar.db.models import AppConfig
+from olisar.updates import UNKNOWN_VERSION, current_version, is_newer, same_version
 
 log = logging.getLogger("olisar.remote")
 
@@ -41,11 +43,17 @@ VM_DB = f"{VM_DATA_DIR}/olisar.db"
 VM_KB = f"{VM_DATA_DIR}/kb_uploads"
 _HELPER_IMAGE = "alpine"    # tiny image to read/write the named volume while stopped
 
-# Files the app owns on the VM. They're (re)installed on every deploy AND every connect,
-# so a VM set up by an older client picks up the current layout instead of silently
-# drifting — the compose file used to be written once at deploy and never again.
-# `.env` is deliberately NOT in this set: it holds secrets the operator may have edited.
-_MANAGED_ASSETS = ("olisar-update.sh", "olisar-update.service", "olisar-update.timer")
+# The one file the app owns on the VM. It's (re)installed on every deploy AND every
+# connect, so a VM set up by an older client picks up the current script instead of
+# silently drifting — it used to be written once at deploy and never again.
+# `.env` is deliberately NOT managed: it holds secrets the operator may have edited.
+UPDATE_SCRIPT = "olisar-update.sh"
+
+# systemd units an older client installed alongside it, to run that script on a daily
+# timer. Updates are the client's job now (see ``autoupdate``), so these are removed
+# wherever they're still armed — otherwise a VM keeps a second, invisible updater that
+# can move it to a release the operator's app knows nothing about.
+_RETIRED_UNITS = ("olisar-update.timer", "olisar-update.service")
 
 # The compose file itself is written by olisar-update.sh, pinned to an immutable digest —
 # so "what is deployed" is a fact on disk rather than whatever :latest resolved to.
@@ -114,35 +122,36 @@ async def _read_json(conn, path: str) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-async def _install_managed(conn, user: str) -> None:
-    """Install/refresh the update script and its systemd timer on the VM.
+async def _install_managed(conn) -> None:
+    """Install/refresh the update script on the VM, and retire the old daily timer.
 
     Idempotent, and run on connect as well as deploy — this is what brings a VM that an
-    older client set up onto the current layout. The timer is best-effort: a host without
-    systemd still gets the script (which the control panel can invoke directly)."""
+    older client set up onto the current layout."""
     await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
-    await conn.run(f"cat > ~/{APP_DIR}/olisar-update.sh", input=_asset("olisar-update.sh"), check=True)
-    await _run(conn, f"chmod +x ~/{APP_DIR}/olisar-update.sh", timeout=30)
+    await conn.run(f"cat > ~/{APP_DIR}/{UPDATE_SCRIPT}", input=_asset(UPDATE_SCRIPT), check=True)
+    await _run(conn, f"chmod +x ~/{APP_DIR}/{UPDATE_SCRIPT}", timeout=30)
+    await _retire_timer(conn)
 
-    # systemd wants an absolute path and the unit's user baked in; the app dir lives under
-    # the operator's home, which we don't know until we ask.
-    abs_dir = (await _run(conn, f"cd ~/{APP_DIR} && pwd", timeout=30)).strip().splitlines()[-1]
+
+async def _retire_timer(conn) -> None:
+    """Disable and delete the systemd update timer an older client installed.
+
+    Best-effort: a host without systemd never had one, and a VM that keeps it doesn't
+    break — it just updates on a schedule nobody asked for any more."""
+    units = " ".join(f"/etc/systemd/system/{unit}" for unit in _RETIRED_UNITS)
     try:
-        for unit in ("olisar-update.service", "olisar-update.timer"):
-            body = _asset(unit).replace("@DIR@", abs_dir).replace("@USER@", user)
-            await conn.run(f"cat > /tmp/{unit}", input=body, check=True)
-            await _run(
-                conn,
-                f"sudo install -m 0644 /tmp/{unit} /etc/systemd/system/{unit} && rm -f /tmp/{unit}",
-                timeout=60,
-            )
         await _run(
             conn,
-            "sudo systemctl daemon-reload && sudo systemctl enable --now olisar-update.timer",
+            "if command -v systemctl >/dev/null 2>&1; then "
+            "  sudo systemctl disable --now olisar-update.timer >/dev/null 2>&1 || true; "
+            f"  sudo rm -f {units}; "
+            "  sudo systemctl daemon-reload || true; "
+            "fi; "
+            f"rm -f ~/{APP_DIR}/olisar-update.timer ~/{APP_DIR}/olisar-update.service",
             timeout=90,
         )
-    except Exception as exc:  # noqa: BLE001 — a missing timer must not fail a deploy
-        log.warning("could not install the update timer: %s", exc)
+    except Exception as exc:  # noqa: BLE001 — a leftover timer must not fail a deploy
+        log.warning("could not retire the VM's update timer: %s", exc)
 
 
 async def deploy(host: str, user: str, env_text: str) -> dict:
@@ -167,12 +176,12 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
         await conn.run(f"cat > ~/{APP_DIR}/.env", input=env_text, check=True)
         await _run(conn, f"chmod 600 ~/{APP_DIR}/.env", timeout=30)
-        await _install_managed(conn, user)
+        await _install_managed(conn)
         # A first deploy and an update are the same code path — the script resolves the
         # newest release, pins its digest into the compose file, starts it, and rolls back
         # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
         log_lines.append("Pulling the latest Olisar release and starting it…")
-        out = await _run(conn, f"bash ~/{APP_DIR}/olisar-update.sh --start", timeout=900)
+        out = await _run(conn, f"bash ~/{APP_DIR}/{UPDATE_SCRIPT} --start", timeout=900)
         log_lines.append(out.strip()[-2000:])
     except Exception as exc:  # noqa: BLE001
         conn.close()
@@ -180,6 +189,9 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
     conn.close()
     await runtime_config.save(
         server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
+        # The VM is on the newest release as of this build, so the launch after this one
+        # has nothing to reconcile (see ``autoupdate``).
+        server_synced_version=current_version(),
     )
     await runtime_config.session_secret()
     return {"ok": True, "log": "\n".join(log_lines)}
@@ -210,10 +222,10 @@ async def connect(host: str, user: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
-    # Reconcile the files we own so a VM deployed by an older client picks up the update
-    # script and timer. `.env` is never touched — the operator's secrets live there.
+    # Reconcile the file we own so a VM deployed by an older client picks up the current
+    # update script. `.env` is never touched — the operator's secrets live there.
     try:
-        await _install_managed(conn, user)
+        await _install_managed(conn)
     except Exception as exc:  # noqa: BLE001 — adoption must still succeed
         log.warning("could not reconcile managed files on %s: %s", host, exc)
     conn.close()
@@ -221,6 +233,10 @@ async def connect(host: str, user: str) -> dict:
         server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
     )
     await runtime_config.session_secret()
+    # A VM we've just adopted may be behind this build — bring it up without making the
+    # operator go looking for a button. In the background: adoption shouldn't wait on an
+    # image pull, and the panel reports the update through ``auto_updating``.
+    spawn_autoupdate()
     return {"ok": True}
 
 
@@ -378,8 +394,8 @@ async def _probe(conn) -> dict:
 
 
 async def last_update() -> dict:
-    """What the VM's last update attempt did — including one the systemd timer ran while
-    the app was closed, which is the only way the operator would ever learn about it."""
+    """What the VM's last update attempt did — including one this app started at launch and
+    the operator never watched, which is the only way they'd learn how it went."""
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {}
@@ -393,46 +409,39 @@ async def last_update() -> dict:
         conn.close()
 
 
-async def update_image() -> dict:
-    """Apply the newest Olisar *release* on the configured VM, by running the VM's own
-    ``olisar-update.sh`` — which resolves the release tag, pins its digest into the compose
-    file, applies it, waits for the container's healthcheck, and rolls back to the previous
-    digest if it never comes up.
+async def _apply_update(conn, host: str) -> dict:
+    """Run the VM's update script over an open connection and report what it did.
 
-    Deliberately the same script the systemd timer runs, so a client-triggered update and
-    an unattended one cannot diverge. Best-effort: SSH failures return ``ok: False``
-    without raising so the panel can still show status.
+    The single implementation behind every trigger — the control panel's "Update now" and
+    the automatic reconcile below both land here, so an attended update and an unattended
+    one cannot diverge. ``host`` is the VM this connection belongs to, so the outcome is
+    recorded against the right bot.
     """
-    cfg = await _load()
-    if not (cfg and cfg.server_host):
-        return {"ok": False, "error": "No server configured yet."}
-    user = cfg.server_ssh_user or "ubuntu"
-    base = {"host": cfg.server_host}
+    # A VM last touched by an older client has no script yet — install it first.
+    probe_script = await conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False)
+    if "OK" not in (probe_script.stdout or ""):
+        await _install_managed(conn)
+    r = await asyncio.wait_for(
+        conn.run(f"bash ~/{APP_DIR}/{UPDATE_SCRIPT}", check=False), timeout=1200
+    )
+    out = ((r.stdout or "") + (r.stderr or "")).strip()
+    result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
+    state = await _probe(conn)
+
+    # Stamp the build that reconciled this VM, whatever the outcome: a retry belongs to a
+    # *newer* client build, not to every launch of this one (see ``decide``). Only if the
+    # app is still pointed at this VM — the operator may have switched bots while we ran,
+    # and the config we'd be writing then belongs to someone else's server.
     try:
-        conn = await _connect(cfg.server_host, user)
-    except Exception as exc:  # noqa: BLE001
-        return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
-    try:
-        # A VM last touched by an older client has no script yet — install it first.
-        probe_script = await conn.run(f"test -x ~/{APP_DIR}/olisar-update.sh && echo OK", check=False)
-        if "OK" not in (probe_script.stdout or ""):
-            await _install_managed(conn, user)
-        r = await asyncio.wait_for(
-            conn.run(f"bash ~/{APP_DIR}/olisar-update.sh", check=False), timeout=1200
-        )
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
-        result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
-        state = await _probe(conn)
-    except Exception as exc:  # noqa: BLE001
-        conn.close()
-        return {**base, "ok": False, "reachable": True, "error": str(exc)}
-    conn.close()
+        current = await _load()
+        if current and current.server_host == host:
+            await runtime_config.save(server_synced_version=current_version())
+    except Exception as exc:  # noqa: BLE001 — the update itself already happened
+        log.warning("could not record the synced version: %s", exc)
 
     ok = bool(result.get("ok")) if result else r.exit_status == 0
-    out_dict = {
-        **base,
+    applied = {
         "ok": ok,
-        "reachable": True,
         "updated": bool(result.get("updated")),
         "rolled_back": bool(result.get("rolled_back")),
         "status": result.get("status") or "",
@@ -444,8 +453,138 @@ async def update_image() -> dict:
         "log": out[-2000:],
     }
     if not ok:
-        out_dict["error"] = result.get("message") or "The update did not complete."
-    return out_dict
+        applied["error"] = result.get("message") or "The update did not complete."
+    return applied
+
+
+async def update_image() -> dict:
+    """Apply the newest Olisar *release* on the configured VM, by running the VM's own
+    ``olisar-update.sh`` — which resolves the release tag, pins its digest into the compose
+    file, applies it, waits for the container's healthcheck, and rolls back to the previous
+    digest if it never comes up.
+
+    The control panel's on-demand trigger. Best-effort: SSH failures return ``ok: False``
+    without raising so the panel can still show status. Shares ``_gate`` with the automatic
+    reconcile, so two runs of the script can never race over the same compose file.
+    """
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
+    base = {"host": cfg.server_host}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
+    try:
+        async with _gate:
+            applied = await _apply_update(conn, cfg.server_host)
+    except Exception as exc:  # noqa: BLE001
+        return {**base, "ok": False, "reachable": True, "error": str(exc)}
+    finally:
+        conn.close()
+    return {**base, "reachable": True, **applied}
+
+
+# ── automatic updates ───────────────────────────────────────────────────────────
+# The VM used to update itself on a daily systemd timer, because the app was the only
+# trigger and an operator who rarely opened it left their server months behind. That traded
+# one drift for another: the timer moved a server onto a release nobody had asked for, up to
+# a day after the fact, and the app could sit at a different version the whole time.
+#
+# So the client drives it. It is the side that knows a release exists — it just installed
+# one on itself — and the moment it comes up ahead of the VM is exactly the moment the two
+# should be brought back together.
+
+_auto: dict = {"running": False, "reason": ""}
+_tasks: set[asyncio.Task] = set()
+_gate = asyncio.Lock()  # one reconcile at a time — a boot and an adopt can land together
+
+
+def decide(*, client: str, server: str, synced: str, last: dict) -> str:
+    """Why the VM should be updated right now, or ``""`` to leave it alone.
+
+    ``client``  the version of this build        ``server``  the version the VM is running
+    ``synced``  the build that last reconciled this VM ("" = never)
+    ``last``    the VM's ``last-update.json``
+
+    Pure, because the triggers are the whole feature: an app that quietly reinstalls a
+    release on someone's server needs its reasons to be readable and tested.
+    """
+    if not client or same_version(client, UNKNOWN_VERSION):
+        return ""  # a build that can't tell what it is has no business moving a server
+    # A release this VM already refused — it pulled a tag, failed its healthcheck and rolled
+    # itself back. Trying again from the same build would just roll back again, on every
+    # launch; wait until this app has itself moved forward.
+    if last.get("rolled_back") and synced and not is_newer(client, synced):
+        return ""
+    if server:
+        # The VM's version is readable, so it answers the question on its own.
+        return "client-ahead" if is_newer(client, server) else ""
+    # No readable version (a container that has never started, or an image from before the
+    # OCI labels). Fall back to the app's own history: this build is newer than the one that
+    # last reconciled the VM, which is what a relaunch after a self-update looks like.
+    return "relaunched" if synced and is_newer(client, synced) else ""
+
+
+def spawn_autoupdate() -> None:
+    """Kick off ``autoupdate`` in the background. Fire-and-forget by design: it is an SSH
+    round trip and possibly a multi-minute image pull, and nothing local waits on it. The
+    task is held in a module-level set so it can't be garbage-collected mid-flight."""
+    task = asyncio.create_task(autoupdate(), name="olisar-server-autoupdate")
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def autoupdate() -> dict:
+    """Bring the VM onto the newest release when this client has moved ahead of it.
+
+    Runs at backend startup and after adopting a VM — so the app relaunching onto a newer
+    build (which is what every self-update ends in) carries the server along with it, and a
+    server found behind is caught the next time the app opens. Never raises: an unreachable
+    VM is simply retried on the next launch.
+    """
+    async with _gate:
+        return await _reconcile()
+
+
+async def _reconcile() -> dict:
+    """One pass: read what the VM is running, decide, and apply the release if there's a
+    reason to. Serialised by ``_gate`` so two triggers can't pull into the same VM at once."""
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"skipped": "no-server"}
+    client = current_version()
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        log.info("auto-update: %s unreachable (%s) — retrying on the next launch", cfg.server_host, exc)
+        return {"skipped": "unreachable"}
+    try:
+        state = await _probe(conn)
+        reason = decide(
+            client=client,
+            server=state.get("version") or "",
+            synced=cfg.server_synced_version or "",
+            last=await _read_json(conn, f"~/{APP_DIR}/last-update.json"),
+        )
+        if not reason:
+            return {"skipped": "up-to-date", "version": state.get("version") or ""}
+        log.info(
+            "auto-update (%s): this app is v%s, the server is v%s — applying the newest release",
+            reason, client, state.get("version") or "unknown",
+        )
+        _auto.update(running=True, reason=reason)
+        try:
+            applied = await _apply_update(conn, cfg.server_host)
+        finally:
+            _auto.update(running=False, reason="")
+    except Exception as exc:  # noqa: BLE001 — a failed update must not take the app down
+        log.warning("auto-update failed: %s", exc)
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
+    log.info("auto-update: %s", applied.get("message") or applied.get("status") or "done")
+    return {**applied, "reason": reason}
 
 
 async def power(action: str) -> dict:
@@ -511,7 +650,10 @@ async def status() -> dict:
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {"configured": False}
-    base = {"configured": True, "host": cfg.server_host}
+    # ``auto_updating`` rides along on every answer, including the failures: while an
+    # automatic update recreates the container, the probe legitimately reads as stopped or
+    # unreachable, and the panel would otherwise report that as a server that fell over.
+    base = {"configured": True, "host": cfg.server_host, "auto_updating": _auto["running"]}
     try:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
