@@ -105,12 +105,13 @@ export function ServerControlPanel() {
     return next
   }
 
-  /** Report a finished update once, whatever started it. */
-  async function noteLastUpdate(skipSuccess: boolean) {
+  /** What the VM's last update attempt has to say, whatever started it, or null. */
+  async function lastUpdateNote() {
     try {
-      const note = noteFor(await api.serverLastUpdate())
-      if (note && !(skipSuccess && note.tone === 'success')) toast(note.text, note.tone)
-    } catch { /* informational only */ }
+      return noteFor(await api.serverLastUpdate())
+    } catch {
+      return null  // informational only
+    }
   }
 
   useEffect(() => {
@@ -123,7 +124,10 @@ export function ServerControlPanel() {
       // need attention: a *successful* one already shows as the version below, so toasting
       // it too would announce the same news on every open, days later. Skipped entirely
       // while an update is running — that one reports itself when it lands.
-      if (!first.auto_updating) await noteLastUpdate(true)
+      if (!first.auto_updating) {
+        const note = await lastUpdateNote()
+        if (!life.cancelled && note && note.tone !== 'success') toast(note.text, note.tone)
+      }
       if (life.cancelled) return
       life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
     })()
@@ -139,8 +143,12 @@ export function ServerControlPanel() {
   const wasAuto = useRef(false)
   useEffect(() => {
     const now = !!st?.auto_updating
-    if (wasAuto.current && !now) void noteLastUpdate(false)
+    const finished = wasAuto.current && !now
     wasAuto.current = now
+    if (!finished) return
+    let alive = true
+    lastUpdateNote().then((note) => { if (alive && note) toast(note.text, note.tone) })
+    return () => { alive = false }
   }, [st?.auto_updating])
 
   // Is there a newer release than what the VM is actually running? Compared against the
