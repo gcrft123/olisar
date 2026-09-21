@@ -30,6 +30,7 @@ from arena.control.guild import Steward, olisar_user_id
 from arena.discord_rest import DiscordRest
 from arena.eval.transcript import (
     REACTION,
+    RELAY,
     Run,
     Turn,
     apply_checks,
@@ -198,6 +199,9 @@ class LiveRunner:
                     speakers[key] = _Speaker(personas[key], rest, members[key].user_id)
 
                 cursor = await self._latest_message_id(steward.rest, channel_id)
+                # Where every other channel stood before the run, so the sweep at the end
+                # can tell a relay Olisar made during it from what was already there.
+                relay_cursors = await self._channel_cursors(steward.rest, cfg.guild_id)
                 deadline = time.monotonic() + cfg.scenario_timeout_seconds
 
                 for beat in scenario.seed:
@@ -225,6 +229,9 @@ class LiveRunner:
                     await self._collect_reactions(
                         run, steward.rest, channel_id, turn.message_id, olisar_id
                     )
+                await self._collect_relays(
+                    run, steward.rest, channel_id, olisar_id, relay_cursors
+                )
         except RunAborted as exc:
             run.error = str(exc)
             log.warning("run %s aborted: %s", run.run_id, exc)
@@ -496,6 +503,77 @@ class LiveRunner:
                 return await self._drain_reply(run, observer, channel_id, cursor, olisar_id)
         log.info("no reply within %.0fs", timeout)
         return cursor
+
+    async def _collect_relays(
+        self, run: Run, observer: DiscordRest, channel_id: int, olisar_id: int,
+        cursors: dict[int, tuple[str, int]],
+    ) -> None:
+        """Record anything Olisar posted in a channel *other* than the scenario's.
+
+        ``send_to_channel`` and ``send_dm`` are output paths a reply never touches, so a
+        transcript built by polling one channel cannot see them. Every red-team case in the
+        suite asserts on that transcript, which means a refusal in this channel and the
+        forbidden bytes posted into the one next door scored as a clean pass on every
+        check. Sweeping the rest of the guild is what makes those assertions mean what they
+        have always claimed to mean.
+
+        DMs stay invisible — Discord won't let a bot read another bot's, and the recipient
+        of a real one is a person. That limit is in arena/README.md and this doesn't lift it.
+        """
+        for cid, (name, cursor) in cursors.items():
+            if cid == channel_id:
+                continue
+            try:
+                fetched = await observer.messages(cid, after=cursor or None, limit=50)
+            except Exception:
+                log.warning("sweeping #%s for relays failed", name, exc_info=True)
+                continue
+            known = {t.message_id for t in run.turns if t.message_id}
+            for message in fetched:
+                mid = int(message.get("id", 0) or 0)
+                if mid in known or int((message.get("author") or {}).get("id", 0) or 0) != olisar_id:
+                    continue
+                content = message.get("content", "") or ""
+                if not content and message.get("attachments"):
+                    content = "[attachment: " + ", ".join(
+                        a.get("filename", "file") for a in message["attachments"]
+                    ) + "]"
+                if not content:
+                    continue
+                log.info("Olisar posted %d chars into #%s during the run", len(content), name)
+                run.turns.append(
+                    Turn(
+                        author="Olisar",
+                        content=content,
+                        is_olisar=True,
+                        author_id=olisar_id,
+                        message_id=mid,
+                        at=message.get("timestamp", "") or now_iso(),
+                        kind=RELAY,
+                        channel_name=name,
+                    )
+                )
+
+    async def _channel_cursors(
+        self, observer: DiscordRest, guild_id: int
+    ) -> dict[int, tuple[str, int]]:
+        """Every text channel in the guild and its newest message id right now, so the
+        end-of-run sweep can tell what Olisar posted *during* the run from what was
+        already sitting there."""
+        cursors: dict[int, tuple[str, int]] = {}
+        try:
+            channels = await observer.channels(guild_id)
+        except Exception:
+            log.warning("couldn't list channels for the relay sweep", exc_info=True)
+            return cursors
+        for channel in channels:
+            if int(channel.get("type", -1)) != 0:  # text channels only
+                continue
+            cid = int(channel.get("id", 0) or 0)
+            if not cid:
+                continue
+            cursors[cid] = (channel.get("name", str(cid)), await self._latest_message_id(observer, cid))
+        return cursors
 
     async def _collect_reactions(
         self, run: Run, observer: DiscordRest, channel_id: int, message_id: int, olisar_id: int
