@@ -23,6 +23,10 @@ REPO = "gcrft123/olisar"
 _LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_PAGE = f"https://github.com/{REPO}/releases/latest"
 
+# What ``current_version()`` reports when this build can't tell what it is. Callers that
+# act on a version comparison (the server auto-update) have to recognise it and stand down.
+UNKNOWN_VERSION = "0.0.0"
+
 
 @lru_cache(maxsize=1)
 def current_version() -> str:
@@ -54,7 +58,7 @@ def current_version() -> str:
             return str(data["project"]["version"])
         except Exception:
             continue
-    return "0.0.0"
+    return UNKNOWN_VERSION
 
 
 def _parts(v: str) -> tuple[int, ...]:
@@ -65,6 +69,12 @@ def _parts(v: str) -> tuple[int, ...]:
 
 def is_newer(remote: str, local: str) -> bool:
     return _parts(remote) > _parts(local)
+
+
+def same_version(a: str, b: str) -> bool:
+    """Whether two version strings name the same release. They reach us tagged ("v1.5.0")
+    from image labels and the releases API, and bare ("1.5.0") from the app itself."""
+    return _parts(a) == _parts(b)
 
 
 async def check_latest() -> dict:
