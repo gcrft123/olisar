@@ -34,6 +34,7 @@ log = logging.getLogger("olisar.remote")
 
 APP_DIR = "olisar"          # ~/olisar on the VM holds .env + docker-compose.yml
 CONNECT_TIMEOUT = 20        # seconds to establish the SSH connection
+KEEPALIVE_INTERVAL = 15     # seconds between SSH keepalives (4 unanswered = dead)
 _TSNET_RE = re.compile(r"https://[\w.-]+\.ts\.net")
 
 # The container mounts the olisar-data volume here, so the VM's DB + uploads live at these
@@ -100,6 +101,11 @@ async def _connect(host: str, user: str):
     return await asyncssh.connect(
         host, username=user, client_keys=[ck], known_hosts=None,
         connect_timeout=CONNECT_TIMEOUT,
+        # A silently-dead peer (the VM rebooted, a NAT dropped the flow) would otherwise
+        # leave a `conn.run` waiting on the OS TCP timeout — tens of minutes, during which
+        # an automatic update holds the panel in "Updating…". Keepalives turn that into a
+        # raised ConnectionLost in about a minute.
+        keepalive_interval=KEEPALIVE_INTERVAL, keepalive_count_max=4,
     )
 
 
@@ -112,9 +118,11 @@ async def _run(conn, cmd: str, *, timeout: float = 180.0) -> str:
     return out
 
 
-async def _read_json(conn, path: str) -> dict:
-    """Read a small JSON file off the VM, or ``{}`` if it's missing or malformed."""
-    r = await conn.run(f"cat {path} 2>/dev/null || true", check=False)
+async def _read_json(conn, path: str, *, timeout: float = 30.0) -> dict:
+    """Read a small JSON file off the VM, or ``{}`` if it's missing or malformed. Bounded
+    like every other remote call: this one runs inside the automatic update's "in flight"
+    window, and a read that never returns would strand the panel there."""
+    r = await asyncio.wait_for(conn.run(f"cat {path} 2>/dev/null || true", check=False), timeout)
     try:
         parsed = json.loads((r.stdout or "").strip() or "{}")
     except ValueError:
@@ -128,7 +136,10 @@ async def _install_managed(conn) -> None:
     Idempotent, and run on connect as well as deploy — this is what brings a VM that an
     older client set up onto the current layout."""
     await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
-    await conn.run(f"cat > ~/{APP_DIR}/{UPDATE_SCRIPT}", input=_asset(UPDATE_SCRIPT), check=True)
+    await asyncio.wait_for(
+        conn.run(f"cat > ~/{APP_DIR}/{UPDATE_SCRIPT}", input=_asset(UPDATE_SCRIPT), check=True),
+        timeout=60,
+    )
     await _run(conn, f"chmod +x ~/{APP_DIR}/{UPDATE_SCRIPT}", timeout=30)
     await _retire_timer(conn)
 
@@ -231,6 +242,12 @@ async def connect(host: str, user: str) -> dict:
     conn.close()
     await runtime_config.save(
         server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
+        # The stamp describes a *particular* VM (``_apply_update`` only writes it while the
+        # app is still pointed at the one it updated), and this is a different one — or the
+        # same one reset behind our back, which is what Reconnect is for. Either way what we
+        # last reconciled says nothing about what's here now, so clear it rather than let
+        # ``decide`` read it as "this build has already had its go at this server".
+        server_synced_version="",
     )
     await runtime_config.session_secret()
     # A VM we've just adopted may be behind this build — bring it up without making the
@@ -418,7 +435,9 @@ async def _apply_update(conn, host: str) -> dict:
     recorded against the right bot.
     """
     # A VM last touched by an older client has no script yet — install it first.
-    probe_script = await conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False)
+    probe_script = await asyncio.wait_for(
+        conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False), timeout=30
+    )
     if "OK" not in (probe_script.stdout or ""):
         await _install_managed(conn)
     r = await asyncio.wait_for(
@@ -428,16 +447,19 @@ async def _apply_update(conn, host: str) -> dict:
     result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
     state = await _probe(conn)
 
-    # Stamp the build that reconciled this VM, whatever the outcome: a retry belongs to a
-    # *newer* client build, not to every launch of this one (see ``decide``). Only if the
-    # app is still pointed at this VM — the operator may have switched bots while we ran,
-    # and the config we'd be writing then belongs to someone else's server.
-    try:
-        current = await _load()
-        if current and current.server_host == host:
-            await runtime_config.save(server_synced_version=current_version())
-    except Exception as exc:  # noqa: BLE001 — the update itself already happened
-        log.warning("could not record the synced version: %s", exc)
+    # Stamp the build that reconciled this VM, so ``decide`` doesn't keep repeating a run
+    # that already said its piece — a retry belongs to a *newer* client build, not to every
+    # launch of this one. Skipped when the run decided nothing (see ``decided``), because
+    # then the next launch genuinely should try again. Only if the app is still pointed at
+    # this VM — the operator may have switched bots while we ran, and the config we'd be
+    # writing then belongs to someone else's server.
+    if decided(result):
+        try:
+            current = await _load()
+            if current and current.server_host == host:
+                await runtime_config.save(server_synced_version=current_version())
+        except Exception as exc:  # noqa: BLE001 — the update itself already happened
+            log.warning("could not record the synced version: %s", exc)
 
     ok = bool(result.get("ok")) if result else r.exit_status == 0
     applied = {
@@ -500,22 +522,43 @@ _tasks: set[asyncio.Task] = set()
 _gate = asyncio.Lock()  # one reconcile at a time — a boot and an adopt can land together
 
 
-def decide(*, client: str, server: str, synced: str, last: dict) -> str:
+# Statuses ``olisar-update.sh`` emits when it never reached a release at all: GitHub or
+# GHCR was unreachable, so nothing about this VM was settled and the next launch should try
+# again. Every other status is an answer — applied, already current, staged onto a stopped
+# server, rolled back — and running the script again from the same build only repeats it.
+_UNDECIDED_STATUSES = frozenset({"no-release", "pull-failed", "no-digest"})
+
+
+def decided(result: dict) -> bool:
+    """Whether an update run actually settled what this VM is on.
+
+    The test for stamping ``server_synced_version``, which is in turn what stops ``decide``
+    repeating a run — so the distinction it draws is "did we learn anything", not "did it
+    succeed". A rollback is a firm answer; a VM we couldn't fetch a release for is not.
+    """
+    status = str(result.get("status") or "")
+    return bool(status) and status not in _UNDECIDED_STATUSES
+
+
+def decide(*, client: str, server: str, synced: str) -> str:
     """Why the VM should be updated right now, or ``""`` to leave it alone.
 
     ``client``  the version of this build        ``server``  the version the VM is running
     ``synced``  the build that last reconciled this VM ("" = never)
-    ``last``    the VM's ``last-update.json``
 
     Pure, because the triggers are the whole feature: an app that quietly reinstalls a
     release on someone's server needs its reasons to be readable and tested.
     """
     if not client or same_version(client, UNKNOWN_VERSION):
         return ""  # a build that can't tell what it is has no business moving a server
-    # A release this VM already refused — it pulled a tag, failed its healthcheck and rolled
-    # itself back. Trying again from the same build would just roll back again, on every
-    # launch; wait until this app has itself moved forward.
-    if last.get("rolled_back") and synced and not is_newer(client, synced):
+    # This build already had its go at this VM, and the script it runs is deterministic —
+    # so whatever that run settled on (applied, already current, staged onto a stopped
+    # server, rolled back), running it again now would settle on the same thing. Wait until
+    # the app itself moves forward. Without this the reasons below never converge whenever
+    # the script can't raise the version the VM *reports*: a stopped server is repinned but
+    # deliberately left down, so it keeps reporting the image it last ran, and every launch
+    # would re-run the script, re-lock the panel, and re-pull.
+    if synced and not is_newer(client, synced):
         return ""
     if server:
         # The VM's version is readable, so it answers the question on its own.
@@ -523,7 +566,7 @@ def decide(*, client: str, server: str, synced: str, last: dict) -> str:
     # No readable version (a container that has never started, or an image from before the
     # OCI labels). Fall back to the app's own history: this build is newer than the one that
     # last reconciled the VM, which is what a relaunch after a self-update looks like.
-    return "relaunched" if synced and is_newer(client, synced) else ""
+    return "relaunched" if synced else ""
 
 
 def spawn_autoupdate() -> None:
@@ -540,8 +583,9 @@ async def autoupdate() -> dict:
 
     Runs at backend startup and after adopting a VM — so the app relaunching onto a newer
     build (which is what every self-update ends in) carries the server along with it, and a
-    server found behind is caught the next time the app opens. Never raises: an unreachable
-    VM is simply retried on the next launch.
+    server found behind is caught the next time the app opens. Never raises: a VM we
+    couldn't reach, or couldn't fetch a release for, is simply retried on the next launch
+    (neither leaves a ``server_synced_version`` stamp — see ``decided``).
     """
     async with _gate:
         return await _reconcile()
@@ -565,7 +609,6 @@ async def _reconcile() -> dict:
             client=client,
             server=state.get("version") or "",
             synced=cfg.server_synced_version or "",
-            last=await _read_json(conn, f"~/{APP_DIR}/last-update.json"),
         )
         if not reason:
             return {"skipped": "up-to-date", "version": state.get("version") or ""}
