@@ -353,6 +353,12 @@ class Proactive(commands.Cog):
         # No report button here, unlike the addressed paths: nobody asked Olisar anything,
         # so there is no prompt of theirs to report and no failure they'd recognize. A
         # chime that comes out blank is the bot's problem, and it's in the operator's logs.
+        # A chime that ended in a reaction is a chime that decided a reaction was the whole
+        # contribution — which is the same outcome as the skip below, except something
+        # visible came of it. Either way there is no message to send or to record.
+        if reply.silent:
+            log.info("proactive answered with %s ch=%s", reply.emoji, channel_id)
+            return True
         clean = (reply.text or "").strip()
         if not clean or clean.lower() in (SKIP_SENTINEL, "skip"):
             log.info("proactive self-skipped ch=%s", channel_id)

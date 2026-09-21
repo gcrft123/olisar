@@ -164,6 +164,11 @@ class GuildConfig(Base):
     # live Discord presence — privileged + sensitive, so opt-in per server and
     # disclosed in /privacy. Off by default.
     presence_tools_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Whether Olisar may finish a turn with a reaction and no message — after doing what
+    # was asked, or when a message only needs acknowledging. On by default: the alternative
+    # is a bot that answers "done" to everything. Off, the acknowledge tool is neither
+    # declared nor described, so every turn ends in words. See olisar/tools.py.
+    silent_acks_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Whether a name trigger has to actually address Olisar. On, "olisar was down again"
     # is overheard rather than answered; off, any message containing the name gets a
     # reply (the original behaviour). See olisar/addressing.py.
