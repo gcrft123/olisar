@@ -64,6 +64,13 @@ jobs:
   macos:
     needs: mac-preflight # which needs version-check, so both gates still apply
     runs-on: macos-14 # Apple Silicon → arm64 .dmg
+    # Build the venv on uv's own CPython, never the runner image's. sqlite-vec is loaded
+    # through SQLite's extension API, which needs --enable-loadable-sqlite-extensions, and
+    # the macOS image's preinstalled 3.13 is built without it. `python-version: '3.13'`
+    # alone lets uv accept that interpreter: v1.5.0's first build died on backend.spec's
+    # guard, which is the only reason it didn't ship a .dmg that opens to a blank window.
+    env:
+      UV_PYTHON_PREFERENCE: only-managed
     steps:
       - uses: actions/checkout@v4
 
