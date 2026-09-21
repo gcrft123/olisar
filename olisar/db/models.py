@@ -631,6 +631,25 @@ class AppSecret(Base):
     )
 
 
+class ToolPin(Base):
+    """The 4-digit PIN that confirms a gated tool call in Discord. Single row (id=1),
+    app-global: one bot, one PIN, however many servers it's in.
+
+    Stored as a salted scrypt hash (see olisar/toolpin.py) and never returned by any
+    endpoint — the console can ask whether a PIN is set and change it, not read it.
+    ``timeout_sec`` is how long a prompt waits before the call is treated as denied."""
+
+    __tablename__ = "tool_pin"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    pin_hash: Mapped[str] = mapped_column(Text, default="")  # "scrypt$n$r$p$salt$key", "" = unset
+    timeout_sec: Mapped[int] = mapped_column(Integer, default=120)
+    set_by: Mapped[str] = mapped_column(Text, default="")  # Discord id of the admin who set it
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class SigningIdentity(Base):
     """This bot's Ed25519 publisher identity, used to sign the ``.olx`` bundles it
     exports. Single row (id=1), created lazily on first export. The private key never

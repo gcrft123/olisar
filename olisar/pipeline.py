@@ -232,6 +232,9 @@ FINAL_ANSWER_NUDGE = (
 # don't keep them for the graceful fallback (e.g. a no-arg call that returns "Give
 # me a commodity…", or a "No commodity matching…" miss).
 _UNHELPFUL_PREFIXES = (
+    # A PIN-gated call that nobody confirmed (olisar/toolpin.py) is an instruction to the
+    # model, not a result — it must never count as something the reply gathered.
+    "denied:",
     "no matching", "nothing", "give me", "tell me which", "couldn't reach",
     "couldn't find", "uex error", "uex returned", "that uex endpoint needs",
     "no commodity", "no vehicle", "no location", "no star system", "no planet",

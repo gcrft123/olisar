@@ -17,8 +17,9 @@ from api.auth.deps import (
     require_discord_identity,
 )
 from api.routers.marketplace import _registry_error, _registry_post
-from api.schemas import DesktopSettingsIn, FeedbackIn
-from olisar import logbuffer, runtime_config
+from api.schemas import DesktopSettingsIn, FeedbackIn, ToolPinIn
+from olisar import logbuffer, runtime_config, toolpin
+from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, AppConfig, Guild, GuildChannelInfo
@@ -160,6 +161,65 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
             for u in rows
         ]
     return {"status": status, "logs": logs, "users": users}
+
+
+@router.get("/pin")
+async def get_pin(_: AdminUser = Depends(require_admin)) -> dict:
+    """Whether a tool PIN is set, how long a prompt waits, and which tools it guards.
+
+    The PIN itself is never returned — it is stored as a hash and there is no read path
+    for it, here or anywhere else. ``gated_tools`` is empty in every shipped configuration
+    (see olisar/toolpin.py), and the console says so rather than implying the PIN is
+    already standing between the bot and anything.
+    """
+    async with session_scope() as session:
+        state = await toolpin.get_state(session)
+    return {
+        "is_set": state.is_set,
+        "timeout_sec": state.timeout_sec,
+        "updated_at": state.updated_at.isoformat() if state.updated_at else None,
+        "gated_tools": sorted(toolpin.gated_tools()),
+    }
+
+
+@router.put("/pin")
+async def put_pin(body: ToolPinIn, admin: AdminUser = Depends(require_admin)) -> dict:
+    """Set or change the PIN, the wait, or both.
+
+    Changing it doesn't ask for the current one. Everyone who can reach this endpoint can
+    already rewrite the persona, read the audit log and wipe the bot's memory, so a
+    current-PIN challenge here would buy nothing and would lock out an operator who
+    forgot four digits — with no recovery path that isn't "edit the database".
+    """
+    if body.pin is None and body.timeout_sec is None:
+        raise HTTPException(status_code=400, detail="nothing to change")
+    async with session_scope() as session:
+        after: dict = {}
+        if body.timeout_sec is not None:
+            after["timeout_sec"] = await toolpin.set_timeout(session, body.timeout_sec)
+        if body.pin is not None:
+            try:
+                await toolpin.set_pin(session, body.pin, actor=admin.discord_user_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            after["pin"] = "set"  # never the digits, not even hashed
+        await record_audit(
+            session, actor=admin.discord_user_id, action="update_tool_pin",
+            target_type="tool_pin", target_id=1, after=after,
+        )
+    return {"ok": True}
+
+
+@router.delete("/pin")
+async def delete_pin(admin: AdminUser = Depends(require_admin)) -> dict:
+    """Remove the PIN. Anything gated then has no way to be confirmed, so it won't run."""
+    async with session_scope() as session:
+        await toolpin.clear_pin(session)
+        await record_audit(
+            session, actor=admin.discord_user_id, action="clear_tool_pin",
+            target_type="tool_pin", target_id=1, after={"pin": "cleared"},
+        )
+    return {"ok": True}
 
 
 @router.get("/desktop")
