@@ -92,6 +92,10 @@ export function ServerControlPanel() {
   // fetch it lazily when the operator expands the disclosure — never blocks the panel.
   const pk = usePubkey(reconnect && showKey)
 
+  // Whether the last reading had an automatic update in flight. Read by `refresh` below as
+  // well as the effect that announces one landing, so it's declared before both.
+  const wasAuto = useRef(false)
+
   async function refresh(): Promise<Status> {
     // Degrade gracefully: a failed status read (VM down, container restarting, timeout)
     // resolves to "Unreachable" with the real error — never a stuck "Checking…".
@@ -99,7 +103,16 @@ export function ServerControlPanel() {
     try {
       next = await api.serverStatus()
     } catch (e: any) {
-      next = { configured: true, reachable: false, error: e?.message || 'status check failed' }
+      // `auto_updating` is carried over rather than dropped. The backend puts it on its own
+      // failure answers precisely so a container being recreated isn't painted as a dead
+      // server; a fetch that fails here is the same situation, and letting it read as false
+      // would both flash "Unreachable" and fire the finished-update toast a poll early.
+      next = {
+        configured: true,
+        reachable: false,
+        auto_updating: wasAuto.current,
+        error: e?.message || 'status check failed',
+      }
     }
     setSt(next)
     return next
@@ -140,7 +153,6 @@ export function ServerControlPanel() {
   // An update the app started for itself (a launch onto a newer build than the VM) finishes
   // while the panel is open. Nothing else would say how it went, so say it here — including
   // the success, since the operator is watching this one happen.
-  const wasAuto = useRef(false)
   useEffect(() => {
     const now = !!st?.auto_updating
     const finished = wasAuto.current && !now
