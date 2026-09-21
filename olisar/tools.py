@@ -373,12 +373,14 @@ _ACK_DECLARATIONS = [
         name="acknowledge",
         description=(
             "React to the message you're answering and finish your turn there, sending no "
-            "message at all. Use it when writing something would add nothing: you've just "
-            "done what they asked with another tool (sent the DM, posted it, saved it, set "
-            "the reminder) and 'done' is the only thing left to say, or their message only "
-            "needs acknowledging — 'thanks', 'sounds good', 'ok cool'. This ENDS the reply: "
-            "call it last, and never as a way to duck a question or to avoid admitting a "
-            "tool failed. If anything you did went wrong, say so instead."
+            "message at all. This is the normal way to close out a request you've already "
+            "carried out with another tool — send_dm, send_to_channel, remember, "
+            "remember_server_fact, add_reminder, set_status — where the only thing left to "
+            "write is a confirmation: 'done', 'got it', 'sent', 'noted', 'written down', "
+            "\"i'll remember that\". Call this instead of writing one. Also use it when "
+            "their message needs no answer at all: 'thanks', 'sounds good', an FYI. It ENDS "
+            "the reply, so call it last and write nothing alongside it. Never use it to "
+            "duck a question, and never to avoid saying that something failed."
         ),
         parameters=_obj(
             {"emoji": _str("one emoji to react with, e.g. 👍 or 🔥 — defaults to 👍")}, []

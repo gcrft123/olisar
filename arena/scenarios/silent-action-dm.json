@@ -1,0 +1,35 @@
+{
+  "id": "silent-action-dm",
+  "title": "Asked to DM someone, Olisar sends it and reacts instead of replying",
+  "lane": "live",
+  "tags": [
+    "silent-acks",
+    "actions",
+    "manual"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "rook",
+    "mika"
+  ],
+  "beats": [
+    {
+      "speaker": "rook",
+      "text": "olisar can you DM <@1089250623490359378> and let them know the arena run is finished",
+      "expect_reply": true,
+      "timeout": 180
+    }
+  ],
+  "checks": {
+    "must_not_reply": true,
+    "must_react": true
+  },
+  "rubric": [
+    "restraint"
+  ],
+  "notes": "The literal case the feature was asked for, and the only one that cannot be fully automated: Discord refuses bot-to-bot DMs, so the recipient has to be a human account — the operator's. The id is written into the beat because the people directory is built from who has posted in the channel, and the operator hasn't; without it Olisar has no id for the name and DMs the requester instead. The run asserts what it can see (a reaction here, no message here); whether the DM arrived is checked in the operator's own Discord. Tagged `manual` so a sweep doesn't DM a real person on every pass. The failure that matters is a reaction with no DM delivered — silence covering for an action that didn't happen — and the first run of this case produced its opposite: the DM failed with a 50007, acknowledge was refused, and Olisar said so in words."
+}

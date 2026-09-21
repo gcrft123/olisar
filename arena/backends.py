@@ -37,6 +37,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -209,6 +210,21 @@ class GrokCliBackend:
     it is *not* interchangeable mid-experiment: switching the judge changes what every
     score means, so a comparison must run entirely on one or entirely on the other, and
     ``arena calibrate`` should be re-run after any switch.
+
+    **It is run from an empty directory, never the repo.** The Claude backend gets
+    ``--safe-mode`` for this; the Grok CLI has no equivalent flag, and discovers its
+    configuration from the working directory. Pointed at this repo it loads ``AGENTS.md``
+    and answers as a coding assistant that has read the codebase — an emulator asked for
+    one chat line came back with "I'll check the agent instructions and how this Discord
+    bot is set up so I can send a short in-character reply." A schema doesn't help: the
+    narration lands inside the field. That corrupts the *input* to a scenario, which is
+    the one class of fault nothing downstream can notice.
+
+    Necessary and *not* sufficient: with the repo out of view the narration is rarer, not
+    gone — the CLI is an agentic coding tool whose own system prompt survives
+    ``--system-prompt-override`` well enough to keep reaching for a plan. Prefer Claude for
+    ``dialogue``, where a polluted line is a polluted scenario; Grok is sound for ``judge``,
+    which reads structured output and is scored against a calibration set either way.
     """
 
     name = GROK
@@ -222,11 +238,12 @@ class GrokCliBackend:
         timeout: float = 180.0,
         cwd: str | None = None,
     ) -> None:
+        del cwd  # deliberately ignored — see the class docstring
         self.model = model
         self._binary = binary
         self._effort = effort
         self._timeout = timeout
-        self._cwd = cwd
+        self._cwd = tempfile.mkdtemp(prefix="arena-grok-")
 
     @classmethod
     def available(cls, binary: str = "grok") -> bool:

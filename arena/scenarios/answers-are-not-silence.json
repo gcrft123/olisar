@@ -1,0 +1,36 @@
+{
+  "id": "answers-are-not-silence",
+  "title": "A question still gets words, not a thumbs-up",
+  "lane": "live",
+  "tags": [
+    "everyday",
+    "silent-acks",
+    "helpfulness"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "dtrain",
+    "mika"
+  ],
+  "beats": [
+    {
+      "speaker": "dtrain",
+      "beat": "ask where the event schedule lives, you're new here",
+      "address": "name",
+      "expect_reply": true,
+      "timeout": 180
+    }
+  ],
+  "checks": {
+    "must_reply": true
+  },
+  "rubric": [
+    "helpfulness",
+    "accuracy"
+  ],
+  "notes": "The regression the silent-acknowledgment tool risks, and the reason it is refused after any lookup: a bot that has learned it may stay quiet will eventually stay quiet on a question, and from the channel that is indistinguishable from it having crashed. A lone reaction here is a failure however apt the emoji."
+}

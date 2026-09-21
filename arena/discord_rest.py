@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -148,6 +149,30 @@ class DiscordRest:
             params["after"] = str(after)
         raw = await self._request("GET", f"/channels/{channel_id}/messages", params=params) or []
         return list(reversed(raw))  # Discord returns newest-first
+
+    async def message(self, channel_id: int, message_id: int) -> dict[str, Any]:
+        """One message as it stands now, including its ``reactions``.
+
+        The incremental poll above can't see a reaction: it asks for messages ``after`` a
+        cursor, and a reaction changes a message already behind it. Reading the message
+        back is the only way to observe Olisar answering with an emoji instead of words.
+        """
+        return await self._request(
+            "GET", f"/channels/{channel_id}/messages/{message_id}"
+        ) or {}
+
+    async def reactors(
+        self, channel_id: int, message_id: int, emoji: str, *, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """Who added ``emoji`` to a message. The ``reactions`` array on a message says how
+        many and whether *this* token was one of them, which is the wrong question — the
+        harness watches with the steward's token and wants to know whether **Olisar**
+        reacted. Unicode emoji go in the path, so they need escaping."""
+        return await self._request(
+            "GET",
+            f"/channels/{channel_id}/messages/{message_id}/reactions/{quote(emoji)}",
+            params={"limit": limit},
+        ) or []
 
     # ── writing ───────────────────────────────────────────────────────────
 
