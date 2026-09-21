@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+Ask Olisar to DM someone and two things happened: the DM went out, and then it wrote "done". Every path through the reply pipeline ended in text — if the model produced none, the pipeline forced an answer out of it, and failing that the user got the blank fallback and a Report button. Its own style notes have asked it to react instead of replying since 1.4.4, and it could not.
+
+Now it can. Olisar reacts to the message and stops there, after doing what was asked or when a message only needed acknowledging at all. Going quiet is the failure this risks — from the channel, a bot that decided to say nothing and one that crashed look the same — so silence is refused unless it has been earned: the reaction has to have landed, there has to be a message to react to, and a turn that looked something up still owes what it found.
+
+### New
+
+[95d4a8a] — Olisar can end a turn with a reaction and no message, after sending a DM, posting to another channel, remembering something, or setting a reminder.
+
+[95d4a8a] — A message that only needs acknowledging — "thanks", an FYI — gets a reaction rather than a reply written to have replied.
+
+[95d4a8a] — Settings → Behavior → Model & tools turns it off per server; off, every turn ends in words.
+
+[95d4a8a] — A turn answered with a reaction is recorded, so the next reply doesn't read it as having been ignored and do the thing twice.
+
+[d7a522b] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
+
 ### Changed
 
 [a3e92ef] — The app applies a release to your server itself whenever it starts up on a newer version than the VM, which is every launch after it updates itself.
@@ -9,6 +25,14 @@
 [a3e92ef] — The control panel reports an update it didn't start: **Updating…** while it runs, and the outcome when it lands, instead of reading the restarting container as a server that fell over.
 
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
+
+### Fixed
+
+[d7a522b] — `arena doctor` accepts Grok, which it had rejected since the backend landed.
+
+[d7a522b] — The Grok CLI no longer runs inside the repo, where it read AGENTS.md and wrote emulator lines as a coding assistant.
+
+[d7a522b] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
 
 ## [1.5.0] — 2026-09-21
 
