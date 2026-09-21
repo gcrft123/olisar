@@ -24,6 +24,7 @@ from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
 from olisar.memory.search import search_messages
+from olisar.proactivity import first_emoji
 
 log = logging.getLogger("olisar.tools")
 
@@ -484,8 +485,6 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     used = [name for name in ctx.tools_run if name in LOOKUP_TOOLS]
     if used:
         return _ACK_AFTER_LOOKUP.format(tools=", ".join(dict.fromkeys(used)))
-    from olisar.proactivity import first_emoji
-
     picked = first_emoji(emoji) or DEFAULT_ACK_EMOJI
     result = await ctx.actions.acknowledge(picked)
     if not result.startswith(ACK_OK):
