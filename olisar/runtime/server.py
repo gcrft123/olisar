@@ -316,6 +316,17 @@ async def run(host: str, port: int) -> None:
             loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
 
     await start_supervisor(app, profiles.active_id())
+
+    # Server hosting: this install is the control panel for a bot running on the operator's
+    # VM. If we've come up ahead of that VM — which is what every launch after the app
+    # updated itself looks like — bring the VM onto the newest release too. This replaced
+    # the daily systemd timer the VM used to run: the client is the side that knows a
+    # release exists, so it's the side that applies it.
+    if await runtime_config.hosting_mode() == "server":
+        from olisar.runtime import remote
+
+        remote.spawn_autoupdate()
+
     log.info("backend listening on http://%s:%d", host, port)
     try:
         await server.serve()

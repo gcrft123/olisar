@@ -715,6 +715,10 @@ class AppConfig(Base):
     server_ssh_user: Mapped[str] = mapped_column(Text, default="ubuntu")
     server_ssh_pubkey: Mapped[str] = mapped_column(Text, default="")
     server_ssh_privkey: Mapped[str] = mapped_column(Text, default="")
+    # The build of *this app* that last brought the VM up to a release (see
+    # olisar.runtime.remote.autoupdate). Empty = never. Comparing it to the running build
+    # is how a relaunch after a self-update is told apart from an ordinary one.
+    server_synced_version: Mapped[str] = mapped_column(Text, default="")
     configured: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

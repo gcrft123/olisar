@@ -33,9 +33,17 @@ say "Fetching the updater…"
 # digest, applies it health-gated, and rolls back if it doesn't come up. Installing it here
 # means a hand-bootstrapped VM behaves exactly like one the desktop app deployed.
 curl -fsSL "$REPO_RAW/olisar-update.sh" -o olisar-update.sh
-curl -fsSL "$REPO_RAW/olisar-update.service" -o olisar-update.service
-curl -fsSL "$REPO_RAW/olisar-update.timer" -o olisar-update.timer
 chmod +x olisar-update.sh
+
+# Earlier builds ran this updater on a daily systemd timer. The desktop app now applies
+# updates itself (whenever it comes up on a newer build than the VM), so retire the timer
+# rather than leaving a second, invisible updater armed on a re-bootstrapped VM.
+if command -v systemctl >/dev/null 2>&1; then
+  $SUDO systemctl disable --now olisar-update.timer >/dev/null 2>&1 || true
+  $SUDO rm -f /etc/systemd/system/olisar-update.timer /etc/systemd/system/olisar-update.service
+  $SUDO systemctl daemon-reload || true
+fi
+rm -f olisar-update.timer olisar-update.service
 
 if [ ! -f .env ]; then
   say "Let's configure Olisar. (From the Discord Developer Portal + your API keys.)"
@@ -60,17 +68,6 @@ EOF
   chmod 600 .env
 else
   say ".env already exists — reusing it."
-fi
-
-say "Installing the daily update timer…"
-if command -v systemctl >/dev/null 2>&1; then
-  sed -e "s|@DIR@|$DIR|g" -e "s|@USER@|$USER|g" olisar-update.service \
-    | $SUDO tee /etc/systemd/system/olisar-update.service >/dev/null
-  $SUDO install -m 0644 olisar-update.timer /etc/systemd/system/olisar-update.timer
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now olisar-update.timer || true
-else
-  echo "(no systemd here — run ./olisar-update.sh yourself to update)"
 fi
 
 say "Pulling the latest Olisar release and starting it…"
@@ -104,7 +101,9 @@ Next steps:
   2. Open $URL in a browser and sign in with Discord (the account whose ID you allowlisted).
 
 Manage it later with:  cd $DIR && $DC logs -f   |   $DC restart   |   ./olisar-update.sh
-(The update timer already runs daily — ./olisar-update.sh just does it now.)
+(Updates: the desktop app applies them whenever it starts up on a newer build than this
+VM. Without the app, run ./olisar-update.sh — it pulls the newest release, health-checks
+it, and rolls back if it doesn't come up.)
 EOF
 else
   echo "Couldn't read the public URL yet. Check logs:  cd $DIR && $DC logs -f"

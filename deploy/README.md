@@ -43,7 +43,12 @@ All settings are in [`.env.example`](.env.example).
 
 - **Persistence:** the SQLite DB, knowledge uploads, and the Tailscale node identity (so
   the URL stays stable) all live in the `olisar-data` Docker volume.
-- **Updating:** `docker compose pull && docker compose up -d`.
+- **Updating:** `./olisar-update.sh` — pulls the newest release, pins it by digest,
+  health-checks it, and rolls back if it doesn't come up. The desktop app runs this same
+  script over SSH whenever it starts up on a newer version than the VM, so a server paired
+  with the app keeps itself in step; a VM managed only from the browser updates when you
+  run it. (Earlier builds ran it on a daily systemd timer, which is removed on the next
+  connect or re-bootstrap.)
 - **`SESSION_SECRET`** is auto-generated and persisted on first run — don't set it.
 - The image needs a Python with loadable SQLite extensions (sqlite-vec); the official
   `python` base image has this.

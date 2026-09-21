@@ -312,15 +312,22 @@ volume on the VM, not in any cloud. The full reference is in
 
 ## Keeping the server up to date
 
-The VM updates itself daily. If a new version fails to start, the previous one is restored
-automatically. From the desktop app's control panel you can also press **Update now** to do it on
-demand. Your data is kept either way.
+The desktop app keeps the two in step. Whenever it starts up on a newer version than the server —
+which is what every launch after the app updates itself looks like — it applies that release to the
+VM as well, and the control panel says **Updating…** while it does. If the new version fails to
+start, the previous one is restored automatically. Your data is kept either way.
 
-You can still update by hand on the VM:
+The control panel's **Update to v…** button does the same thing on demand, which is what you want
+if you've skipped an update for the app but not for the server.
+
+If you don't use the desktop app, update the VM from a terminal on it:
 
 \`\`\`
-cd ~/olisar && sudo docker compose pull && sudo docker compose up -d
+cd ~/olisar && ./olisar-update.sh
 \`\`\`
+
+That's the same script the app runs: it pulls the newest release, pins it, health-checks it, and
+rolls back if it doesn't come up.
 `,
   },
   {
