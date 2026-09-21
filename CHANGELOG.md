@@ -1,5 +1,47 @@
 ## [Unreleased]
 
+## [1.5.0] — 2026-09-20
+
+A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
+
+Nothing is gated yet. No tool requires the PIN and there is no per-tool setting to turn one on, so setting a PIN today changes nothing anyone will see in Discord. What ships is the mechanism, proven end to end against a live server, so the policy that decides which calls need confirming can land on something that already works.
+
+### New
+
+[8c28371] — Settings → Security sets and changes one 4-digit PIN for the whole install, and how long a prompt waits before it lapses.
+
+[8c28371] — A tool call can be held until someone confirms it, with the digits typed into a Discord form rather than posted as a message anyone can read back.
+
+[8c28371] — The prompt holds the reply and drops the typing indicator while it waits, and disappears once it is answered.
+
+[8c28371] — A prompt that lapses, is cancelled, or takes three wrong entries comes back to Olisar as a refused tool call: it says plainly that it couldn't do that part and answers with the rest.
+
+[8c28371] — Anyone who knows the PIN can answer a prompt, so an operator can hand it to whoever should be able to approve.
+
+[8c28371] — Every prompt writes an audit row carrying who answered it and how many tries it took, and never the digits.
+
+[8c28371] — The prompt's wording is editable under Command replies.
+
+### Changed
+
+[fea9501] — Every overlay plays a short exit instead of vanishing on the frame it closed.
+
+[fea9501] — The copy affordance cross-fades its two glyphs in place, without the bounce it used to arrive on.
+
+[fea9501] — Buttons press to the same scale everywhere, and the save dock is 42px tall rather than 52px.
+
+### Fixed
+
+[fea9501] — The toggle knob travels on `transform`, so flipping one no longer re-lays out the track on every frame.
+
+[fea9501] — The toast stack steps aside for the save dock instead of teleporting upward the moment it appears.
+
+[fea9501] — The test chat's button keeps its press feedback while the save dock is up.
+
+[fea9501] — The select chevron matches the icon set's stroke weight, and a user-supplied avatar gets an edge against the near-black background.
+
+[fea9501] — The save dock only dodges the test-chat button at the widths where the two actually overlap.
+
 ## [1.4.5] — 2026-08-26
 
 Olisar's default style notes were twenty-nine bullets on length, punctuation, capitalization, when to use an emoji and when to stretch a word. It wrote like something working through a list, because it was. A test server where several bots talk to each other made the problem legible: the stand-in members, given four sentences of character each on a cheaper model, read more like people than Olisar did in the same channel. This release replaces the checklist with a description of who Olisar is, about a tenth the length, and lets the writing follow from that.
