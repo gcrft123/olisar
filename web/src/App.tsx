@@ -39,7 +39,7 @@ const TAB_IDS = new Set([...NAV.map((n) => n.id), 'docs'])
 const PAGE_KEYWORDS: Record<string, string> = {
   persona: 'name system prompt style notes about me bio character tone test chat',
   behavior: 'triggers dms mentions ping everyone here model web search context window summary threshold glossary mine persona rebuild proactivity eagerness confidence cooldown quiet hours reactions presence voice',
-  messages: 'command replies ping watch unwatch status learn url site doc forget me dm indexing proactive privacy rate limited blank access denied placeholders',
+  messages: 'command replies ping watch unwatch status learn url site doc forget me dm indexing proactive privacy rate limited blank access denied tool pin placeholders',
   channels: 'mode memory respond both resource feed off indexing search index category forum',
   access: 'roles allowed blocked open restrict lock out permissions',
   knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',

@@ -179,6 +179,7 @@ function mockMessages() {
     ['rate_limit', "i'm a bit rate-limited right now — give me a minute and try again?", []],
     ['blank_fallback', '…my mind just went blank there. mind rephrasing?', []],
     ['access_denied', "sorry — you don't have access to me here.", []],
+    ['tool_pin_prompt', 'A PIN is required for Olisar to run **{tool}**. See Settings > Security in the console or ask an admin if you don\'t have access.', ['tool', 'seconds']],
     ['privacy', '**How Olisar handles your data**\n…', []],
   ]
   const out: Record<string, unknown> = {}
@@ -286,6 +287,14 @@ const MOCK_EXTENSIONS = [
   { key: 'poll', name: 'Polls', description: 'Persistent poll buttons that survive a restart.', category: 'Utilities', enabled: false, default_enabled: false, kind: 'user', editable: true, user_modified: false, has_code: true, origin: 'marketplace', publisher: 'm-studio', signed_by: 'a3f1 9c22 dd07', signature_verified: true, tools: [], commands: ['poll'], permissions: ['kv', 'discord.reply'], requested_permissions: ['kv', 'discord.reply', 'discord.components', 'fetch'], behavior: false, settings_schema: null },
 ]
 
+// The tool PIN behind Settings → Security. Stateful on purpose: "no PIN yet", "PIN set"
+// and the removal confirm are three different renderings of one pane, and a fixture that
+// always answers "set" leaves two of them unreviewable. `gated_tools` is empty, which is
+// what every shipped configuration reports.
+const MOCK_PIN: { is_set: boolean; timeout_sec: number; updated_at: string | null; gated_tools: string[] } = {
+  is_set: false, timeout_sec: 120, updated_at: null, gated_tools: [],
+}
+
 const MOCK_KEYS = {
   gemini_api_key: { dashboard: true, env: false, value: '' },
   cloudflare_account_id: { dashboard: true, env: false, value: '' },
@@ -348,6 +357,28 @@ function mockPlugin(): Plugin {
             trigger: 'mention', when: new Date(Date.now() - 3600_000).toISOString(),
             server: 'Red Nebula Industries', channel: 'general', has_logs: true,
           })
+        }
+        if (url.startsWith('/api/settings/pin')) {
+          const method = req.method || 'GET'
+          if (method === 'DELETE') {
+            MOCK_PIN.is_set = false
+            MOCK_PIN.updated_at = null
+            return send({ ok: true })
+          }
+          if (method === 'PUT') {
+            let raw = ''
+            req.on('data', (c) => { raw += c })
+            req.on('end', () => {
+              try {
+                const body = JSON.parse(raw || '{}')
+                if (body.pin) { MOCK_PIN.is_set = true; MOCK_PIN.updated_at = new Date().toISOString() }
+                if (body.timeout_sec) MOCK_PIN.timeout_sec = Number(body.timeout_sec)
+              } catch { /* a malformed body just changes nothing */ }
+              send({ ok: true })
+            })
+            return
+          }
+          return send(MOCK_PIN)
         }
         if (url.startsWith('/api/usage/live')) return send(mockLive())
         if (url.startsWith('/api/usage/summary')) {

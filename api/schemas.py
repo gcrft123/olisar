@@ -253,6 +253,17 @@ class DesktopSettingsIn(BaseModel):
     show_in_menu_bar: bool | None = None
 
 
+class ToolPinIn(BaseModel):
+    """Setting or changing the tool PIN. Both fields optional so the console can change
+    the wait without re-entering the PIN, and vice versa.
+
+    The length is validated here as well as in the console: the field is four boxes in the
+    browser, which is not an argument about what a stale tab or a script may send."""
+
+    pin: str | None = Field(None, min_length=4, max_length=4, pattern=r"^\d{4}$")
+    timeout_sec: int | None = Field(None, ge=15, le=900)
+
+
 # ── Member portal (api/routers/member.py) ───────────────────────────────────────
 
 
