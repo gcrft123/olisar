@@ -1,6 +1,8 @@
-"""Runs the model self-test shortly after startup and once a day after that.
+"""Runs the model self-test once a day.
 
-See olisar/gemini/canary.py for what it checks and why. Two requests per run.
+See olisar/gemini/canary.py for what it checks and why. Two requests per model in the
+slim default sweep. The first run waits a full day so a restart does not spend another
+sweep on free-tier quota.
 """
 
 from __future__ import annotations
@@ -14,9 +16,9 @@ from olisar.gemini.canary import run_chain_canary
 
 log = logging.getLogger("olisar.canary")
 
-# Long enough that a restart doesn't spend its first seconds on a self-test, short enough
-# that a broken deploy is reported while the operator is still watching it come up.
-_STARTUP_DELAY = 60.0
+# Skip the old "60s after ready" first run. Each sweep is several free-tier requests, and
+# restarts were doubling the daily bill for no extra signal once the bot was already up.
+_FIRST_RUN_DELAY = 24 * 60 * 60
 
 
 class Canary(commands.Cog):
@@ -37,7 +39,7 @@ class Canary(commands.Cog):
     @tick.before_loop
     async def _before(self) -> None:
         await self.bot.wait_until_ready()
-        await asyncio.sleep(_STARTUP_DELAY)
+        await asyncio.sleep(_FIRST_RUN_DELAY)
 
 
 async def setup(bot: commands.Bot) -> None:

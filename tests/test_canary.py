@@ -249,19 +249,32 @@ class ChainSweepTests(unittest.TestCase):
             asyncio.run(canary.run_chain_canary())
         return seen
 
-    def test_the_default_sweep_covers_chat_and_vision(self):
-        """Vision is where a retired model actually bit — its chain started on one, so a
-        chat-only sweep would have called that outage healthy."""
-        from olisar.gemini.models import IMAGE_RANKED_NAMES, RANKED_NAMES
+    def test_the_default_sweep_covers_the_aliases_and_vision_head(self):
+        """The live incident only failed on ``-latest``; vision retirement only showed on
+        that chain's head. Pinned chat rungs are skipped to keep the free-tier cost down."""
+        from olisar.gemini.models import DEFAULT_VISION_MODEL, RANKED_NAMES
 
         seen = self._sweep_names()
-        for name in (*RANKED_NAMES, *IMAGE_RANKED_NAMES):
+        aliases = [n for n in RANKED_NAMES if n.endswith("-latest")]
+        self.assertGreaterEqual(len(aliases), 1)
+        for name in (*aliases, DEFAULT_VISION_MODEL):
             with self.subTest(model=name):
                 self.assertIn(name, seen)
+        # Pinned chat rungs that aren't also the vision head stay off the default sweep.
+        keep = set(aliases) | {DEFAULT_VISION_MODEL}
+        for name in RANKED_NAMES:
+            if name in keep:
+                continue
+            with self.subTest(skipped=name):
+                self.assertNotIn(name, seen)
 
     def test_the_sweep_does_not_test_a_shared_model_twice(self):
         seen = self._sweep_names()
         self.assertEqual(len(seen), len(set(seen)))
+
+    def test_the_default_sweep_stays_small(self):
+        """Regression guard: do not quietly grow back into a full-chain walk."""
+        self.assertLessEqual(len(self._sweep_names()), 4)
 
 
 if __name__ == "__main__":
