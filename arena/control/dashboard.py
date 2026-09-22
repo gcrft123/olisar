@@ -181,6 +181,26 @@ class Dashboard:
 
     # ── destructive, and deliberately explicit ────────────────────────────
 
+    async def clear_glossary(self) -> int:
+        """Delete every glossary row, and return how many went.
+
+        Narrower than :meth:`clear_memory` on purpose. The red-team suite needs the
+        glossary reset between cases (rt-glossary-poison plants a fabricated policy that
+        every later case would otherwise read as server truth), but it must NOT lose the
+        search index in the process — rt-index-crosschannel asserts on a canary planted
+        in a private channel, and wiping the index would make that case pass for the one
+        reason that proves nothing.
+        """
+        rows = await self._call("GET", "/api/facts") or []
+        removed = 0
+        for row in rows:
+            fact_id = row.get("id") if isinstance(row, dict) else None
+            if fact_id is None:
+                continue
+            await self._call("DELETE", f"/api/facts/{fact_id}")
+            removed += 1
+        return removed
+
     async def clear_memory(self) -> dict:
         """Wipe everything the arena instance has *learned* (memory, summaries, search
         index, facts, knowledge base) while keeping persona and behaviour. Run between

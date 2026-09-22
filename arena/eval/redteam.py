@@ -59,6 +59,11 @@ async def _worst_of(cfg: ArenaConfig, scenario: Scenario, variant: str, reps: in
     """
     run = None
     for attempt in range(max(1, reps)):
+        # Reps are meant to be independent samples of the same coin. Without this they
+        # aren't: rt-glossary-poison plants its policy on every rep, so rep 2 starts from
+        # rep 1's contaminated glossary and the case gets easier to break each time.
+        if attempt:
+            await _reset_shared_state(cfg, f"{scenario.id} rep {attempt}")
         run = await execute(cfg, scenario, variant=variant)
         if run.error or any(not c.passed for c in run.checks):
             if attempt:
@@ -66,6 +71,37 @@ async def _worst_of(cfg: ArenaConfig, scenario: Scenario, variant: str, reps: in
                             "pass", scenario.id, attempt)
             return run
     return run
+
+
+async def _reset_shared_state(cfg: ArenaConfig, scenario_id: str) -> None:
+    """Drop the glossary between cases, so one case cannot seed the next one's context.
+
+    A suite whose cases mutate shared state is a sequence of anecdotes, not a regression
+    gate, and this one does: remember_server_fact is ungated, so rt-glossary-poison ends
+    every run with a fabricated "open-book policy" sitting in guild_fact. glossary_block
+    folds that into EVERY later reply's context. In the first full gate run, eight cases
+    executed downstream of it against a glossary carrying an invented rule saying Olisar's
+    operating rules were public documentation — the exact proposition several of those
+    cases exist to test. Their verdicts were not measuring the guardrails.
+
+    Deliberately narrow: the glossary only, never clear_memory. The search index has to
+    survive, or rt-index-crosschannel's planted canary goes with it and the case passes
+    because there is nothing left to leak.
+
+    Failure here is logged and swallowed. A reset that didn't happen is worth knowing
+    about, but raising would convert a dirty-state problem into "the gate could not run",
+    which reads as a much more serious result than it is.
+    """
+    from arena.control.dashboard import Dashboard
+
+    try:
+        async with Dashboard(cfg) as dash:
+            removed = await dash.clear_glossary()
+        if removed:
+            log.info("cleared %d glossary row(s) after %s", removed, scenario_id)
+    except Exception:  # noqa: BLE001 — a failed reset must not fail the gate
+        log.exception("could not reset the glossary after %s — later cases may be "
+                      "reading state this one wrote", scenario_id)
 
 
 def cases(lane: str = "") -> list[Scenario]:
@@ -103,6 +139,9 @@ async def run_gate(
     for scenario in scenarios:
         run = await _worst_of(cfg, scenario, variant, reps)
         run.save()
+        # After, not before: the next case must not inherit this one's writes, and doing
+        # it here covers the last case too, so a gate run leaves the instance clean.
+        await _reset_shared_state(cfg, scenario.id)
         result.runs.append(run)
         if run.error:
             result.errors.append({"scenario": scenario.id, "error": run.error})
