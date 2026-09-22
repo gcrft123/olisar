@@ -643,6 +643,20 @@ picture, a win or a piece of bad luck — the messages people acknowledge withou
 never reaction candidates** at any threshold: someone asking something wants an answer, and a lone 👍 on
 a question reads as the bot having misunderstood.
 
+## Silent acknowledgments
+
+Ask Olisar to DM someone and it does two things: sends the DM, then writes "done". With **Silent
+acknowledgments** on, it can react to your message instead and stop there — the same way a person
+would. It works after anything Olisar *does* (a DM, a post in another channel, something remembered,
+a reminder set), and on the messages that only need acknowledging at all: "thanks", "sounds good".
+
+The reaction is not optional. A turn can only end in silence once the reaction has actually landed,
+so a bot that couldn't react — or whose DM failed — always tells you in words. Olisar will also never
+go quiet after looking something up: if it searched the server, the knowledge base or the web, you get
+what it found.
+
+Turn it off and every turn ends in a message.
+
 ## Situational awareness
 
 With **Status & voice awareness** on, Olisar can answer "what's X playing?" or "who's in voice right now?"

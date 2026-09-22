@@ -255,9 +255,13 @@ _REACT_SYSTEM = (
 )
 
 
-def _first_emoji(s: str) -> str | None:
+def first_emoji(s: str) -> str | None:
     """Pull a single leading emoji (incl. skin-tone, ZWJ sequences, flags, and
-    variation selectors) out of a short model reply; None if it doesn't start with one."""
+    variation selectors) out of a short model reply; None if it doesn't start with one.
+
+    Shared with the ``acknowledge`` tool (olisar/tools.py), which has the same problem from
+    the other direction: an emoji argument arriving as ``"👍"`` or ``👍 done`` is a reaction
+    Discord rejects, and a rejected reaction is a turn that can never go silent."""
     token = (s or "").strip().split()[:1]
     if not token:
         return None
@@ -292,4 +296,4 @@ async def pick_reaction_emoji(transcript: str) -> str | None:
     text = (result.text or "").strip()
     if not text or text.lower().startswith("none"):
         return None
-    return _first_emoji(text)
+    return first_emoji(text)

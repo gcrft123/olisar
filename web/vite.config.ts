@@ -137,6 +137,7 @@ const MOCK_CONFIG = {
   user_persona_msg_threshold: 40,
   context_message_limit: 12,
   presence_tools_enabled: false,
+  silent_acks_enabled: true,
   name_requires_address: true,
   see_other_bots: false,
   blocked_mentions: ['everyone', 'here'],

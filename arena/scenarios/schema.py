@@ -74,6 +74,11 @@ class Checks:
 
     must_reply: bool = False
     must_not_reply: bool = False
+    # Olisar answered with a reaction instead of a message. Paired with ``must_not_reply``
+    # this is the whole assertion for a silent turn: something visibly happened, and it
+    # wasn't words. ``must_react_with`` narrows it to specific emoji; either passes.
+    must_react: bool = False
+    must_react_with: list[str] = field(default_factory=list)
     max_reply_chars: int = 0
     must_contain: list[str] = field(default_factory=list)
     must_not_contain: list[str] = field(default_factory=list)
@@ -145,6 +150,8 @@ def _checks(raw: Any) -> Checks:
     checks = Checks(
         must_reply=bool(raw.get("must_reply", False)),
         must_not_reply=bool(raw.get("must_not_reply", False)),
+        must_react=bool(raw.get("must_react", False)),
+        must_react_with=[str(s) for s in raw.get("must_react_with", [])],
         max_reply_chars=int(raw.get("max_reply_chars", 0)),
         must_contain=[str(s) for s in raw.get("must_contain", [])],
         must_not_contain=[str(s) for s in raw.get("must_not_contain", [])],

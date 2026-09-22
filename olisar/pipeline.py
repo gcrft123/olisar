@@ -30,10 +30,12 @@ from olisar.persona import (
 )
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
+    LOOKUP_TOOLS,
     SANDBOX_TOOL_NAMES,
     TOOLS,
     DiscordActions,
     ToolContext,
+    ack_declarations,
     execute_tool,
     presence_declarations,
     sandbox_tools,
@@ -58,11 +60,19 @@ class Reply:
     just a string, and a caller comparing text against the operator's configured fallback
     would be guessing at something the pipeline already knows.
 
+    ``silent`` marks a turn Olisar chose to end with a reaction instead of a message (the
+    ``acknowledge`` tool — see ``olisar.tools``). ``text`` is empty and nothing is sent;
+    ``emoji`` is what it reacted with, which the caller needs to record the turn. It is a
+    separate flag rather than "``text`` came back empty" because those mean opposite
+    things: an empty reply is the failure path, and this is a reply that worked.
+
     ``str(reply)`` is the text, so a caller that only wants to send it can.
     """
 
     text: str
     blanked: bool = False
+    silent: bool = False
+    emoji: str = ""
 
     def __str__(self) -> str:
         return self.text
@@ -76,9 +86,6 @@ MAX_TOOL_ITERS = 6
 # tools (react, reminders, sends, remember…) stay uncapped: repeating those is the
 # user asking for several things, not the model spinning.
 LOOKUP_CALL_CAP = 3
-LOOKUP_TOOLS = frozenset(
-    {"search_messages", "recall_memory", "query_knowledge", "web_search"}
-)
 LOOKUP_CAP_NOTE = (
     "You've already used {name} {cap} times for this reply — that's the limit. Do not "
     "call it again; answer the user now with what you already have, and say plainly "
@@ -139,6 +146,15 @@ _TOOL_LINES: dict[str, str] = {
         "posts to the channel and you just add a short caption.\n"
     ),
     "react": "- react / set_status — a light, alive touch.\n",
+    "acknowledge": (
+        "- acknowledge — end the turn with a reaction and no message. Once you've done what "
+        "was asked — a DM sent, something posted, a fact remembered, a reminder set — this "
+        "REPLACES the sentence you'd have written about it: \"done\", \"got it\", \"sent\", "
+        "\"noted\", \"written down\", \"i'll remember that\". Send the reaction instead of "
+        "the sentence, not as well as it. Same for a message that only needs acknowledging "
+        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Not for a "
+        "question, and not when something went wrong — say so.\n"
+    ),
 }
 
 # Only meaningful when both tools are present — it's a rule about choosing between them.
@@ -192,8 +208,12 @@ def render_tools_note(available: set[str] | None = None) -> str:
 
 
 _ALL_TOOL_KEYS = frozenset(_TOOL_LINES)
+# Everything a server has by default. ``acknowledge`` is per-guild
+# (``GuildConfig.silent_acks_enabled``) and joins the set in ``generate_reply`` when it's
+# on, so the module-level briefing keeps describing the tools every install actually has.
+_CORE_TOOL_KEYS = _ALL_TOOL_KEYS - {"acknowledge"}
 
-TOOLS_NOTE = render_tools_note()
+TOOLS_NOTE = render_tools_note(_CORE_TOOL_KEYS)
 
 
 # Folded into the system prompt for a DM so Olisar knows it's a private one-on-one, not
@@ -451,6 +471,14 @@ async def _run_tool_loop(
                     name=call.name, response={"result": result}
                 )
             )
+        if ctx.silent:
+            # `acknowledge` landed: the reaction is the reply and this turn is over. Return
+            # before the forcing machinery below, which exists to stop an empty reply and
+            # would here manufacture the "done" the reaction was chosen instead of.
+            unsent = _response_text(resp).strip()
+            if unsent:
+                log.info("not sending alongside the %s reaction: %s", ctx.silent, unsent)
+            return ""
         # Function responses go back as a "user" turn: the SDK documents role as
         # "either 'user' or 'model'", and Gemini 3.x enforces it (older 2.x models
         # silently tolerated role="tool", which is what this used to send).
@@ -512,7 +540,17 @@ async def generate_reply(
             server_type=persona.server_type,
             slang_density=persona.slang_density,
         )
-    system_instruction += "\n\n" + CONTEXT_NOTE + "\n\n" + prompt_overrides.tools_note(TOOLS_NOTE)
+    config = await session.get(GuildConfig, cfg_guild)
+    # Ending a turn with a reaction instead of a message is per-server and on by default.
+    # Off, the tool is never declared and never described — an operator who turned it off
+    # shouldn't have Olisar reading about a way to stay quiet that it hasn't got.
+    silent_acks = bool(getattr(config, "silent_acks_enabled", True)) if config else True
+    system_instruction += (
+        "\n\n" + CONTEXT_NOTE + "\n\n"
+        + prompt_overrides.tools_note(
+            render_tools_note(_ALL_TOOL_KEYS if silent_acks else _CORE_TOOL_KEYS)
+        )
+    )
     # Which room this is, so the register can follow it (DMs get DM_NOTE instead).
     room = channel_note(channel_name, channel_topic) if guild_id else ""
     if room:
@@ -522,7 +560,6 @@ async def generate_reply(
         "to resolve any 'remind me' / scheduling request before calling add_reminder."
     )
 
-    config = await session.get(GuildConfig, cfg_guild)
     model = config.default_model if config and config.default_model else None
     cmd_msgs = config.command_messages if config and config.command_messages else {}
     rate_limit_msg = render_message(cmd_msgs, "rate_limit")
@@ -595,6 +632,13 @@ async def generate_reply(
         system_instruction += "\n\nAlso enabled: " + ", ".join(
             d.name for d in extra_decls
         ) + " — use these when they fit the request."
+    # Declared after that line, deliberately. `acknowledge` is described in the tool
+    # briefing with the conditions attached; listing it again under "use these when they
+    # fit the request" reads as encouragement to stay quiet, which is the last thing this
+    # needs a second nudge toward.
+    reply_tools = tools_with_extensions(
+        extra_decls + (ack_declarations() if silent_acks else [])
+    )
 
     ctx = ToolContext(
         session=session,
@@ -613,7 +657,7 @@ async def generate_reply(
             model,
             ctx,
             blank_fallback=blank_fallback,
-            tools=tools_with_extensions(extra_decls),
+            tools=reply_tools,
         )
     except RateLimitExceeded:
         # Deliberately not a blank. The quota is spent, waiting fixes it, and the reply
@@ -622,6 +666,11 @@ async def generate_reply(
     except Exception:
         log.exception("gemini generation failed")
         return Reply(blank_fallback, blanked=True)
+    if ctx.silent:
+        # Checked ahead of the blank test below: both carry empty text, and reading this
+        # one as a blank would hang a Report button off a reply that did exactly what the
+        # user asked for.
+        return Reply("", silent=True, emoji=ctx.silent)
     # _fallback_when_synthesis_fails returns the very string handed to it, so an equal
     # result is the loop reporting that it never reached an answer. A model that happened
     # to write the operator's fallback text verbatim would also match; the cost of that

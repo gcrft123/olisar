@@ -39,7 +39,7 @@ Rules:
 
 _MAX_CHARS = 320
 
-_MESSAGE_SCHEMA = {
+MESSAGE_SCHEMA = {
     "type": "object",
     "properties": {"message": {"type": "string"}},
     "required": ["message"],
@@ -97,7 +97,7 @@ async def compose(
     # scenario input something the scenario never specified. A schema with one field
     # removes the room for a preamble instead of asking again for it not to happen.
     payload = await model.generate_json(
-        prompt, system=_SYSTEM, role=DIALOGUE, schema=_MESSAGE_SCHEMA, max_output_tokens=300
+        prompt, system=_SYSTEM, role=DIALOGUE, schema=MESSAGE_SCHEMA, max_output_tokens=300
     )
     raw = str(payload.get("message", "")) if payload else ""
     line = _tidy(raw, persona)
