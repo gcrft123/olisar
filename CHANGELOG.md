@@ -34,6 +34,8 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 [d7a522b] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
 
+[51c2393] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
