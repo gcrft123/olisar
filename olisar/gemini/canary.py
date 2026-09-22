@@ -11,15 +11,19 @@ newer models require), then send the function response as its own turn and expec
 That is exactly the sequence in ``pipeline._run_tool_loop``, so a provider-side change to how
 any of it is validated fails here — on a schedule, to the operator's log — instead of in a DM.
 
-**Every rung, not just the first.** Measured against the live API, the shape that caused the
-incident was rejected *only* by the two ``-latest`` aliases; every pinned model in the chain
-accepted it. A self-test that checked the head of the chain would therefore have passed
-happily all the way through the outage. What breaks is whichever model the request actually
-lands on, and under contention that is not the one at the top — so each model is tested on
-its own, pinned to a single-model chain so a healthy neighbour can't answer on its behalf.
+**Not just the first rung.** Measured against the live API, the shape that caused the
+incident was rejected *only* by the two ``-latest`` aliases; every pinned model in the
+chain accepted it. A self-test that checked only the head of the chain would therefore
+have passed happily all the way through the outage. Each model in the (slim) default
+sweep is tested on its own, pinned to a single-model chain so a healthy neighbour can't
+answer on its behalf.
 
 Two requests per model per run, once a day. Routed through the normal client, so it respects
 the rate limiter and lands in the usage rollup like any other call.
+
+The default sweep is intentionally small. A full walk of every chat and vision rung used to
+cost ~14 free-tier requests a day; most of that never caught anything the slim set below
+wouldn't. The models that matter are the ones that actually broke in production.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from datetime import datetime, timezone
 from google.genai import types
 
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import IMAGE_RANKED_NAMES, RANKED_NAMES
+from olisar.gemini.models import DEFAULT_VISION_MODEL, RANKED_NAMES
 from olisar.gemini.rate_limiter import RateLimitExceeded
 
 log = logging.getLogger("olisar.canary")
@@ -196,24 +200,29 @@ async def run_canary(model: str) -> CanaryResult:
 
 
 def _default_sweep() -> list[str]:
-    """Every model any chain can reach, chat and vision, in order and without repeats.
+    """The models whose failure modes this canary exists to catch — not every rung.
 
-    Vision is included because that is where a retired model actually bit: its chain
-    *started* on one, so image understanding was failing outright while chat was fine.
-    A sweep that only covered chat would have reported everything healthy.
+    Measured against the live API, the tool-shape incident was rejected *only* by the
+    ``-latest`` aliases; every pinned model accepted it. Vision is included because that
+    is where a retired model actually bit: its chain *started* on one, so image
+    understanding was failing outright while chat was fine. A head-of-chat-only sweep
+    would have stayed green through both of those outages.
     """
     seen: dict[str, None] = {}
-    for name in (*RANKED_NAMES, *IMAGE_RANKED_NAMES):
+    for name in (
+        *(n for n in RANKED_NAMES if n.endswith("-latest")),
+        DEFAULT_VISION_MODEL,
+    ):
         seen.setdefault(name, None)
     return list(seen)
 
 
 async def run_chain_canary(models: list[str] | None = None) -> ChainResult:
-    """Self-test every model the bot can reach, one at a time. Never raises.
+    """Self-test each model in ``models`` (or the slim default sweep), one at a time.
 
-    Sequential rather than concurrent: the rate limiter is per model, but the free tier's
-    ceilings are low enough that firing the whole chain at once would mostly measure our
-    own contention. A daily sweep has no reason to be fast.
+    Never raises. Sequential rather than concurrent: the rate limiter is per model, but
+    the free tier's ceilings are low enough that firing several models at once would
+    mostly measure our own contention. A daily sweep has no reason to be fast.
     """
     global _last
 
