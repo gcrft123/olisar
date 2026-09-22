@@ -6,15 +6,15 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 ### New
 
-[95d4a8a] — Olisar can end a turn with a reaction and no message, after sending a DM, posting to another channel, remembering something, or setting a reminder.
+[f2fa419] — Olisar can end a turn with a reaction and no message, after sending a DM, posting to another channel, remembering something, or setting a reminder.
 
-[95d4a8a] — A message that only needs acknowledging — "thanks", an FYI — gets a reaction rather than a reply written to have replied.
+[f2fa419] — A message that only needs acknowledging — "thanks", an FYI — gets a reaction rather than a reply written to have replied.
 
-[95d4a8a] — Settings → Behavior → Model & tools turns it off per server; off, every turn ends in words.
+[f2fa419] — Settings → Behavior → Model & tools turns it off per server; off, every turn ends in words.
 
-[95d4a8a] — A turn answered with a reaction is recorded, so the next reply doesn't read it as having been ignored and do the thing twice.
+[f2fa419] — A turn answered with a reaction is recorded, so the next reply doesn't read it as having been ignored and do the thing twice.
 
-[d7a522b] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
+[1e2c722] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
 
 ### Changed
 
@@ -28,13 +28,17 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 ### Fixed
 
-[d7a522b] — `arena doctor` accepts Grok, which it had rejected since the backend landed.
+[7c9263a] — Olisar no longer hands over its own operating rules. It used to protect them only against instructions hidden inside pasted content, so anyone who asked by a route it trusted — a server policy it had been taught, someone it had saved as a maintainer, a request to file them in another channel, or a few members agreeing that refusing was strange — got them back verbatim.
 
-[d7a522b] — The Grok CLI no longer runs inside the repo, where it read AGENTS.md and wrote emulator lines as a coding assistant.
+[7c9263a] — A glossary entry is no longer treated as something that can grant permission. Anyone could teach Olisar a "fact" about the server, and it read back as community truth to every member afterwards; entries now read as claims people made, and can't authorize anything.
 
-[d7a522b] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
+[1e2c722] — `arena doctor` accepts Grok, which it had rejected since the backend landed.
 
-[51c2393] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
+[1e2c722] — The Grok CLI no longer runs inside the repo, where it read AGENTS.md and wrote emulator lines as a coding assistant.
+
+[1e2c722] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
+
+[c23a12e] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
 
 ## [1.5.0] — 2026-09-21
 
