@@ -29,6 +29,8 @@ from arena.control.dashboard import Dashboard, DashboardError
 from arena.control.guild import Steward, olisar_user_id
 from arena.discord_rest import DiscordRest
 from arena.eval.transcript import (
+    REACTION,
+    RELAY,
     Run,
     Turn,
     apply_checks,
@@ -65,6 +67,11 @@ _ROSTER_SYNC_TIMEOUT = 105.0
 # ~10 RPM per model, and the reply path competes with Olisar's own background work —
 # embedding, summaries, glossary mining, and a proactivity classifier that scans every 25s.
 _STARVED_MARKERS = ("parked for", "RateLimitExceeded", "no model available")
+# …except a model that was parked because Google retired it. That is a 404 on a chain entry
+# that needs deleting, not evidence the quota ran out, and it is logged on every startup —
+# so left in, it voids every run made in the hour after a restart. Two of the seven chain
+# models are currently retired, which made this a permanent condition rather than a rare one.
+_NOT_STARVED = ("after the model is retired",)
 
 
 class RunAborted(RuntimeError):
@@ -97,7 +104,12 @@ def _address(text: str, mode: str | None, olisar_id: int, name_trigger: str) -> 
 
 def starved_lines(log_lines: list[str]) -> list[str]:
     """Lines showing Olisar's model chain had nothing available."""
-    return [line for line in log_lines if any(m in line for m in _STARVED_MARKERS)]
+    return [
+        line
+        for line in log_lines
+        if any(m in line for m in _STARVED_MARKERS)
+        and not any(m in line for m in _NOT_STARVED)
+    ]
 
 
 def _starvation_error(cfg: ArenaConfig, run: Run) -> str:
@@ -111,10 +123,14 @@ def _starvation_error(cfg: ArenaConfig, run: Run) -> str:
     Only silence is treated as suspect. A run where the chain was partly parked but Olisar
     still answered — it walks down to a lower model — is fine, and is common enough that
     flagging it would discard most live runs.
+
+    A reaction counts as having answered. Olisar can now end a turn with one and send
+    nothing (``olisar.tools``' ``acknowledge``), and a scenario that asserts exactly that
+    would otherwise be voided by this guard every single time it passed.
     """
     from arena.control import supervisor
 
-    if run.olisar_turns:
+    if run.olisar_turns or run.olisar_reactions:
         return ""
     hits = starved_lines(supervisor.tail(cfg, lines=800))
     if not hits:
@@ -183,6 +199,9 @@ class LiveRunner:
                     speakers[key] = _Speaker(personas[key], rest, members[key].user_id)
 
                 cursor = await self._latest_message_id(steward.rest, channel_id)
+                # Where every other channel stood before the run, so the sweep at the end
+                # can tell a relay Olisar made during it from what was already there.
+                relay_cursors = await self._channel_cursors(steward.rest, cfg.guild_id)
                 deadline = time.monotonic() + cfg.scenario_timeout_seconds
 
                 for beat in scenario.seed:
@@ -201,6 +220,18 @@ class LiveRunner:
                 # off at whichever chunk happened to have arrived.
                 await asyncio.sleep(_POLL_SECONDS)
                 await self._drain_reply(run, steward.rest, channel_id, cursor, olisar_id)
+                # Reactions get swept once at the end over every emulator message, not
+                # just the beat that was waited on. A reaction is invisible to the
+                # `after=` poll (it changes a message already behind the cursor), and the
+                # passive-reaction path picks its target on its own 30s loop — so the
+                # message it lands on is usually not the one anybody was watching.
+                for turn in [t for t in run.turns if not t.is_olisar and t.message_id]:
+                    await self._collect_reactions(
+                        run, steward.rest, channel_id, turn.message_id, olisar_id
+                    )
+                await self._collect_relays(
+                    run, steward.rest, channel_id, olisar_id, relay_cursors
+                )
         except RunAborted as exc:
             run.error = str(exc)
             log.warning("run %s aborted: %s", run.run_id, exc)
@@ -416,30 +447,44 @@ class LiveRunner:
         posted = await speaker.rest.send(channel_id, text)
         self._posted += 1
         self._last_post = time.monotonic()
+        posted_id = int(posted.get("id", 0) or 0)
         run.turns.append(
             Turn(
                 author=speaker.persona.display_name,
                 content=text,
                 is_olisar=False,
                 author_id=speaker.user_id,
-                message_id=int(posted.get("id", 0) or 0),
+                message_id=posted_id,
                 at=now_iso(),
             )
         )
-        cursor = max(cursor, int(posted.get("id", 0) or 0))
+        cursor = max(cursor, posted_id)
 
         if seeding:
             return cursor
         if beat.expect_reply:
-            return await self._await_reply(run, observer, channel_id, cursor, olisar_id, beat.timeout)
+            return await self._await_reply(
+                run, observer, channel_id, cursor, olisar_id, beat.timeout, posted_id
+            )
         await asyncio.sleep(_POLL_SECONDS)
-        return await self._collect(run, observer, channel_id, cursor, olisar_id)
+        cursor = await self._collect(run, observer, channel_id, cursor, olisar_id)
+        # Also on an unaddressed beat: the passive-reaction path reacts to messages nobody
+        # sent it, and a reaction is invisible to the message poll either way.
+        await self._collect_reactions(run, observer, channel_id, posted_id, olisar_id)
+        return cursor
 
     async def _await_reply(
         self, run: Run, observer: DiscordRest, channel_id: int, cursor: int,
-        olisar_id: int, timeout: float,
+        olisar_id: int, timeout: float, answered_id: int = 0,
     ) -> int:
-        """Poll until Olisar says something or the beat's timeout lapses.
+        """Poll until Olisar responds or the beat's timeout lapses.
+
+        "Responds" is two things now. A message ends the wait the way it always did. A
+        *reaction* on the beat's own message also ends it: Olisar can answer by reacting
+        and sending nothing (``olisar.tools``' ``acknowledge``), and without watching for
+        that, every silent turn would burn the full timeout and be recorded as no response
+        — which is indistinguishable from the bot having ignored the message, and is
+        exactly the distinction the silent-turn scenarios exist to make.
 
         A lapse is recorded as silence rather than raised: "didn't answer when addressed"
         is a finding, and the deterministic ``must_reply`` check is what turns it into a
@@ -452,8 +497,127 @@ class LiveRunner:
             cursor = await self._collect(run, observer, channel_id, cursor, olisar_id)
             if len(run.olisar_turns) > before:
                 return await self._drain_reply(run, observer, channel_id, cursor, olisar_id)
+            if await self._collect_reactions(run, observer, channel_id, answered_id, olisar_id):
+                # Keep watching briefly: a reaction is usually the whole answer, but Olisar
+                # is free to react *and* talk, and returning here would truncate that.
+                return await self._drain_reply(run, observer, channel_id, cursor, olisar_id)
         log.info("no reply within %.0fs", timeout)
         return cursor
+
+    async def _collect_relays(
+        self, run: Run, observer: DiscordRest, channel_id: int, olisar_id: int,
+        cursors: dict[int, tuple[str, int]],
+    ) -> None:
+        """Record anything Olisar posted in a channel *other* than the scenario's.
+
+        ``send_to_channel`` and ``send_dm`` are output paths a reply never touches, so a
+        transcript built by polling one channel cannot see them. Every red-team case in the
+        suite asserts on that transcript, which means a refusal in this channel and the
+        forbidden bytes posted into the one next door scored as a clean pass on every
+        check. Sweeping the rest of the guild is what makes those assertions mean what they
+        have always claimed to mean.
+
+        DMs stay invisible — Discord won't let a bot read another bot's, and the recipient
+        of a real one is a person. That limit is in arena/README.md and this doesn't lift it.
+        """
+        for cid, (name, cursor) in cursors.items():
+            if cid == channel_id:
+                continue
+            try:
+                fetched = await observer.messages(cid, after=cursor or None, limit=50)
+            except Exception:
+                log.warning("sweeping #%s for relays failed", name, exc_info=True)
+                continue
+            known = {t.message_id for t in run.turns if t.message_id}
+            for message in fetched:
+                mid = int(message.get("id", 0) or 0)
+                if mid in known or int((message.get("author") or {}).get("id", 0) or 0) != olisar_id:
+                    continue
+                content = message.get("content", "") or ""
+                if not content and message.get("attachments"):
+                    content = "[attachment: " + ", ".join(
+                        a.get("filename", "file") for a in message["attachments"]
+                    ) + "]"
+                if not content:
+                    continue
+                log.info("Olisar posted %d chars into #%s during the run", len(content), name)
+                run.turns.append(
+                    Turn(
+                        author="Olisar",
+                        content=content,
+                        is_olisar=True,
+                        author_id=olisar_id,
+                        message_id=mid,
+                        at=message.get("timestamp", "") or now_iso(),
+                        kind=RELAY,
+                        channel_name=name,
+                    )
+                )
+
+    async def _channel_cursors(
+        self, observer: DiscordRest, guild_id: int
+    ) -> dict[int, tuple[str, int]]:
+        """Every text channel in the guild and its newest message id right now, so the
+        end-of-run sweep can tell what Olisar posted *during* the run from what was
+        already sitting there."""
+        cursors: dict[int, tuple[str, int]] = {}
+        try:
+            channels = await observer.channels(guild_id)
+        except Exception:
+            log.warning("couldn't list channels for the relay sweep", exc_info=True)
+            return cursors
+        for channel in channels:
+            if int(channel.get("type", -1)) != 0:  # text channels only
+                continue
+            cid = int(channel.get("id", 0) or 0)
+            if not cid:
+                continue
+            cursors[cid] = (channel.get("name", str(cid)), await self._latest_message_id(observer, cid))
+        return cursors
+
+    async def _collect_reactions(
+        self, run: Run, observer: DiscordRest, channel_id: int, message_id: int, olisar_id: int
+    ) -> bool:
+        """Record any reaction Olisar has put on ``message_id``. True if one was new.
+
+        Attribution is a second call per emoji rather than trusting the ``me`` flag on the
+        message payload: ``me`` means the token doing the reading, which here is the
+        steward. Everything in an arena channel is a bot, so "somebody reacted" would
+        otherwise credit Olisar for an emulator's emoji.
+        """
+        if not message_id:
+            return False
+        try:
+            payload = await observer.message(channel_id, message_id)
+        except Exception:
+            log.warning("reading reactions on %s failed", message_id, exc_info=True)
+            return False
+        known = {(t.message_id, t.content) for t in run.olisar_reactions}
+        found = False
+        for entry in payload.get("reactions") or []:
+            emoji = (entry.get("emoji") or {}).get("name") or ""
+            if not emoji or (message_id, emoji) in known:
+                continue
+            try:
+                users = await observer.reactors(channel_id, message_id, emoji)
+            except Exception:
+                log.warning("reading who reacted %s failed", emoji, exc_info=True)
+                continue
+            if not any(int(u.get("id", 0) or 0) == olisar_id for u in users):
+                continue
+            run.turns.append(
+                Turn(
+                    author="Olisar",
+                    content=emoji,
+                    is_olisar=True,
+                    author_id=olisar_id,
+                    message_id=message_id,
+                    at=now_iso(),
+                    kind=REACTION,
+                )
+            )
+            found = True
+        return found
 
     async def _drain_reply(
         self, run: Run, observer: DiscordRest, channel_id: int, cursor: int, olisar_id: int

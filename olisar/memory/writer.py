@@ -277,6 +277,63 @@ async def record_message(
     return msg
 
 
+# How a turn Olisar answered with a reaction renders in the transcript it reads back.
+# Explained to the model in ``olisar.context.CONTEXT_NOTE`` alongside the other markers
+# that aren't speech (`— 3 hours later —`, `Name (bot):`).
+ACK_MARKER = "[reacted {emoji}]"
+
+
+async def record_reaction_ack(
+    session: AsyncSession,
+    *,
+    guild_id: int,
+    channel_id: int,
+    trigger_message_id: int,
+    bot_user_id: int,
+    emoji: str,
+) -> Message | None:
+    """Record a turn Olisar ended with a reaction instead of a message.
+
+    Nothing was sent, so there is no Discord message to store — and storing nothing is
+    worse than it sounds: the next reply reads a transcript where someone asked for
+    something and Olisar said nothing at all, which is indistinguishable from having
+    ignored them. It re-does the action, or apologises for missing it.
+
+    Two details make the synthetic row safe to keep:
+
+    * the id is the *negated* trigger id — never a Discord snowflake, so it can't collide
+      with a real message, and unique per triggering message so a retry is idempotent;
+    * ``embedded``/``summarized``/``fact_mined`` are pre-set, keeping the marker out of the
+      embedding queue, the channel summaries and the glossary miner. It is there to be read
+      in the recent window and nowhere else.
+
+    Nameless like every other row of Olisar's own (see ``Message.author_name``), so the
+    transcript renders it on its own side of the conversation.
+    """
+    message_id = -abs(int(trigger_message_id))
+    if not message_id:
+        return None
+    exists = await session.scalar(
+        select(Message.id).where(Message.message_id == message_id)
+    )
+    if exists is not None:
+        return None
+    msg = Message(
+        guild_id=guild_id,
+        channel_id=channel_id,
+        message_id=message_id,
+        author_id=bot_user_id,
+        author_is_bot=True,
+        author_name="",
+        content=ACK_MARKER.format(emoji=emoji),
+        embedded=True,
+        summarized=True,
+        fact_mined=True,
+    )
+    session.add(msg)
+    return msg
+
+
 async def record_search_message(
     session: AsyncSession,
     *,

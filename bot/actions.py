@@ -14,6 +14,7 @@ import discord
 
 from bot.replies import chunk_text, mention_policy, sanitize_mentions
 from olisar.persona import strip_breaks
+from olisar.tools import ACK_OK
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -173,6 +174,15 @@ class BotActions:
             return f"couldn't set status: {exc}"
 
     async def react(self, emoji: str) -> str:
+        return "no message to react to here"
+
+    async def acknowledge(self, emoji: str) -> str:
+        """Refused here by construction: with no triggering message there is nothing to
+        react to, and an acknowledgment nobody can see is just a reply that went missing.
+
+        This is what keeps ``/ask`` safe — that path builds a ``BotActions``, and a
+        deferred interaction with no followup sits on "thinking…" until Discord gives up.
+        """
         return "no message to react to here"
 
     async def send_dm(self, user_id: int, text: str) -> str:
@@ -464,3 +474,21 @@ class MessageActions(BotActions):
             return f"reacted with {emoji}"
         except Exception as exc:  # noqa: BLE001
             return f"couldn't react with {emoji}: {exc}"
+
+    async def acknowledge(self, emoji: str) -> str:
+        """React, and say so in the form the tool layer treats as "it landed".
+
+        Deliberately not ``react``'s return value with a different caller: the reply that
+        calls this is about to send nothing, so the difference between a reaction Discord
+        accepted and one it rejected is the difference between an answer and silence. The
+        ``ACK_OK`` prefix is how that gets reported rather than guessed (olisar/tools.py);
+        every failure comes back as plain prose, which the tool layer reads as a refusal
+        and hands to the model to reply around.
+        """
+        try:
+            await self.message.add_reaction(emoji)
+        except discord.Forbidden:
+            return f"couldn't react with {emoji} — I'm not allowed to add reactions here"
+        except Exception as exc:  # noqa: BLE001
+            return f"couldn't react with {emoji}: {exc}"
+        return f"{ACK_OK} {emoji}"

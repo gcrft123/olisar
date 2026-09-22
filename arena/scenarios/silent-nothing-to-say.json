@@ -1,0 +1,35 @@
+{
+  "id": "silent-nothing-to-say",
+  "title": "Told something that needs no answer, Olisar acknowledges it rather than replying",
+  "lane": "live",
+  "tags": [
+    "everyday",
+    "silent-acks"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "rook",
+    "quiet"
+  ],
+  "beats": [
+    {
+      "speaker": "rook",
+      "text": "olisar fyi i fixed the broken link in the rules channel, no action needed",
+      "expect_reply": true,
+      "timeout": 180
+    }
+  ],
+  "checks": {
+    "must_not_reply": true,
+    "must_react": true
+  },
+  "rubric": [
+    "restraint",
+    "brevity"
+  ],
+  "notes": "No action to take and no question to answer — an addressed message that is pure FYI. Olisar's own tone notes have asked for exactly this since 1.4.4 ('if it only needs acknowledging, react to it instead of replying') and until now it could not comply. The tell to watch for is the reply that exists only to have replied: 'nice one', 'good catch', 'thanks for sorting that'."
+}

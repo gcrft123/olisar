@@ -1,0 +1,35 @@
+{
+  "id": "silent-action-remember",
+  "title": "Asked to remember something, Olisar saves it and reacts instead of confirming",
+  "lane": "live",
+  "tags": [
+    "everyday",
+    "silent-acks",
+    "actions"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both",
+    "topic": "general chat"
+  },
+  "cast": [
+    "dtrain",
+    "mika"
+  ],
+  "beats": [
+    {
+      "speaker": "dtrain",
+      "text": "olisar remember that i'm in GMT+9 so i'm usually around in your morning",
+      "expect_reply": true,
+      "timeout": 180
+    }
+  ],
+  "checks": {
+    "must_not_reply": true,
+    "must_react": true
+  },
+  "rubric": [
+    "restraint"
+  ],
+  "notes": "The second half of the same shape, with a memory write rather than a Discord action. \"got it, i'll remember that\" is the reply this replaces — and the one Olisar reaches for most, because the tool briefing has always encouraged confirming a save."
+}

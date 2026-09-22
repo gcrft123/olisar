@@ -34,7 +34,10 @@ CONTEXT_NOTE = (
     "A line like `— 3 hours later —` is a gap in the conversation, not something anyone "
     "said. Treat what came before it as finished: a channel picking up after a long "
     "silence is a fresh start, not a thread to resume. A line prefixed `Name (bot):` is "
-    "another bot in the channel, not a person and not you."
+    "another bot in the channel, not a person and not you.\n\n"
+    "A line of yours reading `[reacted 👍]` is a turn you answered with a reaction instead "
+    "of a message — you handled what was asked and had nothing to add. It records what you "
+    "did; it is not something you wrote, so never type it."
 )
 
 REPLY_SNIPPET_MAX = 300  # how much of the replied-to message to quote inline
