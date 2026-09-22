@@ -39,7 +39,7 @@ class ModelInfo:
 # The 2.0 pair used to sit at positions 4 and 8 and are gone: generateContent answers
 # `404 ... is no longer available`. Note models.get still returns metadata for a retired
 # model, so "does this name resolve?" is not the question — only a real generation is.
-# The daily self-test (olisar/gemini/canary.py) is what found them.
+# The daily self-test (olisar/gemini/canary.py) still sweeps the ``-latest`` aliases.
 RANKED: list[ModelInfo] = [
     ModelInfo("gemini-3.5-flash", 10, "Gemini 3.5 Flash"),
     ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)"),
@@ -79,8 +79,8 @@ _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
 # This chain used to *start* on gemini-2.0-flash, which is retired. A 404 raised rather
 # than falling through, so every image description failed outright — the whole feature
 # was down and nothing said so. Both retired entries are gone, a 404 now costs the next
-# model instead of the request (see client._MODEL_RETIRED), and the self-test sweeps
-# this chain too so the next retirement is a log line rather than a silent outage.
+# model instead of the request (see client._MODEL_RETIRED), and the self-test still
+# sweeps this chain's head so the next retirement is a log line rather than a silent outage.
 IMAGE_RANKED: list[ModelInfo] = [
     ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite (multimodal)"),
     ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite (multimodal)"),
