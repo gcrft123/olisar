@@ -98,6 +98,7 @@ function mockLive() {
   const jitter = (n: number) => Math.max(0, Math.round(n + (Math.sin(Date.now() / 3000) * 2)))
   return {
     ts: new Date().toISOString(),
+    exhausted: false,
     models: [
       { model: 'gemini-flash-latest', rpm: jitter(7), cap: 10, cooldown: false },
       { model: 'gemini-flash-lite-latest', rpm: jitter(4), cap: 15, cooldown: false },
@@ -343,6 +344,11 @@ function mockPlugin(): Plugin {
             { id: 'e5f6a7b8', name: 'Staging bot', created: false },
           ],
         })
+        // Operator power card: online + ready so USAGE_MOCK can also show the rate-limit
+        // amber state (driven by mockLive().exhausted) without a running Discord gateway.
+        if (url.startsWith('/api/bot/status') || url.startsWith('/api/bot/power')) {
+          return send({ available: true, running: true, ready: true, can_power: true })
+        }
         if (url.startsWith('/api/settings/updates')) return send({ current: '1.0.5', available: false })
         if (url.startsWith('/api/settings/desktop')) return send({ show_in_menu_bar: true })
         // A parked blank reply, reached by the "Report this" button Olisar puts on one.

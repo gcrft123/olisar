@@ -23,7 +23,7 @@ from sqlalchemy import select
 
 from olisar.db.engine import session_scope
 from olisar.db.models import GeminiUsage, UsageMinutePeak, UsageSource
-from olisar.gemini.models import rpm_for
+from olisar.gemini.models import RANKED_NAMES, rpm_for
 
 log = logging.getLogger("olisar.gemini.ratelimit")
 
@@ -94,6 +94,12 @@ class RateLimiter:
                 )
         out.sort(key=lambda r: r["rpm"] / max(r["cap"], 1), reverse=True)
         return out
+
+    def chat_exhausted(self) -> bool:
+        """True when every model in the chat fallback chain is busy or cooling — the
+        bot can't answer until one clears. One parked model is normal (the client walks
+        the rest of the chain); this is the all-models-gone case."""
+        return all(self.state(name) != "ok" for name in RANKED_NAMES)
 
     def reserve(self, model: str) -> None:
         self._calls[model].append(time.monotonic())

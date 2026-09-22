@@ -181,8 +181,14 @@ async def summary(days: int = Query(7, ge=0, le=3650), _: AdminUser = Depends(re
 
 @router.get("/live")
 async def live(_: AdminUser = Depends(require_admin)):
-    """Current per-model requests-in-the-last-60s, read straight off the limiter."""
+    """Current per-model requests-in-the-last-60s, read straight off the limiter.
+
+    ``exhausted`` is true only when every chat-chain model is parked or at its RPM
+    cap — the bot can't answer. A single model cooling down is normal fallback, not
+    this flag."""
+    limiter = get_rate_limiter()
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
-        "models": get_rate_limiter().snapshot(),
+        "models": limiter.snapshot(),
+        "exhausted": limiter.chat_exhausted(),
     }
