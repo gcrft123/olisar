@@ -17,7 +17,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import toolpin
+from olisar import self_settings, toolpin
 from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.imaging import generate_image, is_configured as image_is_configured
@@ -97,6 +97,9 @@ class ToolContext:
     # never be set optimistically: a failed reaction that still silenced the reply would be
     # a bot that swallowed the request without a trace anyone can see.
     silent: str = ""
+    # Set once open_settings has run. From then on the reply also declares the settings
+    # write tools (see with_settings_tools), which are left out until then to save tokens.
+    settings_open: bool = False
 
 
 def _str(desc: str) -> types.Schema:
@@ -332,6 +335,7 @@ _DECLARATIONS = [
             ["enabled"],
         ),
     ),
+    self_settings.READ_DECLARATION,
 ]
 
 TOOLS = [types.Tool(function_declarations=_DECLARATIONS)]
@@ -401,6 +405,19 @@ def tools_with_extensions(extra_declarations: list) -> list:
     if not extra_declarations:
         return TOOLS
     return [types.Tool(function_declarations=[*_DECLARATIONS, *extra_declarations])]
+
+
+def with_settings_tools(tools: list) -> list:
+    """``tools`` plus the settings write tools, once open_settings has unlocked them.
+
+    They're withheld until then because they're rarely wanted and every declaration is
+    resent on every model call. See ``olisar.self_settings``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    if any(d.name in self_settings.TOOL_NAMES - {"open_settings"} for d in declared):
+        return tools
+    return [
+        types.Tool(function_declarations=[*declared, *self_settings.WRITE_DECLARATIONS])
+    ]
 
 
 # Core tools exposed in the dashboard sandbox (the enclosed test chat). Only the
@@ -761,6 +778,9 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "I couldn't find that pending reminder of yours."
             r.fired = True
             return f"Cancelled reminder #{rid}."
+
+        if name in self_settings.TOOL_NAMES:
+            return await self_settings.run(name, args, ctx)
 
         if name == "set_dm_indexing":
             from olisar.memory.writer import upsert_profile

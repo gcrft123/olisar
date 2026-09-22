@@ -40,6 +40,7 @@ from olisar.tools import (
     presence_declarations,
     sandbox_tools,
     tools_with_extensions,
+    with_settings_tools,
 )
 
 log = logging.getLogger("olisar.pipeline")
@@ -483,6 +484,10 @@ async def _run_tool_loop(
         # "either 'user' or 'model'", and Gemini 3.x enforces it (older 2.x models
         # silently tolerated role="tool", which is what this used to send).
         contents.append(types.Content(role="user", parts=responses))
+        if ctx.settings_open:
+            # open_settings ran, so the reply is about settings: declare the tools that
+            # change them from the next call on.
+            tools = with_settings_tools(tools)
 
     # Budget spent (or an empty turn) — force a plain-text final answer.
     answer = await _force_final_answer(client, contents, system_instruction, model, tools)
