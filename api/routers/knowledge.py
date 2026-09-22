@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import func, select
 
 from api.auth.deps import GuildContext, require_guild_admin
 from api.schemas import SourceIn, SourceScheduleIn
@@ -18,15 +18,12 @@ from olisar.db.models import (
     GuildChannelInfo,
     KBChunk,
     KBSource,
-    KBSourceType,
-    KBStatus,
     Message,
     SearchMessage,
-    utcnow,
 )
-from olisar.knowledge.refresh import REFRESHABLE_TYPES, next_run_at
-from olisar.memory.vectors import delete_embedding
-from olisar.memory.writer import clear_search_index
+from olisar.knowledge import sources
+from olisar.knowledge.refresh import REFRESHABLE_TYPES
+from olisar.memory.writer import clear_search_index, rearm_search_index
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -90,21 +87,16 @@ async def add_source(body: SourceIn, gctx: GuildContext = Depends(require_guild_
     if not body.uri.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=400, detail="uri must be an http(s) URL")
     async with session_scope() as session:
-        src = KBSource(
+        src = sources.new_source(
             guild_id=gctx.guild_id,
-            type=KBSourceType(body.type),
+            type=body.type,
             uri=body.uri,
-            title=body.uri,
-            status=KBStatus.pending,
             # Bounds are enforced by SourceIn now, so a bad request is refused with a reason
             # rather than silently turned into a different one.
             crawl_depth=body.crawl_depth,
             max_pages=body.max_pages,
+            refresh_hours=body.refresh_hours,
             added_by=gctx.admin.discord_user_id,
-            refresh_interval_hours=body.refresh_hours,
-            # Measured from the first read, not from now: the source is about to be read
-            # anyway, and stamping "now" would make an hourly schedule fire twice up front.
-            next_refresh_at=next_run_at(utcnow(), body.refresh_hours),
         )
         session.add(src)
         await session.flush()
@@ -123,20 +115,7 @@ async def reindex(gctx: GuildContext = Depends(require_guild_admin)):
     the backfill cursor on every channel; the background worker re-walks them. The index
     rows update in place (keyed by message id), so this is safe to run anytime."""
     async with session_scope() as session:
-        # Only re-arm channels that are actually in the index. Channels set to
-        # "not indexed" stay halted (re-enabling one re-arms it via reindex_channel).
-        await session.execute(
-            update(GuildChannelInfo)
-            .where(
-                GuildChannelInfo.guild_id == gctx.guild_id,
-                GuildChannelInfo.index_enabled.is_(True),
-            )
-            .values(backfill_done=False, last_indexed_message_id=None)
-        )
-        # DMs are their own category — re-index them by clearing the DM search rows; the
-        # DM backfill pass rebuilds the index from the message table (Discord can't page
-        # DM history). Idempotent and safe to run from any server's Re-index button.
-        await session.execute(delete(SearchMessage).where(SearchMessage.guild_id == 0))
+        await rearm_search_index(session, gctx.guild_id)
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="reindex_search",
             target_type="guild", target_id=gctx.guild_id,
@@ -268,11 +247,7 @@ async def set_schedule(
                        "again to update it",
             )
         before = src.refresh_interval_hours
-        src.refresh_interval_hours = body.refresh_hours
-        # Re-based on the last read rather than on now, so shortening an interval takes
-        # effect against the content's real age instead of granting a fresh full period.
-        anchor = _aware(src.last_checked_at) or _aware(src.last_ingested_at) or utcnow()
-        src.next_refresh_at = next_run_at(anchor, body.refresh_hours)
+        sources.set_schedule(src, body.refresh_hours)
         next_at = _iso(src.next_refresh_at)
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="set_kb_refresh",
@@ -290,13 +265,9 @@ async def refresh_now(source_id: int, gctx: GuildContext = Depends(require_guild
         src = await session.get(KBSource, source_id)
         if src is None or src.guild_id != gctx.guild_id:
             raise HTTPException(status_code=404, detail="source not found")
-        if src.status in (KBStatus.pending, KBStatus.crawling, KBStatus.chunking):
+        if src.status in sources.BUSY:
             raise HTTPException(status_code=409, detail="that source is already being read")
-        src.status = KBStatus.pending
-        src.error = None
-        # A manual read restarts the clock, so "every 6 hours" means six hours from this
-        # read rather than six from whenever the last scheduled one happened to land.
-        src.next_refresh_at = next_run_at(utcnow(), src.refresh_interval_hours)
+        sources.requeue(src)
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="refresh_kb_source",
             target_type="kb_source", target_id=source_id,
@@ -310,14 +281,9 @@ async def delete_source(source_id: int, gctx: GuildContext = Depends(require_gui
         src = await session.get(KBSource, source_id)
         if src is None or src.guild_id != gctx.guild_id:
             raise HTTPException(status_code=404, detail="source not found")
-        chunk_ids = (
-            await session.scalars(select(KBChunk.id).where(KBChunk.source_id == source_id))
-        ).all()
-        for cid in chunk_ids:
-            await delete_embedding(session, "kb_chunk_embedding", cid)
-        await session.delete(src)  # cascades to kb_chunk rows
+        removed = await sources.delete_source(session, src)
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="delete_kb_source",
             target_type="kb_source", target_id=source_id,
         )
-    return {"ok": True, "removed_chunks": len(chunk_ids)}
+    return {"ok": True, "removed_chunks": removed}
