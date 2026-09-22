@@ -343,7 +343,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .botpower.starting .power-ring { animation: bp-spin 0.9s linear infinite; }
 .botpower.starting .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
 
-/* Connected but resting a rate-limited model: up, and not answering. Amber, because it
+/* Connected but every chat model is parked: up, and not answering. Amber, because it
    is neither healthy nor broken, and it clears on its own. */
 .botpower.limited .power-btn {
   color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--border-strong));
