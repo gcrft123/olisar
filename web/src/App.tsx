@@ -835,19 +835,19 @@ function BotPower() {
   // before the early return below, or the hook order changes when the card appears.)
   const didPowerDown = useRef(false)
 
-  const [cooling, setCooling] = useState(false)
+  const [exhausted, setExhausted] = useState(false)
   // No `.catch` here: usePoll counts consecutive rejections, and swallowing them was why
   // a dead backend could never be distinguished from a quiet one.
   const pull = () => api.botStatus().then((s: BotState) => setSt(s))
   // 5s is the right cadence while the operator is watching a power cycle land, but this ran
   // forever, on every tab, backgrounded or not — 12 requests a minute for a status dot.
   const poll = usePoll(pull, 5000)
-  // "Online" isn't the whole truth: a bot that has exhausted a model's free-tier quota is
-  // connected and silent. The rate limiter already reports that per model, so surface it
-  // here rather than only on the Usage page, which is tab ten.
+  // "Online" isn't the whole truth: when every chat model is parked the bot is connected
+  // and can't answer. One model cooling down is normal fallback — only surface the all-
+  // models-gone case here (Usage still shows per-model cooldowns).
   usePoll(() => {
     api.getUsageLive()
-      .then((d: any) => setCooling(((d?.models) || []).some((m: any) => m.cooldown)))
+      .then((d: any) => setExhausted(Boolean(d?.exhausted)))
       .catch(() => {})
   }, 15000)
 
@@ -908,17 +908,18 @@ function BotPower() {
     if (offline) powerUp()
   }
 
-  // Up but resting a rate-limited model is its own state - neither healthy nor broken.
-  const limited = online && cooling
+  // Up but every chat model is parked: connected and unable to answer. Amber, because it
+  // clears on its own — neither healthy nor broken.
+  const limited = online && exhausted
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
     : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
     : starting ? 'Starting up…'
-    : limited ? 'Rate-limited'
+    : limited ? 'Offline: rate-limited'
     : online ? 'Bot online' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
-    : limited ? 'resting a model — see Usage'
+    : limited ? 'hold to power down'
     : online ? 'hold to power down'
     : offline ? 'tap to power on' : ' '
 
