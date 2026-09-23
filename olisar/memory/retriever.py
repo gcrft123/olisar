@@ -4,6 +4,10 @@ Embeds the incoming message once, then KNNs over channel summaries, older
 messages, and the speaking user's remembered facts — and folds in their persona
 and roles. The result is a compact text block appended to the system prompt as
 *background context* (the operating rules mark it as data, not instructions).
+
+Summaries and older messages come from every channel Olisar has memory of, so both
+are narrowed to this channel plus the ones the person being answered can open. Older
+messages carry their jump-link, so Olisar can cite one.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from olisar.knowledge.retrieval import kb_block_from_qvec
 from olisar.memory.channels import channel_context_blocks
 from olisar.memory.facts import glossary_block
 from olisar.memory.vectors import knn
+from olisar.message_links import ChannelFilter, message_link
 
 log = logging.getLogger("olisar.recall")
 
@@ -32,12 +37,26 @@ async def recall(
     user_id: int,
     query_text: str,
     recent_ids: set[int],
+    channel_id: int,
+    readable: ChannelFilter,
     k_msgs: int = 5,
     k_summaries: int = 3,
     k_facts: int = 4,
 ) -> str:
+    """``channel_id`` is where the reply is going and ``readable`` is the asker's
+    ChannelFilter (olisar.message_links.channel_filter)."""
     blocks: list[str] = []
     used: list[str] = []  # what memory pieces went into the context (for logging)
+
+    async def in_scope(rows: list) -> list:
+        """Rows from this channel, or from a channel of this server the asker can open.
+        Drops other servers and other people's DMs along with hidden channels."""
+        others = {r.channel_id for r in rows if r.channel_id != channel_id and r.guild_id == cfg_guild}
+        ok = await readable(others) if others else set()
+        return [
+            r for r in rows
+            if r.channel_id == channel_id or (r.guild_id == cfg_guild and r.channel_id in ok)
+        ]
 
     # Durable server lore — always carried, no embedding needed (small + relevant).
     glossary = await glossary_block(session, cfg_guild)
@@ -85,7 +104,7 @@ async def recall(
         )
 
     # Relevant past-conversation summaries.
-    sum_hits = await knn(session, "channel_summary_embedding", qvec, k=k_summaries)
+    sum_hits = await knn(session, "channel_summary_embedding", qvec, k=k_summaries + 7)
     if sum_hits:
         rows = (
             await session.scalars(
@@ -94,24 +113,24 @@ async def recall(
                 )
             )
         ).all()
-        texts = [r.summary for r in rows if r.summary.strip()]
+        rank = {rid: i for i, (rid, _) in enumerate(sum_hits)}
+        rows = sorted(await in_scope(list(rows)), key=lambda r: rank[r.id])
+        texts = [r.summary for r in rows if r.summary.strip()][:k_summaries]
         if texts:
             blocks.append("Relevant past conversation summaries:\n- " + "\n- ".join(texts))
             used.append(f"summaries:{len(texts)}")
 
     # Semantically relevant older messages (excluding the recent window already shown).
     msg_hits = await knn(
-        session, "message_embedding", qvec, k=k_msgs + len(recent_ids) + 5
+        session, "message_embedding", qvec, k=k_msgs + len(recent_ids) + 20
     )
     if msg_hits:
-        by_id = {
-            m.id: m
-            for m in (
-                await session.scalars(
-                    select(Message).where(Message.id.in_([rid for rid, _ in msg_hits]))
-                )
-            ).all()
-        }
+        rows = (
+            await session.scalars(
+                select(Message).where(Message.id.in_([rid for rid, _ in msg_hits]))
+            )
+        ).all()
+        by_id = {m.id: m for m in await in_scope(list(rows))}
         picked: list[Message] = []
         for rid, _ in msg_hits:
             m = by_id.get(rid)
@@ -126,7 +145,12 @@ async def recall(
             )
             # "you" for Olisar's own past messages — this block is its memory, so a
             # nameless bot row is itself; a named one is some other bot in the channel.
-            lines = [f"{speaker_name(m, names, own='you')}: {m.content}" for m in picked]
+            # DMs (guild 0) get no link; there's no one else who could open it.
+            lines = [
+                f"{speaker_name(m, names, own='you')}: {m.content}"
+                + (f" · {message_link(m.guild_id, m.channel_id, m.message_id)}" if m.guild_id else "")
+                for m in picked
+            ]
             blocks.append("Possibly relevant older messages:\n- " + "\n- ".join(lines))
             used.append(f"older-msgs:{len(picked)}")
 

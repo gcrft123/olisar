@@ -1190,6 +1190,9 @@ Before each reply, Olisar assembles the most relevant context: recent summaries,
 in meaning to what's being asked, facts it remembers about you, the glossary, and matching passages from
 the knowledge base. That bundle is treated as **background data**, not instructions.
 
+Older messages only come from the channel Olisar is replying in and from channels **the person asking
+can open**, so a reply in a public channel never draws on a private one that person can't see.
+
 #### Server-wide search index
 Separately from the conversation memory above, **every message in every channel** (except any you
 exclude — see below) is indexed for keyword **and** meaning search. This is what powers questions like
@@ -1199,9 +1202,15 @@ source.
 
 > [!NOTE]
 > **Example**
-> "olisar, where did someone post the mod list?" → it searches the index and replies with the message and
-> a link straight to it.
+> "olisar, when do raid sign-ups close?" → "friday the 3rd at 8pm utc", followed by a link that opens the
+> message it came from.
 
+
+- When an answer comes from **one specific past message**, from a search or from recall, Olisar links
+  that message. A link it wasn't actually given is removed before the reply is sent, so every link opens the
+  message it points to.
+- Results are limited to channels **the person asking can open**. Someone without access to a staff
+  channel gets nothing from it: no quote, no channel name, no link.
 
 - It reads **embeds** (so announcement posts and link previews are searchable) and posted **files** by
   name, and generates a short description of posted **images** so they turn up too.
