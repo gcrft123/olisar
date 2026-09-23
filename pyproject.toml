@@ -1,6 +1,6 @@
 [project]
 name = "discord-olisar"
-version = "2.0.0-beta.1"
+version = "2.0.0-beta.2"
 description = "Olisar — an AI Discord bot that feels like a living member of the server, plus an admin dashboard."
 license = "MIT"
 requires-python = ">=3.11"
