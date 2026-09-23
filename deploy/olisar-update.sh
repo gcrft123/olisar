@@ -51,6 +51,13 @@ done
 
 cd "$DIR" || { echo "no such directory: $DIR" >&2; exit 1; }
 
+# One VM can run several bots, each from its own directory with its own copy of this script,
+# and the app updates all of them when it relaunches. Take turns: two pulls and two health
+# gates at once would compete for the same small VM. Best-effort — without flock, just run.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"${TMPDIR:-/tmp}/olisar-update.lock" && flock -w 1800 9 || true
+fi
+
 TAG=""; DIGEST=""; PREV_DIGEST=""; ROLLED_BACK=false; UPDATED=false
 
 emit() {  # emit <ok:true|false> <status> <message>

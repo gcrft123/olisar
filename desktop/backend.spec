@@ -2,7 +2,8 @@
 #
 # Build from the repo root:  uv run pyinstaller desktop/backend.spec
 # Produces a one-folder bundle at dist/olisar-backend/ that the Electron app
-# spawns as a sidecar (`olisar-backend --port <p>`), with OLISAR_DATA_DIR set.
+# spawns as a sidecar (`olisar-backend --gateway --port <p>`), with OLISAR_DATA_DIR set. The
+# gateway runs this same binary again once per bot (`olisar-backend --worker <id>`).
 #
 # One-folder (COLLECT) not one-file: faster start, fewer AV false-positives, and it
 # keeps the native sqlite-vec library and the bundled dashboard easy to ship.

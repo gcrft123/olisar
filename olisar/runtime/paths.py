@@ -10,6 +10,13 @@ Resolution order for the writable base dir:
   2. the OS per-user data dir when frozen (macOS ``~/Library/Application Support/Olisar``,
      Windows ``%APPDATA%\\Olisar``) — a packaged binary must not write next to itself
   3. the repo's ``data/`` in development (unchanged from today)
+
+Two directories, which are the same one except inside a bot worker:
+  - ``home_dir()`` — the install: the bot registry (``profiles.json``) and every bot's data.
+  - ``data_dir()`` — *this process's* bot: its DB, uploads, Tailscale node, ``state.json``.
+The gateway (see :mod:`olisar.runtime.gateway`) starts each bot with ``OLISAR_DATA_DIR`` set to
+that bot's own directory and ``OLISAR_HOME`` set to the install, so everything that writes
+bot data is isolated by construction and only the registry reaches across.
 """
 
 from __future__ import annotations
@@ -42,6 +49,17 @@ def data_dir() -> Path:
         base = Path(platformdirs.user_data_dir(_APP_NAME, _APP_NAME))
     else:
         base = _repo_root() / "data"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def home_dir() -> Path:
+    """The install's base dir — where the bot registry lives. ``OLISAR_HOME`` inside a bot
+    worker (whose ``data_dir()`` is that bot's own directory); ``data_dir()`` everywhere else."""
+    override = os.environ.get("OLISAR_HOME")
+    if not override:
+        return data_dir()
+    base = Path(override)
     base.mkdir(parents=True, exist_ok=True)
     return base
 

@@ -25,10 +25,12 @@ let available = null        // the newest update found, or null
 let notifiedVersion = null  // suppress repeat background prompts for the same version
 let installing = false      // an update download/swap is in progress
 let getMainWindow = () => null
+let stopBackend = async () => {}  // main.js: stop the backend (and every bot) and wait for it
 
 // main.js calls this so the updater can show download progress on the dock/taskbar icon.
 function init(opts = {}) {
   if (typeof opts.getMainWindow === 'function') getMainWindow = opts.getMainWindow
+  if (typeof opts.stopBackend === 'function') stopBackend = opts.stopBackend
 }
 
 // ── fetch + version compare ─────────────────────────────────────────────────
@@ -280,6 +282,9 @@ async function _applyWindows(update, tmpRoot) {
   const installer = path.join(tmpRoot, 'OlisarSetup.exe')
   await downloadFile(update.downloadUrl, installer, setProgress)
   setProgress(2)
+  // Every bot runs from the backend binary the installer is about to replace, and each takes a
+  // moment to sign out of Discord. Let them all go first, or Windows holds the files open.
+  await stopBackend()
   spawn(installer, [], { detached: true, stdio: 'ignore' }).unref()
 }
 

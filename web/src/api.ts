@@ -265,8 +265,10 @@ export const api = {
   serverPubkey: () => req('/api/server/pubkey', { timeoutMs: 12000 }),
   serverDeploy: (b: { host: string; user?: string; env: string }) =>
     req('/api/server/deploy', { method: 'POST', body: JSON.stringify(b) }),
-  serverConnect: (b: { host: string; user?: string }) =>
-    req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 30000 }),
+  // On a VM that runs several bots, answers { ok: false, choose: [{ dir, name }] } until
+  // called again with the `app_dir` the operator picked.
+  serverConnect: (b: { host: string; user?: string; app_dir?: string }) =>
+    req('/api/server/connect', { method: 'POST', body: JSON.stringify(b), timeoutMs: 45000 }),
   serverPower: (action: 'up' | 'stop') =>
     // Boots the pinned digest — no pull, so this is quick now.
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 120000 }),
@@ -283,24 +285,32 @@ export const api = {
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 
-  // Bot profiles (loopback-only): each "bot" is an independent profile with its own token,
-  // config, and database. One local bot is active at a time; switching stops the current
-  // one and starts the selected profile's bot. Callers reload the app after switch/create,
-  // since auth, guilds, the X-Guild-Id header, and the active database all change.
+  // Bots (desktop app only — the gateway answers these; a bot's own backend 404s them). Every
+  // bot has its own token, config, database and process, and they all run at once; the
+  // console shows one at a time. Callers reload the app after switch/create, since auth,
+  // guilds and the X-Guild-Id header all belong to the bot being shown.
   botList: () => req('/api/bots'),
   activeBot: () => req('/api/bots/active'),
   createBot: (name: string) => req('/api/bots', { method: 'POST', body: JSON.stringify({ name }) }),
   switchBot: (id: string) => req('/api/bots/switch', { method: 'POST', body: JSON.stringify({ id }) }),
   renameBot: (id: string, name: string) => req('/api/bots/rename', { method: 'POST', body: JSON.stringify({ id, name }) }),
   setDefaultBot: (id: string) => req('/api/bots/default', { method: 'POST', body: JSON.stringify({ id }) }),
+  // Start a bot's process again now (a bot that couldn't start, or one that's misbehaving).
+  restartBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
   // Reset a bot's deployment config (Discord creds, server, API keys) — keeps its learned
   // data + SSH key. Returns { ok, active, hosting_mode } so the caller can route.
   resetBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
   // Move a bot between hosts (local ↔ cloud VM), carrying its data + keeping the old copy as a
-  // backup. Long-running (SSH deploy + data transfer), so no client timeout. Only the active bot.
+  // backup. Long-running (SSH deploy + data transfer), so no client timeout. Any bot.
   moveBot: (id: string, b: { target: 'local' | 'server'; host?: string; user?: string }) =>
     req(`/api/bots/${encodeURIComponent(id)}/move`, { method: 'POST', body: JSON.stringify(b) }),
   deleteBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // A bot's own SSH public key, for a bot that isn't the one on screen (serverPubkey is).
+  botPubkey: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/pubkey`, { timeoutMs: 40000 }),
+  // Put a bot on the VM another bot already runs on: that bot lets this one's SSH key in and
+  // hands back { ok, host, user, tailscale_auth, admin_allowlist } to deploy with.
+  shareServer: (fromId: string, toId?: string) =>
+    req('/api/bots/share-server', { method: 'POST', body: JSON.stringify({ from_id: fromId, to_id: toId }), timeoutMs: 200000 }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
   disableTunnel: () => req('/api/tunnel/disable', { method: 'POST' }),

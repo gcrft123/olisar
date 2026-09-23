@@ -44,12 +44,14 @@ async def deploy(body: DeployIn) -> dict:
 class ConnectIn(BaseModel):
     host: str
     user: str | None = "ubuntu"
+    app_dir: str | None = ""  # which install, on a VM that runs several bots
 
 
 @router.post("/connect")
 async def connect(body: ConnectIn) -> dict:
-    """Adopt a VM that already runs Olisar (verify over SSH, persist — no reinstall)."""
-    return await remote.connect(body.host, body.user or "ubuntu")
+    """Adopt a VM that already runs Olisar (verify over SSH, persist — no reinstall). On a
+    VM running several bots, answers ``choose`` until told which install this is."""
+    return await remote.connect(body.host, body.user or "ubuntu", body.app_dir or "")
 
 
 @router.post("/power")

@@ -24,6 +24,7 @@ from sqlalchemy import select
 
 from api.auth.deps import require_admin
 from api.auth.oauth import AUTHORIZE_URL, TOKEN_URL, _get_state_serializer, _is_secure, _origin
+from api.auth.sessions import COOKIE_SUFFIX
 from olisar import runtime_config
 from api.routers.extensions import (
     _operator,
@@ -56,7 +57,7 @@ router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 _TIMEOUT = 15.0
 _NS_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _VER_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
-VERIFY_STATE_COOKIE = "olisar_verify_state"
+VERIFY_STATE_COOKIE = "olisar_verify_state" + COOKIE_SUFFIX
 
 
 def _registry_base() -> str:

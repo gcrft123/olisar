@@ -65,7 +65,7 @@ async def enable(body: TunnelEnableIn, request: Request) -> dict:
         raise HTTPException(status_code=400, detail="a Tailscale auth key is required")
 
     ok, result = await mgr.start(
-        auth_key, node, runtime_config.local_base_url(), str(tailscale_state_dir())
+        auth_key, node, runtime_config.listen_url(), str(tailscale_state_dir())
     )
     if not ok:
         # ``result`` is the failure reason (may include Tailscale's "enable Funnel" URL).
