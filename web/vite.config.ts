@@ -79,7 +79,7 @@ function mockSummary(days: number) {
     .sort((a, b) => b.requests - a.requests)
   const shares: [string, number][] = [
     ['conversation', 0.34], ['embed', 0.26], ['summary', 0.14], ['persona', 0.09],
-    ['glossary', 0.06], ['vision', 0.05], ['grounding', 0.03], ['proactivity', 0.03],
+    ['glossary', 0.06], ['vision', 0.05], ['grounding', 0.03], ['proactivity', 0.03], ['canary', 0.01],
   ]
   return {
     window_days: days,
@@ -119,7 +119,7 @@ const MOCK_PERSONA = {
     'Industries inside out and treats its members like the crew.',
   tone_notes: 'casual, lowercase, no emoji, never more than three sentences unless asked',
   desired_bio: 'Ship\'s AI for Red Nebula Industries. Ask me anything.',
-  server_type: 'gaming',
+  server_type: '',
   slang_density: 2,
   // The console builds its picker from whatever the API offers, so the fixture has to
   // carry the roster too or the Persona page renders a picker with one option.
@@ -266,15 +266,58 @@ const MOCK_KNOWLEDGE = [
     refresh_hours: 5, next_refresh_at: hoursOut(3), last_checked_at: hoursOut(-2), last_ingested_at: hoursOut(-2), can_refresh: true },
   { id: 5, type: 'doc', uri: '/data/kb_uploads/charter.pdf', title: 'charter.pdf', status: 'ready', chunks: 41, error: null,
     refresh_hours: 0, next_refresh_at: null, last_checked_at: hoursOut(-620), last_ingested_at: hoursOut(-620), can_refresh: false },
+  // Past the list's four-row cap, so its scroll and edge fades render.
+  { id: 6, type: 'url', uri: 'https://starcitizen.tools/Mining', title: 'Mining — Star Citizen Wiki', status: 'ready', chunks: 67, error: null,
+    refresh_hours: 168, next_refresh_at: hoursOut(90), last_checked_at: hoursOut(-78), last_ingested_at: hoursOut(-78), can_refresh: true },
+  { id: 7, type: 'website', uri: 'https://uexcorp.space/', title: 'UEX trade data', status: 'crawling', chunks: 0, error: null,
+    refresh_hours: 12, next_refresh_at: hoursOut(12), last_checked_at: null, last_ingested_at: null, can_refresh: true },
+  { id: 8, type: 'doc', uri: '/data/kb_uploads/fleet-doctrine.md', title: 'fleet-doctrine.md', status: 'ready', chunks: 18, error: null,
+    refresh_hours: 0, next_refresh_at: null, last_checked_at: hoursOut(-300), last_ingested_at: hoursOut(-300), can_refresh: false },
+  { id: 9, type: 'url', uri: 'https://robertsspaceindustries.com/spectrum/community/SC/forum/1/thread/patch-notes', title: 'Patch notes thread', status: 'pending', chunks: 0, error: null,
+    refresh_hours: 24, next_refresh_at: hoursOut(24), last_checked_at: null, last_ingested_at: null, can_refresh: true },
 ]
 
 const MOCK_FACTS = [
   { id: 1, subject: 'MN', fact: 'Movie Night, the Friday watch-party in #general.', mentions: 14, updated_at: '2026-08-01T10:00:00Z' },
   { id: 2, subject: 'The Council', fact: "The server's moderator team.", mentions: 6, updated_at: '2026-07-21T10:00:00Z' },
   { id: 3, subject: '', fact: 'Long-haul runs leave from Port Olisar at 20:00 UTC on Saturdays.', mentions: 1, updated_at: '2026-06-02T10:00:00Z' },
+  { id: 4, subject: 'RNI', fact: 'Red Nebula Industries, the org this server belongs to.', mentions: 41, updated_at: '2026-08-06T10:00:00Z' },
+  { id: 5, subject: 'Hauler', fact: 'Anyone flying cargo for the org on a scheduled run.', mentions: 9, updated_at: '2026-08-02T10:00:00Z' },
+  { id: 6, subject: 'Vex', fact: 'Vex is the org quartermaster and runs #quartermaster.', mentions: 17, updated_at: '2026-07-30T10:00:00Z' },
+  { id: 7, subject: 'The Rock', fact: 'Daymar, where the org does most of its mining.', mentions: 5, updated_at: '2026-07-28T10:00:00Z' },
+  { id: 8, subject: '', fact: 'Org ops are announced 48 hours ahead in #event-planning.', mentions: 3, updated_at: '2026-07-19T10:00:00Z' },
+  { id: 9, subject: 'Blue ticket', fact: 'A recruit who has passed the flight check but not the interview.', mentions: 4, updated_at: '2026-07-12T10:00:00Z' },
+  { id: 10, subject: 'Salvage Sunday', fact: 'The weekly salvage op, Sundays at 18:00 UTC.', mentions: 8, updated_at: '2026-07-08T10:00:00Z' },
+  { id: 11, subject: 'Hull C', fact: 'The org owns two, and they are booked through #fleet-ops.', mentions: 2, updated_at: '2026-07-01T10:00:00Z' },
+  { id: 12, subject: 'Kestrel', fact: "Kestrel is the org's head of recruitment.", mentions: 11, updated_at: '2026-06-24T10:00:00Z' },
+  { id: 13, subject: '', fact: 'New members get a 30-day probation role before full access.', mentions: 1, updated_at: '2026-06-15T10:00:00Z' },
+  { id: 14, subject: 'Grim HEX run', fact: 'The monthly outlaw-space supply run, and it always needs escorts.', mentions: 6, updated_at: '2026-06-09T10:00:00Z' },
 ]
 
-const MOCK_REINDEX = { running: false, indexed_messages: 128_431, channels: [] }
+// Thirty rows, shaped like /api/knowledge/reindex/status: a finished backfill for most of the
+// server, two channels mid-backfill and two still queued (so the progress bar and every chip
+// state render), and the aggregate DM row the endpoint appends once there's DM activity.
+const MOCK_REINDEX = (() => {
+  const names = [
+    'general', 'announcements', 'rules', 'welcome', 'introductions', 'fleet-ops', 'trade-routes',
+    'mining', 'salvage', 'bounty-board', 'medical', 'ship-showcase', 'screenshots', 'lfg',
+    'event-planning', 'patch-notes', 'org-news', 'recruitment', 'diplomacy', 'lore',
+    'off-topic', 'memes', 'music', 'tech-support', 'feedback', 'voice-text', 'hangar',
+    'quartermaster', 'training',
+  ]
+  const status = (i: number) => (i === 7 || i === 13 ? 'indexing' : i === 26 || i === 28 ? 'queued' : 'done')
+  const channels: any[] = names.map((name, i) => ({
+    channel_id: String(9001 + i), name, kind: name === 'lore' ? 'forum' : 'text', status: status(i),
+    indexed: status(i) === 'queued' ? 0 : Math.round(18_400 / (1 + i * 0.6)) + (i * 137) % 400,
+  }))
+  channels.push({ channel_id: 'dm', name: 'Direct messages', kind: 'dm', status: 'done', indexed: 2_214 })
+  const count = (s: string) => channels.filter((c) => c.status === s).length
+  const indexing = count('indexing'), queued = count('queued')
+  return {
+    total: channels.length, done: count('done'), indexing, queued, running: indexing + queued > 0,
+    indexed_messages: channels.reduce((n, c) => n + c.indexed, 0), channels,
+  }
+})()
 
 // Mirrors the admin router's /api/extensions entry (NOT extensions.py's authoring
 // summary — different shape). `editable` is `kind == "user"` there, which is what drives
@@ -325,7 +368,114 @@ const MOCK_AUDIT = {
     { id: 3, ts: '2026-08-06T11:40:00Z', actor: 'intmorg', action: 'set_channel_indexing', label: "Changed a channel's indexing", destructive: true, target_type: 'channel', target_id: '9', after: { indexed: false } },
     { id: 2, ts: '2026-08-05T09:15:00Z', actor: 'gcrft123', action: 'toggle_extension', label: 'Toggled an extension', destructive: false, target_type: 'extension', target_id: 'star_citizen', after: { enabled: true } },
     { id: 1, ts: '2026-08-04T16:30:00Z', actor: 'gcrft123', action: 'update_config', label: 'Changed behavior settings', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    // Older history, past the list's ten-row cap. Labels and the destructive flag come from
+    // api/routers/audit.py's ACTION_LABELS and DESTRUCTIVE.
+    { id: 0, ts: '2026-08-03T21:05:00Z', actor: 'intmorg', action: 'add_kb_source', label: 'Added a knowledge source', destructive: false, target_type: 'kb_source', target_id: '9', after: { uri: 'https://robertsspaceindustries.com/spectrum/community/SC/forum/1/thread/patch-notes', type: 'url', refresh_hours: 24 } },
+    { id: -1, ts: '2026-08-03T12:48:00Z', actor: 'gcrft123', action: 'mine_glossary', label: 'Mined the glossary', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: { counts: { facts: 7 } } },
+    { id: -2, ts: '2026-08-02T19:22:00Z', actor: 'gcrft123', action: 'delete_guild_fact', label: 'Deleted a glossary fact', destructive: true, target_type: 'guild_fact', target_id: '15', after: null },
+    { id: -3, ts: '2026-08-02T08:10:00Z', actor: 'gcrft123', action: 'set_channel_mode', label: "Changed a channel's mode", destructive: false, target_type: 'channel', target_id: '4', after: { mode: 'both' } },
+    { id: -4, ts: '2026-08-01T17:33:00Z', actor: 'intmorg', action: 'update_command_messages', label: 'Edited command replies', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -5, ts: '2026-07-31T22:01:00Z', actor: 'gcrft123', action: 'set_kb_refresh', label: "Changed a source's refresh schedule", destructive: false, target_type: 'kb_source', target_id: '4', after: { refresh_hours: 5 } },
+    { id: -6, ts: '2026-07-30T14:26:00Z', actor: 'gcrft123', action: 'reindex_search', label: 'Started a re-index', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -7, ts: '2026-07-29T09:52:00Z', actor: 'gcrft123', action: 'delete_kb_source', label: 'Removed a knowledge source', destructive: true, target_type: 'kb_source', target_id: '12', after: null },
+    { id: -8, ts: '2026-07-28T20:15:00Z', actor: 'gcrft123', action: 'update_proactivity', label: 'Changed proactivity', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -9, ts: '2026-07-27T11:40:00Z', actor: 'gcrft123', action: 'set_pin_actions', label: 'Changed what needs the PIN', destructive: false, target_type: 'guild_config', target_id: '1321947496179568680', after: null },
+    { id: -10, ts: '2026-07-26T16:03:00Z', actor: 'gcrft123', action: 'update_keys', label: 'Updated API keys', destructive: false, target_type: 'app_secret', target_id: '1', after: null },
   ],
+}
+
+// ── Dev-only: first-run setup ──────────────────────────────────────────────────────────────
+// `SETUP_MOCK=1 USAGE_MOCK=1 npm run dev` opens on the setup wizard instead of the console, and
+// answers every call the wizard makes after a delay close to the real one. Nothing persists: a
+// reload starts setup over, and finishing lands in the mock console (or, after a server deploy,
+// the server control panel). `SETUP_MOCK=second` sets up a second bot instead of the first, so
+// the deploy step offers the server another bot already runs on.
+//
+// A value starting with "bad" takes that step's failure path: a token (Discord rejects it), a
+// Tailscale key (Funnel refuses), a VM address (the deploy fails with its install log, or the
+// connect can't reach it). Connecting to a VM whose address ends in .9 finds two installs and
+// asks which bot this is.
+const SETUP = process.env.SETUP_MOCK || ''
+const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
+const MOCK_PUBKEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHq7mZ0x3cN8vWkq2d1p5sQyR4tLb9uFjE6aGhYcTzUo olisar-app'
+const MOCK_INSTALL_LOG = [
+  '==> Checking the VM', 'Ubuntu 22.04.4 LTS (aarch64), 23 GB free',
+  '==> Installing Docker', 'docker 27.3.1 installed',
+  '==> Writing the config to ~/olisar/.env',
+  '==> Pulling ghcr.io/gcrft123/olisar:2.0.0-beta.1',
+  'Error response from daemon: Get "https://ghcr.io/v2/": dial tcp: lookup ghcr.io: temporary failure in name resolution',
+].join('\n')
+
+function setupMock(req: any, url: string, send: (obj: unknown, status?: number) => void): boolean {
+  const later = (ms: number, fn: () => void) => { setTimeout(fn, ms); return true }
+  const body = (fn: (b: any) => void) => {
+    let raw = ''
+    req.on('data', (c: any) => { raw += c })
+    req.on('end', () => { let b: any = {}; try { b = JSON.parse(raw || '{}') } catch { /* empty */ } fn(b) })
+    return true
+  }
+  const bad = (v: unknown) => typeof v === 'string' && v.trim().toLowerCase().startsWith('bad')
+  const finish = (as: 'local' | 'server') => { SETUP_STATE.done = as; SETUP_STATE.unread = true }
+
+  if (url.startsWith('/api/setup/status')) {
+    // The read straight after finishing sees the finished install, which is what routes the
+    // wizard into the console. Any read after that is a reload, and starts setup over.
+    const done = SETUP_STATE.unread ? SETUP_STATE.done : ''
+    SETUP_STATE.unread = false
+    if (!done) SETUP_STATE.done = ''
+    return send({
+      configured: !!done, local_url: 'http://localhost:8723', redirect_uri: 'http://localhost:8723/auth/callback',
+      tunnel_enabled: false, hosting_mode: done === 'server' ? 'server' : 'local', ...(done ? {} : { prefill: {} }),
+    }), true
+  }
+  if (url.startsWith('/api/bots/share-server')) return body(() => later(1400, () => send({
+    ok: true, host: '203.0.113.9', user: 'ubuntu', tailscale_auth: 'tskey-auth-kSh4r3dExample-1a2b3c', admin_allowlist: 'gcrft123',
+  })))
+  if (/^\/api\/bots\/[^/]+\/pubkey/.test(url)) return later(500, () => send({ public_key: MOCK_PUBKEY }))
+  if (url.startsWith('/api/bots')) {
+    const first = SETUP !== 'second'
+    const configured = !!SETUP_STATE.done
+    const me = { id: first ? 'default' : 'e5f6a7b8', name: first ? 'Olisar' : 'Staging bot', created: true, state: 'ready',
+      configured, hosting_mode: SETUP_STATE.done === 'server' ? 'server' : 'local', server_host: SETUP_STATE.done === 'server' ? '203.0.113.9' : '',
+      bot: { running: configured, ready: configured, id: '', name: '', avatar: '' } }
+    const others = first ? [] : [
+      { id: 'default', name: 'Red Nebula bot', created: true, state: 'ready', configured: true, hosting_mode: 'local', server_host: '',
+        bot: { running: true, ready: true, id: '1', name: 'Red Nebula', avatar: '' } },
+      { id: 'a1b2c3d4', name: 'Support bot', created: true, state: 'ready', configured: true, hosting_mode: 'server', server_host: '203.0.113.9',
+        bot: { running: false, ready: false, id: '', name: '', avatar: '' } },
+    ]
+    if (url.startsWith('/api/bots/active')) return send({ ...me, active_id: me.id }), true
+    return send({ active_id: me.id, default_id: 'default', profiles: first ? [me] : [others[0], others[1], me] }), true
+  }
+  if (url.startsWith('/api/setup/validate-token')) return body((b) => later(800, () => bad(b.token)
+    ? send({ detail: 'Discord rejected that bot token' }, 400)
+    : send({ ok: true, id: '1537976722840887296', username: 'Olisar' })))
+  if (url.startsWith('/api/setup/keys')) return body(() => later(400, () => send({ ok: true })))
+  if (url.startsWith('/api/setup/save')) return body(() => later(900, () => { finish('local'); send({ ok: true, redirect_uri: 'http://localhost:8723/auth/callback' }) }))
+  if (url.startsWith('/api/tunnel/enable')) return body((b) => later(2200, () => bad(b.auth_key)
+    ? send({ detail: 'Funnel isn’t turned on for this tailnet. Turn it on at https://login.tailscale.com/f/funnel?node=olisar, then press Enable again.' }, 400)
+    : send({ ok: true, public_url: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net`, redirect_uri: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net/auth/callback` })))
+  if (url.startsWith('/api/server/pubkey')) return later(600, () => send({ public_key: MOCK_PUBKEY }))
+  if (url.startsWith('/api/server/deploy')) return body((b) => later(4500, () => {
+    if (bad(b.host)) return send({ ok: false, error: 'The install stopped: the VM couldn’t download the Olisar image.', log: MOCK_INSTALL_LOG })
+    finish('server'); send({ ok: true })
+  }))
+  if (url.startsWith('/api/server/connect')) return body((b) => later(1800, () => {
+    if (bad(b.host)) return send({ ok: false, error: `Couldn't reach the VM: connection to ${b.host}:22 timed out` })
+    if (String(b.host).trim().endsWith('.9') && !b.app_dir) {
+      return send({ ok: false, choose: [{ dir: 'olisar', name: 'Support bot' }, { dir: 'olisar-e5f6a7b8', name: 'Staging bot' }] })
+    }
+    finish('server'); send({ ok: true })
+  }))
+  // The control panel a server deploy lands on.
+  if (url.startsWith('/api/server/status')) return send({
+    configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
+    health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', url: 'https://olisar.tail4f2a.ts.net', logs: '',
+  }), true
+  if (url.startsWith('/api/server/last-update')) return send({}), true
+  if (url.startsWith('/api/server/logs')) return send({ ok: true, logs: 'olisar  | Logged in as Olisar#0412\nolisar  | Ready in 1 server' }), true
+  if (url.startsWith('/api/server/power')) return body((b) => later(1200, () => send({ ok: true, running: b.action === 'up' })))
+  return false
 }
 
 function mockPlugin(): Plugin {
@@ -334,10 +484,12 @@ function mockPlugin(): Plugin {
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
-        const send = (obj: unknown) => {
+        const send = (obj: unknown, status = 200) => {
+          res.statusCode = status
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(obj))
         }
+        if (SETUP && setupMock(req, url, send)) return
         if (url.startsWith('/api/setup/status')) return send({ configured: true })
         // Exact-match: `/api/me` as a prefix also swallows `/api/messages`.
         if (url === '/api/me' || url.startsWith('/api/me?')) return send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
