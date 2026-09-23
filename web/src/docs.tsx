@@ -320,6 +320,10 @@ start, the previous one is restored automatically. Your data is kept either way.
 The control panel's **Update to v…** button does the same thing on demand, which is what you want
 if you've skipped an update for the app but not for the server.
 
+The server follows the app's [update channel](#settings). On **Beta**, it runs the betas
+too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a
+stable release passes it.
+
 If you don't use the desktop app, update the VM from a terminal on it:
 
 \`\`\`
@@ -467,6 +471,14 @@ full under [Remote access](#remote).
 ## Updates
 Shows Olisar's **current version** and whether a newer one has been released. In the desktop app an
 available update can be installed in one click; from a browser you'll need to open the desktop app.
+
+**Channel** picks which releases you get:
+- **Stable**: finished releases, numbered **2.0**, **2.1** and so on.
+- **Beta**: early builds of the next release, numbered **2.1.beta-1**, **2.1.beta-2** and so on,
+  plus every stable release as it ships.
+
+Switching from Beta to Stable doesn't take you back to an older version. You stay on the beta you
+have until a newer stable release is out, then move onto it.
 
 ## Desktop app
 A single toggle, **Show in the menu bar**, for whether Olisar keeps its tray icon. It applies to the
