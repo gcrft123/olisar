@@ -54,3 +54,8 @@ All settings are in [`.env.example`](.env.example).
   `python` base image has this.
 - The desktop app is **optional** once you host on a server — manage everything from the
   browser at your `…ts.net` URL. (Don't run both pointed at the same Discord bot token.)
+- **Several bots on one VM:** each is its own install in its own directory — `~/olisar`
+  for the first, `~/olisar-<id>` for each one the desktop app adds after it — with its own
+  `.env`, container, data volume (`<dir>_olisar-data`) and Tailscale device name. Compose
+  names each project after its directory, so run `docker compose` and `./olisar-update.sh`
+  from the bot's own directory. Updates of different bots on one VM take turns (`flock`).

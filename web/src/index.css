@@ -1127,7 +1127,58 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .login .box, .setup .box { position: relative; }
 .box-gear { position: absolute; top: 14px; right: 14px; }
 
-/* Bot switcher (Settings ▸ Bot): one row per bot, the active one highlighted. */
+/* Bot switcher. Every bot runs at once; the console shows one. With two or more, the top of
+   the rail becomes the bot you're looking at (the brand's slot, same 30px mark and name
+   weight) and opens a menu of the others. Pre-auth cards carry a smaller chip in the top-left
+   corner, mirroring the settings gear in the top-right, so a bot you can't sign into yet
+   still has a way back. The menu is the server picker's. */
+.bot-switch { position: relative; margin: 0 0 12px; }
+.bot-switch-btn {
+  width: 100%; height: auto; padding: 6px 8px; justify-content: flex-start; gap: 10px;
+  background: transparent; border-color: transparent; text-align: left; line-height: 1.3;
+}
+.bot-switch-btn:hover, .bot-switch.open .bot-switch-btn { background: var(--bg-inset); }
+.bot-switch-btn:active:not(:disabled) { transform: none; }
+.bot-switch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.bot-switch-text .name { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bot-switch-text .sub { font-size: 11px; font-weight: 500; color: var(--text-3); }
+.bot-switch.open .server-chev, .bot-chip.open .server-chev { transform: rotate(180deg); }
+.server-icon.bot-av-md { width: 30px; height: 30px; border-radius: var(--radius-sm); }
+.server-icon.bot-av-md.ph { font-size: 14px; }
+
+.bot-chip { position: absolute; top: 14px; left: 14px; z-index: 2; display: inline-flex; text-align: left; }
+/* The card's content starts below the corner controls once the chip is there: the setup
+   card's logo sits top-left, right where the chip goes. */
+.login .box:has(> .bot-chip) { padding-top: 56px; }
+.setup .box:has(> .bot-chip) { padding-top: 56px; }
+.bot-chip-btn {
+  height: 28px; padding: 0 8px 0 4px; gap: 7px; max-width: 200px;
+  font-size: 12.5px; background: var(--bg-inset); border-color: var(--border);
+}
+.bot-chip-btn:hover, .bot-chip.open .bot-chip-btn { border-color: var(--border-strong); }
+.bot-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bot-chip .bot-menu { right: auto; min-width: 264px; text-align: left; }
+
+.bot-menu-item { height: 44px; }
+.bot-menu-text { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.bot-menu-text .server-menu-name { width: 100%; }
+.bot-menu-sub { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
+.bot-menu-sub.success, .bot-row .bot-sub.success { color: var(--ok); }
+.bot-menu-sub.warning, .bot-row .bot-sub.warning { color: var(--warn); }
+.bot-menu-sub.error, .bot-row .bot-sub.error { color: var(--danger); }
+.bot-menu-rule { height: 1px; margin: 4px 2px; background: var(--border); flex: none; }
+.bot-menu-action { color: var(--text-2); }
+.bot-menu-action:hover { color: var(--text); }
+.bot-menu-ic { display: inline-flex; width: 20px; justify-content: center; flex: none; }
+
+/* The end of what a bot that couldn't start printed. */
+.login .bot-failed-log {
+  text-align: left; margin: 0 0 22px; max-height: 220px; overflow: auto; white-space: pre-wrap;
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--text-2);
+}
+
+/* Settings ▸ Bots: one row per bot, the one on screen highlighted. */
 .bot-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
 /* One grid, so every row's badges and actions line up in the same columns instead of each
    row packing its own flex differently. The badge track is reserved whether or not a row

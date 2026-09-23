@@ -1,10 +1,17 @@
-"""Unified backend: run the FastAPI app (serving the built dashboard) and the
-Discord bot on a single asyncio event loop, so the desktop app supervises ONE
-process instead of three. ``olisar/runtime/__main__.py`` is the CLI entry.
+"""Unified backend: run the FastAPI app (serving the built dashboard) and one Discord bot on
+a single asyncio event loop. ``olisar/runtime/__main__.py`` is the CLI entry.
 
-The bot runs as a restartable background task owned by ``BotSupervisor`` rather
-than on the foreground, so a bot crash never takes the API/dashboard down, and the
-first-run setup wizard stays reachable before any token exists.
+One process is one bot. It runs two ways, which differ only in which database they pin, what
+origin the console is reached at, and how they learn to stop:
+
+  - single (``run``) — the whole install is one bot: the Docker image on a VM, a source run.
+  - worker (``run_worker``) — one bot of a desktop install. The gateway
+    (:mod:`olisar.runtime.gateway`) starts one per bot on a private port, with that bot's own
+    data dir, and routes the console to whichever the operator is looking at.
+
+The bot runs as a restartable background task owned by ``BotSupervisor`` rather than on the
+foreground, so a bot crash never takes the API/dashboard down, and the first-run setup wizard
+stays reachable before any token exists.
 """
 
 from __future__ import annotations
@@ -13,17 +20,19 @@ import asyncio
 import contextlib
 import logging
 import signal
+import socket
 
 import uvicorn
 
 log = logging.getLogger("olisar.runtime")
 
+# The first line a worker prints: the gateway reads its private port from it.
+WORKER_PORT_MARKER = "OLISAR_WORKER_PORT="
+
 
 class BotSupervisor:
-    """The discord.py bot as a lazily-started, restartable background task.
-
-    Parameterised by ``profile_id`` (the bot profile it runs) — v1 only ever runs the active
-    one, but this is the seam that lets a future build run several concurrently."""
+    """The discord.py bot as a lazily-started, restartable background task. One per process:
+    ``profile_id`` names the bot profile this process was started for."""
 
     def __init__(self, profile_id: str | None = None) -> None:
         self.profile_id = profile_id
@@ -117,9 +126,8 @@ async def _apply_runtime_config() -> None:
     registration, DM handling) see the configured guild. Resolve-once: changing the
     target guild takes effect on the next bot (re)start.
 
-    Assigns the home guild **unconditionally** (including 0) — reading it straight from this
-    profile's DB, not the fallback accessor — so switching into a fresh profile resets it
-    rather than inheriting the previous profile's still-in-memory id."""
+    Assigns the home guild **unconditionally** (including 0), reading it straight from this
+    profile's DB rather than the fallback accessor, so a DB that clears it clears it here."""
     from olisar import runtime_config
     from olisar.config import settings
 
@@ -128,33 +136,22 @@ async def _apply_runtime_config() -> None:
     settings.target_guild_id = db_gid or env_fallback
 
 
-def active_supervisor(app):
-    """The ``BotSupervisor`` for the currently-active profile, or None."""
-    from olisar.runtime import profiles
-
-    return app.state.supervisors.get(profiles.active_id())
+def bot_supervisor(app) -> BotSupervisor | None:
+    """This process's ``BotSupervisor`` (None in the standalone dev API)."""
+    return getattr(app.state, "bot_supervisor", None)
 
 
-async def start_supervisor(app, profile_id: str) -> "BotSupervisor":
-    """Create (if needed) and start the supervisor for ``profile_id``, pointing the legacy
-    ``app.state.bot_supervisor`` at it so the existing reference sites (bot power, live-bot
-    re-check, setup restart) keep working unchanged."""
-    supervisor = app.state.supervisors.get(profile_id)
-    if supervisor is None:
-        supervisor = BotSupervisor(profile_id)
-        app.state.supervisors[profile_id] = supervisor
-    app.state.bot_supervisor = supervisor
-    await supervisor.start()
-    return supervisor
+async def start_bot(app) -> None:
+    supervisor = bot_supervisor(app)
+    if supervisor is not None:
+        await supervisor.start()
 
 
-async def stop_all_supervisors(app) -> None:
-    """Stop and drop every running supervisor (v1: the single active one)."""
-    for supervisor in list(app.state.supervisors.values()):
+async def stop_bot(app) -> None:
+    supervisor = bot_supervisor(app)
+    if supervisor is not None:
         with contextlib.suppress(Exception):
             await supervisor.stop()
-    app.state.supervisors.clear()
-    app.state.bot_supervisor = None
 
 
 async def _init_database() -> None:
@@ -212,20 +209,92 @@ async def _self_check() -> bool:
 
 
 async def run(host: str, port: int) -> None:
-    """Boot the DB, then serve the API + bot on one loop until SIGINT/SIGTERM."""
+    """Single-bot mode: serve the install's launch-default bot until SIGINT/SIGTERM."""
+    from olisar.runtime import profiles
+
+    # Adopt the launch default as active, then pin the DB to it. Runs after bootstrap_env()
+    # (which set the default DATABASE_PATH), so the profile's own path wins.
+    profiles.set_active(profiles.default_id())
+    profile_id = profiles.active_id()
+    await serve_instance(
+        profile_id=profile_id,
+        db_path=str(profiles.db_path_for(profile_id)),
+        host=host,
+        port=port,
+    )
+
+
+async def run_worker(profile_id: str) -> None:
+    """Worker mode: serve one bot of a desktop install on a private loopback port.
+
+    Binds before anything else and prints the port, so the gateway knows where to look while
+    the database is still being prepared. The gateway holds our stdin open for as long as it
+    lives: EOF means it's gone (quit, crashed, or killed outright — on Windows that's the only
+    kind of kill there is), so shut down, and don't linger past a deadline doing it. An
+    orphaned worker would keep this bot logged in to Discord next to its replacement."""
+    import os
+    import sys
+    import threading
+
+    from olisar.runtime import paths
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    print(f"{WORKER_PORT_MARKER}{sock.getsockname()[1]}", flush=True)
+
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+
+    def watch_parent() -> None:
+        # os.read on the descriptor, not sys.stdin: a daemon thread parked inside the buffered
+        # reader holds its lock, and interpreter shutdown aborts on that lock if this process
+        # exits for any other reason (a crash during boot) while we're still waiting here.
+        with contextlib.suppress(Exception):
+            fd = sys.stdin.fileno()
+            while os.read(fd, 4096):
+                pass
+        loop.call_soon_threadsafe(stop.set)
+        threading.Timer(20.0, os._exit, (0,)).start()
+
+    threading.Thread(target=watch_parent, name="olisar-parent-watch", daemon=True).start()
+
+    await serve_instance(
+        profile_id=profile_id,
+        db_path=str(paths.db_path()),
+        console_url=os.environ.get("OLISAR_CONSOLE_URL") or None,
+        sock=sock,
+        stop=stop,
+    )
+
+
+async def serve_instance(
+    *,
+    profile_id: str,
+    db_path: str,
+    console_url: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 0,
+    sock: socket.socket | None = None,
+    stop: asyncio.Event | None = None,
+) -> None:
+    """Boot the DB, then serve the API + this bot on one loop until told to stop.
+
+    ``console_url`` is the origin the operator's console is reached at, when that isn't this
+    server itself (a worker behind the gateway) — the local OAuth redirect is built from it.
+    ``sock`` is an already-bound listening socket to serve on instead of ``host``/``port``."""
     from api.main import create_app
     from olisar import runtime_config
+    from olisar.config import settings
+    from olisar.db import engine
 
+    listen_port = sock.getsockname()[1] if sock is not None else port
     # The browser/Discord reach us over loopback regardless of the bind host, so the
     # public URL (and thus the OAuth redirect) uses 127.0.0.1 + the chosen port.
-    runtime_config.set_local_base_url(f"http://127.0.0.1:{port}")
+    runtime_config.set_local_base_url(console_url or f"http://127.0.0.1:{listen_port}")
+    runtime_config.set_listen_url(f"http://127.0.0.1:{listen_port}")
 
-    # Open the launch-default bot: adopt it as active, then point the DB at it. Runs after
-    # bootstrap_env() (which set the default DATABASE_PATH), so the profile pointer wins.
-    from olisar.runtime import profiles, switch
-
-    profiles.set_active(profiles.default_id())
-    switch.point_settings_at(profiles.active_id())
+    engine.pin_database(db_path)
+    settings.database_path = db_path  # for the few places that read it directly
 
     await _init_database()
     await _apply_runtime_config()
@@ -254,12 +323,9 @@ async def run(host: str, port: int) -> None:
     app.state.sandbox_ok = sandbox_ok
     app.state.transpile_ok = transpile_ok
     app.state.signing_ok = signing_ok
-    # Supervisors keyed by profile (v1 runs one — the active — at a time). The legacy
-    # ``bot_supervisor`` attribute is kept pointing at the active one by start_supervisor().
-    app.state.supervisors = {}
-    app.state.bot_supervisor = None
+    app.state.profile_id = profile_id
+    app.state.bot_supervisor = BotSupervisor(profile_id)
 
-    from olisar.config import settings
     from olisar.runtime.paths import tailscale_state_dir
     from olisar.runtime.tunnel import FunnelManager
 
@@ -273,7 +339,7 @@ async def run(host: str, port: int) -> None:
         ok, msg = await tunnel.start(
             token,
             await runtime_config.tunnel_node() or "olisar",
-            runtime_config.local_base_url(),
+            runtime_config.listen_url(),
             str(tailscale_state_dir()),
         )
         if ok and msg.startswith("http"):
@@ -303,7 +369,7 @@ async def run(host: str, port: int) -> None:
     # Trust X-Forwarded-* from the Tailscale Funnel sidecar (a local-only reverse proxy
     # in front of this server) so the OAuth flow sees the real public host/scheme.
     config = uvicorn.Config(
-        app, host=host, port=port, loop="asyncio", log_config=None,
+        app, host=host, port=listen_port, loop="asyncio", log_config=None,
         proxy_headers=True, forwarded_allow_ips="127.0.0.1",
     )
     server = uvicorn.Server(config)
@@ -315,7 +381,15 @@ async def run(host: str, port: int) -> None:
         with contextlib.suppress(NotImplementedError):  # SIGTERM is absent on Windows
             loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
 
-    await start_supervisor(app, profiles.active_id())
+    stopper: asyncio.Task | None = None
+    if stop is not None:
+        async def _stop_when_told() -> None:
+            await stop.wait()
+            server.should_exit = True
+
+        stopper = asyncio.create_task(_stop_when_told(), name="olisar-stop-watch")
+
+    await start_bot(app)
 
     # Server hosting: this install is the control panel for a bot running on the operator's
     # VM. If we've come up ahead of that VM — which is what every launch after the app
@@ -327,13 +401,13 @@ async def run(host: str, port: int) -> None:
 
         remote.spawn_autoupdate()
 
-    log.info("backend listening on http://%s:%d", host, port)
+    log.info("backend listening on %s", runtime_config.listen_url())
     try:
-        await server.serve()
+        await server.serve(sockets=[sock] if sock is not None else None)
     finally:
-        await stop_all_supervisors(app)
+        if stopper is not None:
+            stopper.cancel()
+        await stop_bot(app)
         await tunnel.stop()
-        from olisar.db.engine import get_engine
-
         with contextlib.suppress(Exception):
-            await get_engine().dispose()
+            await engine.get_engine().dispose()

@@ -298,6 +298,18 @@ It installs Docker, asks for your tokens, starts Olisar, and prints two things: 
 
 That's it — the bot is live and you manage everything from the browser. The desktop app is now **optional**.
 
+## Several bots on one server
+
+One VM can run all your bots. When you set up another bot in the desktop app and pick **Server shared
+hosting**, the Deploy step offers the server your other bot already runs on. Choose it and there's nothing
+to create and no key to paste: Olisar lets the new bot into that VM itself, reuses its Tailscale key and
+admin, and installs the new bot next to the first. **Move** in [Settings → Bots](#bots) offers the same
+choice for a bot that's already set up.
+
+Each bot on the VM is its own install, in its own folder (\`~/olisar\` for the first, \`~/olisar-<id>\` for
+the rest) with its own configuration, container, data and web address, so stopping, updating or moving one
+leaves the others alone. When you reconnect to a VM that runs several bots, Olisar asks which one this is.
+
 :::warning Run it in one place
 A Discord bot token allows only one live connection. Run Olisar on the **server or the desktop
 app — not both at once** on the same token, or the two copies will fight over that connection and keep
@@ -327,7 +339,8 @@ cd ~/olisar && ./olisar-update.sh
 \`\`\`
 
 That's the same script the app runs: it pulls the newest release, pins it, health-checks it, and
-rolls back if it doesn't come up.
+rolls back if it doesn't come up. On a VM running several bots, run it in each bot's folder; two
+updates on one VM take turns rather than running at once.
 `,
   },
   {
@@ -384,36 +397,50 @@ persona, settings, memory, and database. This is different from one bot being in
 [multiple servers](#servers): a *server* is a Discord guild your bot is in; a *bot* is a distinct Discord
 application, with its own name, avatar, and login.
 
-Manage your bots in the [Settings](#settings) popup's **Bot** section, or from the **gear** in the corner of
-the sign-in and setup screens.
+## They all run at once
 
-## One bot runs at a time
+Every bot on this machine is **online at the same time**, each in its own process. One bot crashing, or
+being busy, doesn't touch the others, and none of them can read another's settings or keys. The console
+shows **one bot at a time**: switching changes which one you're looking at, and nothing stops or restarts.
+Each bot keeps its own sign-in, so you won't be asked to log in again when you switch back.
 
-On this machine, **one local bot is active at a time**. Switching to another **stops the current bot** and
-starts the selected one, then reloads the console. Bots you host on a [cloud server](#host-server) run on
-their own machine, so they stay online independently, which is how you keep several bots running at once.
+With two or more bots, the top of the console's sidebar shows the bot you're looking at, whether it's
+online, and a menu to switch. The sign-in, setup and server screens show the same menu in their top-left
+corner, so a bot you haven't finished setting up never strands you.
 
-## The bot switcher
+## Managing bots
 
-Each bot is a row in **Settings → Bot**:
-- **Switch** — stop the current bot and load this one (the console reloads).
-- **Set as default** — pin which bot the app **opens on launch**. This is independent of the active bot: you
-  can switch to another for a session without changing what opens next time.
+Each bot is a row in **Settings → Bots**:
+- **Open** — show this bot in the console (it was already running).
+- **Open on launch** (star) — which bot the console opens on when the app starts.
 - **Rename** — change a bot's display name (cosmetic; it doesn't touch Discord).
-- **Delete** — permanently remove a bot and everything it stores. You can't delete the **active** bot or the
-  **last** one.
+- **Move** — change where the bot runs: this computer, a new server, or a server another of your bots
+  already uses. See [Host on a server](#host-server).
+- **Reset configuration** — clear its Discord credentials, API keys and hosting, keeping what it has
+  learned.
+- **Delete** — stop the bot and permanently remove everything this app stores for it. You can't delete the
+  bot you're looking at, or the last one. A server-hosted bot's server keeps running until you stop it there.
 
-Two badges show each bot's state: **Active** (running right now) and **Default** (opens on launch).
+Two badges show where a row stands: **Current** (the bot on screen) and **Default** (opens on launch). A bot
+that can't start says so, with the last thing it printed and a **Retry**; your other bots are unaffected.
 
 ## Adding a bot
 
-**Create new bot** adds an empty bot and drops you into its [setup wizard](#overview). Connect its Discord
-token and credentials just like the first one. Each new bot needs its **own** bot application from the
-Discord Developer Portal.
+**Add a bot** (in the switcher or Settings → Bots) creates an empty bot and drops you into its
+[setup wizard](#overview). Connect its Discord token and credentials just like the first one. Each new bot
+needs its **own** bot application from the Discord Developer Portal. Register the same local redirect URL
+the wizard shows; it's the same for every bot on this machine.
 
 :::tip One account, many bots
 You don't need multiple Discord accounts: one account can create many bot applications, each with its own
 token. You *do* need a separate token per bot.
+:::
+
+:::note Remote access per bot
+Each bot publishes its own [web link](#remote), so give each one its own device name (the setup wizard
+suggests the bot's name). Before this version, bots with remote access on shared one Tailscale device. If
+more than one of yours did, all but one get a device of their own the first time they run side by side,
+with a new web address; register its \`…/auth/callback\` in that bot's Discord app.
 :::
 `,
   },
@@ -432,9 +459,9 @@ Below it, a **keyboard reference**: <kbd>⌘K</kbd> opens the command palette, w
 switches server, and runs the current page's actions; <kbd>⌘S</kbd> saves. On Windows and Linux,
 <kbd>Ctrl</kbd> stands in for <kbd>⌘</kbd>.
 
-## Bot
-The **bot switcher**: create, switch between, rename, set the launch default for, and delete the bots this
-app runs (see [Running multiple bots](#bots)). **Clear memory** is not here — it lives at the bottom of
+## Bots
+Desktop app only. Add, open, rename, move, reset and delete the bots this app runs, and pick which one opens
+on launch (see [Running multiple bots](#bots)). **Clear memory** is not here — it lives at the bottom of
 [Knowledge](tab:knowledge), under the things it erases.
 
 ## Logs

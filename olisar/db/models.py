@@ -724,6 +724,9 @@ class AppConfig(Base):
     server_ssh_user: Mapped[str] = mapped_column(Text, default="ubuntu")
     server_ssh_pubkey: Mapped[str] = mapped_column(Text, default="")
     server_ssh_privkey: Mapped[str] = mapped_column(Text, default="")
+    # Which directory on the VM holds this bot's install: one VM can run several bots, each
+    # its own compose project. Blank = ``~/olisar``, the only one there was before that.
+    server_app_dir: Mapped[str] = mapped_column(Text, default="")
     # The build of *this app* that last brought the VM up to a release (see
     # olisar.runtime.remote.autoupdate). Empty = never. Comparing it to the running build
     # is how a relaunch after a self-update is told apart from an ordinary one.

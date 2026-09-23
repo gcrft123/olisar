@@ -1,9 +1,13 @@
 // Olisar desktop shell (Electron).
 //
-// Spawns the PyInstaller-packaged backend (`olisar-backend --port <p>`) as a
+// Spawns the PyInstaller-packaged backend (`olisar-backend --gateway --port <p>`) as a
 // sidecar, waits for it to become healthy, then shows the dashboard in a window
 // and a system-tray menu. Closing the window hides to the tray; quitting kills
 // the backend so nothing is left running.
+//
+// The backend is a gateway: it runs every bot on this install in its own process and
+// serves one console, forwarding it to whichever bot is selected. Its bots watch it and
+// exit when it does, however it goes.
 
 const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, screen } = require('electron')
 const updater = require('./updater')
@@ -23,6 +27,7 @@ app.setName('Olisar')
 const PREFERRED_PORT = 8723
 
 let backend = null
+let backendExited = Promise.resolve()  // settles when the current backend process exits
 let backendPort = 0
 let win = null
 let tray = null
@@ -102,7 +107,7 @@ function startBackend(port) {
   const bin = backendBinary()
   const repoRoot = devRepoRoot()
   if (repoRoot) console.log(`[olisar] dev launch — using repo .env at ${repoRoot}/.env`)
-  backend = spawn(bin, ['--port', String(port)], {
+  backend = spawn(bin, ['--gateway', '--port', String(port)], {
     cwd: repoRoot || undefined,
     env: {
       ...process.env,
@@ -118,11 +123,15 @@ function startBackend(port) {
       OLISAR_VERSION: app.getVersion(),
       OLISAR_DATA_DIR: app.getPath('userData'),
       OLISAR_PORT: String(port),
+      // We hold the backend's stdin open; closing it is how we ask it to stop (see stopBackend).
+      OLISAR_PARENT_PIPE: '1',
       ...(funnelPath() ? { OLISAR_FUNNEL: funnelPath() } : {}),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,  // don't pop a console window for the backend on Windows
   })
+  const proc = backend
+  backendExited = new Promise((resolve) => proc.once('exit', resolve))
   backend.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`))
   backend.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`))
   backend.on('exit', (code, sig) => {
@@ -131,6 +140,23 @@ function startBackend(port) {
   })
   backend.on('error', (err) => {
     dialog.showErrorBox('Olisar', `Could not start the backend:\n${err.message}\n\nExpected at: ${bin}`)
+  })
+}
+
+// Stop the backend and wait until it — and through it, every bot — has exited. Closing its
+// stdin is the graceful signal on every platform: on Windows a kill is TerminateProcess, which
+// would leave the gateway no chance to sign its bots out of Discord, and they'd still be running
+// (and holding the backend's files) while an update installed over them. A backend that
+// doesn't finish in time is killed.
+function stopBackend(timeoutMs = 30000) {
+  const proc = backend
+  if (!proc) return Promise.resolve()
+  try { proc.stdin.end() } catch { /* already closed */ }
+  let timer = null
+  const deadline = new Promise((resolve) => { timer = setTimeout(resolve, timeoutMs) })
+  return Promise.race([backendExited, deadline]).then(() => {
+    clearTimeout(timer)
+    if (backend === proc) { try { proc.kill() } catch { /* ignore */ } }
   })
 }
 
@@ -192,6 +218,7 @@ async function refreshStatus() {
 
 // Show or hide the tray icon to match the dashboard's "Show in the menu bar" setting.
 function applyTrayVisibility() {
+  if (app.isQuitting) return  // quitting waits on the backend; don't bring the tray back meanwhile
   const show = lastDesktop.show_in_menu_bar !== false
   if (show && !tray) { createTray(); return }
   if (!show && tray) { tray.destroy(); tray = null; return }
@@ -349,7 +376,9 @@ async function boot() {
   createWindow()
   setInterval(refreshStatus, 10000)  // keep the tray status fresh
   // Check for a newer GitHub release shortly after launch, then periodically.
-  updater.init({ getMainWindow: () => win })  // lets it show download progress on the dock
+  // getMainWindow lets it show download progress on the dock; stopBackend lets it wait for
+  // every bot to exit before an installer replaces the files they run from.
+  updater.init({ getMainWindow: () => win, stopBackend })
   setTimeout(checkUpdates, 8000)
   setInterval(checkUpdates, UPDATE_INTERVAL_MS)
 }
@@ -362,8 +391,15 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(boot)
   app.on('window-all-closed', (e) => { /* stay in tray; don't quit on macOS or others */ })
   app.on('activate', createWindow)
-  app.on('before-quit', () => {
+  // Quitting waits for the backend to stop its bots, so none is left signed in to Discord.
+  // The window and tray go at once; the wait happens out of sight.
+  let backendStopped = false
+  app.on('before-quit', (e) => {
     app.isQuitting = true
-    if (backend) { try { backend.kill('SIGTERM') } catch { /* ignore */ } }
+    if (backendStopped || !backend) return
+    e.preventDefault()
+    for (const w of BrowserWindow.getAllWindows()) w.hide()
+    if (tray) { tray.destroy(); tray = null }
+    stopBackend().finally(() => { backendStopped = true; app.quit() })
   })
 }

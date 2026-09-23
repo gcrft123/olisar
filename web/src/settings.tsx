@@ -1,21 +1,22 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
-import { PubkeyBox, usePubkey } from './setup'
+import { BotsPane, useBots } from './bots'
 import { SCALES, getScale, setScale } from './theme'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
 // 'size' is the member portal's cut-down General — the size control alone, without the
-// console-only keyboard shortcuts. 'bot' (the multi-bot profile switcher) was removed.
-export type SectionId = 'general' | 'size' | 'activity' | 'logs' | 'security' | 'remote' | 'updates' | 'desktop' | 'feedback'
+// console-only keyboard shortcuts. 'bots' only exists in the desktop app (see bots.tsx).
+export type SectionId = 'general' | 'size' | 'activity' | 'bots' | 'logs' | 'security' | 'remote' | 'updates' | 'desktop' | 'feedback'
 export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
   { id: 'size', label: 'Size', ic: 'palette' },
   { id: 'activity', label: 'Activity', ic: 'docs' },
+  { id: 'bots', label: 'Bots', ic: 'bolt' },
   { id: 'logs', label: 'Logs', ic: 'pulse' },
   { id: 'security', label: 'Security', ic: 'access' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
@@ -64,9 +65,11 @@ export function SettingsModal(
   { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
-  // so an unfiltered modal must not offer both.
-  const visible = sections ? SECTIONS.filter((s) => sections.includes(s.id))
-    : SECTIONS.filter((s) => s.id !== 'size')
+  // so an unfiltered modal must not offer both. 'bots' needs the desktop app's gateway.
+  const bots = useBots()
+  const visible = (sections ? SECTIONS.filter((s) => sections.includes(s.id))
+    : SECTIONS.filter((s) => s.id !== 'size'))
+    .filter((s) => s.id !== 'bots' || bots.available || bots.loading)
   const [section, setSection] = useState<SectionId>(
     (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
   )
@@ -111,6 +114,7 @@ export function SettingsModal(
           {section === 'general' && <General />}
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
+          {section === 'bots' && <BotsPane Head={Head} />}
           {section === 'logs' && <Logs />}
           {section === 'security' && <Security />}
           {section === 'remote' && <Remote />}
@@ -368,129 +372,6 @@ function Feedback({ report }: { report?: string }) {
     </>
   )
 }
-
-// ── Bot switcher (run several bots from one app) ──────────────────────────────
-type BotProfile = { id: string; name: string; created: boolean }
-
-// The multi-bot profile switcher lived here. Its Settings tab was removed; the API
-// client methods (api.botList/switchBot/…) and the /api/bots routes are untouched, so
-// restoring it is a component, not a feature.
-
-// A dedicated "Move bot" flow: change where the active bot runs (this computer ↔ a cloud VM),
-// carrying its data across and keeping the old copy as a backup. Only the active bot can be
-// moved (it swaps the live DB + stops/starts the local bot), so this lives on the active row.
-function MoveBotModal({ profile, onClose }: { profile: BotProfile; onClose: () => void }) {
-  const [curMode, setCurMode] = useState<'local' | 'server' | ''>('')
-  const [curHost, setCurHost] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [target, setTarget] = useState<'local' | 'server'>('server')
-  const [host, setHost] = useState('')
-  const [user, setUser] = useState('ubuntu')
-  const [showKey, setShowKey] = useState(false)
-  const [moving, setMoving] = useState(false)
-  const [err, setErr] = useState('')
-  const titleId = useId()
-
-  const pk = usePubkey(target === 'server' && showKey)
-
-  useEffect(() => {
-    api.activeBot()
-      .then((d: any) => {
-        const m = d.hosting_mode === 'server' ? 'server' : 'local'
-        setCurMode(m); setCurHost(d.server_host || '')
-        setTarget(m === 'local' ? 'server' : 'local')  // default to the other host
-      })
-      .catch((e: any) => setErr(e?.message || 'Couldn’t read the bot’s current hosting.'))
-      .finally(() => setLoading(false))
-  }, [])
-
-  const sameServer = target === 'server' && curMode === 'server' && host.trim() === curHost && !!curHost
-  const canMove = !moving && !loading && !err && (target === 'local' || (host.trim().length > 0 && !sameServer))
-
-  const doMove = async () => {
-    setErr(''); setMoving(true)
-    try {
-      const r = await api.moveBot(profile.id, { target, host: host.trim(), user: user.trim() || 'ubuntu' })
-      if (!r?.ok) { setErr(r?.error || 'Move failed.'); setMoving(false); return }
-      toast(r.note || `Moved ${profile.name}`, 'success')
-      window.location.reload()  // active bot: hosting changed — App re-routes
-    } catch (e: any) { setErr(e?.message || 'Move failed.'); setMoving(false) }
-  }
-
-  const curLabel = curMode === 'server' ? `a server${curHost ? ` (${curHost})` : ''}` : 'this computer'
-
-  return (
-    <Modal className="confirm-dialog" labelledBy={titleId} onClose={onClose} dismissable={!moving}>
-        <div className="confirm-head">
-          <div className="confirm-icon"><Icon.remote size={22} weight="Bold" aria-hidden /></div>
-          <div className="confirm-text">
-            <div className="confirm-title" id={titleId}>Move {profile.name}</div>
-            <div className="confirm-msg">
-              {loading ? 'Reading current hosting…' : <>Currently runs on <b>{curLabel}</b>.</>}
-            </div>
-          </div>
-        </div>
-
-        {!loading && (
-          <div className="move-body">
-            <div className="callout tip">
-              <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-              <div className="callout-body">Its persona, memory, knowledge, and uploaded docs move with it. The old copy is kept as a backup.</div>
-            </div>
-
-            {curMode === 'server' ? (
-              <Field label="Move to" desc="Where this bot should run.">
-                <Select value={target} onChange={(v) => setTarget(v as 'local' | 'server')}
-                  options={[
-                    { value: 'local', label: 'This computer (local)' },
-                    { value: 'server', label: 'A different server' },
-                  ]} />
-              </Field>
-            ) : (
-              <div className="settings-muted">Move this bot to a cloud server. Olisar sets it up there and moves its data across.</div>
-            )}
-
-            {target === 'server' && (
-              <>
-                <Field label="Destination VM public IP" desc="A cloud VM you created for this bot.">
-                  <Text value={host} onChange={setHost} placeholder="e.g. 203.0.113.9" mono />
-                </Field>
-                {sameServer && <div className="err">That’s the current server. Pick a different IP, or move to this computer.</div>}
-                <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
-                  <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
-                  <div className="desc" style={{ marginTop: 8 }}>
-                    Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, or the provider’s SSH-keys box, before moving. A VM this app already set up trusts it automatically.
-                  </div>
-                  <PubkeyBox state={pk} />
-                  <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
-                    <Text value={user} onChange={setUser} placeholder="ubuntu" mono />
-                  </Field>
-                </details>
-              </>
-            )}
-
-            {moving && (
-              <div className="callout note">
-                <span className="ic"><span className="spinner" /></span>
-                <div className="callout-body">Moving {profile.name}. This can take a few minutes — keep this window open.</div>
-              </div>
-            )}
-            {err && <div className="err">{err}</div>}
-          </div>
-        )}
-
-        <div className="confirm-foot">
-          <button className="ghost" disabled={moving} onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={!canMove} onClick={doMove}>{moving ? 'Moving…' : 'Move bot'}</button>
-        </div>
-    </Modal>
-  )
-}
-
-// ── Bot (switcher + what Olisar remembers for the active server) ───────────────
-// The Bot section is the bot switcher. "Clear memory" used to hang off the bottom of it,
-// but it is per-*server* destruction sitting in a per-install modal with no server named
-// anywhere on screen — it now lives on Knowledge, under the things it erases.
 
 // ── Activity ───────────────────────────────────────────────────────────────
 // The same ledger Knowledge shows beside its danger zone, reachable from anywhere. Every

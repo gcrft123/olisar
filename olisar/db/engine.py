@@ -11,7 +11,6 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 
 import sqlite_vec
 from sqlalchemy import event
@@ -24,23 +23,31 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.util import await_only
 
 # Engines/sessionmakers are keyed by the SQLite file path rather than a single global, so
-# switching the active bot profile just disposes the current entry and builds the next. The
-# ``current_profile`` contextvar is the seam for *future* concurrent local bots: v1 leaves it
-# unset (so everything resolves to the registry's active profile), while a later concurrent
-# build would set it per bot task / per API request to route each context to its own DB —
-# with no call-site changes, since all DB access already flows through ``session_scope()``.
+# repointing a process (a move swapping its DB file) disposes one entry and builds the next.
+#
+# A running bot's process is *pinned* to its own database (``pin_database``) at boot: each bot
+# runs in its own process (see olisar.runtime.gateway), and which bot the console happens to
+# be showing — the registry's "active" profile — must never move a running bot onto another
+# bot's data. Unpinned processes (scripts, tests, the standalone dev API) resolve through the
+# registry as before.
 _engines: dict[str, AsyncEngine] = {}
 _sessionmakers: dict[str, async_sessionmaker[AsyncSession]] = {}
+_pinned: str | None = None
 
-current_profile: ContextVar[str | None] = ContextVar("current_profile", default=None)
+
+def pin_database(path: str | None) -> None:
+    """Bind this process to one database file for good (``None`` unpins)."""
+    global _pinned
+    _pinned = str(path) if path else None
 
 
 def current_db_path() -> str:
-    """The SQLite path for the async context's profile: the ``current_profile`` contextvar
-    when set, else the registry's active profile."""
+    """This process's database: the pinned one, else the registry's active profile's."""
+    if _pinned:
+        return _pinned
     from olisar.runtime import profiles
 
-    return str(profiles.db_path_for(current_profile.get() or profiles.active_id()))
+    return str(profiles.db_path_for(profiles.active_id()))
 
 
 def _register_connection_setup(engine: AsyncEngine) -> None:
@@ -92,10 +99,9 @@ def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
 
 
 async def reset_engine(path: str | None = None) -> None:
-    """Dispose and forget the engine for ``path`` (default: the current profile's DB), so
-    the next ``get_engine()`` rebuilds it. Disposing closes the pooled aiosqlite connections
-    and releases the WAL/SHM handles — required before another profile opens the same file,
-    and used by a profile switch to tear down the outgoing bot's engine."""
+    """Dispose and forget the engine for ``path`` (default: this process's DB), so the next
+    ``get_engine()`` rebuilds it. Disposing closes the pooled aiosqlite connections and
+    releases the WAL/SHM handles — required before the file is copied or replaced (a move)."""
     target = path or current_db_path()
     engine = _engines.pop(target, None)
     _sessionmakers.pop(target, None)
