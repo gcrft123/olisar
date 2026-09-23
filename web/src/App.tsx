@@ -41,7 +41,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   behavior: 'triggers dms mentions ping everyone here model web search context window summary threshold glossary mine persona rebuild proactivity eagerness confidence cooldown quiet hours reactions presence voice',
   messages: 'command replies ping watch unwatch status learn url site doc forget me dm indexing proactive privacy rate limited blank access denied tool pin placeholders',
   channels: 'mode memory respond both resource feed off indexing search index category forum',
-  access: 'roles allowed blocked open restrict lock out permissions',
+  access: 'roles allowed blocked open restrict lock out permissions pin self edit own settings',
   knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',
   members: 'profiles impressions remembered facts roles avatars',
   extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator',
@@ -166,6 +166,12 @@ export default function App() {
     window.addEventListener('olisar:open-doc', onOpen)
     return () => window.removeEventListener('olisar:open-doc', onOpen)
   }, [openDoc])
+  // The same for a Settings pane, e.g. Access's "Set a PIN" — the modal is App's to open.
+  useEffect(() => {
+    const onOpen = (e: Event) => { setSettingsPane((e as CustomEvent).detail); setSettingsOpen(true) }
+    window.addEventListener('olisar:open-settings', onOpen)
+    return () => window.removeEventListener('olisar:open-settings', onOpen)
+  }, [])
 
   // The drawer covers the page but wasn't modal: the content behind stayed focusable and
   // the body still scrolled, so tabbing out of the drawer landed on controls the operator

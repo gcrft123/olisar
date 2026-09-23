@@ -144,6 +144,7 @@ const MOCK_CONFIG = {
   blocked_mentions: ['everyone', 'here'],
   allowed_role_ids: ['1321947496179568690'],
   blocked_role_ids: ['1321947496179568694'],
+  pin_actions: ['self_edit'],
 }
 
 const MOCK_PROACTIVITY = {
@@ -291,8 +292,8 @@ const MOCK_EXTENSIONS = [
 
 // The tool PIN behind Settings → Security. Stateful on purpose: "no PIN yet", "PIN set"
 // and the removal confirm are three different renderings of one pane, and a fixture that
-// always answers "set" leaves two of them unreviewable. `gated_tools` is empty, which is
-// what every shipped configuration reports.
+// always answers "set" leaves two of them unreviewable. It starts unset so Access shows its
+// no-PIN warning. `gated_tools` is empty, which is what every shipped configuration reports.
 const MOCK_PIN: { is_set: boolean; timeout_sec: number; updated_at: string | null; gated_tools: string[] } = {
   is_set: false, timeout_sec: 120, updated_at: null, gated_tools: [],
 }

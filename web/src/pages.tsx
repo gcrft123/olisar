@@ -988,9 +988,70 @@ export function Access() {
           </>
         )}
       </Card>
+      <PinActionsCard initial={config.pin_actions ?? []} />
       <MemberPortalCard config={config} reload={ed.reload} />
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
+  )
+}
+
+// What this server holds behind the tool PIN. The PIN is install-wide (Settings → Security);
+// which actions ask for it is decided per server, next to who may use Olisar at all. Keys
+// are olisar.toolpin.ACTIONS, and the API refuses one it doesn't know.
+const PIN_ACTIONS = [
+  { key: 'self_edit', label: 'Changing its own settings from Discord' },
+]
+
+// Saves on toggle, like the portal switches below and for the same reason: turning the PIN
+// off for something is a security decision, not something to ride along with a role edit.
+function PinActionsCard({ initial }: { initial: string[] }) {
+  const [on, setOn] = useState<string[]>(initial)
+  const [pinSet, setPinSet] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // Re-read when Settings → Security sets or removes the PIN, so the warning below doesn't
+  // outlive the thing it's warning about.
+  useEffect(() => {
+    const pull = () => { api.getPin().then((p: any) => setPinSet(!!p.is_set)).catch(() => {}) }
+    pull()
+    window.addEventListener('olisar:pin-changed', pull)
+    return () => window.removeEventListener('olisar:pin-changed', pull)
+  }, [])
+
+  const write = async (key: string, v: boolean) => {
+    if (!v && !(await confirmDialog({
+      title: 'Let Olisar change its settings without the PIN?',
+      message: 'Anyone who can use Olisar on this server could rewrite its persona, behavior and knowledge from Discord.',
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    }))) return
+    const next = v ? [...new Set([...on, key])] : on.filter((k) => k !== key)
+    setBusy(true)
+    try { await api.putConfig({ pin_actions: next }); setOn(next) }
+    catch (e: any) { toast(e?.message || 'Couldn’t save that', 'danger') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Require the PIN">
+      {pinSet === false && on.length > 0 && (
+        <div className="callout warning" style={{ marginBottom: 14 }}>
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
+            No PIN is set, so Olisar refuses these until one is.{' '}
+            <button
+              className="linklike"
+              onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-settings', { detail: 'security' }))}
+            >Set a PIN</button>
+          </div>
+        </div>
+      )}
+      {PIN_ACTIONS.map((a) => (
+        <Field key={a.key} label={a.label}>
+          <Toggle value={on.includes(a.key)} disabled={busy} onChange={(v) => write(a.key, v)} />
+        </Field>
+      ))}
+    </Card>
   )
 }
 

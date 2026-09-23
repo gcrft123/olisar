@@ -583,6 +583,7 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
   color: color-mix(in srgb, var(--cc) 24%, var(--text)); }
 .callout .ic { color: var(--cc); margin-top: 1px; }
 .callout a { color: var(--cc); text-decoration: underline; text-underline-offset: 2px; }
+.callout .linklike { color: var(--cc); }  /* an inline action ("Set a PIN") reads as a link */
 .callout.warning { --cc: var(--warn); }
 .callout.note    { --cc: var(--accent); }
 .callout.tip     { --cc: var(--ok); }

@@ -68,6 +68,9 @@ LABELS: dict[str, str] = {
     "update_extension": "Edited an extension",
     "delete_extension": "Deleted an extension",
     "detach_extension": "Detached an extension",
+    "update_tool_pin": "Changed the tool PIN",
+    "clear_tool_pin": "Removed the tool PIN",
+    "set_pin_actions": "Changed what needs the PIN",
 }
 
 

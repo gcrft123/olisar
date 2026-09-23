@@ -24,7 +24,7 @@ from api.schemas import (
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import runtime_config, runtime_keys
+from olisar import runtime_config, runtime_keys, toolpin
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -208,6 +208,7 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "blocked_role_ids": [str(r) for r in (c.blocked_role_ids or [])],
             "member_portal_enabled": c.member_portal_enabled,
             "member_portal_show_persona": c.member_portal_show_persona,
+            "pin_actions": list(c.pin_actions or []),
             # Not a setting — the condition the portal depends on. The console needs it to
             # explain why the toggle is unavailable rather than just disabling it.
             "remote_access_configured": await runtime_config.remote_access_configured(),
@@ -225,17 +226,33 @@ async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_
             status_code=400,
             detail="turn on remote access first — members can't reach a loopback-only console",
         )
+    pin_actions = data.pop("pin_actions", None)
+    if pin_actions is not None:
+        unknown = sorted(set(pin_actions) - set(toolpin.ACTIONS))
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"unknown PIN action {unknown[0]!r}")
     async with session_scope() as session:
         c = await session.get(GuildConfig, gctx.guild_id)
         if c is None:
             c = GuildConfig(guild_id=gctx.guild_id)
             session.add(c)
-        _apply(c, data)
+        if pin_actions is not None:
+            # Its own audit entry, with what it replaced: switching the PIN off for an
+            # action is a security change, and "Changed behavior settings" would bury it.
+            before = sorted(c.pin_actions or [])
+            c.pin_actions = sorted(set(pin_actions))
+            await record_audit(
+                session, actor=gctx.admin.discord_user_id, action="set_pin_actions",
+                target_type="guild_config", target_id=gctx.guild_id,
+                before={"pin_actions": before}, after={"pin_actions": c.pin_actions},
+            )
+        if data:
+            _apply(c, data)
+            await record_audit(
+                session, actor=gctx.admin.discord_user_id, action="update_config",
+                target_type="guild_config", target_id=gctx.guild_id, after=data,
+            )
         c.version = (c.version or 1) + 1
-        await record_audit(
-            session, actor=gctx.admin.discord_user_id, action="update_config",
-            target_type="guild_config", target_id=gctx.guild_id, after=data,
-        )
     return {"ok": True}
 
 
