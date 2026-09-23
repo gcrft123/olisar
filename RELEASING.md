@@ -172,7 +172,9 @@ Windows (`.exe`) — each running the full chain (Tailscale sidecar → dashboar
 backend → electron-builder) on its own runner, and both land on the same `v<tag>` GitHub
 Release using the repo's `GITHUB_TOKEN`. It's live immediately. A beta is published as a
 **pre-release**, which keeps it off every stable install, and the server image's `:latest`
-tag only moves for a stable release.
+tag only moves for a stable release. To point `:latest` somewhere else (back to the previous
+release after a bad one, say), run the **Point :latest at a release** workflow from the
+Actions tab with a stable tag. It copies that release's image instead of rebuilding it.
 
 Both jobs build with `--publish never` and upload with `gh`. electron-builder can only
 publish to a tag spelled `v` + the package.json version (`v2.0.0-beta.1`), which isn't the
