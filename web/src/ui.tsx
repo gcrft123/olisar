@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Icon, CopyGlyph } from './icons'
+import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
 // bordered boxes read as boxes inside boxes; here the hairline between groups and the rows
@@ -920,7 +921,7 @@ export function Markdown(props: { md: string; onDocLink?: (id: string) => void }
 // frontend update independently, so a payload that drifted shape is a real case, not a
 // hypothetical. Keep the shell up and let the operator retry or move to another tab.
 export class PageBoundary extends React.Component<
-  { children: React.ReactNode; onReset?: () => void },
+  { children: React.ReactNode; onReset?: () => void; /** The page's name, for the report. */ page?: string },
   { error: Error | null }
 > {
   state: { error: Error | null } = { error: null }
@@ -949,6 +950,21 @@ export class PageBoundary extends React.Component<
             <button className="primary" onClick={() => { this.setState({ error: null }); this.props.onReset?.() }}>
               <Icon.refresh size={14} /> Try again
             </button>
+            {/* A crash is a bug by definition, and the error is already on screen: this is
+                the one failure worth a report every time, and it arrives written. */}
+            {hasFeedbackHost() && (
+              <button className="ghost" onClick={() => {
+                const e = this.state.error
+                openFeedback({
+                  category: 'Bug report',
+                  logs: true,
+                  message: reportBody(
+                    `The ${this.props.page ?? 'current'} page didn't load.`,
+                    e ? `${e.name}: ${e.message || 'no further detail'}` : undefined,
+                  ),
+                })
+              }}>Report this</button>
+            )}
           </div>
         </div>
       </>

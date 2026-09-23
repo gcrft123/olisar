@@ -5,6 +5,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
+import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 import { Area, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, headingsOf, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
@@ -111,8 +112,9 @@ export function Persona() {
 // live. Save the persona first — the sandbox reads the saved persona, not the draft.
 type ChatMsg = { role: 'user' | 'assistant'; content: string }
 
-// The chat itself (transcript + composer); the drawer below provides the shell.
-function SandboxChat() {
+// The chat itself (transcript + composer); the drawer below provides the shell. `onReport`
+// closes the drawer before Feedback opens over the page, so the two overlays don't stack.
+function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
   const [messages, setMessages] = useState<ChatMsg[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -152,7 +154,21 @@ function SandboxChat() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={'sb-msg ' + m.role}>
-            <div className="sb-who">{m.role === 'user' ? 'You' : 'Olisar'}</div>
+            <div className="sb-who">
+              {m.role === 'user' ? 'You' : 'Olisar'}
+              {/* The console's version of the "Report this" button Olisar puts on a blank
+                  reply in Discord: this is where an operator first sees a reply go wrong. */}
+              {m.role === 'assistant' && (
+                <button className="ghost sb-report" onClick={() => onReport(reportBody(
+                  'A test chat reply wasn\'t right.',
+                  undefined,
+                  [
+                    'I said:', messages[i - 1]?.role === 'user' ? messages[i - 1].content : '(nothing)',
+                    '', 'Olisar replied:', m.content, '', 'What I expected instead:',
+                  ].join('\n'),
+                ))}>Report</button>
+              )}
+            </div>
             <div className="sb-bubble">
               {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
             </div>
@@ -165,7 +181,15 @@ function SandboxChat() {
           </div>
         )}
       </div>
-      {err && <div className="sandbox-err">{err}</div>}
+      {err && (
+        <div className="sandbox-err">
+          {err}{' '}
+          <button className="linklike" onClick={() => {
+            const said = [...messages].reverse().find((m) => m.role === 'user')?.content
+            onReport(reportBody('Test chat failed to answer.', err, said ? `I said:\n${said}\n\nWhat I was doing:` : undefined))
+          }}>Report</button>
+        </div>
+      )}
       <div className="sandbox-input">
         <textarea
           value={input}
@@ -273,7 +297,12 @@ function TestChatDrawer() {
               </div>
               <button className="ghost icon-btn sm" onClick={() => setOpen(false)} data-tip="Close" aria-label="Close test chat"><CloseX size={16} /></button>
             </div>
-            <SandboxChat />
+            {/* Next tick: the drawer's close hands focus back to its launcher, and Feedback
+                has to open after that or the launcher takes focus from the dialog. */}
+            <SandboxChat onReport={(message) => {
+              setOpen(false)
+              setTimeout(() => openFeedback({ category: 'Bug report', logs: true, message }), 0)
+            }} />
           </aside>
         </>,
         document.body,
@@ -946,14 +975,7 @@ export function Access() {
         {/* An empty list and a failed request are different facts. This used to blame the
             bot for not having synced yet when the console simply never got an answer. */}
         {rolesQ.error ? (
-          <div className="loadfail" role="alert">
-            <Icon.warn size={22} />
-            <div className="lf-body">
-              <strong>Couldn’t load the roles.</strong>
-              <p>{rolesQ.error}</p>
-            </div>
-            <button onClick={() => rolesQ.reload()}>Try again</button>
-          </div>
+          <Loading of={rolesQ} what="the roles" />
         ) : rows.length === 0 ? (
           <div className="empty">No roles synced yet. The bot populates this list shortly after it starts.</div>
         ) : (
@@ -1524,14 +1546,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         </div>
         <div className="settings-subhead">Glossary ({factRows.length})</div>
         {factsQ.error ? (
-          <div className="loadfail" role="alert">
-            <Icon.warn size={22} />
-            <div className="lf-body">
-              <strong>Couldn’t load the glossary.</strong>
-              <p>{factsQ.error}</p>
-            </div>
-            <button onClick={() => reloadFacts()}>Try again</button>
-          </div>
+          <Loading of={factsQ} what="the glossary" />
         ) : factRows.length === 0 ? (
           <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>
         ) : null}
@@ -2925,6 +2940,17 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
             <button className="ghost" onClick={() => setActive(next.id)}>{next.title} <Icon.arrowRight size={15} /></button>
           ) : <span />}
         </div>
+        {/* The only place a question has a home: everywhere else Feedback opens as a bug
+            report or general feedback, and a reader who got lost here has neither. */}
+        {hasFeedbackHost() && (
+          <p className="docs-ask">
+            Something unclear or missing?{' '}
+            <button className="linklike" onClick={() => openFeedback({
+              category: 'Question',
+              message: `About the “${section.title}” page in the docs:\n\n`,
+            })}>Ask the team</button>
+          </p>
+        )}
       </div>
 
       {headings.length > 0 && (
@@ -3750,16 +3776,33 @@ export function Usage() {
 export function Loading(props: { of: { loading: boolean; error?: string | null; reload: () => void }; what?: string }) {
   if (props.of.loading) return <Spinner />
   if (!props.of.error) return <Spinner />
+  const what = props.what ?? 'this page'
+  // Report only once Try again has already failed. A first failure is usually the backend
+  // restarting or a dropped connection; asking for a report there collects noise.
+  const retried = RETRIED.has(what)
   return (
     <div className="loadfail" role="alert">
       <Icon.warn size={22} />
       <div className="lf-body">
-        <strong>Couldn’t load {props.what ?? 'this page'}.</strong>
+        <strong>Couldn’t load {what}.</strong>
         <p>{props.of.error}</p>
       </div>
-      <button onClick={() => props.of.reload()}>Try again</button>
+      <div className="lf-actions">
+        {retried && hasFeedbackHost() && (
+          <button className="ghost" onClick={() => openFeedback({
+            category: 'Bug report',
+            logs: true,
+            message: reportBody(`The console couldn't load ${what}, even after trying again.`, props.of.error ?? undefined),
+          })}>Report</button>
+        )}
+        <button onClick={() => { RETRIED.add(what); props.of.reload() }}>Try again</button>
+      </div>
     </div>
   )
 }
+// What the operator has already retried, by name. Module-level because a page swaps in a
+// spinner while it retries, so the Loading that showed the first failure is gone by the
+// second.
+const RETRIED = new Set<string>()
 
 
