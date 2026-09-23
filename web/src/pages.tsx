@@ -6,7 +6,7 @@ import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
-import { Area, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, headingsOf, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -64,14 +64,14 @@ export function Persona() {
           <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
         </Field>
       </Section>
-      <Section title="The room" hint="What kind of community this is. Register turns on this more than the subject does — the same line reads as normal in a gaming server and as try-hard in a study one.">
-        <Field label="Server type" desc="Sets the register Olisar writes in. Leave unset to let it read the room on its own.">
+      <Section title="The room" hint="What kind of community this is, which sets how casual or formal Olisar sounds.">
+        <Field label="Server type" desc="Sets the register Olisar writes in.">
           <Select
             value={data.server_type || ''}
             onChange={(v) => set('server_type', v)}
             ariaLabel="Server type"
             options={[
-              { value: '', label: 'Not set — read the room' },
+              { value: '', label: 'Automatic' },
               // The API sorts by key; a reader scans the labels, so re-sort by those.
               ...(data.server_types || [])
                 .map((t: string) => ({ value: t, label: SERVER_TYPE_LABELS[t] || t }))
@@ -79,7 +79,7 @@ export function Persona() {
             ]}
           />
         </Field>
-        <Field plain label="Slang" desc="How thickly Olisar lays on the community's own dialect. It only uses slang it has actually seen here — this is the dial, not a vocabulary.">
+        <Field plain label="Slang" desc="How thickly Olisar lays on the community's own dialect.">
           <Segmented
             className="useg"
             ariaLabel="Slang density"
@@ -197,7 +197,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
           placeholder="Message Olisar…"
           aria-label="Message Olisar"
-          rows={2}
+          rows={1}
           disabled={busy}
         />
         <div className="sandbox-actions">
@@ -382,7 +382,7 @@ export function Behavior() {
     <>
       <PageHead icon="behavior" title="Behavior" doc="behavior" sub="How and when Olisar joins in." />
       <Section title="Engagement" hint="When and where Olisar joins the conversation.">
-        <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
+        <Field label="Name triggers" desc="Comma-separated and not case sensitive. Including one of these in a message addresses Olisar.">
           <Text
             value={triggers}
             onChange={(v) => { setTriggerText(v); set('name_triggers', v.split(',').map((t) => t.trim()).filter(Boolean)) }}
@@ -391,7 +391,7 @@ export function Behavior() {
         </Field>
         {/* A row's label names its switch, so the switches carry no text of their own — "Reply
             in DMs" beside "Answer direct messages" was one setting captioned twice. */}
-        <Field label="Only when addressed" desc="A name trigger has to actually be talking to Olisar. On, “olisar was down again” is overheard rather than answered.">
+        <Field label="Only when addressed" desc="Detects and only responds when talking directly to Olisar, even when a name trigger is mentioned.">
           <Toggle value={data.name_requires_address} onChange={(v) => set('name_requires_address', v)} />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} /></Field>
@@ -401,7 +401,7 @@ export function Behavior() {
         {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
             point at nothing — which is exactly what it was doing. `.flabel` is the same
             treatment without the false promise. */}
-        <Field plain label="Don't let Olisar ping" desc="Olisar won't ping these in its replies even if it writes the mention.">
+        <Field plain label="Don't let Olisar ping">
           <div className="choice-row">
             {MENTION_OPTS.map((o) => {
               const on = (data.blocked_mentions || []).includes(o.value)
@@ -426,14 +426,25 @@ export function Behavior() {
       <Section title="Proactivity" hint="When and how often Olisar chimes in unprompted.">
         {/* Not "Enabled": with the switch's own text gone, the row label is its whole name,
             and two switches called "Enabled" on one page can't be told apart by ear. */}
-        <Field label="Speak up on its own"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} /></Field>
+        {/* Eagerness no longer offers "off" (the switch is the off), but a server that saved
+            it still has it. Show that as switched off with the picker on the backend's default,
+            and keep both halves agreeing whichever one the operator touches first. */}
+        <Field label="Speak up on its own">
+          <Toggle
+            value={pro.enabled && pro.level !== 'off'}
+            onChange={(v) => proEd.setData({ ...pro, enabled: v, ...(v && pro.level === 'off' ? { level: 'low' } : {}) })}
+          />
+        </Field>
         <Field label="Eagerness">
-          <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
-            { value: 'low', label: 'low — rare, high-confidence' },
-            { value: 'med', label: 'medium — balanced' },
-            { value: 'high', label: 'high — chatty' },
-            { value: 'off', label: 'off' },
-          ]} />
+          <Select
+            value={pro.level === 'off' ? 'low' : pro.level}
+            onChange={(v) => proEd.setData({ ...pro, level: v, ...(pro.level === 'off' ? { enabled: false } : {}) })}
+            options={[
+              { value: 'low', label: 'low — rare, high-confidence' },
+              { value: 'med', label: 'medium — balanced' },
+              { value: 'high', label: 'high — chatty' },
+            ]}
+          />
         </Field>
         <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it speaks up.">
           <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} def={0.7} />
@@ -475,20 +486,20 @@ export function Behavior() {
             // nothing saying the model list had failed to load — the operator was left to
             // recall what the alternatives were.
             ? <>Couldn’t load the model list ({modelsQ.error}) — only the current setting is shown. <button className="linklike" onClick={() => modelsQ.reload()}>Try again</button></>
-            : 'If this model is busy, Olisar falls back to the next one down the chain.'}
+            : 'If this model is rate limited, Olisar falls back to the next best one.'}
         >
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
-        <Field label="Web search" desc="Let Olisar look things up on the web.">
+        <Field label="Web search" desc="Let Olisar look things up on the web. Google's free search quota is small, so searches can stop for the rest of the day.">
           <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} />
         </Field>
         <Field label="Web searches per day" desc="The most lookups Olisar will run in a day.">
           <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
         </Field>
-        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
+        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent permission in the Discord Developer Portal.">
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} />
         </Field>
-        <Field label="Silent acknowledgments" desc="Let Olisar react to a message instead of writing “done” after it sends, posts or saves something.">
+        <Field label="Silent acknowledgments" desc="Let Olisar react to a message instead of replying.">
           <Toggle value={data.silent_acks_enabled} onChange={(v) => set('silent_acks_enabled', v)} />
         </Field>
       </Section>
@@ -499,7 +510,7 @@ export function Behavior() {
         {/* Three thresholds that are quota trade-offs, not everyday settings — the sane
             default is the right answer until the free tier starts biting. Folded away so
             the page opens with the one memory control an operator actually reaches for. */}
-        <Disclosure summary="Tuning thresholds" hint="Only worth touching if you're hitting rate limits.">
+        <Disclosure summary="Tuning thresholds">
           <Field label="Summary token threshold" desc="Roll a channel up into a summary once it gathers this many new tokens. Lower summarizes more often and costs more quota.">
             <Num value={data.summary_token_threshold} onChange={(v) => set('summary_token_threshold', v)} min={500} step={500} unit="tokens" def={4000} />
           </Field>
@@ -554,6 +565,9 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
   // wrong on five of fourteen replies. A preview that is 95% faithful is worse than none,
   // because the 5% is the part nobody thinks to check.
   const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|`[^`\n]+`|~~[^~]+~~)/g)
+  // A slot inside bold or italics is still a slot: "**{mode}**" rendered as bold text alone.
+  const slots = (s: string) => s.split(/(\{[a-z_]+\})/gi).map((seg, i) =>
+    /^\{[a-z_]+\}$/i.test(seg) ? <span className="dcp-slot" key={i}>{seg}</span> : seg)
   return (
     <div className="dcp">
       <div className="dcp-msg">
@@ -570,10 +584,10 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
             {text.trim()
               ? parts.map((seg, i) => {
                   if (/^\{[a-z_]+\}$/i.test(seg)) return <span className="dcp-slot" key={i}>{seg}</span>
-                  if (/^\*\*[^*]+\*\*$/.test(seg)) return <b key={i}>{seg.slice(2, -2)}</b>
-                  if (/^__[^_]+__$/.test(seg)) return <b key={i}>{seg.slice(2, -2)}</b>
-                  if (/^\*[^*\n]+\*$/.test(seg)) return <i key={i}>{seg.slice(1, -1)}</i>
-                  if (/^~~[^~]+~~$/.test(seg)) return <s key={i}>{seg.slice(2, -2)}</s>
+                  if (/^\*\*[^*]+\*\*$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
+                  if (/^__[^_]+__$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
+                  if (/^\*[^*\n]+\*$/.test(seg)) return <i key={i}>{slots(seg.slice(1, -1))}</i>
+                  if (/^~~[^~]+~~$/.test(seg)) return <s key={i}>{slots(seg.slice(2, -2))}</s>
                   if (/^`[^`\n]+`$/.test(seg)) return <code className="dcp-code" key={i}>{seg.slice(1, -1)}</code>
                   return <span key={i}>{seg}</span>
                 })
@@ -652,7 +666,7 @@ export function Messages() {
 
   return (
     <>
-      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
+      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave blank to use the default message." />
       <Section title="Slash commands">{keys.filter(isCommand).map(replyRow)}</Section>
       <Section title="Automatic replies">{keys.filter((k) => !isCommand(k)).map(replyRow)}</Section>
       <SaveDock
@@ -785,6 +799,8 @@ export function Channels() {
                     shown, so it respects the filter above. */}
                 <div className="chan-cat-row">
                   <div className="chan-cat">{g.category || 'No category'}</div>
+                  {/* In the rows' own .chan-ctl boxes, so each lines up with the column it sets. */}
+                  <div className="chan-ctl mode">
                   <Select
                     className="chan-bulk"
                     value=""
@@ -803,9 +819,11 @@ export function Channels() {
                       )
                     }}
                   />
+                  </div>
                   {/* Indexing had no bulk equivalent, so turning it off across a thirty-channel
                       category was thirty dropdowns *and* thirty confirm dialogs — the erase is
                       per channel, but the decision is one decision. Asked once, for the set. */}
+                  <div className="chan-ctl index">
                   <Select
                     className="chan-bulk"
                     value=""
@@ -829,6 +847,7 @@ export function Channels() {
                       )
                     }}
                   />
+                  </div>
                 </div>
                 {g.rows.map((c) => (
                   <div className="list-row" key={c.channel_id}>
@@ -1018,7 +1037,7 @@ export function Access() {
 // which actions ask for it is decided per server, next to who may use Olisar at all. Keys
 // are olisar.toolpin.ACTIONS, and the API refuses one it doesn't know.
 const PIN_ACTIONS = [
-  { key: 'self_edit', label: 'Changing its own settings from Discord' },
+  { key: 'self_edit', label: 'For Olisar to change its own settings' },
 ]
 
 // Saves on toggle, like the portal switches below and for the same reason: turning the PIN
@@ -1100,12 +1119,15 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
         <div className="callout warning">
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
-            Turn on remote access first. The console is only reachable from this machine
+            <button
+              className="linklike"
+              onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-settings', { detail: 'remote' }))}
+            >Turn on remote access</button> first. The console is only reachable from this machine
             until then, so members would have no address to open.
           </div>
         </div>
       )}
-      <Field label="Open the portal" desc="Members sign in with Discord. /privacy starts linking them to it.">
+      <Field label="Open the portal" desc="Members have access to the portal to view stats and change their privacy settings.">
         <Toggle
           value={on} disabled={busy || !remote} ariaLabel="Open the member portal"
           onChange={(v) => write({ member_portal_enabled: v })}
@@ -1113,7 +1135,7 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
       </Field>
       <Field
         label="Show each member their impression"
-        desc="The characterization Olisar writes about someone from their messages. It's model-written and can be unflattering or wrong, so this is a separate choice."
+        desc="The characterization Olisar writes about someone from their messages. It can be unflattering or wrong."
       >
         <Toggle
           value={!!config.member_portal_show_persona} disabled={busy || !on}
@@ -1329,24 +1351,24 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
       <Icon.refresh size={15} />
     </button>
   )
+  const rowsOf = (list: any[]) => list.map((e) => (
+    <div className={'act-row' + (e.destructive ? ' destructive' : '')} key={e.id}>
+      <span className="act-when">{when(e.ts)}</span>
+      <span className="act-what">
+        {e.label}
+        {receipt(e.after) && <span className="act-receipt">{receipt(e.after)}</span>}
+      </span>
+      <span className="act-who">{e.actor}</span>
+    </div>
+  ))
   const list = (
     <>
       {loading ? <Spinner label="Loading recent activity…" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
-        <>
-          <div className="activity">
-            {entries.map((e) => (
-              <div className={'act-row' + (e.destructive ? ' destructive' : '')} key={e.id}>
-                <span className="act-when">{when(e.ts)}</span>
-                <span className="act-what">
-                  {e.label}
-                  {receipt(e.after) && <span className="act-receipt">{receipt(e.after)}</span>}
-                </span>
-                <span className="act-who">{e.actor}</span>
-              </div>
-            ))}
-          </div>
-        </>
+        // Capped on the Knowledge page, where it sits between other sections. In Settings it
+        // is the whole pane, so it runs full length there.
+        bare ? <div className="activity">{rowsOf(entries)}</div>
+          : <ScrollFade rows={10} className="activity">{rowsOf(entries)}</ScrollFade>
       )}
     </>
   )
@@ -1438,7 +1460,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const factRows = facts ?? []
   return (
     <>
-      <PageHead icon="knowledge" title="Knowledge" doc="knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in; the glossary holds short facts about your server." />
+      <PageHead icon="knowledge" title="Knowledge" doc="knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in and the glossary holds short facts about your server." />
       {/* Full width, above the split: this is a fact about the whole server, not a sibling
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
@@ -1458,10 +1480,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             <Field label="Max pages"><Num value={maxPages} onChange={setMaxPages} min={1} max={100} unit="pages" def={25} /></Field>
           </div>
         )}
-        <Field
-          label="Re-read"
-          desc="How often Olisar reads it again, so a page that changes stays current. Only passages that actually changed are re-indexed, so re-reading an unchanged page costs no quota."
-        >
+        <Field label="Re-read">
           <Select value={String(refresh)} options={refreshOptions(refresh)} onChange={(v) => setRefresh(Number(v))} />
         </Field>
         <SaveBar saver={adder} label="Add & ingest" variant="secondary" />
@@ -1469,7 +1488,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         </Stack>
         <div className="settings-subhead">Sources ({rows.length})</div>
         {rows.length === 0 && <div className="empty">Nothing yet.</div>}
-        {rows.length > 0 && <div className="source-list">{rows.map((s) => (
+        {rows.length > 0 && <ScrollFade rows={4} className="source-list">{rows.map((s) => (
           // Stacked for every source now, not just failed ones. A failed row already carried
           // the most text and the least room — badge + Retry + Remove squeezed the identifier
           // to 165px — and the schedule control takes another 168px from the same line. In a
@@ -1478,7 +1497,12 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           // on its own line, controls underneath, at every width.
           <div className="list-row stacked" key={s.id}>
             <div className="grow">
-              <div className="title" title={s.title || s.uri}>{s.title || s.uri}</div>
+              {/* Status beside the name, and only when there's something to say: a Ready chip on
+                  every settled source was a column of identical green pills. */}
+              <div className="source-head">
+                <div className="title" title={s.title || s.uri}>{s.title || s.uri}</div>
+                {s.status !== 'ready' && <span className="source-chip"><span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span></span>}
+              </div>
               <div className="meta">{sourceMeta(s)}</div>
               {s.error && <div className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</div>}
             </div>
@@ -1494,7 +1518,6 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                 />
               </div>
             )}
-            <span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span>
             {/* One button for both jobs. This used to be Retry-on-error only, and it called
                 addSource — which inserts a *new* row, so a retry left the failed source
                 sitting there and added a duplicate beside it. Re-queuing the row in place is
@@ -1521,7 +1544,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               <Icon.trash size={15} /> Remove
             </button>
           </div>
-        ))}</div>}
+        ))}</ScrollFade>}
       </Section>
       <Section title="Glossary" hint="Short facts Olisar carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.">
         <Stack>
@@ -1550,7 +1573,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         ) : factRows.length === 0 ? (
           <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>
         ) : null}
-        {factRows.length > 0 && <div className="fact-list">{factRows.map((f) => (
+        {factRows.length > 0 && <ScrollFade rows={8} className="fact-list">{factRows.map((f) => (
           <div className="list-row" key={f.id}>
             <div className="grow">
               <div className="title" data-tip={f.fact}>{f.fact}</div>
@@ -1571,7 +1594,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               <Icon.trash size={15} /> Delete
             </button>
           </div>
-        ))}</div>}
+        ))}</ScrollFade>}
       </Section>
       <ActivityCard />
       <ClearMemoryCard serverName={serverName} />
@@ -2844,7 +2867,6 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
     return () => window.removeEventListener('olisar:goto-doc', go)
   }, [])
   const [q, setQ] = useState('')
-  const [activeHeading, setActiveHeading] = useState('')
   useEffect(() => { window.scrollTo({ top: 0 }) }, [active])
 
   const section = DOCS.find((s) => s.id === active) ?? DOCS[0]
@@ -2854,27 +2876,6 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
   const oidx = order.indexOf(section.id)
   const prev = DOCS.find((s) => s.id === order[oidx - 1])
   const next = DOCS.find((s) => s.id === order[oidx + 1])
-  const headings = headingsOf(section.body)
-
-  // Scroll-spy: highlight the in-view heading in the "On this page" rail.
-  useEffect(() => {
-    setActiveHeading('')
-    const els = headings.map((h) => document.getElementById(h.slug)).filter((e): e is HTMLElement => !!e)
-    if (!els.length) return
-    const obs = new IntersectionObserver(
-      (entries) => {
-        const vis = entries.filter((e) => e.isIntersecting)
-        if (vis.length) {
-          const top = vis.reduce((a, b) => (a.boundingClientRect.top < b.boundingClientRect.top ? a : b))
-          setActiveHeading((top.target as HTMLElement).id)
-        }
-      },
-      { rootMargin: '0px 0px -65% 0px', threshold: 0 },
-    )
-    els.forEach((el) => obs.observe(el))
-    return () => obs.disconnect()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active])
 
   const term = q.trim().toLowerCase()
   const matches = (s: { title: string; body: string }) =>
@@ -2890,7 +2891,9 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
   }
 
   return (
-    <div className={'docs-shell' + (headings.length ? '' : ' no-toc')}>
+    // Two panes: the section nav and the article. The "On this page" rail is gone; the
+    // article takes its width instead.
+    <div className="docs-shell">
       <nav className="docs-nav" aria-label="Documentation">
         <input
           className="docs-search"
@@ -2953,30 +2956,6 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
         )}
       </div>
 
-      {headings.length > 0 && (
-        <aside className="docs-toc" aria-label="On this page">
-          <div className="docs-toc-label">On this page</div>
-          <div className="docs-toc-rail">
-            {headings.map((h) => (
-              <a
-                key={h.slug}
-                href={`#${h.slug}`}
-                className={'lvl' + h.level + (activeHeading === h.slug ? ' active' : '')}
-                // Scroll without letting the browser rewrite the address bar to a bare
-                // fragment the router doesn't recognise — that used to strand a reload on
-                // the first doc page.
-                onClick={(e) => {
-                  e.preventDefault()
-                  setActiveHeading(h.slug)
-                  document.getElementById(h.slug)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-              >
-                {inlineCode(h.text)}
-              </a>
-            ))}
-          </div>
-        </aside>
-      )}
     </div>
   )
 }
@@ -3369,6 +3348,8 @@ const U_SOURCE_LABEL: Record<string, string> = {
   conversation: 'Conversation', summary: 'Summaries', persona: 'Personas', glossary: 'Glossary',
   embed: 'Embeddings', vision: 'Vision', grounding: 'Grounding', proactivity: 'Proactivity',
   catchup: 'Catch-up', review: 'Extension review', extension: 'Extensions', status: 'Status', other: 'Other',
+  // olisar/gemini/canary.py: the daily self-test of each model's tool round-trip.
+  canary: 'Health checks',
 }
 // Plain-language explanations for the more technical process labels — shown as a hover
 // tooltip on that legend row (data-tip). Add entries here to explain more of them.

@@ -79,7 +79,7 @@ function mockSummary(days: number) {
     .sort((a, b) => b.requests - a.requests)
   const shares: [string, number][] = [
     ['conversation', 0.34], ['embed', 0.26], ['summary', 0.14], ['persona', 0.09],
-    ['glossary', 0.06], ['vision', 0.05], ['grounding', 0.03], ['proactivity', 0.03],
+    ['glossary', 0.06], ['vision', 0.05], ['grounding', 0.03], ['proactivity', 0.03], ['canary', 0.01],
   ]
   return {
     window_days: days,
@@ -119,7 +119,7 @@ const MOCK_PERSONA = {
     'Industries inside out and treats its members like the crew.',
   tone_notes: 'casual, lowercase, no emoji, never more than three sentences unless asked',
   desired_bio: 'Ship\'s AI for Red Nebula Industries. Ask me anything.',
-  server_type: 'gaming',
+  server_type: '',
   slang_density: 2,
   // The console builds its picker from whatever the API offers, so the fixture has to
   // carry the roster too or the Persona page renders a picker with one option.
@@ -266,15 +266,58 @@ const MOCK_KNOWLEDGE = [
     refresh_hours: 5, next_refresh_at: hoursOut(3), last_checked_at: hoursOut(-2), last_ingested_at: hoursOut(-2), can_refresh: true },
   { id: 5, type: 'doc', uri: '/data/kb_uploads/charter.pdf', title: 'charter.pdf', status: 'ready', chunks: 41, error: null,
     refresh_hours: 0, next_refresh_at: null, last_checked_at: hoursOut(-620), last_ingested_at: hoursOut(-620), can_refresh: false },
+  // Past the list's four-row cap, so its scroll and edge fades render.
+  { id: 6, type: 'url', uri: 'https://starcitizen.tools/Mining', title: 'Mining — Star Citizen Wiki', status: 'ready', chunks: 67, error: null,
+    refresh_hours: 168, next_refresh_at: hoursOut(90), last_checked_at: hoursOut(-78), last_ingested_at: hoursOut(-78), can_refresh: true },
+  { id: 7, type: 'website', uri: 'https://uexcorp.space/', title: 'UEX trade data', status: 'crawling', chunks: 0, error: null,
+    refresh_hours: 12, next_refresh_at: hoursOut(12), last_checked_at: null, last_ingested_at: null, can_refresh: true },
+  { id: 8, type: 'doc', uri: '/data/kb_uploads/fleet-doctrine.md', title: 'fleet-doctrine.md', status: 'ready', chunks: 18, error: null,
+    refresh_hours: 0, next_refresh_at: null, last_checked_at: hoursOut(-300), last_ingested_at: hoursOut(-300), can_refresh: false },
+  { id: 9, type: 'url', uri: 'https://robertsspaceindustries.com/spectrum/community/SC/forum/1/thread/patch-notes', title: 'Patch notes thread', status: 'pending', chunks: 0, error: null,
+    refresh_hours: 24, next_refresh_at: hoursOut(24), last_checked_at: null, last_ingested_at: null, can_refresh: true },
 ]
 
 const MOCK_FACTS = [
   { id: 1, subject: 'MN', fact: 'Movie Night, the Friday watch-party in #general.', mentions: 14, updated_at: '2026-08-01T10:00:00Z' },
   { id: 2, subject: 'The Council', fact: "The server's moderator team.", mentions: 6, updated_at: '2026-07-21T10:00:00Z' },
   { id: 3, subject: '', fact: 'Long-haul runs leave from Port Olisar at 20:00 UTC on Saturdays.', mentions: 1, updated_at: '2026-06-02T10:00:00Z' },
+  { id: 4, subject: 'RNI', fact: 'Red Nebula Industries, the org this server belongs to.', mentions: 41, updated_at: '2026-08-06T10:00:00Z' },
+  { id: 5, subject: 'Hauler', fact: 'Anyone flying cargo for the org on a scheduled run.', mentions: 9, updated_at: '2026-08-02T10:00:00Z' },
+  { id: 6, subject: 'Vex', fact: 'Vex is the org quartermaster and runs #quartermaster.', mentions: 17, updated_at: '2026-07-30T10:00:00Z' },
+  { id: 7, subject: 'The Rock', fact: 'Daymar, where the org does most of its mining.', mentions: 5, updated_at: '2026-07-28T10:00:00Z' },
+  { id: 8, subject: '', fact: 'Org ops are announced 48 hours ahead in #event-planning.', mentions: 3, updated_at: '2026-07-19T10:00:00Z' },
+  { id: 9, subject: 'Blue ticket', fact: 'A recruit who has passed the flight check but not the interview.', mentions: 4, updated_at: '2026-07-12T10:00:00Z' },
+  { id: 10, subject: 'Salvage Sunday', fact: 'The weekly salvage op, Sundays at 18:00 UTC.', mentions: 8, updated_at: '2026-07-08T10:00:00Z' },
+  { id: 11, subject: 'Hull C', fact: 'The org owns two, and they are booked through #fleet-ops.', mentions: 2, updated_at: '2026-07-01T10:00:00Z' },
+  { id: 12, subject: 'Kestrel', fact: "Kestrel is the org's head of recruitment.", mentions: 11, updated_at: '2026-06-24T10:00:00Z' },
+  { id: 13, subject: '', fact: 'New members get a 30-day probation role before full access.', mentions: 1, updated_at: '2026-06-15T10:00:00Z' },
+  { id: 14, subject: 'Grim HEX run', fact: 'The monthly outlaw-space supply run, and it always needs escorts.', mentions: 6, updated_at: '2026-06-09T10:00:00Z' },
 ]
 
-const MOCK_REINDEX = { running: false, indexed_messages: 128_431, channels: [] }
+// Thirty rows, shaped like /api/knowledge/reindex/status: a finished backfill for most of the
+// server, two channels mid-backfill and two still queued (so the progress bar and every chip
+// state render), and the aggregate DM row the endpoint appends once there's DM activity.
+const MOCK_REINDEX = (() => {
+  const names = [
+    'general', 'announcements', 'rules', 'welcome', 'introductions', 'fleet-ops', 'trade-routes',
+    'mining', 'salvage', 'bounty-board', 'medical', 'ship-showcase', 'screenshots', 'lfg',
+    'event-planning', 'patch-notes', 'org-news', 'recruitment', 'diplomacy', 'lore',
+    'off-topic', 'memes', 'music', 'tech-support', 'feedback', 'voice-text', 'hangar',
+    'quartermaster', 'training',
+  ]
+  const status = (i: number) => (i === 7 || i === 13 ? 'indexing' : i === 26 || i === 28 ? 'queued' : 'done')
+  const channels: any[] = names.map((name, i) => ({
+    channel_id: String(9001 + i), name, kind: name === 'lore' ? 'forum' : 'text', status: status(i),
+    indexed: status(i) === 'queued' ? 0 : Math.round(18_400 / (1 + i * 0.6)) + (i * 137) % 400,
+  }))
+  channels.push({ channel_id: 'dm', name: 'Direct messages', kind: 'dm', status: 'done', indexed: 2_214 })
+  const count = (s: string) => channels.filter((c) => c.status === s).length
+  const indexing = count('indexing'), queued = count('queued')
+  return {
+    total: channels.length, done: count('done'), indexing, queued, running: indexing + queued > 0,
+    indexed_messages: channels.reduce((n, c) => n + c.indexed, 0), channels,
+  }
+})()
 
 // Mirrors the admin router's /api/extensions entry (NOT extensions.py's authoring
 // summary — different shape). `editable` is `kind == "user"` there, which is what drives
@@ -325,6 +368,19 @@ const MOCK_AUDIT = {
     { id: 3, ts: '2026-08-06T11:40:00Z', actor: 'intmorg', action: 'set_channel_indexing', label: "Changed a channel's indexing", destructive: true, target_type: 'channel', target_id: '9', after: { indexed: false } },
     { id: 2, ts: '2026-08-05T09:15:00Z', actor: 'gcrft123', action: 'toggle_extension', label: 'Toggled an extension', destructive: false, target_type: 'extension', target_id: 'star_citizen', after: { enabled: true } },
     { id: 1, ts: '2026-08-04T16:30:00Z', actor: 'gcrft123', action: 'update_config', label: 'Changed behavior settings', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    // Older history, past the list's ten-row cap. Labels and the destructive flag come from
+    // api/routers/audit.py's ACTION_LABELS and DESTRUCTIVE.
+    { id: 0, ts: '2026-08-03T21:05:00Z', actor: 'intmorg', action: 'add_kb_source', label: 'Added a knowledge source', destructive: false, target_type: 'kb_source', target_id: '9', after: { uri: 'https://robertsspaceindustries.com/spectrum/community/SC/forum/1/thread/patch-notes', type: 'url', refresh_hours: 24 } },
+    { id: -1, ts: '2026-08-03T12:48:00Z', actor: 'gcrft123', action: 'mine_glossary', label: 'Mined the glossary', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: { counts: { facts: 7 } } },
+    { id: -2, ts: '2026-08-02T19:22:00Z', actor: 'gcrft123', action: 'delete_guild_fact', label: 'Deleted a glossary fact', destructive: true, target_type: 'guild_fact', target_id: '15', after: null },
+    { id: -3, ts: '2026-08-02T08:10:00Z', actor: 'gcrft123', action: 'set_channel_mode', label: "Changed a channel's mode", destructive: false, target_type: 'channel', target_id: '4', after: { mode: 'both' } },
+    { id: -4, ts: '2026-08-01T17:33:00Z', actor: 'intmorg', action: 'update_command_messages', label: 'Edited command replies', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -5, ts: '2026-07-31T22:01:00Z', actor: 'gcrft123', action: 'set_kb_refresh', label: "Changed a source's refresh schedule", destructive: false, target_type: 'kb_source', target_id: '4', after: { refresh_hours: 5 } },
+    { id: -6, ts: '2026-07-30T14:26:00Z', actor: 'gcrft123', action: 'reindex_search', label: 'Started a re-index', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -7, ts: '2026-07-29T09:52:00Z', actor: 'gcrft123', action: 'delete_kb_source', label: 'Removed a knowledge source', destructive: true, target_type: 'kb_source', target_id: '12', after: null },
+    { id: -8, ts: '2026-07-28T20:15:00Z', actor: 'gcrft123', action: 'update_proactivity', label: 'Changed proactivity', destructive: false, target_type: 'guild', target_id: '1321947496179568680', after: null },
+    { id: -9, ts: '2026-07-27T11:40:00Z', actor: 'gcrft123', action: 'set_pin_actions', label: 'Changed what needs the PIN', destructive: false, target_type: 'guild_config', target_id: '1321947496179568680', after: null },
+    { id: -10, ts: '2026-07-26T16:03:00Z', actor: 'gcrft123', action: 'update_keys', label: 'Updated API keys', destructive: false, target_type: 'app_secret', target_id: '1', after: null },
   ],
 }
 

@@ -543,7 +543,7 @@ The [Persona](tab:persona) tab is Olisar's character — the single biggest leve
   automatically, so you only write the personality.
 - **Server type** — what kind of community this is (gaming, anime, programming, art, study, music,
   crypto, general). Register turns on this more than the subject does: the same line reads as normal in
-  a gaming server and as try-hard in a study one. Leave it unset to let Olisar read the room.
+  a gaming server and as try-hard in a study one. Leave it on **Automatic** to let Olisar read the room.
 - **Slang** — how thickly it lays on the community's dialect, from **None** to **Heavy**. It only ever
   uses slang it has actually seen used here, so this is the dial, not a vocabulary.
 - **Style notes** — tone and formatting guidance.
@@ -654,8 +654,7 @@ top-tier models aren't your first hop.
 
 When enabled, Olisar can speak up **unprompted** in channels it can talk in. A cheap check gates it so
 it doesn't spam or burn quota.
-- **Eagerness** — \`off\` (never), \`low\` (rare, only high-confidence moments), \`medium\` (balanced),
-  \`high\` (chatty).
+- **Eagerness** — \`low\` (rare, only high-confidence moments), \`medium\` (balanced), \`high\` (chatty).
 - **Confidence threshold** — how sure it has to be (0–1) before chiming in. Higher is more selective.
   This bar is for *interrupting* — so it eases when the message it's judging answers something Olisar
   itself just said. Someone replying to Olisar without using the reply arrow ("yeah, tried that",
@@ -828,7 +827,7 @@ Server admins (Manage Server) **always** have access, so you can't lock yourself
 :::
 
 **Require the PIN** picks which of Olisar's actions have to be confirmed with the [tool PIN](#settings) on this
-server before it takes them. There's one today: **Changing its own settings from Discord**, which covers
+server before it takes them. There's one today: **For Olisar to change its own settings**, which covers
 everything Olisar can change about itself when asked in chat — its persona and system prompt, behavior,
 command replies, knowledge sources, the search index, the glossary, and member impressions. Reading its
 settings never needs the PIN, and nothing you change in this console does either.
