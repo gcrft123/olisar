@@ -135,6 +135,21 @@ def _match_text_channels(guild: discord.Guild, raw: str) -> list:
     return []
 
 
+# Channel ids Discord answered 404 for. Snowflakes are never reused, so a deleted channel
+# stays deleted, and search keeps turning up hits from ones whose messages are still indexed.
+_DELETED_CHANNELS: set[int] = set()
+
+
+async def _in_thread(thread: discord.Thread, user_id: int) -> bool:
+    """Whether ``user_id`` has joined ``thread``. Asked of the API: the member list is
+    only cached for threads the bot has watched people join."""
+    try:
+        await thread.fetch_member(user_id)
+    except discord.HTTPException:
+        return False
+    return True
+
+
 def _format_activities(member: discord.Member) -> str:
     bits: list[str] = []
     for a in member.activities:
@@ -363,6 +378,57 @@ class BotActions:
             "match the user's wording to one of these and pass its id: "
             + entries + more + "."
         )
+
+    async def readable_channels(
+        self, guild_id: int, channel_ids: set[int], *, requester_id: int
+    ) -> set[int]:
+        """The subset of ``channel_ids`` whose messages ``requester_id`` can open: View
+        Channel and Read Message History, plus membership for a private thread.
+
+        Someone who can't be resolved as a member is checked as @everyone, and a channel
+        that can't be resolved is left out, so every doubt lands on the side of hiding."""
+        guild = self.bot.get_guild(int(guild_id)) if guild_id else None
+        if guild is None or not channel_ids:
+            return set()
+        member = guild.get_member(int(requester_id)) if requester_id else None
+        if member is None and requester_id:
+            try:
+                member = await guild.fetch_member(int(requester_id))
+            except discord.HTTPException:
+                member = None  # not in this server (NotFound), or the lookup failed
+        who = member if member is not None else guild.default_role
+
+        readable: set[int] = set()
+        for cid in channel_ids:
+            ch = await self._channel_or_thread(guild, int(cid))
+            if ch is None:
+                continue
+            try:
+                perms = ch.permissions_for(who)
+            except discord.ClientException:
+                continue  # a thread whose parent channel isn't cached
+            if not (perms.view_channel and perms.read_message_history):
+                continue
+            if isinstance(ch, discord.Thread) and ch.is_private() and not perms.manage_threads:
+                if member is None or not await _in_thread(ch, member.id):
+                    continue
+            readable.add(int(cid))
+        return readable
+
+    async def _channel_or_thread(self, guild: discord.Guild, channel_id: int):
+        """A channel or thread of ``guild`` by id. Archived threads aren't cached, so those
+        are fetched; a deleted channel is remembered so it isn't fetched again."""
+        ch = guild.get_channel_or_thread(channel_id)
+        if ch is not None or channel_id in _DELETED_CHANNELS:
+            return ch
+        try:
+            ch = await self.bot.fetch_channel(channel_id)
+        except discord.NotFound:
+            _DELETED_CHANNELS.add(channel_id)
+            return None
+        except discord.HTTPException:
+            return None
+        return ch if getattr(getattr(ch, "guild", None), "id", None) == guild.id else None
 
     def _resolve_channel(self, channel: object, home_guild_id: int):
         """The target channel for post_components: the current channel when ``channel`` is
