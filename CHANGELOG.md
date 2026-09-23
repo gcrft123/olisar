@@ -20,6 +20,8 @@ An install could hold several bots, but only one of them was ever online: switch
 
 Every bot on the desktop app now runs at once, each in its own process with its own data, keys and sign-in, so one bot can't read another's settings, take another down when it crashes, or slow it down. The console still shows one bot at a time, and switching only changes which one. A server can host several bots too: putting a bot on a server another of your bots already uses needs nothing new from you, and each gets its own install there.
 
+The console had grown a description under nearly every setting, and many of them restated the label above them. Someone went through every page marking what to cut, and most of this release's console changes are that: shorter copy, and a few controls that said the same thing twice. Two of the proposed lines would have been wrong, so they say what Olisar actually does instead. The docs got the same pass: they were set like a settings page, small and tight, and now read like documentation.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -88,6 +90,10 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 [04700db] — Reconnecting to a server that runs several bots asks which one this is.
 
+[6804316] — Knowledge's source, glossary and activity lists stop after a few rows and scroll, with a fade at whichever edge has more past it.
+
+[6804316] — The member portal's remote-access warning links straight to Settings → Remote access.
+
 ### Changed
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -128,6 +134,30 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 [04700db] — If more than one bot had remote access on, all but one get a Tailscale device of their own, and a new web address with it.
 
+[6804316] — Docs has a larger body, more space between paragraphs, headings and lists, and no "On this page" index; the article takes its width.
+
+[6804316] — Server type's unset option is called Automatic.
+
+[6804316] — Eagerness no longer offers "off", since the Speak up on its own switch is the off; a server that saved "off" shows as switched off.
+
+[6804316] — Number fields no longer carry a Reset button; each still shows its range and default underneath.
+
+[6804316] — A knowledge source shows its status beside its name, and only when it isn't Ready.
+
+[6804316] — Settings → Bots shows a bot's status only when it isn't online, and drops the Default chip that repeated the Open on launch star.
+
+[6804316] — Command replies' text boxes are at least as tall as the Discord preview beside them.
+
+[6804316] — Channels' Set all and Index all pickers line up with the columns they set.
+
+[6804316] — The sidebar's server picker is as wide as everything else in the sidebar.
+
+[6804316] — Usage calls the daily model self-test Health checks instead of canary.
+
+[6804316] — Descriptions on Persona, Behavior, Command replies, Access and Knowledge are shorter, and several that restated their label are gone.
+
+[6804316] — Name triggers say they aren't case sensitive, and Web search says Google's free search quota can run out for the day.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -155,6 +185,12 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 [a80d9bb] — A link inside a sentence no longer makes its line taller than the ones around it.
 
 [04700db] — A web page open in your browser can no longer reset a bot or run a server update by sending a request to the app on your machine.
+
+[6804316] — The sidebar's Search button no longer squashes around its ⌘K key on a short window.
+
+[6804316] — A placeholder inside bold or italic text in a Command replies preview shows as a placeholder, not as bold text.
+
+[6804316] — A bot's name in Settings → Bots takes two lines at most instead of one word per line.
 
 ## [1.5.0] — 2026-09-21
 
