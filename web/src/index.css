@@ -553,8 +553,10 @@ select { appearance: none; cursor: pointer;
    the centre line of a 34px control, and the 24px switch is dropped onto the same line. */
 .field-text { padding-top: 6px; min-width: 0; }
 .field-ctl > .toggle { margin-top: 5px; }
-.section-body > :first-child { padding-top: 0; }
-.section-body > :last-child { padding-bottom: 0; }
+/* Rows only. A callout, a load-failure box or an empty state opening a section has padding
+   of its own, and zeroing it jammed the callout's text against its top edge. */
+.section-body > :is(.field-row, .disclosure):first-child { padding-top: 0; }
+.section-body > :is(.field-row, .disclosure):last-child { padding-bottom: 0; }
 /* The row label is the setting's name, so it steps up from the 12.5px a stacked label uses —
    it no longer sits directly on top of the control that would otherwise say what it is. */
 .field-text > label, .field-text > .flabel,
@@ -1540,7 +1542,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   background: color-mix(in srgb, var(--cc) 9%, var(--panel));
   color: color-mix(in srgb, var(--cc) 22%, var(--text));
 }
-.callout .ic { color: var(--cc); margin-top: 1px; flex: none; display: grid; place-items: center; }
+/* 2px drops the 17px glyph onto the centre of the body's first 21.6px line. */
+.callout .ic { color: var(--cc); margin-top: 2px; flex: none; display: grid; place-items: center; }
 .callout-title { font-weight: 600; color: var(--text); margin-bottom: 3px; }
 .callout-body { min-width: 0; }
 .callout-body > :last-child { margin-bottom: 0; }
@@ -2433,7 +2436,9 @@ h2.u-eyebrow {
 .loadfail {
   display: flex; align-items: flex-start; gap: 14px;
   padding: 20px; margin: 8px 0;
-  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card);
+  /* --line and --r-card were never tokens, so this box shipped with no edge and square
+     corners. The system's names. */
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   color: var(--warn);
 }
 .loadfail .lf-body { flex: 1; min-width: 0; }
@@ -2455,6 +2460,10 @@ input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: 
 .linklike {
   background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+  /* A link in running text, so it takes the text's line rather than the 34px inline-flex box
+     every <button> gets. As a box it made the line holding it taller than the lines around
+     it, which is why a wrapped error with "Report" at its end had a gap under its first line. */
+  display: inline; height: auto; line-height: inherit; vertical-align: baseline;
 }
 .linklike:hover { color: var(--text); }
 /* Inside a callout it takes the callout's colour, as a link there does. */
