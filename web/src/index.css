@@ -25,12 +25,13 @@
   --vw: calc(100vw / var(--ui-scale));
   --dvh: calc(100dvh / var(--ui-scale));
 
-  /* Surfaces (darkest → lightest). Near-black ground; cards sit a hair above it and
-     are read by their BORDER, not by fill contrast — they blend into the bg. */
+  /* Surfaces (darkest → lightest). Near-black ground; overlays sit a hair above it and
+     are read by their BORDER, not by fill contrast — they blend into the bg. Page content
+     sits on the ground itself (see .section). */
   --bg: #020203;            /* app background */
   --bg-sidebar: #040405;    /* sidebar / nav rail */
-  --panel: #08080a;         /* card / modal surface */
-  --bg-inset: #0f0f12;      /* inset wells: inputs, chips, code, nested cards */
+  --panel: #08080a;         /* modal, menu and popover surface */
+  --bg-inset: #0f0f12;      /* inset wells: inputs, chips, code */
   --input-bg: #0f0f12;
 
   /* Borders — the hairlines do the structural work */
@@ -84,7 +85,7 @@
   --mono: var(--font-mono);   /* alias; prefer --font-mono in new rules (DESIGN.md names that one) */
 
   /* Radii — generously rounded */
-  --radius: 16px;       /* cards, modals */
+  --radius: 16px;       /* modals, callouts, toasts */
   --radius-sm: 12px;    /* buttons, inputs, nav items */
   --radius-xs: 8px;     /* tags, chips */
   --radius-pill: 999px; /* badges, toggles */
@@ -376,22 +377,6 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
    inside it even with fixedOverflowWidgets). */
 .monaco-editor .main { padding: 0; max-width: none; }
 
-/* Page layouts for the wide content area. .cols2 = two explicit columns that each
-   hug their own content; .grid2 = an auto-flow two-column card grid. */
-.cols2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
-.cols2 > .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-/* A column holding a single card (e.g. Knowledge's Index, API keys' Cloudflare) grows it
-   to match the taller neighbouring column, so both sides line up evenly. */
-.cols2 > .col > .card:only-child { flex: 1; }
-/* align-items:stretch makes cards in the same row equal height — the shorter card simply
-   gains empty space below so it matches the taller one beside it. */
-.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: stretch; }
-.cols2 .card, .grid2 > .card { margin: 0; min-width: 0; }
-/* The grid zeroes its children's margins because `gap` owns the spacing inside it — but the
-   grid itself still has to carry the card rhythm, or the next card butts straight against
-   the columns above with no gap at all. */
-.cols2, .grid2 { margin-bottom: 14px; }
-@media (max-width: 1120px) { .cols2, .grid2 { grid-template-columns: minmax(0, 1fr); } }
 /* A page head with trailing actions, and any free-standing row of buttons. Both wrap —
    a nowrap button row is the single most common way content ends up outside the viewport
    with nothing able to scroll to it. */
@@ -413,25 +398,8 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
    measure lands at ~74. */
 .page-head p { color: var(--text-2); margin: 9px 0 0; max-width: var(--doc-measure); font-size: 13.5px; }
 
-/* ── Cards & fields ─────────────────────────────────────────────────────── */
-.card {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 20px 22px;
-  margin-bottom: 14px;
-  box-shadow: var(--shadow-card);
-}
-/* 15px, per DESIGN.md's type table. At 13.5 a card title and a field label (12.5/550) were
-   separated by 1px and half a weight step — the group heading read as another control
-   label, so nothing said where one group ended and the next began. */
-.card-titlerow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.card-titlerow h2 { margin-bottom: 0; }
-.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 3px; letter-spacing: -0.012em; }
-.card .hint { color: var(--text-2); font-size: 12.5px; margin-bottom: 15px; line-height: 1.5; }
-
 /* ── Narrow widths: the rail becomes a drawer ───────────────────────────── */
-/* Placed after every base rule it overrides — .main, .card, .page-head and .nav-item
+/* Placed after every base rule it overrides — .main, .page-head and .nav-item
    are all defined above, and an equal-specificity rule declared later would win. */
 @media (max-width: 1000px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
@@ -462,7 +430,6 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   .nav-backdrop.open { opacity: 1; pointer-events: auto; }
   .main { padding: 24px 18px 72px; }
   .page-head { margin-bottom: 20px; }
-  .card { padding: 17px 16px; }
   /* Roomier rows once the pointer is a thumb rather than a cursor. */
   .nav-item { padding: 10px 10px; }
   .savedock { left: 50%; }
@@ -493,20 +460,6 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   .act-when { grid-column: 1 / -1; }
 }
 
-/* Danger zone — the system's red, quietly. Enough tint to separate it from an ordinary
-   card, not enough to shout on a page you visit for other reasons; the weight belongs to
-   the confirm dialog, which is where the decision is actually made. Set apart from the
-   content above rather than continuing the 14px card rhythm. */
-.danger-zone {
-  /* One clear step above the 14px card rhythm — enough to read as set apart from the page's
-     ordinary content, not so much that it looks detached from it. (Margins collapse with the
-     preceding card's 14px, so this value is the gap.) */
-  margin-top: 24px;
-  border-color: color-mix(in srgb, var(--danger) 22%, transparent);
-  background: color-mix(in srgb, var(--danger) 4%, var(--panel));
-}
-.danger-zone h2 { color: var(--danger); }
-.danger-zone .settings-muted { color: var(--text-2); }
 
 .field { margin-bottom: 17px; }
 .field:last-child { margin-bottom: 0; }
@@ -532,11 +485,134 @@ select { appearance: none; cursor: pointer;
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 .mono { font-family: var(--mono); font-size: 12.5px; }
-.placeholders { font-size: 11.5px; color: var(--text-3); margin-top: 7px; }
-.placeholders code { color: var(--accent); font-family: var(--mono); }
+/* A reply's {placeholders}, listed in its row's description. */
+.desc code.ph { color: var(--accent); font-family: var(--mono); font-size: 11.5px; margin-right: 6px; }
+/* Command replies: the reply you write beside the Discord message it becomes. */
+.reply-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.reply-edit .dcp { margin-top: 0; }
+@container (max-width: 640px) { .reply-edit { grid-template-columns: minmax(0, 1fr); } }
 
 .row { display: flex; gap: 14px; }
 .row > * { flex: 1; min-width: 0; }   /* shrink to share — never let a wide row force its column wider */
+
+/* ── Section: the flat group ────────────────────────────────────────────── */
+/* No box. A hairline opens each group; the title sits in a left rail and the settings run as
+   rows beside it. Cards put every bordered input inside a second border, and a page of them
+   read as boxes inside boxes — here the controls are the only things drawn.
+   The section is a size container rather than the grid itself, because a container can't
+   query its own width. It queries, rather than using a media query, because the page width
+   at which the rail stops fitting moves with --ui-scale, and a container sees its own px. */
+.section { container-type: inline-size; border-top: 1px solid var(--border); padding: 28px 0; position: relative; }
+/* Size containment makes every section its own stacking context, so a popup that runs past
+   the bottom of one (the "+N" roles card, a menu) would paint under the next. The section
+   being pointed at or typed in rises above its siblings. */
+.section:hover, .section:focus-within { z-index: 1; }
+.section:last-of-type { padding-bottom: 0; }
+.section-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: 40px; row-gap: 18px; }
+/* The head rides along while its rows scroll past; the grid bounds it to its own section. */
+.section-head {
+  align-self: start; position: sticky; top: 24px; padding-top: 5px;  /* on the first row's label line */
+  display: flex; flex-direction: column; gap: 14px;
+}
+.section-head h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.012em; }
+.section-head .hint { color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+.section-titles { min-width: 0; }
+.section-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Stacked: the title above a body that needs the full width — a list, a table, a chart. The
+   same shape a railed section falls back to when it runs out of room, so a page can mix the
+   two and still read as one system. */
+.section.stacked .section-grid { grid-template-columns: minmax(0, 1fr); }
+.section.stacked .section-head { position: static; padding-top: 0; flex-direction: row; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.section.stacked .section-head h2:last-child { margin-bottom: 0; }
+
+/* The irreversible action sits in its own group at the bottom of the page it belongs to.
+   Only the title carries the red: the hairline stays grey, and the button and its confirm
+   dialog carry the weight. See DangerZone in DESIGN.md. */
+.section.danger { margin-top: 24px; }
+.section.danger .section-head h2 { color: var(--danger); }
+
+/* Rows. Divided by the same hairline as the sections, but only across the body — the rail
+   is what says where one group ends. */
+.section-body { min-width: 0; }
+/* Hairlines go between setting rows only. Anything else in a body (a legend, a toolbar, a
+   list that draws its own rules, a callout) is spaced, not ruled: a line between a filter
+   box and the list it filters would cut one control in two. */
+.section-body > * + * { margin-top: 16px; }
+.section-body > :is(.field-row, .disclosure) + :is(.field-row, .disclosure) { margin-top: 0; border-top: 1px solid var(--border); }
+.section-body > :is(.field-row, .disclosure) + :not(.field-row, .disclosure) { margin-top: 0; }
+.section-body > :not(.field-row, .disclosure) + :is(.field-row, .disclosure) { padding-top: 0; }
+.field-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 32px; row-gap: 10px;
+  align-items: start; margin: 0; padding: 16px 0;
+}
+/* Wide: a textarea or an editor under its label, across the whole row. */
+.field-row.wide { grid-template-columns: minmax(0, 1fr); }
+/* Top-aligned, not centred: a number field carries its range and Reset on a line below it, so
+   centring put the label between the box and its hint. Instead the label's first line sits on
+   the centre line of a 34px control, and the 24px switch is dropped onto the same line. */
+.field-text { padding-top: 6px; min-width: 0; }
+.field-ctl > .toggle { margin-top: 5px; }
+.section-body > :first-child { padding-top: 0; }
+.section-body > :last-child { padding-bottom: 0; }
+/* The row label is the setting's name, so it steps up from the 12.5px a stacked label uses —
+   it no longer sits directly on top of the control that would otherwise say what it is. */
+.field-text > label, .field-text > .flabel,
+.field-text > .field-labelrow > label, .field-text > .field-labelrow > .flabel { display: block; font-weight: 550; font-size: 13.5px; color: var(--text); }
+.field-labelrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.field > .field-labelrow { margin-bottom: 6px; }
+.field > .field-labelrow > label, .field > .field-labelrow > .flabel { font-weight: 550; font-size: 12.5px; }
+.field-text > .desc { color: var(--text-2); font-size: 12px; line-height: 1.5; margin: 3px 0 0; }
+.field-ctl { min-width: 0; display: flex; flex-direction: column; }
+.field-ctl > .toggle { align-self: flex-end; }
+.field-ctl > .choice-row { justify-content: flex-end; }
+.field-ctl > .useg { align-self: flex-end; }
+/* A pair of hour boxes fits side by side at any width, so it opts out of .row's phone stack. */
+.field-ctl > .row { flex-direction: row; gap: 14px; }
+.field-ctl > .row .field { margin-bottom: 0; }
+
+.field-ctl > button { align-self: flex-end; }
+/* Prose that belongs to the whole group rather than to one row (a note under a legend). */
+.section-note { color: var(--text-2); font-size: 12.5px; line-height: 1.5; max-width: var(--doc-measure); }
+/* An eyebrow splitting one section's body in two ("Sources", "Glossary"): set apart from what
+   is above it, tight to what it names. */
+.section-body > .settings-subhead { margin: 28px 0 10px; }
+.section-body > .settings-subhead + * { margin-top: 0; }
+
+/* In the rail, a lone icon button (Activity's refresh) sits with its glyph, not its 34px hit
+   box, on the title's left edge. */
+@container (min-width: 861px) {
+  .section:not(.stacked) .section-actions > .ghost.icon-btn:first-child { margin-left: -10px; }
+}
+/* The error boundary's body: under the page head's hairline, like a section. */
+.boundary-body { border-top: 1px solid var(--border); padding-top: 28px; }
+.boundary-body .savebar { margin-top: 16px; }
+
+/* A compose form's side-by-side fields keep their gap when .row stacks them on a phone —
+   `.field:last-child` zeroes it, which left URL and Re-read touching. */
+.compose .row .field { margin-bottom: 17px; }
+
+/* A disclosure in a section is one more row: the summary is its label, and what it opens
+   are rows indented to the summary's text. */
+.section-body > .disclosure { margin-top: 0; padding: 16px 0; }
+.section-body > .disclosure:last-child { padding-bottom: 0; }
+.section-body .disclosure-body { padding: 16px 0 0 22px; }
+.section-body .disclosure-body > .field-row { border-top: 1px solid var(--border); }
+.section-body .disclosure-body > .field-row:last-child { padding-bottom: 0; }
+
+/* Too narrow for the rail: the title goes above its rows. */
+@container (max-width: 860px) {
+  .section-grid { grid-template-columns: minmax(0, 1fr); }
+  .section-head { position: static; padding-top: 0; flex-direction: row; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+}
+/* Too narrow for two columns in a row: the control drops under its text. A switch stays
+   beside its label, where a bare switch on a line of its own would read as unlabelled. */
+@container (max-width: 560px) {
+  .field-row { grid-template-columns: minmax(0, 1fr); }
+  .field-row:has(> .field-ctl > .toggle:only-child) { grid-template-columns: minmax(0, 1fr) auto; }
+  .field-ctl > .choice-row { justify-content: flex-start; }
+  .field-ctl > .useg { align-self: flex-start; }
+}
 
 /* ── Toggle ─────────────────────────────────────────────────────────────── */
 /* The 38x22 track is the visible mark; the hit area is the whole row and gets the 24px
@@ -705,12 +781,20 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   border-color: color-mix(in srgb, var(--accent-violet) 34%, transparent);
 }
 
-.member-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-@media (max-width: 1180px) { .member-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 760px) { .member-grid { grid-template-columns: minmax(0, 1fr); } }
-.member-card {
-  display: flex; flex-direction: column;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
+/* Members: one row per person. Who they are on the left, what Olisar has made of them in
+   the middle, the one action on the right. */
+.member-list { display: flex; flex-direction: column; }
+.member-row {
+  display: grid; grid-template-columns: 260px minmax(0, 1fr) auto; gap: 24px; align-items: start;
+  padding: 18px 0; border-bottom: 1px solid var(--border);
+}
+.member-row:first-child { padding-top: 4px; }
+.member-row:last-child { border-bottom: 0; padding-bottom: 0; }
+.member-who, .member-read { min-width: 0; }
+.member-id { display: flex; flex-direction: column; min-width: 0; }
+@container (max-width: 720px) {
+  .member-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .member-actions { justify-content: flex-start; }
 }
 /* Avatar + name, so a member card is recognisably a person rather than a database row.
    Discord hands us the avatar URL; the tinted initial is the fallback for a member the
@@ -722,12 +806,14 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12.5px;
 }
 .member-av img { width: 100%; height: 100%; object-fit: cover; }
-.member-card .member-name { font-weight: 600; font-size: 13.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member-name { font-weight: 600; font-size: 13.5px; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Discord display names have no spaces to break on. Without this an unbroken name sets the
    card's min-content width and, through the grid, the page's. */
-.member-card .member-impression, .member-card .mem { overflow-wrap: anywhere; }
-.member-roles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; margin-top: 8px; }
-.member-roles .tag.more { color: var(--text-3); cursor: default; }
+.member-name, .member-impression, .mem { overflow-wrap: anywhere; }
+.member-roles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 5px; margin-top: 12px; }
+/* The "+N" chip is a button, so it would take the 34px control height from the base rule;
+   it sits in a row of 24px role chips and has to match them. */
+.member-roles .tag.more { color: var(--text-3); cursor: default; height: 24px; padding: 0 9px; border-radius: var(--radius-pill); font-family: var(--font-sans); font-size: 12px; }
 /* Hover/focus popup with the full roles list on a member card's "+X" chip. */
 /* The trigger is a button now, so it inherits the system's focus ring. `outline: none`
    without a replacement is why this was the one focusable control in the console that
@@ -745,16 +831,16 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .rolepop.up { bottom: calc(100% + 8px); }
 .rolepop-head { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); margin-bottom: 8px; }
 .rolepop-list { display: flex; flex-wrap: wrap; gap: 5px; }
-.member-impression { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin-top: 9px; }
-.member-none { color: var(--text-3); font-size: 12px; font-style: italic; margin-top: 9px; }
-.member-memories { display: flex; flex-direction: column; gap: 4px; margin-top: 9px; }
-.member-card .mem { font-size: 11.5px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; }
+.member-impression { color: var(--text-2); font-size: 13px; line-height: 1.55; max-width: var(--doc-measure); }
+.member-none { color: var(--text-3); font-size: 12.5px; font-style: italic; padding-top: 7px; }
+.member-memories { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
+.mem { font-size: 12px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; }
 /* One width for the three memory kinds, so the content beside them starts at the same x
    down the card instead of stepping in and out with the label length. */
-.member-card .mem > .badge { flex: none; min-width: 52px; justify-content: center; }
-.member-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 10px; }
+.mem > .badge { flex: none; min-width: 52px; justify-content: center; }
+.member-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .member-actions .err.sm { font-size: 11px; }
-.member-meta { color: var(--text-3); font-size: 11px; margin-top: 7px; }
+.member-meta { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
 /* Disclosure — native <details>, so it is keyboard-operable and announced as expandable
    with no ARIA of our own. Quiet by default: it is a way in, not a section heading. */
 .disclosure { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 14px; }
@@ -1005,8 +1091,18 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .list-row .grow.rolename { flex: 0 1 auto; max-width: 340px; }
 
 /* ── Extensions workspace (master-detail) ───────────────────────────────── */
-.ext-wrap { display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 20px; align-items: start; }
-@media (max-width: 980px) { .ext-wrap { grid-template-columns: minmax(0, 1fr); } }
+/* Flat like the sections elsewhere: a hairline under the page head, and one vertical rule
+   between the list and the extension it's showing — no box around either. */
+.ext-wrap {
+  display: grid; grid-template-columns: 286px minmax(0, 1fr); gap: 32px; align-items: start;
+  border-top: 1px solid var(--border); padding-top: 28px;
+}
+.ext-detail { min-width: 0; border-left: 1px solid var(--border); padding-left: 32px; align-self: stretch; }
+.ext-detail > .section, .ext-detail-body + .section { margin-top: 28px; }
+@media (max-width: 980px) {
+  .ext-wrap { grid-template-columns: minmax(0, 1fr); }
+  .ext-detail { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 28px; }
+}
 
 /* Rail */
 .ext-rail { display: flex; flex-direction: column; gap: 11px; position: sticky; top: 6px; }
@@ -1073,10 +1169,6 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .ext-stat .n { font-size: 24px; font-weight: 600; color: var(--text); line-height: 1; }
 .ext-stat .l { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-top: 6px; }
 
-.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 15px 16px; }
-.stat .n { font-size: 25px; font-weight: 650; letter-spacing: -0.02em; }
-.stat .k { color: var(--text-2); font-size: 12px; margin-top: 3px; }
 
 /* ── Login ──────────────────────────────────────────────────────────────── */
 .login { min-height: var(--vh); display: grid; place-items: center; padding: 20px; }
@@ -1733,7 +1825,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   color: var(--text-3); margin: 22px 0 9px;
 }
 /* First eyebrow in a card/body shouldn't double up with the container's own top padding. */
-.card > .settings-subhead:first-child,
+.dev-pane > .settings-subhead:first-child,
 .settings-body > .settings-subhead:first-child { margin-top: 0; }
 .settings-foot { color: var(--text-3); font-size: 12px; margin-top: 16px; line-height: 1.5; }
 .settings-foot code { font-family: var(--mono); background: var(--bg-inset); padding: 1px 5px; border-radius: 5px; font-size: 11.5px; }
@@ -1917,8 +2009,14 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .dev-row-actions button + button { margin-left: 8px; }
 .dev-code-modal { position: relative; background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); width: min(900px, calc(var(--vw) * 0.92)); max-height: calc(var(--vh) * 0.86); padding: 24px 26px; display: flex; flex-direction: column; box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out); }
 .dev-code { font-family: var(--mono); font-size: 11.5px; line-height: 1.55; white-space: pre; overflow: auto; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
-.dev-reports { display: flex; flex-direction: column; gap: 12px; }
-.dev-report { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 15px; background: var(--bg-inset); }
+/* The tab panel is the container; it draws no box of its own, and neither do the reports in
+   it — each is a row under a hairline, like every other list in the console. */
+.dev-pane { min-width: 0; }
+/* The extension editor: under the page head's hairline, like a section body. */
+.authoring-body { border-top: 1px solid var(--border); padding-top: 28px; }
+.dev-reports { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.dev-report { padding: 16px 0; border-bottom: 1px solid var(--border); }
+.dev-report:last-child { border-bottom: 0; }
 .dev-report-head { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
 .dev-report-body { margin: 8px 0; font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
 .dev-report-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); }
@@ -1953,27 +2051,25 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .mkt-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .mkt-search { display: flex; align-items: center; gap: 8px; flex: 1; }
 .mkt-search > :first-child { flex: 1; }
-.mkt-grid {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px;
+/* One row per extension: what it is on the left, the actions on the right. */
+.mkt-list { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.mkt-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start;
+  padding: 18px 0; border-bottom: 1px solid var(--border);
 }
-.mkt-card {
-  display: flex; flex-direction: column; gap: 9px;
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 16px;
-}
-.mkt-card:hover { border-color: var(--border-strong); }
-.mkt-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mkt-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.mkt-titleline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .mkt-name { font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em; }
-.mkt-pub { display: flex; gap: 6px; }
-.mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; flex: 1; }
+.mkt-desc { color: var(--text-2); font-size: 13px; line-height: 1.5; max-width: var(--doc-measure); }
 .mkt-perms { display: flex; flex-wrap: wrap; gap: 5px; }
-.mkt-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 2px; }
+.mkt-card-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+@media (max-width: 620px) { .mkt-row { grid-template-columns: minmax(0, 1fr); gap: 12px; } .mkt-card-foot { justify-content: flex-start; } }
 .mkt-pubbar {
-  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
-  padding: 9px 13px; background: var(--bg-inset); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); font-size: 13px; color: var(--text-2);
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 0 0 14px; font-size: 13px; color: var(--text-2);
 }
 .mkt-pubbar code { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.mkt-pubbar .grow { flex: 1; }
 
 /* Signature status banner on the import-consent screen. */
 .import-sig {
@@ -2012,9 +2108,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .update-direct { display: inline-flex; align-items: center; gap: 8px; margin-top: 14px; padding: 10px 13px; font-size: 13px; color: var(--text); background: var(--accent-soft); border-radius: var(--radius-sm); }
 
 /* ── Message search index (re-index + progress) ─────────────────────────── */
-.reindex-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.reindex-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 11px; flex-wrap: wrap; }
 .reindex-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.reindex-stat { font-size: 13px; color: var(--text-2); }
+/* Wraps under the buttons rather than being squeezed into the space beside them. */
+.reindex-stat { font-size: 13px; color: var(--text-2); flex: 1 1 240px; min-width: 0; }
 .reindex-stat b { color: var(--text); font-size: 15px; font-weight: 650; }
 .rx-dim { color: var(--text-3); }
 .progress { height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
@@ -2179,7 +2276,6 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 .docs-toc a code { font-family: var(--mono); font-size: 0.9em; padding: 0 3px; border-radius: 4px; background: var(--bg-inset); border: 1px solid var(--border); color: inherit; }
 
 /* ── Usage & rate-limit page ─────────────────────────────────────────────── */
-.u-tfrow { display: flex; justify-content: flex-end; margin-bottom: 14px; }
 /* padding 4 for the same reason as .ext-seg: 8px chip inside a 12px shell. */
 .useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; }
 .useg button { font: inherit; font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
@@ -2191,16 +2287,33 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
    specificity, keeping the shadow underneath the ring. */
 .ext-seg button.on:focus-visible,
 .useg button.on:focus-visible { outline: none; box-shadow: var(--ring), 0 1px 2px rgba(0, 0, 0, 0.3); }
-.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
-.u-mins { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
-.u-cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; margin-bottom: 14px; }
-@media (max-width: 1120px) { .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .u-mins, .u-cols { grid-template-columns: minmax(0, 1fr); } }
-.u-kpis > .card, .u-mins > .card, .u-cols > .card { margin-bottom: 0; min-width: 0; }
-/* `.card h2` (0,1,1) beat this (0,1,0), so the four Usage stat eyebrows silently rendered
-   at 13.5px/600 — and inherited `letter-spacing: -0.014em` from the heading base, which is
-   negative tracking on uppercase monospace, the worst possible setting for all-caps. Raised
-   to match the element it lands on, and the tracking stated rather than inherited. */
-.card h2.u-eyebrow {
+/* Today's four figures: one strip, cells divided by hairlines. The strip's own top rule
+   continues the section rhythm; the first section below supplies the bottom one. */
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); }
+.u-kpi { min-width: 0; padding: 24px 24px 28px; border-left: 1px solid var(--border); }
+.u-kpi:first-child { border-left: 0; padding-left: 0; }
+.u-kpi:last-child { padding-right: 0; }
+/* Two panes side by side, split by a vertical hairline. By model gets the wider pane: its
+   table has four columns, the donut beside it has one. */
+.u-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-top: 1px solid var(--border); }
+.u-split.wide-first { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.u-split > .section { border-top: 0; padding: 28px 0; min-width: 0; }
+.u-split > .section:first-child { padding-right: 28px; }
+.u-split > .section + .section { border-left: 1px solid var(--border); padding-left: 28px; }
+.u-split + .callout { margin-top: 8px; }
+@media (max-width: 1120px) {
+  .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .u-kpi:nth-child(3) { border-left: 0; padding-left: 0; }
+  .u-kpi:nth-child(odd) { padding-left: 0; }
+  .u-kpi:nth-child(even) { padding-right: 0; }
+  .u-kpi:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  .u-split, .u-split.wide-first { grid-template-columns: minmax(0, 1fr); }
+  .u-split > .section:first-child { padding-right: 0; }
+  .u-split > .section + .section { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); }
+}
+/* The eyebrow is an h2 for the outline, so it states its own size and tracking rather than
+   inheriting the heading base's negative letter-spacing, the worst setting for all-caps. */
+h2.u-eyebrow {
   font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   text-transform: uppercase; color: var(--text-3); margin-bottom: 2px;
 }
@@ -2211,10 +2324,7 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 .u-track { height: 6px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; margin-top: 11px; }
 .u-track i { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
 .u-track i.warn { background: var(--warn); }
-.u-ttl { font-size: 14.5px; font-weight: 600; letter-spacing: -0.01em; }
 .u-hint { color: var(--text-2); font-size: 12px; margin-top: 2px; }
-.u-cardhead { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
-.u-cardhead .useg { margin-left: auto; }
 .u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); margin: 10px 0 4px; }
 .u-legend .lg { display: inline-flex; align-items: center; }
 .u-legend .d { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: currentColor; }
@@ -2229,7 +2339,7 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 .u-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .u-line.primary { stroke-width: 2.6; }
 .u-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
-.u-dot { fill: currentColor; stroke: var(--panel); stroke-width: 2; }
+.u-dot { fill: currentColor; stroke: var(--bg); stroke-width: 2; }
 .u-tag { fill: currentColor; font-family: var(--mono); font-size: 11px; }
 .us0 { color: var(--accent-blue); } .us1 { color: var(--accent-teal); } .us2 { color: var(--accent-violet); }
 .us3 { color: var(--accent-amber); } .us4 { color: var(--accent-green); } .us5 { color: var(--accent-rose); }
@@ -2278,6 +2388,8 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 }
 @media (max-width: 560px) {
   .u-kpis { grid-template-columns: minmax(0, 1fr); }
+  .u-kpi, .u-kpi:nth-child(n) { border-left: 0; padding-left: 0; padding-right: 0; }
+  .u-kpi + .u-kpi { border-top: 1px solid var(--border); }
   .u-big { font-size: 22px; }
 }
 /* NOT `display: flex` — that removes a table cell from the table layout algorithm and every

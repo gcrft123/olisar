@@ -1,20 +1,52 @@
 import React, { useState } from 'react'
 import { Icon, CopyGlyph } from './icons'
 
-export function Card(props: { title?: string; hint?: React.ReactNode; badge?: React.ReactNode; children: React.ReactNode }) {
+// A titled group with no box. It replaced Card: a page of cards whose fields were themselves
+// bordered boxes read as boxes inside boxes; here the hairline between groups and the rows
+// inside them carry the structure, so the controls are the only things drawn. The title is an
+// h2 because the page's <h1> is the only heading above it.
+// Every Field placed directly in a Section lays out as a settings row — label and description
+// on the left, control on the right.
+const RowCtx = React.createContext(false)
+
+export function Section(props: {
+  title: React.ReactNode
+  hint?: React.ReactNode
+  /** Controls that act on the whole group (a range picker, a refresh button). */
+  actions?: React.ReactNode
+  /** Title above a full-width body, for lists, tables and charts that need the width the
+   *  rail would take. It is also what a railed section collapses to when narrow. */
+  stacked?: boolean
+  tone?: 'danger'
+  className?: string
+  children: React.ReactNode
+}) {
+  const cls = ['section', props.stacked && 'stacked', props.tone, props.className].filter(Boolean).join(' ')
+  // Unnamed on purpose. A named <section> is a region landmark, and a page of five or six
+  // regions is noise in the landmark list; the h2 already makes each group a heading stop.
   return (
-    <div className="card">
-      {/* h2, not h3: the page's <h1> is the only heading above it, and a level skip is a
-          1.3.1 failure that also breaks heading-jump navigation. */}
-      {props.title && (
-        props.badge
-          ? <div className="card-titlerow"><h2>{props.title}</h2>{props.badge}</div>
-          : <h2>{props.title}</h2>
-      )}
-      {props.hint && <div className="hint">{props.hint}</div>}
-      {props.children}
-    </div>
+    <section className={cls}>
+      <div className="section-grid">
+        <div className="section-head">
+          <div className="section-titles">
+            <h2>{props.title}</h2>
+            {props.hint && <div className="hint">{props.hint}</div>}
+          </div>
+          {props.actions && <div className="section-actions">{props.actions}</div>}
+        </div>
+        <div className="section-body">
+          <RowCtx.Provider value={true}>{props.children}</RowCtx.Provider>
+        </div>
+      </div>
+    </section>
   )
+}
+
+/** Fields inside go back to label-above-control. For a compose form in a Section (add a
+ *  source, add a fact), where inputs sit side by side and read as one entry, not as a list
+ *  of settings. */
+export function Stack(props: { children: React.ReactNode }) {
+  return <RowCtx.Provider value={false}>{props.children}</RowCtx.Provider>
 }
 
 // A field's label, description, and control are three siblings, so the label can't wrap the
@@ -42,17 +74,44 @@ function labelled(f: FieldIds | null, ariaLabel?: string) {
 }
 
 export function Field(
-  props: { label: string; desc?: React.ReactNode; children: React.ReactNode; plain?: boolean },
+  props: {
+    label: string; desc?: React.ReactNode; children: React.ReactNode; plain?: boolean
+    /** In a Section: the control takes the row's full width under its label, for a textarea
+     *  or an editor that a 300px column would starve. */
+    wide?: boolean
+    /** A status chip beside the label ("Custom"). Outside the label, so it isn't read as
+     *  part of the control's name. */
+    badge?: React.ReactNode
+  },
 ) {
   const uid = React.useId()
+  const row = React.useContext(RowCtx)
   const ids: FieldIds = { id: `${uid}c`, labelId: `${uid}l`, descId: props.desc ? `${uid}d` : undefined }
+  const labelEl = props.plain
+    ? <div className="flabel" id={ids.labelId}>{props.label}</div>
+    : <label id={ids.labelId} htmlFor={ids.id}>{props.label}</label>
+  const label = props.badge ? <div className="field-labelrow">{labelEl}{props.badge}</div> : labelEl
+  const desc = props.desc && <div className="desc" id={ids.descId}>{props.desc}</div>
+  if (row) {
+    // A `plain` row holds several controls (a chip set, a pair of inputs), so the row itself
+    // is the group its label names — otherwise the label sits beside them pointing at nothing.
+    const group = props.plain ? { role: 'group', 'aria-labelledby': ids.labelId, 'aria-describedby': ids.descId } : {}
+    return (
+      <FieldCtx.Provider value={ids}>
+        <div className={'field field-row' + (props.wide ? ' wide' : '')} {...group}>
+          <div className="field-text">{label}{desc}</div>
+          {/* A Field nested in the control column is part of this row's control, not a row
+              of its own, so it goes back to the stacked layout. */}
+          <div className="field-ctl"><RowCtx.Provider value={false}>{props.children}</RowCtx.Provider></div>
+        </div>
+      </FieldCtx.Provider>
+    )
+  }
   return (
     <FieldCtx.Provider value={ids}>
       <div className="field">
-        {props.plain
-          ? <div className="flabel" id={ids.labelId}>{props.label}</div>
-          : <label id={ids.labelId} htmlFor={ids.id}>{props.label}</label>}
-        {props.desc && <div className="desc" id={ids.descId}>{props.desc}</div>}
+        {label}
+        {desc}
         {props.children}
       </div>
     </FieldCtx.Provider>
@@ -878,7 +937,7 @@ export class PageBoundary extends React.Component<
           </div>
           <p>The rest of the console still works — pick another tab, or try this one again.</p>
         </div>
-        <div className="card">
+        <div className="boundary-body">
           <div className="callout danger">
             <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">

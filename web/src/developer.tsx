@@ -171,10 +171,10 @@ function DevExtensions() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
+  if (err) return <div className="dev-pane"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="dev-toolbar">
         <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', flex: '0 1 320px' }}>
           <Icon.search size={15} style={{ position: 'absolute', left: 11, color: 'var(--text-3)', pointerEvents: 'none' }} />
@@ -255,11 +255,11 @@ function DevReports() {
     catch (e: any) { toast('Failed: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
+  if (err) return <div className="dev-pane"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
-  if (rows.length === 0) return <div className="card"><div className="empty">No reports filed.</div></div>
+  if (rows.length === 0) return <div className="dev-pane"><div className="empty">No reports filed.</div></div>
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="dev-toolbar"><span className="settings-muted">{rows.length} report{rows.length === 1 ? '' : 's'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all reports" aria-label="Clear all reports"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
@@ -299,11 +299,11 @@ function DevBlocked() {
     catch (e: any) { toast('Couldn’t clear: ' + e.message, 'danger') }
   }
 
-  if (err) return <div className="card"><div className="settings-err" role="alert">{err}</div></div>
+  if (err) return <div className="dev-pane"><div className="settings-err" role="alert">{err}</div></div>
   if (!rows) return <Loading />
-  if (rows.length === 0) return <div className="card"><div className="empty">No publishes have been blocked.</div></div>
+  if (rows.length === 0) return <div className="dev-pane"><div className="empty">No publishes have been blocked.</div></div>
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="dev-toolbar"><span className="settings-muted">{rows.length} blocked publish{rows.length === 1 ? '' : 'es'}</span><span className="grow" /><button className="danger icon-btn sm" onClick={clearAll} data-tip="Clear all blocked" aria-label="Clear all blocked"><Icon.trash size={15} /></button><button className="ghost icon-btn sm" onClick={load} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={15} /></button></div>
       <div className="dev-reports">
         {rows.map((r) => (
@@ -349,7 +349,7 @@ function DevModeration() {
   }
 
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="settings-subhead">Warn or ban a Discord ID</div>
       <div className="dev-mod-form">
         <input type="text" className="dev-search" value={id} onChange={(e) => setId(e.target.value)} aria-label="Discord user ID" placeholder="Discord user ID" />
@@ -392,7 +392,7 @@ function DevLogs({ kind }: { kind: 'bot' | 'funnel' }) {
   useEffect(() => { if (preRef.current) preRef.current.scrollTop = preRef.current.scrollHeight }, [lines])
 
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="dev-toolbar">
         <span className="settings-muted">{kind === 'bot' ? 'Backend (bot + API) logs' : 'Remote-access (Tailscale Funnel) logs'}</span>
         <span className="grow" />
@@ -428,7 +428,7 @@ function DevPolicy() {
   }
   if (v == null && !err) return <Loading />
   return (
-    <div className="card">
+    <div className="dev-pane">
       <div className="settings-subhead">Publish risk threshold</div>
       <div className="settings-muted" style={{ marginBottom: 12 }}>
         Publishing is blocked when an extension's risk score reaches this value. The same review is shown to anyone installing it.

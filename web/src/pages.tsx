@@ -5,7 +5,7 @@ import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
-import { Area, Card, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, Segmented, Select, Spinner, Text, Toggle, U_SERIES, hasUnsavedChanges, headingsOf, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, headingsOf, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -57,13 +57,13 @@ export function Persona() {
   return (
     <>
       <PageHead icon="persona" title="Persona" doc="persona" sub="Who Olisar is and how it behaves in your server." />
-      <Card title="Identity">
+      <Section title="Identity">
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
-        <Field label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
+        <Field wide label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
           <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
         </Field>
-      </Card>
-      <Card title="The room" hint="What kind of community this is. Register turns on this more than the subject does — the same line reads as normal in a gaming server and as try-hard in a study one.">
+      </Section>
+      <Section title="The room" hint="What kind of community this is. Register turns on this more than the subject does — the same line reads as normal in a gaming server and as try-hard in a study one.">
         <Field label="Server type" desc="Sets the register Olisar writes in. Leave unset to let it read the room on its own.">
           <Select
             value={data.server_type || ''}
@@ -87,22 +87,19 @@ export function Persona() {
             options={SLANG_OPTS}
           />
         </Field>
-      </Card>
-      <div className="grid2">
-        <Card title="Style notes" hint="Olisar's voice, tone, and formatting.">
-          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} ariaLabel="Style notes" />
-        </Card>
-        <Card
-          title="About me"
-          hint={
-            <>
-              Olisar's public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.
-            </>
-          }
+      </Section>
+      <Section title="Style & bio">
+        <Field wide label="Style notes" desc="Olisar's voice, tone, and formatting.">
+          <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
+        </Field>
+        <Field
+          wide
+          label="About me"
+          desc={<>Olisar's public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.</>}
         >
-          <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} ariaLabel="About me — the bot's public Discord bio" />
-        </Card>
-      </div>
+          <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} />
+        </Field>
+      </Section>
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
       <TestChatDrawer />
     </>
@@ -355,9 +352,7 @@ export function Behavior() {
   return (
     <>
       <PageHead icon="behavior" title="Behavior" doc="behavior" sub="How and when Olisar joins in." />
-      <div className="cols2">
-        <div className="col">
-      <Card title="Engagement" hint="When and where Olisar joins the conversation.">
+      <Section title="Engagement" hint="When and where Olisar joins the conversation.">
         <Field label="Name triggers" desc="Comma-separated. Including one of these words in a message addresses Olisar.">
           <Text
             value={triggers}
@@ -365,12 +360,14 @@ export function Behavior() {
             placeholder="olisar, oli"
           />
         </Field>
+        {/* A row's label names its switch, so the switches carry no text of their own — "Reply
+            in DMs" beside "Answer direct messages" was one setting captioned twice. */}
         <Field label="Only when addressed" desc="A name trigger has to actually be talking to Olisar. On, “olisar was down again” is overheard rather than answered.">
-          <Toggle value={data.name_requires_address} onChange={(v) => set('name_requires_address', v)} label="Ignore passing mentions of its name" />
+          <Toggle value={data.name_requires_address} onChange={(v) => set('name_requires_address', v)} />
         </Field>
-        <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} label="Answer direct messages" /></Field>
+        <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} /></Field>
         <Field label="See other bots" desc="Let other bots' messages into Olisar's context, so it can follow what they post. It never replies to them. Chatty bots will crowd the context window.">
-          <Toggle value={data.see_other_bots} onChange={(v) => set('see_other_bots', v)} label="Read messages from other bots" />
+          <Toggle value={data.see_other_bots} onChange={(v) => set('see_other_bots', v)} />
         </Field>
         {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
             point at nothing — which is exactly what it was doing. `.flabel` is the same
@@ -396,8 +393,52 @@ export function Behavior() {
             })}
           </div>
         </Field>
-      </Card>
-      <Card title="Model & tools">
+      </Section>
+      <Section title="Proactivity" hint="When and how often Olisar chimes in unprompted.">
+        {/* Not "Enabled": with the switch's own text gone, the row label is its whole name,
+            and two switches called "Enabled" on one page can't be told apart by ear. */}
+        <Field label="Speak up on its own"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} /></Field>
+        <Field label="Eagerness">
+          <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
+            { value: 'low', label: 'low — rare, high-confidence' },
+            { value: 'med', label: 'medium — balanced' },
+            { value: 'high', label: 'high — chatty' },
+            { value: 'off', label: 'off' },
+          ]} />
+        </Field>
+        <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it speaks up.">
+          <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} def={0.7} />
+        </Field>
+        <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
+        <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} unit="seconds" def={300} /></Field>
+        <Field label="Max per hour"><Num value={pro.max_per_hour} onChange={(v) => setP('max_per_hour', v)} min={0} unit="messages" def={6} /></Field>
+        <Field label="Quiet hours (UTC)" desc="Stay silent during these hours.">
+          <Toggle value={quietOn} onChange={(v) => setQuiet(v ? { start: qh.start ?? 23, end: qh.end ?? 7 } : {})} />
+        </Field>
+        {quietOn && (
+          // The stored value is UTC because the bot is; the operator is not. Doing that
+          // subtraction in your head is the whole cost of this control.
+          <Field plain label="Quiet window" desc={localQuiet(qh.start ?? 23, qh.end ?? 7)}>
+            <div className="row">
+              <Field label="From (hour)"><Num value={qh.start ?? 23} onChange={(v) => setQuiet({ ...qh, start: v })} min={0} max={23} /></Field>
+              <Field label="To (hour)"><Num value={qh.end ?? 7} onChange={(v) => setQuiet({ ...qh, end: v })} min={0} max={23} /></Field>
+            </div>
+          </Field>
+        )}
+      </Section>
+      <Section title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
+        {/* Named for reactions, not repeated from the section above. "Confidence threshold",
+            "Channel cooldown (s)" and "Max per hour" appeared identically in both groups, so
+            six distinct settings had three accessible names between them — and a section
+            title is not part of a field's name. */}
+        <Field label="React with emoji"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} /></Field>
+        <Field label="Reaction confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
+          <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} def={0} />
+        </Field>
+        <Field label="Reaction cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
+        <Field label="Reactions per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} unit="reactions" def={6} /></Field>
+      </Section>
+      <Section title="Model & tools">
         <Field
           label="Primary model"
           desc={modelsQ.error
@@ -410,19 +451,19 @@ export function Behavior() {
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
         <Field label="Web search" desc="Let Olisar look things up on the web.">
-          <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} label="Allow web search" />
+          <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} />
         </Field>
         <Field label="Web searches per day" desc="The most lookups Olisar will run in a day.">
           <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
         </Field>
         <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent in the Discord Developer Portal.">
-          <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} label="Allow presence & voice lookups" />
+          <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} />
         </Field>
         <Field label="Silent acknowledgments" desc="Let Olisar react to a message instead of writing “done” after it sends, posts or saves something.">
-          <Toggle value={data.silent_acks_enabled} onChange={(v) => set('silent_acks_enabled', v)} label="Allow reactions instead of replies" />
+          <Toggle value={data.silent_acks_enabled} onChange={(v) => set('silent_acks_enabled', v)} />
         </Field>
-      </Card>
-      <Card title="Memory & summaries">
+      </Section>
+      <Section title="Memory & summaries">
         <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">
           <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} unit="messages" def={12} />
         </Field>
@@ -440,58 +481,7 @@ export function Behavior() {
             <Num value={data.user_persona_msg_threshold} onChange={(v) => set('user_persona_msg_threshold', v)} min={5} unit="messages" def={15} />
           </Field>
         </Disclosure>
-      </Card>
-        </div>
-        <div className="col">
-      <Card title="Proactivity" hint="When and how often Olisar chimes in unprompted.">
-        <Field label="Enabled"><Toggle value={pro.enabled} onChange={(v) => setP('enabled', v)} label="Let Olisar speak up on its own" /></Field>
-        <Field label="Eagerness">
-          <Select value={pro.level} onChange={(v) => setP('level', v)} options={[
-            { value: 'low', label: 'low — rare, high-confidence' },
-            { value: 'med', label: 'medium — balanced' },
-            { value: 'high', label: 'high — chatty' },
-            { value: 'off', label: 'off' },
-          ]} />
-        </Field>
-        <Field label="Confidence threshold" desc="How sure it has to be (0–1) before it speaks up.">
-          <Num value={pro.confidence_threshold} onChange={(v) => setP('confidence_threshold', v)} min={0} max={1} step={0.05} def={0.7} />
-        </Field>
-        <div className="row">
-          <Field label="Global cooldown (s)"><Num value={pro.global_cooldown_sec} onChange={(v) => setP('global_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
-          <Field label="Channel cooldown (s)"><Num value={pro.channel_cooldown_sec} onChange={(v) => setP('channel_cooldown_sec', v)} min={0} unit="seconds" def={300} /></Field>
-          <Field label="Max per hour"><Num value={pro.max_per_hour} onChange={(v) => setP('max_per_hour', v)} min={0} unit="messages" def={6} /></Field>
-        </div>
-        <Field label="Quiet hours (UTC)" desc="Stay silent during these hours.">
-          <Toggle value={quietOn} onChange={(v) => setQuiet(v ? { start: qh.start ?? 23, end: qh.end ?? 7 } : {})} label="Enable quiet hours" />
-        </Field>
-        {quietOn && (
-          <>
-            <div className="row">
-              <Field label="From (hour)"><Num value={qh.start ?? 23} onChange={(v) => setQuiet({ ...qh, start: v })} min={0} max={23} /></Field>
-              <Field label="To (hour)"><Num value={qh.end ?? 7} onChange={(v) => setQuiet({ ...qh, end: v })} min={0} max={23} /></Field>
-            </div>
-            {/* The stored value is UTC because the bot is; the operator is not. Doing that
-                subtraction in your head is the whole cost of this control. */}
-            <div className="desc">{localQuiet(qh.start ?? 23, qh.end ?? 7)}</div>
-          </>
-        )}
-      </Card>
-      <Card title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
-        {/* Named for reactions, not repeated from the card above. "Confidence threshold",
-            "Channel cooldown (s)" and "Max per hour" appeared identically in both cards, so
-            six distinct settings had three accessible names between them — and a card title
-            is not part of a field's name. */}
-        <Field label="Enabled"><Toggle value={pro.reaction_enabled} onChange={(v) => setP('reaction_enabled', v)} label="Let Olisar react with emoji" /></Field>
-        <Field label="Reaction confidence threshold" desc="How sure it has to be (0–1) before it reacts.">
-          <Num value={pro.reaction_threshold ?? 0} onChange={(v) => setP('reaction_threshold', v)} min={0} max={1} step={0.05} def={0} />
-        </Field>
-        <div className="row">
-          <Field label="Reaction cooldown (s)"><Num value={pro.reaction_cooldown_sec} onChange={(v) => setP('reaction_cooldown_sec', v)} min={0} unit="seconds" def={60} /></Field>
-          <Field label="Reactions per hour"><Num value={pro.reaction_max_per_hour} onChange={(v) => setP('reaction_max_per_hour', v)} min={0} unit="reactions" def={6} /></Field>
-        </div>
-      </Card>
-        </div>
-      </div>
+      </Section>
       <SaveDock
         dirty={configEd.dirty || proEd.dirty}
         saver={saver}
@@ -586,36 +576,38 @@ export function Messages() {
   const saver = useSaver(async () => { await api.putMessages(edits); prevEdits.current = base.current; base.current = JSON.stringify(edits) })
   if (loading || !data) return <Loading of={msgs} what="the command replies" />
 
-  return (
-    <>
-      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
-      <div className="grid2">
-      {Object.keys(data).filter((key) => key !== 'privacy').map((key) => {
-        // Read defensively: this page renders whatever `/api/messages` returns, and a key
-        // that arrives without `placeholders` used to take the whole page to the error
-        // boundary. The backend and this frontend ship independently.
-        const m = data[key] || {}
-        const placeholders: string[] = Array.isArray(m.placeholders) ? m.placeholders : []
-        const fallback = typeof m.default === 'string' ? m.default : ''
-        const overridden = (edits[key] ?? '').trim().length > 0
-        return (
-        <Card
-          key={key}
-          title={MSG_LABELS[key] ?? key}
-          // Which replies you have actually rewritten was carried only by whether the box
-          // held grey placeholder text or real text — a distinction you have to read
-          // fourteen boxes to make.
-          badge={overridden ? <span className="badge preference">Custom</span> : undefined}
-        >
-          {/* The card title is the only thing naming this box, and a card title is not a
-              label — every one of these announced as an unnamed edit box, fourteen in a
-              row. A placeholder is not a name either; it's the default text. */}
+  const keys = Object.keys(data).filter((key) => key !== 'privacy')
+  // Anything the backend adds without a label here lands with the automatic replies, under
+  // its raw key, rather than being dropped.
+  const isCommand = (key: string) => (MSG_LABELS[key] ?? key).startsWith('/')
+  const replyRow = (key: string) => {
+    // Read defensively: this page renders whatever `/api/messages` returns, and a key
+    // that arrives without `placeholders` used to take the whole page to the error
+    // boundary. The backend and this frontend ship independently.
+    const m = data[key] || {}
+    const placeholders: string[] = Array.isArray(m.placeholders) ? m.placeholders : []
+    const fallback = typeof m.default === 'string' ? m.default : ''
+    const overridden = (edits[key] ?? '').trim().length > 0
+    return (
+      <Field
+        wide
+        key={key}
+        label={MSG_LABELS[key] ?? key}
+        // Which replies you have actually rewritten was carried only by whether the box
+        // held grey placeholder text or real text — a distinction you have to read
+        // fourteen boxes to make.
+        badge={overridden ? <span className="badge preference">Custom</span> : undefined}
+        desc={placeholders.length > 0
+          ? <>Placeholders: {placeholders.map((p) => <code key={p} className="ph">{`{${p}}`}</code>)}</>
+          : undefined}
+      >
+        <div className="reply-edit">
+          {/* Named by the row's label. A placeholder is not a name — it's the default text. */}
           <Area
             value={edits[key] ?? ''}
             onChange={(v) => setEdits({ ...edits, [key]: v })}
             rows={2}
             placeholder={fallback}
-            ariaLabel={`${MSG_LABELS[key] ?? key} — reply text`}
           />
           {/* The effective message — your override if you've written one, otherwise the
               default that would actually be sent. Updates as you type. */}
@@ -624,13 +616,16 @@ export function Messages() {
             avatar={persona?.bot_avatar}
             text={(edits[key] ?? '').trim() || fallback}
           />
-          {placeholders.length > 0 && (
-            <div className="placeholders">placeholders: {placeholders.map((p: string) => <code key={p}>{`{${p}}`} </code>)}</div>
-          )}
-        </Card>
-        )
-      })}
-      </div>
+        </div>
+      </Field>
+    )
+  }
+
+  return (
+    <>
+      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave a box blank to keep the default." />
+      <Section title="Slash commands">{keys.filter(isCommand).map(replyRow)}</Section>
+      <Section title="Automatic replies">{keys.filter((k) => !isCommand(k)).map(replyRow)}</Section>
       <SaveDock
         dirty={dirty}
         saver={saver}
@@ -733,7 +728,7 @@ export function Channels() {
   return (
     <>
       <PageHead icon="channels" title="Channels" doc="channels" sub="Customize how Olisar treats each of your channels." />
-      <Card title="What the modes mean">
+      <Section stacked title="What the modes mean">
         <div className="mode-legend">
           <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
           <div><span className="tag">respond</span> speaks; doesn't read or remember</div>
@@ -742,18 +737,17 @@ export function Channels() {
           <div><span className="tag">feed</span> remembers just the last 3 messages without summaries; doesn't speak (e.g. #announcements, #game-news)</div>
           <div><span className="tag">off</span> ignored entirely</div>
         </div>
-        <div className="hint">Indexing is separate from the mode: it decides whether a channel's messages can be found by search. Turning it off also wipes what's already been indexed there.</div>
-      </Card>
+        <div className="section-note">Indexing is separate from the mode: it decides whether a channel's messages can be found by search. Turning it off also wipes what's already been indexed there.</div>
+      </Section>
       {/* "Channels — 9 configured" over ten rows left the reader counting: is 9 the total,
           or the subset that isn't off? Say both numbers, and say which is which. */}
-      <Card title={`Channels — ${configured} of ${rows.length} active`}>
+      <Section stacked title={`Channels — ${configured} of ${rows.length} active`}>
         {rows.length === 0 ? (
           <div className="empty">No channels synced yet. The bot populates this list shortly after it starts; you can also run <code>/olisar watch</code> in a channel.</div>
         ) : (
           <>
-            <div style={{ marginBottom: 12 }}>
-              <Text value={q} onChange={setQ} placeholder="Filter channels…" ariaLabel="Filter channels" />
-            </div>
+            <Text value={q} onChange={setQ} placeholder="Filter channels…" ariaLabel="Filter channels" />
+            <div className="chan-list">
             {groupByCategory(shown).map((g) => (
               <div className="chan-group" key={g.category || '__none'}>
                 {/* Setting a mode on ten channels was ten identical decisions with no way to
@@ -842,10 +836,11 @@ export function Channels() {
                 ))}
               </div>
             ))}
+            </div>
             {shown.length === 0 && <div className="empty">No channels match “{q}”.</div>}
           </>
         )}
-      </Card>
+      </Section>
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
     </>
   )
@@ -936,7 +931,7 @@ export function Access() {
   return (
     <>
       <PageHead icon="access" title="Access" doc="access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
-      <Card title="How access works">
+      <Section title="How access works">
         <div className="mode-legend">
           <div><span className="tag">allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
           <div><span className="tag">blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
@@ -946,8 +941,8 @@ export function Access() {
           {restrictive && <Icon.warn size={15} weight="Bold" />}
           <span>{summary}</span>
         </div>
-      </Card>
-      <Card title={`Roles (${rows.length})`}>
+      </Section>
+      <Section title={`Roles (${rows.length})`}>
         {/* An empty list and a failed request are different facts. This used to blame the
             bot for not having synced yet when the console simply never got an answer. */}
         {rolesQ.error ? (
@@ -973,6 +968,7 @@ export function Access() {
                 options={[{ value: '', label: `Set all ${shown.length}…` }, ...ACCESS_OPTS]}
               />
             </div>
+            <div className="role-list">
             {shown.map((r) => (
               <div className="list-row" key={r.role_id}>
                 <div className="grow rolename">
@@ -984,10 +980,11 @@ export function Access() {
                 </div>
               </div>
             ))}
+            </div>
             {shown.length === 0 && <div className="empty">No roles match “{q}”.</div>}
           </>
         )}
-      </Card>
+      </Section>
       <PinActionsCard initial={config.pin_actions ?? []} />
       <MemberPortalCard config={config} reload={ed.reload} />
       <SaveDock dirty={ed.dirty} saver={saver} onReset={ed.reset} onUndo={undoOf(ed, saver)} />
@@ -1033,9 +1030,9 @@ function PinActionsCard({ initial }: { initial: string[] }) {
   }
 
   return (
-    <Card title="Require the PIN">
+    <Section title="Require the PIN">
       {pinSet === false && on.length > 0 && (
-        <div className="callout warning" style={{ marginBottom: 14 }}>
+        <div className="callout warning">
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
             No PIN is set, so Olisar refuses these until one is.{' '}
@@ -1051,7 +1048,7 @@ function PinActionsCard({ initial }: { initial: string[] }) {
           <Toggle value={on.includes(a.key)} disabled={busy} onChange={(v) => write(a.key, v)} />
         </Field>
       ))}
-    </Card>
+    </Section>
   )
 }
 
@@ -1073,12 +1070,12 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
   }
 
   return (
-    <Card
+    <Section
       title="Member portal"
       hint="A page where any member of this server can see, correct, export and delete what Olisar has stored about them. They see only their own data."
     >
       {!remote && (
-        <div className="callout warning" style={{ marginBottom: 14 }}>
+        <div className="callout warning">
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
             Turn on remote access first. The console is only reachable from this machine
@@ -1105,7 +1102,7 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
           )}
         />
       </Field>
-    </Card>
+    </Section>
   )
 }
 
@@ -1145,7 +1142,7 @@ function SearchIndexCard() {
     (a: any, b: any) => (rank[a.status] - rank[b.status]) || (b.indexed - a.indexed)
   )
   return (
-    <Card title="Message search index" hint="Lets Olisar search back through your server's history.">
+    <Section title="Message search index" hint="Lets Olisar search back through your server's history.">
       {!data ? (poll.stale
         ? <div className="callout warning"><span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">Can't reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
@@ -1220,7 +1217,7 @@ function SearchIndexCard() {
           )}
         </>
       )}
-    </Card>
+    </Section>
   )
 }
 
@@ -1266,22 +1263,17 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
     }
   }
   return (
-    <div className="card danger-zone">
-      <h2>Danger zone</h2>
-      <div className="settings-row between" style={{ marginTop: 0 }}>
-        <div>
-          <div className="opt-label">Clear memory</div>
-          <div className="settings-muted">
-            Erases everything on this page and everything Olisar remembers about this server —
-            the glossary, the search index, and its read on each member. Persona, behavior,
-            channel modes and command replies are kept. This can't be undone.
-          </div>
-        </div>
+    <Section tone="danger" title="Danger zone">
+      <Field
+        plain
+        label="Clear memory"
+        desc="Erases everything on this page and everything Olisar remembers about this server — the glossary, the search index, and its read on each member. Persona, behavior, channel modes and command replies are kept. This can't be undone."
+      >
         <button className="danger" onClick={clearMemory} disabled={busy}>
           {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
         </button>
-      </div>
-    </div>
+      </Field>
+    </Section>
   )
 }
 
@@ -1310,13 +1302,13 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
       .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
       .join(' · ')
   }
-  const body = (
+  const refresh = (
+    <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh activity" onClick={reload}>
+      <Icon.refresh size={15} />
+    </button>
+  )
+  const list = (
     <>
-      <div className="act-toolbar">
-        <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh activity" onClick={reload}>
-          <Icon.refresh size={15} />
-        </button>
-      </div>
       {loading ? <Spinner label="Loading recent activity…" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
         <>
@@ -1336,14 +1328,15 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
       )}
     </>
   )
-  if (bare) return body
+  if (bare) return <><div className="act-toolbar">{refresh}</div>{list}</>
   return (
-    <Card
+    <Section
       title="Activity"
       hint={<>What has been changed on this install, newest first. {data?.install_wide && 'Covers every server this install manages.'}</>}
+      actions={refresh}
     >
-      {body}
-    </Card>
+      {list}
+    </Section>
   )
 }
 
@@ -1428,8 +1421,11 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
       <SearchIndexCard />
-      <div className="cols2">
-      <Card title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
+      <Section title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
+        {/* A compose form, not a list of settings: type and URL are one entry, so they keep
+            their labels above and sit side by side. */}
+        <Stack>
+        <div className="compose">
         <div className="row">
           <Field label="Type"><Select value={type} onChange={setType} options={[{ value: 'url', label: 'single page' }, { value: 'website', label: 'crawl a website' }]} /></Field>
           <Field label="URL"><Text value={uri} onChange={setUri} placeholder="https://…" /></Field>
@@ -1447,9 +1443,11 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           <Select value={String(refresh)} options={refreshOptions(refresh)} onChange={(v) => setRefresh(Number(v))} />
         </Field>
         <SaveBar saver={adder} label="Add & ingest" variant="secondary" />
+        </div>
+        </Stack>
         <div className="settings-subhead">Sources ({rows.length})</div>
         {rows.length === 0 && <div className="empty">Nothing yet.</div>}
-        {rows.map((s) => (
+        {rows.length > 0 && <div className="source-list">{rows.map((s) => (
           // Stacked for every source now, not just failed ones. A failed row already carried
           // the most text and the least room — badge + Retry + Remove squeezed the identifier
           // to 165px — and the schedule control takes another 168px from the same line. In a
@@ -1501,9 +1499,11 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               <Icon.trash size={15} /> Remove
             </button>
           </div>
-        ))}
-      </Card>
-      <Card title="Glossary" hint="Short facts Olisar carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.">
+        ))}</div>}
+      </Section>
+      <Section title="Glossary" hint="Short facts Olisar carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.">
+        <Stack>
+        <div className="compose">
         <div className="row">
           <Field label="Subject"><Text value={subject} onChange={setSubject} placeholder="MN" /></Field>
           <div style={{ flex: 3 }}>
@@ -1511,6 +1511,8 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           </div>
         </div>
         <SaveBar saver={factAdder} label="Add fact" variant="secondary" />
+        </div>
+        </Stack>
         <div className="settings-subhead">Mine for facts</div>
         <div className="btn-row">
           <button onClick={() => mine('memory')} disabled={!!mining}>
@@ -1533,7 +1535,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         ) : factRows.length === 0 ? (
           <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>
         ) : null}
-        {factRows.map((f) => (
+        {factRows.length > 0 && <div className="fact-list">{factRows.map((f) => (
           <div className="list-row" key={f.id}>
             <div className="grow">
               <div className="title" data-tip={f.fact}>{f.fact}</div>
@@ -1554,9 +1556,8 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               <Icon.trash size={15} /> Delete
             </button>
           </div>
-        ))}
-      </Card>
-      </div>
+        ))}</div>}
+      </Section>
       <ActivityCard />
       <ClearMemoryCard serverName={serverName} />
     </>
@@ -1670,12 +1671,12 @@ function SettingsForm(props: { extKey: string; schema: any }) {
   // states the rule twelve hundred lines up: an empty list and a failed request are different
   // facts.
   if (q.loading || q.error || !init) {
-    return <Card title="Settings"><Loading of={q} what="these settings" /></Card>
+    return <Section title="Settings"><Loading of={q} what="these settings" /></Section>
   }
   return (
-    <Card title="Settings">
+    <Section title="Settings">
       {fields.map((f) => (
-        <Field key={f.key} label={f.label || f.key} desc={f.desc}>
+        <Field key={f.key} label={f.label || f.key} desc={f.desc} wide={f.type === 'textarea'}>
           {f.type === 'channel' ? <Select value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} options={chanOpts} />
             : f.type === 'textarea' ? <Area value={String(vals[f.key] ?? '')} onChange={(v) => set(f.key, v)} rows={3} />
             : f.type === 'number' ? <Num value={Number(vals[f.key] ?? 0)} onChange={(v) => set(f.key, v)} />
@@ -1684,7 +1685,7 @@ function SettingsForm(props: { extKey: string; schema: any }) {
         </Field>
       ))}
       <SaveBar saver={saver} label="Save settings" variant="secondary" />
-    </Card>
+    </Section>
   )
 }
 
@@ -1856,7 +1857,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   }
   return (
     <>
-      <Card>
+      <div className="ext-detail-body">
         <div className="ext-dhead">
           <div className="grow">
             <div className="ext-dtitle">{e.name}</div>
@@ -1974,7 +1975,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             <div className="ext-caps">{ungranted.map((p) => <span key={p} className="tag" style={{ opacity: 0.55 }}>{p}</span>)}</div>
           </div>
         )}
-      </Card>
+      </div>
 
       {e.settings_schema?.fields?.length > 0 && <SettingsForm key={e.key} extKey={e.key} schema={e.settings_schema} />}
     </>
@@ -2517,26 +2518,29 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
       )}
 
       {loading ? <Spinner /> : err ? (
-        <Card><div className="settings-err">{err}</div></Card>
+        <div className="settings-err" role="alert">{err}</div>
       ) : results.length === 0 ? (
-        <Card><div className="ext-overview"><div>No extensions found.</div></div></Card>
+        <div className="ext-overview"><div>No extensions found.</div></div>
       ) : (
-        <div className="mkt-grid">
+        // A list, like Members: a grid of twelve boxed cards was twelve more borders around
+        // what is really a name, a line of description and an Install button.
+        <div className="mkt-list">
           {results.map((r) => (
-            <div key={r.id} className="mkt-card">
-              <div className="mkt-card-top">
-                <div className="mkt-name">{r.name} <span className="import-ver">v{r.version}</span></div>
-                <span className="badge">{r.category}</span>
+            <div key={r.id} className="mkt-row">
+              <div className="mkt-main">
+                <div className="mkt-titleline">
+                  <span className="mkt-name">{r.name}</span>
+                  <span className="import-ver">v{r.version}</span>
+                  <span className="badge">{r.category}</span>
+                  {r.publisher_verified
+                    ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
+                    : <span className="badge publisher">{r.publisher || 'unknown publisher'}</span>}
+                </div>
+                {r.description && <div className="mkt-desc">{r.description}</div>}
+                {r.permissions?.length > 0 && (
+                  <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
+                )}
               </div>
-              <div className="mkt-pub">
-                {r.publisher_verified
-                  ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
-                  : <span className="badge publisher">{r.publisher || 'unknown publisher'}</span>}
-              </div>
-              {r.description && <div className="mkt-desc">{r.description}</div>}
-              {r.permissions?.length > 0 && (
-                <div className="mkt-perms">{r.permissions.map((p: string) => <span key={p} className="tag">{p}</span>)}</div>
-              )}
               <div className="mkt-card-foot">
                 <button className="danger icon-btn sm" data-tip="Report this extension" onClick={() => setReport(r)} aria-label="Report"><Icon.flag size={15} /></button>
                 {pubInfo?.handle && r.publisher === pubInfo.handle && (
@@ -2771,20 +2775,18 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
           </div>
         </aside>
 
-        <section>
+        <section className="ext-detail">
           {effective ? (
             <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
           ) : (
-            <Card>
-              <div className="ext-overview">
-                <div className="ext-stats">
-                  <div className="ext-stat"><div className="n">{rows.length}</div><div className="l">Available</div></div>
-                  <div className="ext-stat"><div className="n">{enabledCount}</div><div className="l">Enabled</div></div>
-                  <div className="ext-stat"><div className="n">{customCount}</div><div className="l">Custom</div></div>
-                </div>
-                <div>Select an extension to see what it does{props.isOperator ? ', or create your own.' : '.'}</div>
+            <div className="ext-overview">
+              <div className="ext-stats">
+                <div className="ext-stat"><div className="n">{rows.length}</div><div className="l">Available</div></div>
+                <div className="ext-stat"><div className="n">{enabledCount}</div><div className="l">Enabled</div></div>
+                <div className="ext-stat"><div className="n">{customCount}</div><div className="l">Custom</div></div>
               </div>
-            </Card>
+              <div>Select an extension to see what it does{props.isOperator ? ', or create your own.' : '.'}</div>
+            </div>
           )}
         </section>
       </div>
@@ -3064,58 +3066,70 @@ export function Members() {
         doc="members"
         sub="The private impression Olisar forms of each member. Anyone can wipe theirs with /forget-me."
       />
-      <Card title={`${rows.length} known · ${learned} with an impression`}>
-        <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" ariaLabel="Filter members by name, role, or impression" />
-      </Card>
-      {rows.length === 0 && <Card title="Profiles"><div className="empty">No member profiles yet. Olisar builds them as people talk in channels it remembers.</div></Card>}
-      {rows.length > 0 && shown.length === 0 && <Card title="Profiles"><div className="empty">No members match “{q}”.</div></Card>}
-      <div className="member-grid">
-        {shown.map((p) => {
-          const roles: MemberRole[] = p.roles || []
-          const extra = roles.length - MAX_ROLES
-          const impression = impressionOf(p)
-          const busy = !!building[p.user_id]
-          return (
-            <div className="member-card" key={p.user_id}>
-              <div className="member-head">
-                <span className="member-av">
-                  {p.avatar
-                    ? <img src={p.avatar} alt="" loading="lazy" />
-                    : (p.display_name || '?').trim().slice(0, 1).toUpperCase()}
-                </span>
-                <span className="member-name">{p.display_name}</span>
-              </div>
-              {roles.length > 0 && (
-                <div className="member-roles">
-                  {roles.slice(0, MAX_ROLES).map((r) => (
-                    <RoleChip key={r.id || r.name} name={r.name} color={roleColour(r)} />
-                  ))}
-                  {extra > 0 && <RolesChip count={extra} roles={roles} colourOf={roleColour} />}
+      <Section stacked title="Profiles" hint={`${rows.length} known · ${learned} with an impression`}>
+        {rows.length > 0 && (
+          <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" ariaLabel="Filter members by name, role, or impression" />
+        )}
+        {rows.length === 0 && <div className="empty">No member profiles yet. Olisar builds them as people talk in channels it remembers.</div>}
+        {rows.length > 0 && shown.length === 0 && <div className="empty">No members match “{q}”.</div>}
+        {/* A list, not a grid of cards. Three cards across left each one as tall as its
+            wordiest neighbour, and a member with nothing learned yet was mostly empty box. */}
+        {shown.length > 0 && (
+          <div className="member-list">
+            {shown.map((p) => {
+              const roles: MemberRole[] = p.roles || []
+              const extra = roles.length - MAX_ROLES
+              const impression = impressionOf(p)
+              const busy = !!building[p.user_id]
+              return (
+                <div className="member-row" key={p.user_id}>
+                  <div className="member-who">
+                    <div className="member-head">
+                      <span className="member-av">
+                        {p.avatar
+                          ? <img src={p.avatar} alt="" loading="lazy" />
+                          : (p.display_name || '?').trim().slice(0, 1).toUpperCase()}
+                      </span>
+                      <div className="member-id">
+                        <span className="member-name">{p.display_name}</span>
+                        <span className="member-meta">last seen {fmtDate(p.last_seen)}</span>
+                      </div>
+                    </div>
+                    {roles.length > 0 && (
+                      <div className="member-roles">
+                        {roles.slice(0, MAX_ROLES).map((r) => (
+                          <RoleChip key={r.id || r.name} name={r.name} color={roleColour(r)} />
+                        ))}
+                        {extra > 0 && <RolesChip count={extra} roles={roles} colourOf={roleColour} />}
+                      </div>
+                    )}
+                  </div>
+                  <div className="member-read">
+                    {impression
+                      ? <div className="member-impression">{impression}</div>
+                      : <div className="member-none">No impression yet.</div>}
+                    {p.memories?.length > 0 && (
+                      <div className="member-memories">
+                        {p.memories.map((m: any, i: number) => (
+                          <div className="mem" key={i}><span className={'badge ' + m.kind}>{MEMORY_KIND[m.kind] ?? m.kind}</span> {m.content}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="member-actions">
+                    {/* The row's only action. As a ghost — transparent fill, transparent
+                        border, --text-2 — it read as caption text rather than a control. */}
+                    <button disabled={busy} onClick={() => build(p.user_id, p.display_name || 'this member', !!impression)}>
+                      {busy ? 'Building…' : impression ? 'Rebuild impression' : 'Create impression'}
+                    </button>
+                    {errs[p.user_id] && <span className="err sm">{errs[p.user_id]}</span>}
+                  </div>
                 </div>
-              )}
-              {impression
-                ? <div className="member-impression">{impression}</div>
-                : <div className="member-none">No impression yet.</div>}
-              {p.memories?.length > 0 && (
-                <div className="member-memories">
-                  {p.memories.map((m: any, i: number) => (
-                    <div className="mem" key={i}><span className={'badge ' + m.kind}>{MEMORY_KIND[m.kind] ?? m.kind}</span> {m.content}</div>
-                  ))}
-                </div>
-              )}
-              <div className="member-actions">
-                {/* The card's only action. As a ghost — transparent fill, transparent
-                    border, --text-2 — it read as caption text rather than a control. */}
-                <button disabled={busy} onClick={() => build(p.user_id, p.display_name || 'this member', !!impression)}>
-                  {busy ? 'Building…' : impression ? 'Rebuild impression' : 'Create impression'}
-                </button>
-                {errs[p.user_id] && <span className="err sm">{errs[p.user_id]}</span>}
-              </div>
-              <div className="member-meta">last seen {fmtDate(p.last_seen)}</div>
-            </div>
-          )
-        })}
-      </div>
+              )
+            })}
+          </div>
+        )}
+      </Section>
     </>
   )
 }
@@ -3262,12 +3276,9 @@ export function ApiKeys() {
         sub="One set of keys powers every server on this install. Once saved, a key is never shown again."
       />
 
-      <div className="cols2">
-        <div className="col">
-      <Card
-        title="Google Gemini"
-        hint="Required. Powers everything Olisar says. The free tier is enough to run the bot."
-      >
+      {/* Required first, then the optional keys by how many installs want them: image
+          generation is a general feature, UEX serves one extension. */}
+      <Section title="Google Gemini" hint="Required. Powers everything Olisar says. The free tier is enough to run the bot.">
         <KeyField
           fieldKey="gemini_api_key"
           label="Gemini API key"
@@ -3278,28 +3289,8 @@ export function ApiKeys() {
           onChange={(v) => set('gemini_api_key', v)}
           onClear={() => clear('gemini_api_key', 'Gemini API key')}
         />
-      </Card>
-      <Card
-        title="UEX (Star Citizen)"
-        hint="Optional. Only used by the Star Citizen extension, and only to raise its rate limits."
-      >
-        <KeyField
-          fieldKey="uex_api_key"
-          label="UEX API token"
-          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a token. Leave blank to use UEX's public access.</>}
-          status={st('uex_api_key')}
-          value={val('uex_api_key')}
-          example="uex token"
-          onChange={(v) => set('uex_api_key', v)}
-          onClear={() => clear('uex_api_key', 'UEX API key')}
-        />
-      </Card>
-        </div>
-        <div className="col">
-      <Card
-        title="Cloudflare Workers AI"
-        hint="Optional. Turns on image generation. Without it, Olisar says it can't make images."
-      >
+      </Section>
+      <Section title="Cloudflare Workers AI" hint="Optional. Turns on image generation. Without it, Olisar says it can't make images.">
         <KeyField
           fieldKey="cloudflare_account_id"
           label="Account ID"
@@ -3320,9 +3311,19 @@ export function ApiKeys() {
           onChange={(v) => set('cloudflare_api_token', v)}
           onClear={() => clear('cloudflare_api_token', 'Cloudflare API token')}
         />
-      </Card>
-        </div>
-      </div>
+      </Section>
+      <Section title="UEX (Star Citizen)" hint="Optional. Only used by the Star Citizen extension, and only to raise its rate limits.">
+        <KeyField
+          fieldKey="uex_api_key"
+          label="UEX API token"
+          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a token. Leave blank to use UEX's public access.</>}
+          status={st('uex_api_key')}
+          value={val('uex_api_key')}
+          example="uex token"
+          onChange={(v) => set('uex_api_key', v)}
+          onClear={() => clear('uex_api_key', 'UEX API key')}
+        />
+      </Section>
 
       <SaveDock dirty={dirty} saver={saver} onReset={() => setEdits({})} label="Save keys" />
     </>
@@ -3575,95 +3576,102 @@ export function Usage() {
   return (
     <>
       <PageHead icon="usage" title="Usage & rate limits" doc="usage" sub="Every Gemini call this install makes, across all servers: by model, by day, and what's driving it." />
+      {/* A strip of four figures divided by hairlines, not four boxed tiles: they are one
+          reading of today, and four borders said four unrelated things. */}
       <div className="u-kpis">
-        <Card>
+        <div className="u-kpi">
           <h2 className="u-eyebrow">Requests · today</h2>
           <div className="u-big">{uReq(today.requests)}</div>
           <div className="u-delta">{yday ? <>{delta(pct(today.requests, yday.requests))} vs yesterday</> : <>so far today</>}</div>
-        </Card>
-        <Card>
+        </div>
+        <div className="u-kpi">
           <h2 className="u-eyebrow">Tokens · today</h2>
           <div className="u-big">{uTok(today.tokens)}</div>
           <div className="u-delta">{yday ? <>{delta(pct(today.tokens, yday.tokens))} vs yesterday</> : <>so far today</>}</div>
-        </Card>
-        <Card>
+        </div>
+        <div className="u-kpi">
           <h2 className="u-eyebrow">Peak · requests / min</h2>
           <div className="u-big">{peak.rpm?.value || 0} <s>/ {peak.rpm?.cap || '—'}</s></div>
           <div className="u-track"><i className={rpmHot ? 'warn' : ''} style={{ width: `${Math.min(100, peak.rpm?.cap ? (peak.rpm.value / peak.rpm.cap) * 100 : 0)}%` }} /></div>
           <div className="u-delta">{peak.rpm?.model ? uShort(peak.rpm.model) : 'no calls yet today'}</div>
-        </Card>
-        <Card>
+        </div>
+        <div className="u-kpi">
           <h2 className="u-eyebrow">Peak · tokens / min</h2>
           <div className="u-big">{uTok(peak.tpm || 0)} <s>/ {uTok(tpmLimit)}</s></div>
           <div className="u-track"><i style={{ width: `${Math.min(100, ((peak.tpm || 0) / tpmLimit) * 100)}%` }} /></div>
           <div className="u-delta">today's peak per-minute tokens</div>
-        </Card>
+        </div>
       </div>
 
-      <Card>
-        {/* The control lives here, on the card it governs, rather than floating above four
-            KPI tiles that are always today's. */}
-        <div className="u-cardhead">
-          <div><h2 className="u-ttl">Requests over time</h2>
-            <div className="u-hint">per model · {bucketLabel} · {windowLabel}</div></div>
-          <Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays} options={U_RANGES} />
-        </div>
+      {/* The range control sits on the chart it governs, rather than floating above four
+          figures that are always today's. */}
+      <Section
+        stacked
+        title="Requests over time"
+        hint={`per model · ${bucketLabel} · ${windowLabel}`}
+        actions={<Segmented className="useg" ariaLabel="Usage range" value={days} onChange={setDays} options={U_RANGES} />}
+      >
         <div className="u-legend">{chartSeries.map((s) => (<span key={s.key} className={'lg ' + s.cls}><span className="d" />{uShort(s.key)}</span>))}</div>
         {daily.length ? (
-          <>
+          <div>
             <DailyReqChart series={chartSeries} labels={labels} />
             <ChartTable
               caption={`Requests per model, ${bucketLabel}, ${windowLabel}`}
               columns={['Period', ...chartSeries.map((x) => uShort(x.key))]}
               rows={labels.map((l, i) => [l, ...chartSeries.map((x) => x.values[i] ?? 0)])}
             />
-          </>
+          </div>
         ) : <div className="empty">No usage recorded yet.</div>}
-      </Card>
+      </Section>
 
-      <div className="u-mins">
-        <Card>
-          <div className="u-cardhead"><div><h2 className="u-ttl">Requests / min</h2><div className="u-hint">live · per model against its cap</div></div>
-            <div className="u-livehead" style={{ marginLeft: 'auto' }}>
+      <div className="u-split">
+        <Section
+          stacked
+          title="Requests / min"
+          hint="live · per model against its cap"
+          actions={
+            <div className="u-livehead">
               <span className={'u-livedot' + (livePoll.stale ? ' stale' : '')} />
               <span className="u-hint">{livePoll.stale ? 'not responding' : 'live'}</span>
-            </div></div>
-          <div style={{ marginTop: 14 }}>
-            {livePoll.stale && (
-              <div className="callout warning" style={{ marginBottom: 12 }}>
-                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-                <div className="callout-body">
-                  These numbers stopped updating — the console can't reach the backend.
-                  What's shown is the last reading, not the current one.
-                </div>
+            </div>
+          }
+        >
+          {livePoll.stale && (
+            <div className="callout warning">
+              <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+              <div className="callout-body">
+                These numbers stopped updating — the console can't reach the backend.
+                What's shown is the last reading, not the current one.
               </div>
-            )}
-            {!livePoll.stale && liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
-            {liveModels.map((m) => (
-              <div className={'u-meter ' + (clsFor[m.model] || 'us0')} key={m.model}><b>{uShort(m.model)}</b>
-                <div className="bar"><i className={m.rpm / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.rpm / Math.max(m.cap, 1)) * 100)}%` }} /></div>
-                <span className="v">{m.rpm}/{m.cap}{m.cooldown ? ' · cd' : ''}</span></div>
-            ))}
-          </div>
-        </Card>
-        <Card>
-          <div className="u-cardhead"><div><h2 className="u-ttl">Tokens / min</h2><div className="u-hint">daily peak · {windowLabel}</div></div></div>
+            </div>
+          )}
+          {!livePoll.stale && liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
+          {liveModels.length > 0 && (
+            <div>
+              {liveModels.map((m) => (
+                <div className={'u-meter ' + (clsFor[m.model] || 'us0')} key={m.model}><b>{uShort(m.model)}</b>
+                  <div className="bar"><i className={m.rpm / Math.max(m.cap, 1) > 0.75 ? 'warn' : ''} style={{ width: `${Math.min(100, (m.rpm / Math.max(m.cap, 1)) * 100)}%` }} /></div>
+                  <span className="v">{m.rpm}/{m.cap}{m.cooldown ? ' · cd' : ''}</span></div>
+              ))}
+            </div>
+          )}
+        </Section>
+        <Section stacked title="Tokens / min" hint={`daily peak · ${windowLabel}`}>
           {daily.length ? (
-            <>
+            <div>
               <MiniArea values={tpmSeries} limit={tpmLimit} limitLabel={`cap ${uTok(tpmLimit)}/min`} cls="us1" />
               <ChartTable
                 caption={`Peak tokens per minute, ${bucketLabel}, ${windowLabel}. Cap ${uTok(tpmLimit)} per minute.`}
                 columns={['Period', 'Peak tokens / min']}
                 rows={labels.map((l, i) => [l, uTok(tpmSeries[i] ?? 0)])}
               />
-            </>
+            </div>
           ) : <div className="empty">No usage yet.</div>}
-        </Card>
+        </Section>
       </div>
 
-      <div className="u-cols">
-        <Card>
-          <div className="u-cardhead"><div><h2 className="u-ttl">By model</h2><div className="u-hint">today · each against its own free-tier caps</div></div></div>
+      <div className="u-split wide-first">
+        <Section stacked title="By model" hint="today · each against its own free-tier caps">
           {/* A real table, not a div grid: the four column labels used to read once and then
               ~40 loose values streamed past with no column association. */}
           {models.length === 0 ? <div className="empty">No usage recorded yet.</div> : (
@@ -3706,12 +3714,11 @@ export function Usage() {
                 : `Show ${idleModels.length} idle models in the fallback chain`}
             </button>
           )}
-        </Card>
-        <Card>
-          <div className="u-cardhead"><div><h2 className="u-ttl">By process</h2><div className="u-hint">requests · {windowLabel}</div></div></div>
+        </Section>
+        <Section stacked title="By process" hint={`requests · ${windowLabel}`}>
           {bySource.length === 0 ? <div className="empty">Nothing recorded yet.</div>
             : (
-              <>
+              <div>
                 <DonutChart total={srcTotal} unit="requests" items={bySource.map((s) => ({ label: U_SOURCE_LABEL[s.source] || s.source, value: s.requests, tip: U_SOURCE_TIP[s.source] }))} />
                 <ChartTable
                   caption={`Requests by process, ${windowLabel}`}
@@ -3721,9 +3728,9 @@ export function Usage() {
                     Math.round((x.requests / srcTotal) * 100) + '%',
                   ])}
                 />
-              </>
+              </div>
             )}
-        </Card>
+        </Section>
       </div>
 
       <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, Olisar rests it for two minutes and falls back to the next one in its chain.</div></div>
