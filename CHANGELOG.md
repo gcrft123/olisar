@@ -6,6 +6,8 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 Changing anything about Olisar also meant opening the console. You can now ask it in Discord instead: its persona and system prompt, how and when it joins in, its command replies, its knowledge sources, the search index and glossary, and a member's impression. The tools that make those changes are only handed to the model once a conversation turns to settings, so every other reply costs about what it did before.
 
+The console itself was cards inside cards. Every group of settings sat in a bordered box, and every input in it was a bordered box too, so a page was mostly edges. Groups are now a heading and a thin rule, with each setting on its own row, and the controls are the only things with a border.
+
 ### New
 
 [d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
@@ -35,6 +37,20 @@ Changing anything about Olisar also meant opening the console. You can now ask i
 [a3e92ef] — The control panel reports an update it didn't start: **Updating…** while it runs, and the outcome when it lands, instead of reading the restarting container as a server that fell over.
 
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
+
+[ed004dd] — Console pages group their settings under a heading and a rule instead of in cards, with each setting's name and description on the left and its control on the right.
+
+[ed004dd] — A switch no longer repeats its setting in a caption beside it, and the two switches on Behavior that were both called "Enabled" are now "Speak up on its own" and "React with emoji".
+
+[ed004dd] — Members and the extension marketplace are lists instead of grids of cards.
+
+[ed004dd] — Usage shows today's four figures in one strip and its charts in panes split by a rule.
+
+[ed004dd] — Behavior puts Proactivity and Passive reactions straight after Engagement, and Persona keeps style notes and the bio in one section.
+
+[ed004dd] — Command replies splits slash commands from the replies Olisar sends on its own, and shows each reply beside its Discord preview.
+
+[ed004dd] — API keys lists Cloudflare before UEX.
 
 ### Fixed
 
