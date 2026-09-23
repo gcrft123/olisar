@@ -294,6 +294,8 @@ const MOCK_EXTENSIONS = [
 // and the removal confirm are three different renderings of one pane, and a fixture that
 // always answers "set" leaves two of them unreviewable. It starts unset so Access shows its
 // no-PIN warning. `gated_tools` is empty, which is what every shipped configuration reports.
+const MOCK_UPDATES = { current: '2.0.beta-1', channel: 'beta', latest: 'v2.0.beta-1', available: false }
+
 const MOCK_PIN: { is_set: boolean; timeout_sec: number; updated_at: string | null; gated_tools: string[] } = {
   is_set: false, timeout_sec: 120, updated_at: null, gated_tools: [],
 }
@@ -350,7 +352,17 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/bot/status') || url.startsWith('/api/bot/power')) {
           return send({ available: true, running: true, ready: true, can_power: true })
         }
-        if (url.startsWith('/api/settings/updates')) return send({ current: '1.0.5', available: false })
+        // Running a beta, so switching to Stable shows the "you'll stay on it" line.
+        if (url.startsWith('/api/settings/updates/channel')) {
+          let raw = ''
+          req.on('data', (c) => { raw += c })
+          req.on('end', () => {
+            try { MOCK_UPDATES.channel = JSON.parse(raw || '{}').channel || MOCK_UPDATES.channel } catch { /* keep it */ }
+            send({ channel: MOCK_UPDATES.channel })
+          })
+          return
+        }
+        if (url.startsWith('/api/settings/updates')) return send(MOCK_UPDATES)
         if (url.startsWith('/api/settings/desktop')) return send({ show_in_menu_bar: true })
         // A parked blank reply, reached by the "Report this" button Olisar puts on one.
         // Open http://localhost:5173/?report=expired for the other half of this — the

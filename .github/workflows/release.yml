@@ -2,12 +2,14 @@
 # macOS (Apple Silicon .dmg) and Windows (NSIS .exe) in parallel. The in-app updater
 # (desktop/updater.js) then picks up the new release automatically.
 #
-# Windows runs electron-builder --publish always (releaseType "release" in package.json), which
-# uploads straight to the published v<tag> release. macOS builds first and uploads afterwards
-# with `gh`, because its .dmg is signed with the Developer ID certificate and notarized by Apple
-# — and stapling the notarization ticket rewrites the file, so it can't be uploaded until that's
-# done. Both land on the same release. Without the signing secrets below the macOS job still
-# produces the old unsigned build. See RELEASING.md.
+# Both jobs build with --publish never and upload with `gh`. electron-builder can only publish
+# to a tag spelled v<package.json version>, and the version files carry semver (2.0.0-beta.1)
+# while the tag is spelled the way people read it (v2.0.beta-1); left to itself it would create
+# a second, wrongly named release. macOS has a second reason: its .dmg is signed with the
+# Developer ID certificate and notarized by Apple, and stapling the notarization ticket
+# rewrites the file, so it can't be uploaded until that's done. Both land on the same release,
+# published as a pre-release when the tag is a beta. Without the signing secrets below the
+# macOS job still produces the old unsigned build. See RELEASING.md.
 name: Release
 
 on:
@@ -15,9 +17,8 @@ on:
     tags:
       - 'v*'
   # A rehearsal: builds, signs, notarizes and staples the macOS .dmg and publishes nothing.
-  # Everything that uploads — the Windows job (electron-builder --publish always), the server
-  # image, the `gh release` step — is gated on a tag below, so a dispatch run can't create or
-  # touch a release. The finished .dmg comes back as a build artifact instead. This is how you
+  # Everything that uploads — the Windows job, the server image, the macOS `gh release`
+  # step — is gated on a tag below, so a dispatch run can't create or touch a release. The finished .dmg comes back as a build artifact instead. This is how you
   # prove the whole signing chain end to end without spending a version number on it.
   workflow_dispatch:
 
@@ -30,11 +31,16 @@ jobs:
   # builds/publishes under the wrong version and the tagged release ends up empty (v0.4.0).
   version-check:
     runs-on: ubuntu-latest
+    outputs:
+      # "true" for a beta. Both publish steps pass it to `gh release create`, so whichever
+      # job creates the release creates it as the right kind.
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       # No tag on a dispatch run, so there's nothing to match against — an empty TAG makes the
       # script check only that the three version files agree with each other.
       - name: Assert version files match the tag
+        id: version
         env:
           TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: python3 scripts/check_release_version.py
@@ -62,7 +68,7 @@ jobs:
     secrets: inherit
 
   macos:
-    needs: mac-preflight # which needs version-check, so both gates still apply
+    needs: [version-check, mac-preflight] # version-check for its outputs; preflight gates the build
     runs-on: macos-14 # Apple Silicon → arm64 .dmg
     # Build the venv on uv's own CPython, never the runner image's. sqlite-vec is loaded
     # through SQLite's extension API, which needs --enable-loadable-sqlite-extensions, and
@@ -145,9 +151,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.version-check.outputs.prerelease }}
         run: |
           TAG='${{ github.ref_name }}'
-          gh release create "$TAG" --title "$TAG" --notes '' || true
+          gh release create "$TAG" --title "$TAG" --notes '' --prerelease="$PRERELEASE" || true
           gh release upload "$TAG" desktop/out/*.dmg --clobber
 
       # A rehearsal run publishes nothing, so hand the .dmg back as an artifact — the same file
@@ -161,8 +168,8 @@ jobs:
           retention-days: 7
 
   windows:
-    # Skipped on a rehearsal run: it publishes through electron-builder --publish always, which
-    # would create a release — the one thing a rehearsal must not do.
+    # Skipped on a rehearsal run: it exists to publish, and a rehearsal must not create a
+    # release.
     if: startsWith(github.ref, 'refs/tags/')
     needs: version-check
     runs-on: windows-latest # x64 NSIS .exe
@@ -209,10 +216,19 @@ jobs:
       - name: Package the backend (PyInstaller)
         run: uv run pyinstaller desktop/backend.spec --noconfirm --clean
 
-      - name: Build & publish the desktop app
+      - name: Build the desktop app
         working-directory: desktop
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm install
-          npm run release
+          npm run dist:win
+
+      # Same as the macOS upload: the job that gets there first creates the release, and the
+      # other just adds its asset.
+      - name: Publish the installer to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.version-check.outputs.prerelease }}
+        run: |
+          TAG='${{ github.ref_name }}'
+          gh release create "$TAG" --title "$TAG" --notes '' --prerelease="$PRERELEASE" || true
+          gh release upload "$TAG" desktop/out/*.exe --clobber
