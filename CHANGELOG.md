@@ -22,6 +22,8 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 The console had grown a description under nearly every setting, and many of them restated the label above them. Someone went through every page marking what to cut, and most of this release's console changes are that: shorter copy, and a few controls that said the same thing twice. Two of the proposed lines would have been wrong, so they say what Olisar actually does instead. The docs got the same pass: they were set like a settings page, small and tight, and now read like documentation.
 
+Setup showed four steps whichever way you chose to host Olisar, so two of the three choices fit their own setup into a step shaped for another. Each choice now has the steps it needs.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -158,6 +160,16 @@ The console had grown a description under nearly every setting, and many of them
 
 [6804316] — Name triggers say they aren't case sensitive, and Web search says Google's free search quota can run out for the day.
 
+[9da31c7] — Setting up Local shared hosting has its own Remote access step for Tailscale, which lists both redirect URLs to add once remote access is on.
+
+[9da31c7] — Setting up Server hosting keeps the API keys step ahead of Deploy, and a server can't continue past it without a Gemini key.
+
+[9da31c7] — A bot token Discord rejects says so beside Test token, where a working one says who it's connected as.
+
+[9da31c7] — Settings → Bots keeps a bot's name to one line, and shows where a server-hosted bot runs when you hover its name.
+
+[9da31c7] — The server control panel only mentions its version when an update is available.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -190,7 +202,11 @@ The console had grown a description under nearly every setting, and many of them
 
 [6804316] — A placeholder inside bold or italic text in a Command replies preview shows as a placeholder, not as bold text.
 
-[6804316] — A bot's name in Settings → Bots takes two lines at most instead of one word per line.
+[9da31c7] — The Continue button on the first setup step no longer lurches sideways when you hover it.
+
+[9da31c7] — "Turn on remote access before continuing" goes away once remote access is on.
+
+[9da31c7] — A UEX token entered while setting up a server now reaches the server.
 
 ## [1.5.0] — 2026-09-21
 
