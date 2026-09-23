@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
+import { BotMenu, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
-import { FeedbackButton, SettingsModal, useFeedbackHost } from './settings'
+import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
-import { Field, Text } from './ui'
+import { Field, Select, Text } from './ui'
 import { displayVersion, isNewer } from './version'
 
 type Status = {
@@ -62,6 +63,8 @@ export function ServerControlPanel() {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
+  const bots = useBots()
   const [fbPrefill, setFbPrefill] = useState<FeedbackPrefill | undefined>(undefined)
   useFeedbackHost((p) => { setFbPrefill(p); setSettingsOpen(true) })
   // The last update attempt that needs attention (rolled back or failed). A toast announced
@@ -78,6 +81,9 @@ export function ServerControlPanel() {
   const [rcBusy, setRcBusy] = useState(false)
   const [rcErr, setRcErr] = useState('')
   const [showKey, setShowKey] = useState(false)  // the collapsible "add this key" fallback
+  // A VM running several bots: which install is this one.
+  const [rcInstalls, setRcInstalls] = useState<{ dir: string; name: string }[]>([])
+  const [rcDir, setRcDir] = useState('')
   // The app's SSH key is only a fallback here (a VM the app set up already trusts it), so
   // fetch it lazily when the operator expands the disclosure — never blocks the panel.
   const pk = usePubkey(reconnect && showKey)
@@ -206,14 +212,19 @@ export function ServerControlPanel() {
 
   function openReconnect() {
     setReconnect(true); setRcErr(''); setShowKey(false); setRcHost(st?.host || '')
+    setRcInstalls([]); setRcDir('')
   }
   async function doReconnect() {
     setRcErr('')
     if (!rcHost.trim()) return setRcErr('Enter the VM’s public IP address.')
     setRcBusy(true)
     try {
-      const r = await api.serverConnect({ host: rcHost.trim(), user: rcUser.trim() || 'ubuntu' })
+      // Another bot here runs on that VM: have it let this bot's key in first.
+      const via = sharedServers(bots.bots, bots.activeId).find((x) => x.host === rcHost.trim())
+      if (via) await api.shareServer(via.from.id).catch(() => null)
+      const r = await api.serverConnect({ host: rcHost.trim(), user: rcUser.trim() || 'ubuntu', app_dir: rcDir || undefined })
       if (r?.ok) { setReconnect(false); await refresh() }
+      else if (r?.choose?.length) { setRcInstalls(r.choose); setRcDir(r.choose[0].dir) }
       else setRcErr(r?.error || 'Couldn’t connect to that VM.')
     } catch (e: any) {
       setRcErr(e?.message || 'Couldn’t reach the server.')
@@ -256,7 +267,8 @@ export function ServerControlPanel() {
   const actionsLocked = busy || busyUpdating
   const modal = settingsOpen && (
     <SettingsModal
-      sections={['general', 'logs', 'updates', 'desktop', 'feedback']}
+      sections={['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']}
+      initialSection={settingsPane}
       prefill={fbPrefill}
       onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
     />
@@ -276,8 +288,13 @@ export function ServerControlPanel() {
             <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
           </div>
           <Field label="VM public IP address" desc="The VM running Olisar.">
-            <Text value={rcHost} onChange={setRcHost} placeholder="e.g. 203.0.113.9" mono />
+            <Text value={rcHost} onChange={(v) => { setRcHost(v); setRcInstalls([]); setRcDir('') }} placeholder="e.g. 203.0.113.9" mono />
           </Field>
+          {rcInstalls.length > 0 && (
+            <Field label="Which bot is this?" desc="This server runs more than one.">
+              <Select value={rcDir} onChange={setRcDir} options={rcInstalls.map((i) => ({ value: i.dir, label: i.name }))} />
+            </Field>
+          )}
           <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
             <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
             <div className="desc" style={{ marginTop: 8 }}>
@@ -310,7 +327,8 @@ export function ServerControlPanel() {
   return (
     <div className="setup">
       <div className="box">
-        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
+        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
           <Icon.settings size={16} />
         </button>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />

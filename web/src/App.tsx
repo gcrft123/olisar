@@ -9,6 +9,7 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
+import { BotFailed, BotMenu, useBots } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
@@ -54,6 +55,9 @@ const PAGE_KEYWORDS: Record<string, string> = {
 type Guild = { id: string; name: string; icon: string }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
+// Every bot's console is the same origin, so each remembers its server under its own key
+// (the original bot keeps the old one, and with it the selection it already had).
+const guildKey = (botId: string) => (botId && botId !== 'default' ? `${GUILD_KEY}:${botId}` : GUILD_KEY)
 
 // The console lives at one URL, so Back left the app entirely, a refresh always landed on
 // Persona, and no view could be linked to or bookmarked. The tab is in the hash: cheap
@@ -106,6 +110,9 @@ function useTabRouting(
 }
 
 export default function App() {
+  // The desktop app runs several bots behind one console; this is which one it's showing
+  // (unavailable — and so ignored — on a console a bot serves directly).
+  const bots = useBots()
   const [setup, setSetup] = useState<'checking' | 'needed' | 'done'>('checking')
   const [setupInfo, setSetupInfo] = useState<SetupStatus | null>(null)
   // 'member' is a non-admin signed in to the member portal — a different session family
@@ -333,25 +340,28 @@ export default function App() {
   // once. Checked continuously (not just at login), so it takes effect within ~a poll.
   usePoll(() => { api.devStanding().then(setStanding).catch(() => {}) }, 20000, auth === 'in')
 
+  // Waits for the bot list too: the saved server is remembered per bot (see guildKey).
   useEffect(() => {
-    if (auth !== 'in') return
+    if (auth !== 'in' || bots.loading) return
     api.guilds()
       .then((gs: Guild[]) => {
         setGuilds(gs)
         if (gs.length) {
-          const saved = localStorage.getItem(GUILD_KEY)
+          const saved = localStorage.getItem(guildKey(bots.activeId))
           const sel = gs.find((g) => g.id === saved)?.id ?? gs[0].id
           apiSetGuild(sel)
           setGuildState(sel)
         }
       })
       .catch(() => setGuilds([]))
-  }, [auth])
+  }, [auth, bots.loading, bots.activeId])
 
   // Bounced here by the OAuth callback because the Discord account isn't an admin of
   // any server Olisar is in. Takes precedence over the normal auth flow.
   if (new URLSearchParams(window.location.search).has('denied')) return <AccessDenied />
-  if (setup === 'checking') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
+  // The bot on screen couldn't start. Everything below would just fail to reach it.
+  if (bots.current?.state === 'failed') return <BotFailed bot={bots.current} />
+  if (setup === 'checking' || bots.loading) return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
   if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} initialConnectMode={setupInfo.hosting_mode === 'server'} onDone={async () => {
     // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
     // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
@@ -387,7 +397,7 @@ export default function App() {
   const changeGuild = async (id: string) => {
     if (id === guild || !(await leaveGuard('this server'))) return
     apiSetGuild(id)
-    localStorage.setItem(GUILD_KEY, id)
+    localStorage.setItem(guildKey(bots.activeId), id)
     setGuildState(id)
   }
   const current = guilds.find((g) => g.id === guild) ?? guilds[0]
@@ -499,13 +509,22 @@ export default function App() {
       </header>
       <div className={'nav-backdrop' + (navOpen ? ' open' : '')} onClick={() => setNavOpen(false)} aria-hidden="true" />
       <aside id="console-nav" className={'sidebar' + (navOpen ? ' open' : '')}>
-        <div className="brand">
-          <img className="brand-logo" src="/logo.png" alt="Olisar" />
-          <div>
-            <div className="name">Olisar</div>
-            <div className="sub">Secure Console</div>
+        {/* With more than one bot, the top of the rail says which one this is — and switches. */}
+        {bots.bots.length > 1 ? (
+          <BotMenu
+            variant="rail"
+            guard={() => leaveGuard('this bot')}
+            onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }}
+          />
+        ) : (
+          <div className="brand">
+            <img className="brand-logo" src="/logo.png" alt="Olisar" />
+            <div>
+              <div className="name">Olisar</div>
+              <div className="sub">Secure Console</div>
+            </div>
           </div>
-        </div>
+        )}
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
 
@@ -603,6 +622,7 @@ export default function App() {
 
 function Login() {
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   const [waiting, setWaiting] = useState(false)
   const pollRef = useRef<number | null>(null)
   // In the desktop app, OAuth must run in the system browser — a chromeless app window can
@@ -638,7 +658,8 @@ function Login() {
   return (
     <div className="login">
       <div className="box">
-        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
+        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
           <Icon.settings size={16} />
         </button>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
@@ -668,7 +689,8 @@ function Login() {
       </div>
       {settingsOpen && (
         <SettingsModal
-          sections={['general', 'updates', 'desktop', 'feedback']}
+          sections={['general', 'bots', 'updates', 'desktop', 'feedback']}
+          initialSection={settingsPane}
           onClose={() => setSettingsOpen(false)}
         />
       )}
@@ -680,6 +702,7 @@ function NoServers(props: { username?: string; onLogout: () => void }) {
   return (
     <div className="login">
       <div className="box">
+        <BotMenu variant="chip" />
         <div className="mark info"><Icon.add size={26} weight="Bold" /></div>
         <h1>No servers yet</h1>
         <p>
@@ -710,6 +733,7 @@ function AccessDenied() {
   return (
     <div className="login">
       <div className="box wide">
+        <BotMenu variant="chip" />
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>

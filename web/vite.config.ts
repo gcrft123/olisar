@@ -348,15 +348,20 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/dev/status')) return send({ is_developer: false })
         if (url.startsWith('/api/dev/standing')) return send({ banned: false, warning: null })
         if (url.startsWith('/api/tunnel/status')) return send({ available: false, running: false, helper: false, headless: false, hostname: '', public_url: '' })
-        if (url.startsWith('/api/bots')) return send({
-          active_id: 'default',
-          default_id: 'default',
-          profiles: [
-            { id: 'default', name: 'Red Nebula bot', created: true },
-            { id: 'a1b2c3d4', name: 'Support bot', created: true },
-            { id: 'e5f6a7b8', name: 'Staging bot', created: false },
-          ],
-        })
+        if (url.startsWith('/api/bots')) {
+          // Shaped like the desktop gateway's answer: one running bot, one on a server, one
+          // not set up yet — every state the switcher and Settings ▸ Bots draw.
+          const bots = [
+            { id: 'default', name: 'Red Nebula bot', created: true, state: 'ready', configured: true, hosting_mode: 'local', server_host: '',
+              bot: { running: true, ready: true, id: '1', name: 'Red Nebula', avatar: '' } },
+            { id: 'a1b2c3d4', name: 'Support bot', created: true, state: 'ready', configured: true, hosting_mode: 'server', server_host: '203.0.113.9',
+              bot: { running: false, ready: false, id: '', name: '', avatar: '' } },
+            { id: 'e5f6a7b8', name: 'Staging bot', created: true, state: 'ready', configured: false, hosting_mode: 'local', server_host: '',
+              bot: { running: false, ready: false, id: '', name: '', avatar: '' } },
+          ]
+          if (url.startsWith('/api/bots/active')) return send({ ...bots[0], active_id: 'default' })
+          return send({ active_id: 'default', default_id: 'default', profiles: bots })
+        }
         // Operator power card: online + ready so USAGE_MOCK can also show the rate-limit
         // amber state (driven by mockLive().exhausted) without a running Discord gateway.
         if (url.startsWith('/api/bot/status') || url.startsWith('/api/bot/power')) {

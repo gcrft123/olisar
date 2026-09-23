@@ -16,6 +16,10 @@ The console itself was cards inside cards. Every group of settings sat in a bord
 
 When something went wrong, the way to tell the Olisar team was two clicks behind a gear, and it opened blank. The screens where people actually get stuck now link to it, and the form arrives filled in with what just happened.
 
+An install could hold several bots, but only one of them was ever online: switching stopped the bot you were on and started the other, and the switcher itself had been taken out of Settings. Keeping two bots online meant putting one on a cloud server, and a second bot on a server meant creating and setting up a second server.
+
+Every bot on the desktop app now runs at once, each in its own process with its own data, keys and sign-in, so one bot can't read another's settings, take another down when it crashes, or slow it down. The console still shows one bot at a time, and switching only changes which one. A server can host several bots too: putting a bot on a server another of your bots already uses needs nothing new from you, and each gets its own install there.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -72,6 +76,18 @@ When something went wrong, the way to tell the Olisar team was two clicks behind
 
 [ae7cbcb] — The command palette finds Feedback when you type "report a bug", "contact the team" or "help".
 
+[04700db] — Every bot on the desktop app runs at the same time, each in its own process; switching bots in the console changes which one it shows and never stops one.
+
+[04700db] — With two or more bots, the top of the sidebar shows the bot on screen and whether it's online, with a menu to switch or add one; the sign-in, setup and server screens carry the same menu in their top-left corner.
+
+[04700db] — Settings → Bots is back: open, rename, move, reset or delete any bot, and pick which one opens on launch.
+
+[04700db] — A bot that can't start says so with the end of its output and a Retry, and the others keep running.
+
+[04700db] — Setting up or moving a bot onto a server offers the servers your other bots already run on, with no new VM, SSH key or Tailscale key to set up.
+
+[04700db] — Reconnecting to a server that runs several bots asks which one this is.
+
 ### Changed
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -102,6 +118,16 @@ When something went wrong, the way to tell the Olisar team was two clicks behind
 
 [ed004dd] — API keys lists Cloudflare before UEX.
 
+[04700db] — Each bot keeps its own console sign-in, so switching back doesn't ask you to log in again; bots other than the first are signed out once by this update.
+
+[04700db] — A bot's uploads, Tailscale device and logs live in its own folder; the first bot's stay where they were.
+
+[04700db] — Quitting the app waits for every bot to sign out of Discord, and an update on Windows waits for them before it installs.
+
+[04700db] — Updates of different bots on one server take turns instead of running at once.
+
+[04700db] — If more than one bot had remote access on, all but one get a Tailscale device of their own, and a new web address with it.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -127,6 +153,8 @@ When something went wrong, the way to tell the Olisar team was two clicks behind
 [a80d9bb] — The box shown when a page fails to load has a border and rounded corners; it referenced two tokens that don't exist.
 
 [a80d9bb] — A link inside a sentence no longer makes its line taller than the ones around it.
+
+[04700db] — A web page open in your browser can no longer reset a bot or run a server update by sending a request to the app on your machine.
 
 ## [1.5.0] — 2026-09-21
 

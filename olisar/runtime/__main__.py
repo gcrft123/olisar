@@ -1,7 +1,14 @@
 """CLI entry for the unified backend:  python -m olisar.runtime [--host H] [--port N]
 
 Sets the per-user data directory BEFORE importing ``olisar.config`` (an lru_cached
-singleton), then runs the API (serving the dashboard) + the bot on one event loop.
+singleton), then runs one of:
+
+  (default)        one bot: the API (serving the dashboard) + the bot on one event loop.
+                   The Docker image on a VM and a plain source run.
+  --gateway        every bot on the install, each in its own worker process, behind one
+                   console (olisar/runtime/gateway.py). What the desktop app runs.
+  --worker ID      one bot of a gateway, on a private port. Started by the gateway only.
+
 This module is the PyInstaller entry point inside the Electron app.
 """
 
@@ -58,12 +65,24 @@ def main() -> None:
     parser.add_argument(
         "--port", type=int, default=int(os.environ.get("OLISAR_PORT", "8000"))
     )
+    parser.add_argument("--gateway", action="store_true", help="run every bot, one console")
+    parser.add_argument("--worker", metavar="PROFILE_ID", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    from olisar.runtime.server import run
+    if args.worker:
+        from olisar.runtime.server import run_worker
 
+        main_coro = run_worker(args.worker)
+    elif args.gateway:
+        from olisar.runtime.gateway import run as run_gateway
+
+        main_coro = run_gateway(args.host, args.port)
+    else:
+        from olisar.runtime.server import run
+
+        main_coro = run(args.host, args.port)
     try:
-        asyncio.run(run(args.host, args.port))
+        asyncio.run(main_coro)
     except KeyboardInterrupt:
         pass
 

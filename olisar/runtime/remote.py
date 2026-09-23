@@ -9,6 +9,12 @@ with no terminal work from the operator:
   - do that unattended whenever this client is ahead of the VM (`autoupdate`)
   - read whether it's running, recent logs, and the public URL (`status`)
 
+One VM can run several bots. Each is its own Docker Compose project in its own directory
+(``~/olisar`` for the first, ``~/olisar-<profile id>`` for the rest), so each has its own
+``.env``, container, data volume and Tailscale node — the same isolation the desktop app gives
+bots that run locally. A deploy finds its directory by which Discord application an install
+belongs to, so redeploying a bot replaces it and deploying a different one sits alongside.
+
 Host-key checking is disabled: the target is the operator's own freshly-created VM,
 addressed by IP, so there's no prior known-hosts entry to pin.
 """
@@ -16,9 +22,12 @@ addressed by IP, so there's no prior known-hosts entry to pin.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import os
 import re
+import secrets
 import shlex
 import sys
 from pathlib import Path
@@ -34,7 +43,10 @@ from olisar.versioning import display, is_newer, same_version
 
 log = logging.getLogger("olisar.remote")
 
-APP_DIR = "olisar"          # ~/olisar on the VM holds .env + docker-compose.yml
+APP_DIR = "olisar"          # ~/olisar holds the first bot's .env + docker-compose.yml
+# Every other bot on the same VM gets ``~/olisar-<suffix>``. The name reaches shell commands,
+# so anything that doesn't match this is refused rather than quoted.
+_APP_DIR_RE = re.compile(r"^olisar(-[a-z0-9]{1,32})?$")
 CONNECT_TIMEOUT = 20        # seconds to establish the SSH connection
 KEEPALIVE_INTERVAL = 15     # seconds between SSH keepalives (4 unanswered = dead)
 _TSNET_RE = re.compile(r"https://[\w.-]+\.ts\.net")
@@ -78,6 +90,133 @@ def _asset(name: str) -> str:
 async def _load() -> AppConfig | None:
     async with session_scope() as session:
         return await session.scalar(select(AppConfig).where(AppConfig.id == 1))
+
+
+def valid_app_dir(name: str) -> bool:
+    return bool(_APP_DIR_RE.match(name or ""))
+
+
+def app_dir_of(cfg: AppConfig | None) -> str:
+    """The VM directory this bot's install lives in. Blank — every VM set up before one could
+    host several bots — is the original ``~/olisar``."""
+    return app_dir_of_name(getattr(cfg, "server_app_dir", "") if cfg is not None else "")
+
+
+def app_dir_of_name(name: str | None) -> str:
+    name = (name or "").strip()
+    return name if valid_app_dir(name) else APP_DIR
+
+
+def _own_app_dir() -> str:
+    """The directory a bot claims on a VM whose ``~/olisar`` already belongs to another bot."""
+    raw = (os.environ.get("OLISAR_PROFILE_ID") or "").lower()
+    suffix = re.sub(r"[^a-z0-9]", "", raw)[:32] or secrets.token_hex(4)
+    return f"{APP_DIR}-{suffix}"
+
+
+def parse_env(text: str) -> dict[str, str]:
+    """``KEY=value`` lines of a ``.env`` (comments and blanks skipped)."""
+    out: dict[str, str] = {}
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        out[key.strip()] = value.strip().strip('"').strip("'")
+    return out
+
+
+# ── which installs a VM already has ──────────────────────────────────────────────
+
+_INSTALLS_SCRIPT = r"""set +e
+for d in ~/olisar ~/olisar-*; do
+  [ -d "$d" ] || continue
+  [ -f "$d/.env" ] || [ -f "$d/docker-compose.yml" ] || continue
+  cid=$(grep -m1 '^DISCORD_CLIENT_ID=' "$d/.env" 2>/dev/null | cut -d= -f2- | tr -d "\r\"' ")
+  node=$(grep -m1 '^OLISAR_FUNNEL_HOSTNAME=' "$d/.env" 2>/dev/null | cut -d= -f2- | tr -d "\r\"' ")
+  compose=0; [ -f "$d/docker-compose.yml" ] && compose=1
+  owner=$(tr -dc 'a-f0-9' < "$d/.olisar-owner" 2>/dev/null | head -c 64)
+  printf '__OLISAR_INSTALL__|%s|%s|%s|%s|%s\n' "$(basename "$d")" "$cid" "$node" "$compose" "$owner"
+done
+"""
+
+
+def parse_installs(out: str) -> list[dict]:
+    """Turn the installs scan into ``[{dir, client_id, node, compose, owner}]``. Pure, for the
+    tests."""
+    installs: list[dict] = []
+    for line in (out or "").splitlines():
+        if not line.startswith("__OLISAR_INSTALL__|"):
+            continue
+        parts = (line.split("|") + [""] * 5)[1:6]
+        name, client_id, node, compose, owner = (p.strip() for p in parts)
+        if valid_app_dir(name):
+            installs.append({
+                "dir": name, "client_id": client_id, "node": node, "compose": compose == "1",
+                "owner": owner,
+            })
+    return installs
+
+
+def owner_of(cfg: AppConfig | None) -> str:
+    """Which bot an install belongs to, as recorded on the VM (``.olisar-owner``): a digest of
+    the bot's SSH public key. The key is the one thing about a bot that survives a reset — its
+    Discord application may not — and every bot has its own."""
+    pub = ((getattr(cfg, "server_ssh_pubkey", "") or "") if cfg is not None else "").strip()
+    return hashlib.sha256(pub.encode()).hexdigest()[:32] if pub else ""
+
+
+async def _mark_owner(conn, app_dir: str, owner: str) -> None:
+    if owner:  # hex only, so it's safe in the command
+        await _run(conn, f"printf '%s' {owner} > ~/{app_dir}/.olisar-owner", timeout=30)
+
+
+async def _list_installs(conn) -> list[dict]:
+    r = await asyncio.wait_for(conn.run("bash -s", input=_INSTALLS_SCRIPT, check=False), timeout=30)
+    return parse_installs(r.stdout or "")
+
+
+def choose_app_dir(installs: list[dict], *, client_id: str, own: str, owner: str = "") -> str:
+    """Where a deploy of the Discord application ``client_id`` goes on a VM with ``installs``.
+
+    Pure, because it's the whole difference between "redeploy this bot" and "add a bot next
+    to that one", and getting it backwards either runs one bot twice or overwrites another's
+    configuration:
+      1. this bot's own install (its ``owner`` mark) — replace it, even if the bot has been
+         reset onto a different Discord application since
+      2. an install of this same application — replace it (a redeploy, or a retry of one
+         that failed partway, or one set up before installs were marked)
+      3. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
+      4. otherwise this bot's own ``~/olisar-<id>``
+    """
+    if owner:
+        for install in installs:
+            if install.get("owner") == owner:
+                return install["dir"]
+    if client_id:
+        for install in installs:
+            if install.get("client_id") == client_id:
+                return install["dir"]
+    if not any(i.get("dir") == APP_DIR for i in installs):
+        return APP_DIR
+    return own
+
+
+def distinct_node(node: str, taken: set[str], app_dir: str) -> str:
+    """A Tailscale device name no other bot on this VM already uses. Two nodes asking for one
+    name would both get it, suffixed by Tailscale in whatever order they came up — so the
+    address each console ends up at wouldn't be predictable."""
+    base = (node or "olisar").strip() or "olisar"
+    if base not in taken:
+        return base
+    suffix = app_dir.split("-", 1)[1] if "-" in app_dir else "2"
+    return f"{base}-{suffix}"
+
+
+def _set_env_line(env_text: str, key: str, value: str) -> str:
+    lines = [ln for ln in (env_text or "").splitlines() if not ln.strip().startswith(f"{key}=")]
+    lines.append(f"{key}={value}")
+    return "\n".join(lines)
 
 
 async def public_key() -> str:
@@ -132,21 +271,21 @@ async def _read_json(conn, path: str, *, timeout: float = 30.0) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
-async def _install_managed(conn) -> None:
-    """Install/refresh the update script on the VM, and retire the old daily timer.
+async def _install_managed(conn, app_dir: str) -> None:
+    """Install/refresh the update script in ``~/<app_dir>``, and retire the old daily timer.
 
     Idempotent, and run on connect as well as deploy — this is what brings a VM that an
     older client set up onto the current layout."""
-    await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
+    await _run(conn, f"mkdir -p ~/{app_dir}", timeout=30)
     await asyncio.wait_for(
-        conn.run(f"cat > ~/{APP_DIR}/{UPDATE_SCRIPT}", input=_asset(UPDATE_SCRIPT), check=True),
+        conn.run(f"cat > ~/{app_dir}/{UPDATE_SCRIPT}", input=_asset(UPDATE_SCRIPT), check=True),
         timeout=60,
     )
-    await _run(conn, f"chmod +x ~/{APP_DIR}/{UPDATE_SCRIPT}", timeout=30)
-    await _retire_timer(conn)
+    await _run(conn, f"chmod +x ~/{app_dir}/{UPDATE_SCRIPT}", timeout=30)
+    await _retire_timer(conn, app_dir)
 
 
-async def _retire_timer(conn) -> None:
+async def _retire_timer(conn, app_dir: str) -> None:
     """Disable and delete the systemd update timer an older client installed.
 
     Best-effort: a host without systemd never had one, and a VM that keeps it doesn't
@@ -160,7 +299,7 @@ async def _retire_timer(conn) -> None:
             f"  sudo rm -f {units}; "
             "  sudo systemctl daemon-reload || true; "
             "fi; "
-            f"rm -f ~/{APP_DIR}/olisar-update.timer ~/{APP_DIR}/olisar-update.service",
+            f"rm -f ~/{app_dir}/olisar-update.timer ~/{app_dir}/olisar-update.service",
             timeout=90,
         )
     except Exception as exc:  # noqa: BLE001 — a leftover timer must not fail a deploy
@@ -170,7 +309,11 @@ async def _retire_timer(conn) -> None:
 async def deploy(host: str, user: str, env_text: str) -> dict:
     """Install Docker and the updater, write the .env, then let the updater put the newest
     release on the VM and start it. On success, persist the connection and switch the app
-    into server-hosting mode."""
+    into server-hosting mode.
+
+    The install goes wherever ``choose_app_dir`` says: over this bot's own install if the VM
+    has one, else alongside whatever other bots are there. Returns ``app_dir`` so a move can
+    load data into the same place."""
     host = (host or "").strip()
     user = (user or "").strip() or "ubuntu"
     if not host:
@@ -183,69 +326,116 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
     try:
         log_lines.append("Installing Docker (skipped if already present)…")
         await _run(conn, "command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sudo sh)", timeout=300)
+        installs = await _list_installs(conn)
+        env = parse_env(env_text)
+        owner = owner_of(await _load())
+        app_dir = choose_app_dir(
+            installs, client_id=env.get("DISCORD_CLIENT_ID", ""), own=_own_app_dir(), owner=owner,
+        )
+        taken = {i["node"] for i in installs if i["dir"] != app_dir and i.get("node")}
+        node = distinct_node(env.get("OLISAR_FUNNEL_HOSTNAME", ""), taken, app_dir)
+        if node != env.get("OLISAR_FUNNEL_HOSTNAME"):
+            env_text = _set_env_line(env_text, "OLISAR_FUNNEL_HOSTNAME", node)
+        others = [i["dir"] for i in installs if i["dir"] != app_dir]
+        if others:
+            log_lines.append(f"This server already runs {len(others)} other bot(s) — adding this one in ~/{app_dir}.")
         log_lines.append("Writing configuration…")
         # File bodies go over stdin (via `input=`), so secrets never appear in the VM's
         # process list / shell history the way an inline command would.
-        await _run(conn, f"mkdir -p ~/{APP_DIR}", timeout=30)
-        await conn.run(f"cat > ~/{APP_DIR}/.env", input=env_text, check=True)
-        await _run(conn, f"chmod 600 ~/{APP_DIR}/.env", timeout=30)
-        await _install_managed(conn)
+        await _run(conn, f"mkdir -p ~/{app_dir}", timeout=30)
+        await conn.run(f"cat > ~/{app_dir}/.env", input=env_text, check=True)
+        await _run(conn, f"chmod 600 ~/{app_dir}/.env", timeout=30)
+        await _mark_owner(conn, app_dir, owner)
+        await _install_managed(conn, app_dir)
         # A first deploy and an update are the same code path — the script resolves the
         # newest release, pins its digest into the compose file, starts it, and rolls back
         # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
         log_lines.append("Pulling the latest Olisar release and starting it…")
         tag = await _target()
         pin = f" --tag {shlex.quote(tag)}" if tag else ""
-        out = await _run(conn, f"bash ~/{APP_DIR}/{UPDATE_SCRIPT} --start{pin}", timeout=900)
+        # Long enough to wait out another bot's update on the same VM (the script serialises
+        # them) and then run this one.
+        out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start{pin}", timeout=1500)
         log_lines.append(out.strip()[-2000:])
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc), "log": "\n".join(log_lines)}
     conn.close()
     await runtime_config.save(
-        server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
+        server_host=host, server_ssh_user=user, server_app_dir=app_dir,
+        hosting_mode="server", configured=True,
         # The VM is on the newest release as of this build, so the launch after this one
         # has nothing to reconcile (see ``autoupdate``).
         server_synced_version=current_version(),
     )
     await runtime_config.session_secret()
-    return {"ok": True, "log": "\n".join(log_lines)}
+    return {"ok": True, "app_dir": app_dir, "log": "\n".join(log_lines)}
 
 
-async def connect(host: str, user: str) -> dict:
+async def connect(host: str, user: str, app_dir: str = "") -> dict:
     """Adopt a VM that's ALREADY running Olisar (deployed elsewhere, set up by hand, or
-    before a reinstall of this app): verify the compose file is present over SSH, then
-    persist the connection and switch to server-hosting mode — no install, no config
-    overwrite. The app's public key must already be in the VM's authorized_keys."""
+    before a reinstall of this app): find the install over SSH, then persist the connection
+    and switch to server-hosting mode — no install, no config overwrite. The app's public key
+    must already be in the VM's authorized_keys.
+
+    A VM running several bots needs to be told which one this is: pass ``app_dir``, or get
+    back ``choose`` — the installs, named — for the operator to pick from."""
     host = (host or "").strip()
     user = (user or "").strip() or "ubuntu"
+    app_dir = (app_dir or "").strip()
     if not host:
         return {"ok": False, "error": "Enter the VM's public IP address."}
+    if app_dir and not valid_app_dir(app_dir):
+        return {"ok": False, "error": "That isn't an Olisar install directory."}
     try:
         conn = await _connect(host, user)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't reach the VM over SSH: {exc}"}
     try:
-        r = await conn.run(f"test -f ~/{APP_DIR}/docker-compose.yml && echo OK", check=False)
-        if "OK" not in (r.stdout or ""):
-            conn.close()
-            return {
-                "ok": False,
-                "error": f"No Olisar install found in ~/{APP_DIR} on this VM — deploy it "
-                "first, or check the IP and that the SSH key was added.",
-            }
+        installs = [i for i in await _list_installs(conn) if i["compose"]]
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
-    # Reconcile the file we own so a VM deployed by an older client picks up the current
-    # update script. `.env` is never touched — the operator's secrets live there.
+    if not installs:
+        conn.close()
+        return {
+            "ok": False,
+            "error": "No Olisar install found on this VM — deploy it first, or check the IP "
+            "and that the SSH key was added.",
+        }
+    cfg = await _load()
+    owner = owner_of(cfg)
+    if not app_dir:
+        remembered = (getattr(cfg, "server_app_dir", "") or "") if cfg is not None else ""
+        mine = [i["dir"] for i in installs if owner and i.get("owner") == owner]
+        if len(mine) == 1:
+            app_dir = mine[0]  # the one this bot deployed
+        elif any(i["dir"] == remembered for i in installs):
+            app_dir = remembered  # the one this bot ran as before a reset
+        elif len(installs) == 1:
+            app_dir = installs[0]["dir"]
+        else:
+            conn.close()
+            return {
+                "ok": False,
+                "error": "This server runs more than one bot. Pick which one this is.",
+                "choose": await _name_installs(installs),
+            }
+    elif not any(i["dir"] == app_dir for i in installs):
+        conn.close()
+        return {"ok": False, "error": f"No Olisar install in ~/{app_dir} on this VM."}
+    # Reconcile the files we own so a VM deployed by an older client picks up the current
+    # update script, and the install is marked as this bot's. `.env` is never touched — the
+    # operator's secrets live there.
     try:
-        await _install_managed(conn)
+        await _mark_owner(conn, app_dir, owner)
+        await _install_managed(conn, app_dir)
     except Exception as exc:  # noqa: BLE001 — adoption must still succeed
         log.warning("could not reconcile managed files on %s: %s", host, exc)
     conn.close()
     await runtime_config.save(
-        server_host=host, server_ssh_user=user, hosting_mode="server", configured=True,
+        server_host=host, server_ssh_user=user, server_app_dir=app_dir,
+        hosting_mode="server", configured=True,
         # The stamp describes a *particular* VM (``_apply_update`` only writes it while the
         # app is still pointed at the one it updated), and this is a different one — or the
         # same one reset behind our back, which is what Reconnect is for. Either way what we
@@ -258,6 +448,91 @@ async def connect(host: str, user: str) -> dict:
     # operator go looking for a button. In the background: adoption shouldn't wait on an
     # image pull, and the panel reports the update through ``auto_updating``.
     spawn_autoupdate()
+    return {"ok": True, "app_dir": app_dir}
+
+
+async def _name_installs(installs: list[dict]) -> list[dict]:
+    """Label each install with its Discord application's name, for the operator to pick
+    from. The public RPC endpoint needs no token; a failed lookup falls back to the device
+    name and directory, which the operator also chose."""
+    import aiohttp
+
+    async def one(session, install: dict) -> dict:
+        name = ""
+        cid = install.get("client_id") or ""
+        if cid.isdigit():
+            try:
+                url = f"https://discord.com/api/v10/applications/{cid}/rpc"
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        name = str((await resp.json()).get("name") or "")
+            except Exception:  # noqa: BLE001 — a label, not a requirement
+                name = ""
+        return {"dir": install["dir"], "name": name or install.get("node") or install["dir"]}
+
+    timeout = aiohttp.ClientTimeout(total=8)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        return list(await asyncio.gather(*(one(session, i) for i in installs)))
+
+
+# ── sharing this bot's VM with another bot ──────────────────────────────────────
+# A second bot on the same VM needs nothing new from the operator: the app authorizes the
+# new bot's own SSH key with this bot's connection, and hands over what the new install
+# should reuse (the host, the Tailscale key, who may sign in).
+
+_PUBKEY_RE = re.compile(r"^ssh-(ed25519|rsa) [A-Za-z0-9+/=]{16,}( [A-Za-z0-9@._-]{0,64})?$")
+
+
+async def share_info() -> dict:
+    """What another bot needs to deploy onto this bot's VM."""
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "This bot isn't running on a server."}
+    user = cfg.server_ssh_user or "ubuntu"
+    try:
+        conn = await _connect(cfg.server_host, user)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    try:
+        env = parse_env(await _run(conn, f"cat ~/{app_dir_of(cfg)}/.env 2>/dev/null || true", timeout=30))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
+    return {
+        "ok": True,
+        "host": cfg.server_host,
+        "user": user,
+        "tailscale_auth": env.get("TAILSCALE_AUTH", ""),
+        "admin_allowlist": env.get("ADMIN_ALLOWLIST", ""),
+    }
+
+
+async def authorize_key(pubkey: str) -> dict:
+    """Add another bot's SSH public key to this bot's VM, so that bot can deploy there and
+    drive its own install without the operator touching the VM."""
+    key = " ".join((pubkey or "").split())
+    if not _PUBKEY_RE.match(key):
+        return {"ok": False, "error": "That isn't an SSH public key."}
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "This bot isn't running on a server."}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    # The key matched a pattern with no quotes or shell metacharacters, so single quotes
+    # hold it safely.
+    script = (
+        "set -e; umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; "
+        f"grep -qxF '{key}' ~/.ssh/authorized_keys || printf '%s\\n' '{key}' >> ~/.ssh/authorized_keys"
+    )
+    try:
+        await _run(conn, script, timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
     return {"ok": True}
 
 
@@ -315,9 +590,9 @@ esac
 """
 
 
-def _probe_script() -> str:
+def _probe_script(app_dir: str = APP_DIR) -> str:
     return (
-        _PROBE_TEMPLATE.replace("@APP_DIR@", APP_DIR)
+        _PROBE_TEMPLATE.replace("@APP_DIR@", app_dir)
         .replace("@DATA@", VM_DATA_DIR)
         .replace("@FMT_CONTAINER@", _FMT_CONTAINER)
         .replace("@FMT_IMAGE@", _FMT_IMAGE)
@@ -403,10 +678,10 @@ def parse_probe(out: str) -> dict:
     }
 
 
-async def _probe(conn) -> dict:
+async def _probe(conn, app_dir: str) -> dict:
     """Run the probe over an open connection and parse it. Raises on a failed probe."""
     r = await asyncio.wait_for(
-        conn.run("bash -s", input=_probe_script(), check=False), timeout=45
+        conn.run("bash -s", input=_probe_script(app_dir), check=False), timeout=45
     )
     out = (r.stdout or "") + (r.stderr or "")
     if r.exit_status not in (0, None):
@@ -425,7 +700,7 @@ async def last_update() -> dict:
     except Exception:  # noqa: BLE001 — informational only
         return {}
     try:
-        return await _read_json(conn, f"~/{APP_DIR}/last-update.json")
+        return await _read_json(conn, f"~/{app_dir_of(cfg)}/last-update.json")
     finally:
         conn.close()
 
@@ -467,36 +742,35 @@ def hold(*, target: str | None, server: str, channel: str) -> dict | None:
     return None
 
 
-async def _apply_update(conn, host: str, server_version: str | None = None) -> dict:
+async def _apply_update(conn, host: str, app_dir: str, server_version: str | None = None) -> dict:
     """Run the VM's update script over an open connection and report what it did.
 
     The single implementation behind every trigger — the control panel's "Update now" and
     the automatic reconcile below both land here, so an attended update and an unattended
-    one cannot diverge. ``host`` is the VM this connection belongs to, so the outcome is
-    recorded against the right bot. ``server_version`` is what the VM reports running, when
-    the caller has already probed it.
+    one cannot diverge. ``host`` and ``app_dir`` are the install this connection belongs to,
+    so the outcome is recorded against the right bot. ``server_version`` is what the VM
+    reports running, when the caller has already probed it.
     """
     tag = await _target()
     if server_version is None:
-        server_version = (await _probe(conn)).get("version") or ""
+        server_version = (await _probe(conn, app_dir)).get("version") or ""
     result = hold(target=tag, server=server_version, channel=updates.channel())
     out = ""
     script_ok = False
     if result is None:
-        # A VM last touched by an older client has no script yet — install it first.
-        probe_script = await asyncio.wait_for(
-            conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False), timeout=30
-        )
-        if "OK" not in (probe_script.stdout or ""):
-            await _install_managed(conn)
+        # Always this build's script: one an older client left behind may predate the lock
+        # that keeps two bots on the same VM from updating at once.
+        await _install_managed(conn, app_dir)
         pin = f" --tag {shlex.quote(tag)}" if tag else ""
+        # Long enough to wait out another bot's update on the same VM (the script serialises
+        # them) and then run this one.
         r = await asyncio.wait_for(
-            conn.run(f"bash ~/{APP_DIR}/{UPDATE_SCRIPT}{pin}", check=False), timeout=1200
+            conn.run(f"bash ~/{app_dir}/{UPDATE_SCRIPT}{pin}", check=False), timeout=2400
         )
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         script_ok = r.exit_status == 0
-        result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
-    state = await _probe(conn)
+        result = await _read_json(conn, f"~/{app_dir}/last-update.json")
+    state = await _probe(conn, app_dir)
 
     # Stamp the build that reconciled this VM, so ``decide`` doesn't keep repeating a run
     # that already said its piece — a retry belongs to a *newer* client build, not to every
@@ -507,7 +781,7 @@ async def _apply_update(conn, host: str, server_version: str | None = None) -> d
     if decided(result):
         try:
             current = await _load()
-            if current and current.server_host == host:
+            if current and current.server_host == host and app_dir_of(current) == app_dir:
                 await runtime_config.save(server_synced_version=current_version())
         except Exception as exc:  # noqa: BLE001 — the update itself already happened
             log.warning("could not record the synced version: %s", exc)
@@ -550,7 +824,7 @@ async def update_image() -> dict:
         return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
     try:
         async with _gate:
-            applied = await _apply_update(conn, cfg.server_host)
+            applied = await _apply_update(conn, cfg.server_host, app_dir_of(cfg))
     except Exception as exc:  # noqa: BLE001
         return {**base, "ok": False, "reachable": True, "error": str(exc)}
     finally:
@@ -654,8 +928,9 @@ async def _reconcile() -> dict:
     except Exception as exc:  # noqa: BLE001
         log.info("auto-update: %s unreachable (%s) — retrying on the next launch", cfg.server_host, exc)
         return {"skipped": "unreachable"}
+    app_dir = app_dir_of(cfg)
     try:
-        state = await _probe(conn)
+        state = await _probe(conn, app_dir)
         reason = decide(
             client=client,
             server=state.get("version") or "",
@@ -669,7 +944,7 @@ async def _reconcile() -> dict:
         )
         _auto.update(running=True, reason=reason)
         try:
-            applied = await _apply_update(conn, cfg.server_host, state.get("version") or "")
+            applied = await _apply_update(conn, cfg.server_host, app_dir, state.get("version") or "")
         finally:
             _auto.update(running=False, reason="")
     except Exception as exc:  # noqa: BLE001 — a failed update must not take the app down
@@ -695,11 +970,12 @@ async def power(action: str) -> dict:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    app_dir = app_dir_of(cfg)
     try:
         if action == "up":
-            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
+            await _run(conn, f"cd ~/{app_dir} && sudo docker compose up -d", timeout=180)
         else:
-            await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
+            await _run(conn, f"cd ~/{app_dir} && sudo docker compose stop", timeout=120)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
@@ -719,7 +995,7 @@ async def logs(which: str = "bot", tail: int = 200) -> dict:
         conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
-    cmd = f"cd ~/{APP_DIR} && sudo docker compose logs --tail {n} --no-color 2>/dev/null || true"
+    cmd = f"cd ~/{app_dir_of(cfg)} && sudo docker compose logs --tail {n} --no-color 2>/dev/null || true"
     if which == "funnel":
         # Match the local funnel-log filter: tunnel loggers + the sidecar URL/error markers.
         cmd += " | grep -Ei 'olisar\\.tunnel|olisar\\.api\\.tunnel|tailscale|funnel|ts\\.net|OLISAR_FUNNEL_(URL|ERROR)'"
@@ -753,7 +1029,7 @@ async def status() -> dict:
     except Exception as exc:  # noqa: BLE001
         return {**base, "reachable": False, "error": str(exc)}
     try:
-        probe = await _probe(conn)
+        probe = await _probe(conn, app_dir_of(cfg))
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {**base, "reachable": True, "error": str(exc)}
@@ -769,14 +1045,30 @@ async def status() -> dict:
 # first (so the WAL is flushed) and keeps the old copy as a backup.
 
 
-async def _volume_name(conn) -> str:
-    """The actual Docker volume name backing `olisar-data` (Compose prefixes it with the
-    project name, e.g. `olisar_olisar-data`)."""
-    out = await _run(conn, "sudo docker volume ls -q --filter name=olisar-data 2>/dev/null || true", timeout=30)
-    for line in out.splitlines():
-        if line.strip():
-            return line.strip()
-    raise RuntimeError("couldn't find the olisar-data volume on the VM")
+def pick_volume(names: list[str], app_dir: str) -> str:
+    """The data volume of the compose project in ``~/<app_dir>`` among a VM's volumes.
+    Compose names a project after its directory, so that project's volume is
+    ``<app_dir>_olisar-data``. Pure, for the tests."""
+    names = [n.strip() for n in names if n.strip()]
+    exact = f"{app_dir}_olisar-data"
+    if exact in names:
+        return exact
+    # A VM with only ever one install, whose volume predates this naming (a hand-edited
+    # compose file): the old substring match, but only when it can't be someone else's.
+    candidates = [n for n in names if n.endswith("olisar-data")]
+    if app_dir == APP_DIR and len(candidates) == 1:
+        return candidates[0]
+    return ""
+
+
+async def _volume_name(conn, app_dir: str) -> str:
+    """The actual Docker volume backing ``~/<app_dir>``'s `olisar-data` (Compose prefixes
+    it with the project name, e.g. `olisar_olisar-data`)."""
+    out = await _run(conn, "sudo docker volume ls -q 2>/dev/null || true", timeout=30)
+    name = pick_volume(out.splitlines(), app_dir)
+    if not name:
+        raise RuntimeError(f"couldn't find the data volume for ~/{app_dir} on the VM")
+    return name
 
 
 async def _sftp_exists(sftp, path: str) -> bool:
@@ -787,28 +1079,28 @@ async def _sftp_exists(sftp, path: str) -> bool:
         return False
 
 
-async def read_env(host: str, user: str) -> str:
+async def read_env(host: str, user: str, app_dir: str = APP_DIR) -> str:
     """The VM's `.env` text. For server-hosted bots the Discord creds + API keys live here
     (not in the local DB), so a move to local / another server reads them from here."""
     conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
     try:
-        return await _run(conn, f"cat ~/{APP_DIR}/.env 2>/dev/null || true", timeout=30)
+        return await _run(conn, f"cat ~/{app_dir}/.env 2>/dev/null || true", timeout=30)
     finally:
         conn.close()
 
 
-async def export_data(host: str, user: str, dest_dir: Path) -> None:
+async def export_data(host: str, user: str, dest_dir: Path, app_dir: str = APP_DIR) -> None:
     """Stop the VM's container and copy its data — `olisar.db` (+ any WAL/SHM sidecars) and
     `kb_uploads/` — into the local `dest_dir` over SFTP. Leaves the container stopped and the
     volume intact, so the VM remains a full backup."""
     conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
     try:
-        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
-        vol = await _volume_name(conn)
-        await _run(conn, f"mkdir -p ~/{APP_DIR}/export && sudo rm -rf ~/{APP_DIR}/export/*", timeout=30)
+        await _run(conn, f"cd ~/{app_dir} && sudo docker compose stop", timeout=120)
+        vol = await _volume_name(conn, app_dir)
+        await _run(conn, f"mkdir -p ~/{app_dir}/export && sudo rm -rf ~/{app_dir}/export/*", timeout=30)
         await _run(
             conn,
-            f"sudo docker run --rm -v {vol}:/v -v ~/{APP_DIR}/export:/out {_HELPER_IMAGE} sh -c "
+            f"sudo docker run --rm -v {vol}:/v -v ~/{app_dir}/export:/out {_HELPER_IMAGE} sh -c "
             "'set -e; for f in olisar.db olisar.db-wal olisar.db-shm; do "
             "if [ -f /v/$f ]; then cp /v/$f /out/$f; fi; done; "
             "if [ -d /v/kb_uploads ]; then cp -a /v/kb_uploads /out/kb_uploads; fi; "
@@ -817,7 +1109,7 @@ async def export_data(host: str, user: str, dest_dir: Path) -> None:
         )
         dest_dir.mkdir(parents=True, exist_ok=True)
         async with conn.start_sftp_client() as sftp:
-            base = f"{await sftp.realpath('.')}/{APP_DIR}/export"
+            base = f"{await sftp.realpath('.')}/{app_dir}/export"
             for name in ("olisar.db", "olisar.db-wal", "olisar.db-shm"):
                 if await _sftp_exists(sftp, f"{base}/{name}"):
                     await sftp.get(f"{base}/{name}", str(dest_dir / name))
@@ -827,30 +1119,30 @@ async def export_data(host: str, user: str, dest_dir: Path) -> None:
         conn.close()
 
 
-async def import_data(host: str, user: str, src_dir: Path) -> None:
-    """Load a staged `olisar.db` (+ `kb_uploads/`) from `src_dir` into the VM's `olisar-data`
-    volume and (re)start the container. The compose file must already be present (deploy first).
-    Removes any stale WAL/SHM so the replaced DB opens clean."""
+async def import_data(host: str, user: str, src_dir: Path, app_dir: str = APP_DIR) -> None:
+    """Load a staged `olisar.db` (+ `kb_uploads/`) from `src_dir` into ``~/<app_dir>``'s data
+    volume and (re)start the container. The compose file must already be present (deploy
+    first). Removes any stale WAL/SHM so the replaced DB opens clean."""
     conn = await _connect(host, (user or "ubuntu").strip() or "ubuntu")
     try:
-        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose stop", timeout=120)
-        await _run(conn, f"mkdir -p ~/{APP_DIR}/import && sudo rm -rf ~/{APP_DIR}/import/*", timeout=30)
+        await _run(conn, f"cd ~/{app_dir} && sudo docker compose stop", timeout=120)
+        await _run(conn, f"mkdir -p ~/{app_dir}/import && sudo rm -rf ~/{app_dir}/import/*", timeout=30)
         async with conn.start_sftp_client() as sftp:
-            base = f"{await sftp.realpath('.')}/{APP_DIR}/import"
+            base = f"{await sftp.realpath('.')}/{app_dir}/import"
             await sftp.put(str(src_dir / "olisar.db"), f"{base}/olisar.db")
             kb = src_dir / "kb_uploads"
             if kb.is_dir():
                 await sftp.put(str(kb), f"{base}/kb_uploads", recurse=True)
-        vol = await _volume_name(conn)
+        vol = await _volume_name(conn, app_dir)
         await _run(
             conn,
-            f"sudo docker run --rm -v {vol}:/v -v ~/{APP_DIR}/import:/in {_HELPER_IMAGE} sh -c "
+            f"sudo docker run --rm -v {vol}:/v -v ~/{app_dir}/import:/in {_HELPER_IMAGE} sh -c "
             "'set -e; rm -f /v/olisar.db /v/olisar.db-wal /v/olisar.db-shm; "
             "cp /in/olisar.db /v/olisar.db; rm -rf /v/kb_uploads; "
             "if [ -d /in/kb_uploads ]; then cp -a /in/kb_uploads /v/kb_uploads; fi; "
             "chmod -R a+rwX /v'",
             timeout=600,
         )
-        await _run(conn, f"cd ~/{APP_DIR} && sudo docker compose up -d", timeout=180)
+        await _run(conn, f"cd ~/{app_dir} && sudo docker compose up -d", timeout=180)
     finally:
         conn.close()

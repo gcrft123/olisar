@@ -36,20 +36,35 @@ _INSECURE_DEFAULT = "dev-insecure-secret"  # the .env placeholder; never sign wi
 
 _cache: dict | None = None
 _cache_at = 0.0
-_local_base_url = ""  # the loopback origin the unified server is listening on
+_local_base_url = ""  # the loopback origin the console is reached at
+_listen_url = ""  # where this process's own server is listening, when that differs
 
 
 def set_local_base_url(url: str) -> None:
-    """Record the actual loopback origin the unified backend bound to (the port is
+    """Record the loopback origin the operator's console is served from (the port is
     chosen at runtime), so ``public_base_url()`` can return it in local mode."""
     global _local_base_url
     _local_base_url = url.rstrip("/")
 
 
 def local_base_url() -> str:
-    """The loopback origin Olisar is actually serving on — the Tailscale Funnel proxies
-    here. Falls back to the configured api port outside the unified app."""
+    """The loopback origin the console is served from — what the operator's browser uses,
+    and so what the local OAuth redirect is registered against. Falls back to the configured
+    api port outside the unified app."""
     return _local_base_url or f"http://127.0.0.1:{settings.api_port}"
+
+
+def set_listen_url(url: str) -> None:
+    """Record where this process is actually listening. Only differs from the console
+    origin for a bot run behind the desktop gateway, which listens on a private port."""
+    global _listen_url
+    _listen_url = url.rstrip("/")
+
+
+def listen_url() -> str:
+    """Where this process's own server is listening — the Tailscale Funnel proxies here, so
+    remote traffic reaches this bot directly rather than whichever one the console shows."""
+    return _listen_url or local_base_url()
 
 
 async def _load() -> dict:
@@ -108,9 +123,9 @@ async def target_guild_id() -> int:
 
 async def db_target_guild_id() -> int:
     """The home guild as stored in *this profile's* DB, with no fallback to the in-memory
-    ``settings`` value. Used when folding config into ``settings`` on a profile switch, so a
-    fresh profile (DB value 0) resets the home guild instead of inheriting the previous
-    profile's still-in-memory id."""
+    ``settings`` value. Used when folding config into ``settings`` at a bot (re)start, so a
+    DB that clears the home guild (value 0) clears it here instead of keeping the
+    still-in-memory id."""
     return int((await _load()).get("target_guild_id") or 0)
 
 

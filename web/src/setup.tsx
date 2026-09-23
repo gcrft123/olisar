@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { api } from './api'
+import { BotMenu, deviceNameFor, serverLabel, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
-import { FeedbackButton, SettingsModal, useFeedbackHost } from './settings'
+import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { logTail, reportBody, type FeedbackPrefill } from './feedback'
-import { Field, Text } from './ui'
+import { Field, Segmented, Select, Text } from './ui'
 
 export type SetupPrefill = {
   discord_token?: string
@@ -51,18 +52,19 @@ export function Cb({ file, code }: { file: string; code: string }) {
 
 // The app's SSH public key, fetched lazily when `enabled` (generated on first backend call).
 // Surfaces loading/error/retry so the key box never sticks on "generating…" if the fetch
-// hangs or fails (the fetch itself carries a timeout via api.serverPubkey).
-export function usePubkey(enabled: boolean) {
+// hangs or fails (the fetch itself carries a timeout via api.serverPubkey). Each bot has its
+// own key: `botId` names one that isn't the bot on screen.
+export function usePubkey(enabled: boolean, botId?: string) {
   const [pubkey, setPubkey] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const retry = useCallback(() => {
     setLoading(true); setErr('')
-    api.serverPubkey()
+    ;(botId ? api.botPubkey(botId) : api.serverPubkey())
       .then((r: any) => setPubkey(r.public_key || ''))
       .catch((e: any) => setErr(e?.message || 'Couldn’t generate the SSH key.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [botId])
   useEffect(() => { if (enabled && !pubkey && !loading && !err) retry() }, [enabled, pubkey, loading, err, retry])
   return { pubkey, loading, err, retry }
 }
@@ -133,11 +135,17 @@ export function SetupWizard(
 ) {
   // Pre-fill from `.env` when the backend supplied it (loopback + not configured).
   const pf = status.prefill || {}
+  // In the desktop app this may be one of several bots. Its Tailscale device name defaults to
+  // its own name, so two bots' web addresses don't collide; the original keeps "olisar".
+  const bots = useBots()
+  const thisBot = bots.current
+  const shared = sharedServers(bots.bots, bots.activeId)
 
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState<'' | 'local' | 'tunnel'>('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   // Feedback opened from a failure below arrives pre-filled in this screen's own Settings.
   const [fbPrefill, setFbPrefill] = useState<FeedbackPrefill | undefined>(undefined)
   useFeedbackHost((p) => { setFbPrefill(p); setSettingsOpen(true) })
@@ -157,7 +165,9 @@ export function SetupWizard(
 
   // Step 3 — hosting mode
   const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
-  const [tunnelNode, setTunnelNode] = useState('olisar')
+  const [tunnelNode, setTunnelNode] = useState(
+    thisBot && thisBot.id !== 'default' ? deviceNameFor(thisBot.name) : 'olisar',
+  )
   const [tunnelAuthKey, setTunnelAuthKey] = useState(pf.tunnel_token || '')
   const [provisioning, setProvisioning] = useState(false)
   const [tunnelDone, setTunnelDone] = useState(false)
@@ -178,11 +188,43 @@ export function SetupWizard(
   const [deploying, setDeploying] = useState(false)
   const [deployLog, setDeployLog] = useState('')
   const [deployErr, setDeployErr] = useState('')
+  // A VM running several bots: which install is this one (the connect screen asks).
+  const [installs, setInstalls] = useState<{ dir: string; name: string }[]>([])
+  const [installDir, setInstallDir] = useState('')
+
+  // Server hosting can go on a server another bot already runs on: nothing to create, no key
+  // to paste — that bot lets this one in (see api.shareServer). Offered first when there is
+  // one. `source` is the other bot's id, or 'new'.
+  const [sourceChoice, setSourceChoice] = useState<string | null>(null)
+  const source = sourceChoice ?? (shared[0]?.from.id || 'new')
+  const sharing = source !== 'new'
+  const [share, setShare] = useState<{ from: string; host: string; user: string } | null>(null)
+  const [shareBusy, setShareBusy] = useState(false)
+  const [shareErr, setShareErr] = useState('')
 
   // The app's SSH key: always needed on the Deploy step (new VM); on the connect/reconnect
   // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
   // when the operator expands "Can't connect?".
-  const pk = usePubkey((step === 3 && mode === 'server') || (connectMode && showKey))
+  const pk = usePubkey((step === 3 && mode === 'server' && !sharing) || (connectMode && showKey))
+
+  // Reaching the Deploy step with another bot's server picked: get this bot let in, and
+  // carry over what the new install should reuse unless the operator already typed it.
+  useEffect(() => {
+    if (!(step === 3 && mode === 'server' && sharing) || share?.from === source) return
+    let alive = true
+    setShareBusy(true); setShareErr('')
+    api.shareServer(source)
+      .then((r: any) => {
+        if (!alive) return
+        if (!r?.ok) throw new Error(r?.error || 'Couldn’t use that server.')
+        setShare({ from: source, host: r.host, user: r.user || 'ubuntu' })
+        setTunnelAuthKey((k) => k || r.tailscale_auth || '')
+        setAdminUser((a) => a || r.admin_allowlist || '')
+      })
+      .catch((e: any) => { if (alive) setShareErr(e?.message || 'Couldn’t use that server.') })
+      .finally(() => { if (alive) setShareBusy(false) })
+    return () => { alive = false }
+  }, [step, mode, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Step 4 — keys
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
@@ -261,12 +303,15 @@ export function SetupWizard(
   // flips to the remote control panel.
   async function deployServer() {
     setDeployErr('')
-    if (!serverHost.trim()) return setDeployErr('Enter the VM’s public IP address.')
+    const host = sharing ? share?.host || '' : serverHost.trim()
+    const user = sharing ? share?.user || 'ubuntu' : serverUser.trim() || 'ubuntu'
+    if (sharing && !host) return setDeployErr(shareErr || 'Still connecting to that server.')
+    if (!host) return setDeployErr('Enter the VM’s public IP address.')
     if (!(gemini.trim() && tunnelAuthKey.trim()))
       return setDeployErr('A Gemini key and a Tailscale auth key are both required.')
     setDeploying(true); setDeployLog('')
     try {
-      const r = await api.serverDeploy({ host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', env: envFile })
+      const r = await api.serverDeploy({ host, user, env: envFile })
       if (r?.ok) { onDone() }
       else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
     } catch (e: any) {
@@ -283,8 +328,14 @@ export function SetupWizard(
     if (!serverHost.trim()) return setDeployErr('Enter the VM’s public IP address.')
     setDeploying(true)
     try {
-      const r = await api.serverConnect({ host: serverHost.trim(), user: serverUser.trim() || 'ubuntu' })
+      // Another bot here already runs on that VM: have it let this bot's key in first.
+      const via = shared.find((x) => x.host === serverHost.trim())
+      if (via) await api.shareServer(via.from.id).catch(() => null)
+      const r = await api.serverConnect({
+        host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', app_dir: installDir || undefined,
+      })
       if (r?.ok) { onDone() }
+      else if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
       else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
@@ -317,12 +368,14 @@ export function SetupWizard(
   return (
     <div className="setup">
       <div className="box">
-        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => setSettingsOpen(true)}>
+        <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
+        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
           <Icon.settings size={16} />
         </button>
         {settingsOpen && (
           <SettingsModal
-            sections={['general', 'updates', 'desktop', 'feedback']}
+            sections={['general', 'bots', 'updates', 'desktop', 'feedback']}
+            initialSection={settingsPane}
             prefill={fbPrefill}
             onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
           />
@@ -339,8 +392,13 @@ export function SetupWizard(
               <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
             </div>
             <Field label="VM public IP address" desc="The VM already running Olisar.">
-              <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
+              <Text value={serverHost} onChange={(v) => { setServerHost(v); setInstalls([]); setInstallDir('') }} placeholder="e.g. 203.0.113.9" mono />
             </Field>
+            {installs.length > 0 && (
+              <Field label="Which bot is this?" desc="This server runs more than one.">
+                <Select value={installDir} onChange={setInstallDir} options={installs.map((i) => ({ value: i.dir, label: i.name }))} />
+              </Field>
+            )}
             <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
               <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
               <div className="desc" style={{ marginTop: 8 }}>
@@ -532,6 +590,30 @@ export function SetupWizard(
 
         {step === 3 && mode === 'server' && !connectMode && (
           <>
+            {shared.length > 0 && (
+              <Segmented
+                className="deploy-seg"
+                ariaLabel="Which server"
+                value={source}
+                onChange={setSourceChoice}
+                options={[
+                  ...shared.map((x) => ({ value: x.from.id, label: serverLabel(x) })),
+                  { value: 'new', label: 'A new server' },
+                ]}
+              />
+            )}
+
+            {sharing ? (
+              <div className={'callout ' + (shareErr ? 'warning' : 'note')} style={{ marginBottom: 16 }}>
+                <span className="ic">{shareBusy ? <span className="spinner" /> : <Icon.info size={17} weight="Bold" />}</span>
+                <div className="callout-body">
+                  {shareBusy ? 'Connecting to that server…'
+                    : shareErr ? shareErr
+                    : <>Olisar adds this bot to <b>{share?.host}</b>, next to the one already there. Nothing to set up on the server.</>}
+                </div>
+              </div>
+            ) : (
+            <>
             <div className="deploy-seg">
               <button className={provider === 'oracle' ? 'on' : ''} onClick={() => setProvider('oracle')}>Oracle Cloud · free</button>
               <button className={provider === 'other' ? 'on' : ''} onClick={() => setProvider('other')}>Other cloud</button>
@@ -566,6 +648,8 @@ export function SetupWizard(
             <Field label="VM public IP address" desc="From the instance's details page.">
               <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
             </Field>
+            </>
+            )}
             <Field label="Gemini API key" desc={<>Powers everything Olisar says. Free key from {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>}>
               <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
             </Field>
@@ -629,7 +713,7 @@ export function SetupWizard(
                   </div>
                 : <button className="primary" onClick={next}>Continue</button>)
             : mode === 'server'
-              ? <button className="primary" disabled={deploying} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
+              ? <button className="primary" disabled={deploying || (sharing && shareBusy)} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
               : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}
         </div>
           </>
