@@ -14,6 +14,8 @@ Every release went to every install at once, and four since 1.0 needed a fix the
 
 ### New
 
+[f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
+
 [c6d7bd8] — Settings → Updates picks a channel: Stable gets finished releases, Beta gets early builds of the next one and every stable release as it ships.
 
 [c6d7bd8] — Switching from Beta to Stable keeps the beta you're on until a newer stable release is out, instead of taking you back to an older version.
@@ -63,6 +65,8 @@ Every release went to every install at once, and four since 1.0 needed a fix the
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
 
 ### Fixed
+
+[f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
 
 [a3933dc] — Message search only returns messages from channels the person asking can open. A member asking about a staff channel used to be told what was said there, who said it and when.
 
