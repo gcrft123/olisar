@@ -1319,13 +1319,9 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .bot-row .bot-ic { display: inline-flex; color: var(--text-2); }
 .bot-row.on .bot-ic { color: var(--accent); }
 .bot-row .bot-name { font-weight: 550; font-size: 13px; display: flex; align-items: baseline; gap: 8px; }
-.bot-row .bot-sub { color: var(--text-3); font-size: 11.5px; font-weight: 400; }
 /* The row's badges and seven controls leave the name ~120px, where "Red Nebula bot" took
-   three lines. Two, then an ellipsis. */
-.bot-row .bot-title {
-  min-width: 0; overflow: hidden; overflow-wrap: anywhere;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
-}
+   three lines. One line, then an ellipsis. */
+.bot-row .bot-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .bot-row .grow { flex: 1; }
 .bot-row .bot-actions { display: flex; align-items: center; gap: 6px; }
 /* A disabled control still has to be readable — it is saying "not available here", which
@@ -1365,6 +1361,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 .setup .wiz-foot .grow { flex: 1; }
 .setup .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
+/* A check's result sits in the footer beside the button that ran it, success or failure. */
+.setup .wiz-foot .err { margin-top: 0; }
+/* An in-step action row (Test token, Enable remote access) with a field after it: the row had
+   no space below, so the Remote access step's redirect URLs sat against its button. */
+.setup .wiz-foot + .field, .setup .err-help + .field { margin-top: 22px; }
 /* A failure with a way to report it: the error, then the secondary action under it, so the
    footer's Back / primary pair stays the only thing on the footer line. */
 .setup .err-block { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
@@ -1407,8 +1408,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
    button's own, so a longer label can never be clipped, and the growing thing is a grid
    track instead of the button's box — its text isn't re-laid-out on every frame. The 8px
    separation lives in the button's right padding so it's inside the animated track. */
+/* `justify-content: end` pins the tracks to the right. Under the default, the auto track
+   stretched into the free space the animating fr track opened up, so Continue widened from
+   84px to 131px and back while it slid out: the button lurched left on every hover. */
 .setup .cta-reveal { display: inline-grid; grid-template-columns: 0fr auto; align-items: center;
-  transition: grid-template-columns .22s var(--ease-out); }
+  justify-content: end; transition: grid-template-columns .22s var(--ease-out); }
 .setup .cta-reveal:hover, .setup .cta-reveal:focus-within { grid-template-columns: 1fr auto; }
 /* The slot is what clips — a grid item doesn't clip to its own track, so without this the
    button's 28px of horizontal padding leaves a stub sticking out of the collapsed column. */
