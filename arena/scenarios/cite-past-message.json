@@ -1,0 +1,15 @@
+{
+  "id": "cite-past-message",
+  "title": "An answer that rests on an older message links to it",
+  "lane": "live",
+  "tags": ["server-facts", "citations"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["salt", "mika"],
+  "beats": [
+    {"speaker": "salt", "text": "when do sign-ups for the october raid close?", "address": "name", "expect_reply": true, "timeout": 90},
+    {"speaker": "mika", "text": "ugh i always forget to sign up for these", "address": "name", "expect_reply": true, "timeout": 60}
+  ],
+  "checks": {"must_reply": true, "must_contain": ["discord.com/channels/"]},
+  "rubric": ["accuracy", "helpfulness", "brevity"],
+  "notes": "The answer lives in one message in another channel, so it comes from search_messages or recall, and the reply should paste that message's jump-link. The question is deliberately not 'where was it posted': the old briefing already allowed a link for that, and this is the case it didn't.\n\nSETUP (the fact has to be in a channel other than this one, which a scenario can't do by itself):\n  uv run python -m arena guild channel arena-guides\n  set #arena-guides to mode 'memory' and indexed (console Channels tab, or PUT /api/channels)\n  post as rook in #arena-guides: \"october raid sign-ups are open, form closes friday the 3rd at 8pm utc. mika's leading it\"\n\nWhat to read in the transcript beyond the check: the link should be the id of rook's message, not a neighbour's, and it should open for salt. The second beat is small talk and should come back without a link; a link there is citing for the sake of it."
+}
