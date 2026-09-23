@@ -4,7 +4,7 @@
 // loads when an operator drills in to create or edit.
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { Card, Field, Text, useDirtyGuard, usePageActions, useSaver } from './ui'
+import { Field, Text, useDirtyGuard, usePageActions, useSaver } from './ui'
 import { Icon } from './icons'
 import { confirmDialog } from './overlays'
 
@@ -147,7 +147,9 @@ export default function ExtensionEditor(props: {
         </p>
       </div>
 
-      <Card>
+      {/* No card: the editor already draws its own frame, and a box around a box was the
+          one thing on this screen that wasn't the code. */}
+      <div className="authoring-body">
         <Field label="Display name" desc="Optional. Defaults to the name set in your code.">
           <Text value={name} onChange={setName} placeholder="My extension" />
         </Field>
@@ -198,7 +200,7 @@ export default function ExtensionEditor(props: {
           {saver.saved && <span className="saved"><Icon.check size={15} weight="Bold" /> Saved</span>}
           {saver.error && <span className="err">{saver.error}</span>}
         </div>
-      </Card>
+      </div>
     </>
   )
 }

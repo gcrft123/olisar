@@ -12,6 +12,10 @@ Linking as a matter of course meant fixing what search had been doing all along.
 
 Every release went to every install at once, and four since 1.0 needed a fix the same day. There's now a beta channel: early builds of the next release go to the installs that opt into them, and a release reaches everyone else once it's done. Versions change shape with it. From 2.0 on a stable release has two numbers, 2.0, 2.1, and the betas leading up to one count up to it: 2.0.beta-1, 2.0.beta-2, then 2.0.
 
+The console itself was cards inside cards. Every group of settings sat in a bordered box, and every input in it was a bordered box too, so a page was mostly edges. Groups are now a heading and a thin rule, with each setting on its own row, and the controls are the only things with a border.
+
+When something went wrong, the way to tell the Olisar team was two clicks behind a gear, and it opened blank. The screens where people actually get stuck now link to it, and the form arrives filled in with what just happened.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -48,6 +52,26 @@ Every release went to every install at once, and four since 1.0 needed a fix the
 
 [1e2c722] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
 
+[ae7cbcb] — A failed server deploy in setup offers to send the error and the end of the install log to the Olisar team.
+
+[ae7cbcb] — Connecting or reconnecting to an existing server, and the last step of setup, offer a report when they fail, and a Tailscale failure offers to ask the team.
+
+[ae7cbcb] — The access-denied, no-servers and suspended screens can reach the Olisar team; the suspended screen said to contact them and gave no way to.
+
+[a8109fb] — Someone refused at sign-in can send that message from a remote console too, for an hour after the refusal, and it never carries the install's logs.
+
+[ae7cbcb] — A page that crashes, or fails to load again after Try again, has a Report button that arrives with the page and the error written in.
+
+[ae7cbcb] — Settings → Logs sends what it shows with a bug report.
+
+[ae7cbcb] — Test chat can report a reply that wasn't right, with what you said and what it answered.
+
+[ae7cbcb] — A failed or rolled-back server update stays on the server panel, with a link to report it, instead of appearing as a toast when the panel opens.
+
+[ae7cbcb] — Every docs page ends with a way to ask the team about it.
+
+[ae7cbcb] — The command palette finds Feedback when you type "report a bug", "contact the team" or "help".
+
 ### Changed
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -63,6 +87,20 @@ Every release went to every install at once, and four since 1.0 needed a fix the
 [a3e92ef] — The control panel reports an update it didn't start: **Updating…** while it runs, and the outcome when it lands, instead of reading the restarting container as a server that fell over.
 
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
+
+[ed004dd] — Console pages group their settings under a heading and a rule instead of in cards, with each setting's name and description on the left and its control on the right.
+
+[ed004dd] — A switch no longer repeats its setting in a caption beside it, and the two switches on Behavior that were both called "Enabled" are now "Speak up on its own" and "React with emoji".
+
+[ed004dd] — Members and the extension marketplace are lists instead of grids of cards.
+
+[ed004dd] — Usage shows today's four figures in one strip and its charts in panes split by a rule.
+
+[ed004dd] — Behavior puts Proactivity and Passive reactions straight after Engagement, and Persona keeps style notes and the bio in one section.
+
+[ed004dd] — Command replies splits slash commands from the replies Olisar sends on its own, and shows each reply beside its Discord preview.
+
+[ed004dd] — API keys lists Cloudflare before UEX.
 
 ### Fixed
 
@@ -83,6 +121,12 @@ Every release went to every install at once, and four since 1.0 needed a fix the
 [1e2c722] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
 
 [c23a12e] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
+
+[a80d9bb] — Warning callouts that open a section on Access no longer sit against their top edge.
+
+[a80d9bb] — The box shown when a page fails to load has a border and rounded corners; it referenced two tokens that don't exist.
+
+[a80d9bb] — A link inside a sentence no longer makes its line taller than the ones around it.
 
 ## [1.5.0] — 2026-09-21
 

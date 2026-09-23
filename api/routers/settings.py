@@ -5,8 +5,9 @@ status/logs/users, update checks, and the desktop menu-bar toggle. Account-scope
 from __future__ import annotations
 
 import logging
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from api.auth.deps import (
@@ -16,6 +17,8 @@ from api.auth.deps import (
     require_any_session,
     require_discord_identity,
 )
+from api.auth.oauth import DENIED_COOKIE, denied_identity
+from api.auth.sessions import COOKIE_NAME, MEMBER_COOKIE_NAME
 from api.routers.marketplace import _registry_error, _registry_post
 from api.schemas import DesktopSettingsIn, FeedbackIn, ToolPinIn, UpdateChannelIn
 from olisar import logbuffer, runtime_config, toolpin, updates
@@ -84,10 +87,45 @@ async def get_report(token: str, user_id: int = Depends(require_discord_identity
         }
 
 
+# Feedback from someone the console turned away: at most this many an hour per account.
+_DENIED_PER_HOUR = 5
+_denied_sent: dict[str, list[float]] = {}
+
+
+async def feedback_sender(
+    request: Request,
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+    olisar_member: str | None = Cookie(default=None, alias=MEMBER_COOKIE_NAME),
+    olisar_denied: str | None = Cookie(default=None, alias=DENIED_COOKIE),
+) -> str:
+    """Anyone ``require_any_session`` admits, plus a Discord account the console just refused.
+
+    The access-denied screen's only way out is telling the Olisar team you're stuck, and it
+    used to fail with 401: a refused sign-in creates no session. The refusal now leaves a
+    signed cookie naming the account (api/auth/oauth.py), and this is the one place that
+    reads it."""
+    try:
+        return await require_any_session(request, olisar_session, olisar_member)
+    except HTTPException:
+        user_id = await denied_identity(olisar_denied)
+        if user_id is None:
+            raise
+        return f"denied:{user_id}"
+
+
+def _limit_denied(actor: str) -> None:
+    now = time.monotonic()
+    recent = [t for t in _denied_sent.get(actor, []) if now - t < 3600]
+    if len(recent) >= _DENIED_PER_HOUR:
+        raise HTTPException(status_code=429, detail="Too many messages for now. Try again in an hour.")
+    recent.append(now)
+    _denied_sent[actor] = recent
+
+
 @router.post("/feedback")
 async def send_feedback(
     body: FeedbackIn,
-    actor: str = Depends(require_any_session),
+    actor: str = Depends(feedback_sender),
     user_id: int | None = Depends(discord_identity),
 ) -> dict:
     """Email feedback (feedback / bug report / question) to the platform owner via the
@@ -104,8 +142,14 @@ async def send_feedback(
     bug report carrying the wrong hour of logs is worse than one carrying none. The toggle
     still decides whether any are attached; the token only decides which.
     """
-    logs = body.logs
-    if body.include_logs:
+    # Someone the console turned away gets a message through and nothing else: never this
+    # install's logs, which span every member's activity. They can't manage this bot, so
+    # nothing in them is theirs to send.
+    turned_away = actor.startswith("denied:")
+    if turned_away:
+        _limit_denied(actor)
+    logs = "" if turned_away else body.logs
+    if body.include_logs and not turned_away:
         captured = ""
         if body.report_token and user_id is not None:
             # Same ownership rule as the GET: a token from someone else's button attaches
