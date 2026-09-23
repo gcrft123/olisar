@@ -24,6 +24,8 @@ The console had grown a description under nearly every setting, and many of them
 
 Setup showed four steps whichever way you chose to host Olisar, so two of the three choices fit their own setup into a step shaped for another. Each choice now has the steps it needs.
 
+Updating could leave the console on the version before it. The page was kept by the browser and reused without asking the server, so after 2.0.beta-2 the desktop window ran the old console against the new backend. The console's page is now checked with the server every time it loads.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -207,6 +209,8 @@ Setup showed four steps whichever way you chose to host Olisar, so two of the th
 [9da31c7] — "Turn on remote access before continuing" goes away once remote access is on.
 
 [9da31c7] — A UEX token entered while setting up a server now reaches the server.
+
+[ae930be] — After an update, the console opens as the new version instead of the previous one kept in the browser's cache, in the desktop app and in a browser opening a server's console.
 
 ## [1.5.0] — 2026-09-21
 
