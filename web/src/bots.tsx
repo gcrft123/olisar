@@ -367,24 +367,29 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
             const isDefault = b.id === defaultId
             const s = botStatus(b)
             const up = b.state === 'ready'
+            // Healthy is the default and says nothing, so only a bot that isn't up gets a chip.
+            // A server-hosted bot's line is where it runs, not whether it's down, so it stays text.
+            const healthy = up && !!b.configured && (b.hosting_mode === 'server' || !!b.bot?.ready)
             return (
               <div key={b.id} className={'bot-row' + (isCurrent ? ' on' : '')}>
                 <span className="bot-ic"><BotAvatar bot={b} /></span>
                 <div className="bot-name">
-                  {b.name}
-                  <span className={'bot-sub' + (s.tone ? ' ' + s.tone : '')}>
-                    {s.label}{b.hosting_mode === 'server' && b.server_host ? ` · ${b.server_host}` : ''}
-                  </span>
+                  <span className="bot-title">{b.name}</span>
+                  {healthy && b.hosting_mode === 'server' && (
+                    <span className="bot-sub">On a server{b.server_host ? ` · ${b.server_host}` : ''}</span>
+                  )}
                 </div>
+                {/* No Default chip: the filled star beside Open already says this bot opens on
+                    launch, and the chip was the same fact twice in one row. */}
                 <div className="bot-badges">
-                  {isDefault && <span className="badge">Default</span>}
+                  {!healthy && <span className={'badge' + (s.tone ? ' ' + s.tone : '')}>{s.label}</span>}
                   {isCurrent && <span className="badge success">Current</span>}
                 </div>
                 <div className="bot-actions">
                   {/* Disabled, not hidden: every row shows the same controls in the same
                       order, so a position always means the same action and the row never
-                      reflows as state changes. The Current and Default chips already say
-                      why a control is off, on screen. */}
+                      reflows as state changes. The Current chip and the filled star already
+                      say why a control is off, on screen. */}
                   {b.state === 'failed'
                     ? <button disabled={busy} onClick={() => restart(b)} aria-label={`Try starting ${b.name} again`}>Retry</button>
                     : <button disabled={busy || isCurrent} onClick={() => openBot(b.id)} aria-label={`Open ${b.name}`}>Open</button>}

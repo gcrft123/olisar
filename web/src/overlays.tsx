@@ -217,9 +217,16 @@ export function Modal(props: {
     const leaving = backdrop.current
     return () => {
       if (app && --openModals <= 0) { openModals = 0; app.inert = false }
-      const back = returnTo.current
-      if (back?.isConnected) back.focus()
-      playExit(leaving)
+      // StrictMode's dev-only rehearsal runs this cleanup with the dialog still on screen and
+      // mounts it straight back. Playing the exit then laid a fully opaque clone over the
+      // entering dialog, so every modal opened on a frame of its final state and then two
+      // copies crossing. A real unmount has detached the node by the time this settles.
+      queueMicrotask(() => {
+        if (leaving?.isConnected) return
+        const back = returnTo.current
+        if (back?.isConnected) back.focus()
+        playExit(leaving)
+      })
     }
   }, [])
 
