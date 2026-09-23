@@ -329,6 +329,8 @@ export const api = {
   // 404s once it expires, and for anyone but the account it happened to.
   getReport: (token: string) => req(`/api/settings/report/${encodeURIComponent(token)}`),
   getUpdates: () => req('/api/settings/updates'),
+  putUpdateChannel: (channel: 'stable' | 'beta') =>
+    req('/api/settings/updates/channel', { method: 'PUT', body: JSON.stringify({ channel }) }),
   getRemote: () => req('/api/settings/remote'),
   // The tool PIN. The GET never returns the PIN itself — only whether one is set.
   getPin: () => req('/api/settings/pin'),

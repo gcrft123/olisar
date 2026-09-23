@@ -303,7 +303,7 @@ function rebuildTray() {
     ...tunnelItem,
     { label: 'Refresh status', click: refreshStatus },
     { type: 'separator' },
-    { label: `Olisar ${app.getVersion()}`, enabled: false },
+    { label: `Olisar ${updater.displayVersion(app.getVersion())}`, enabled: false },
     ...updateItems,
     { type: 'separator' },
     { label: 'Quit Olisar', click: () => { app.isQuitting = true; app.quit() } },

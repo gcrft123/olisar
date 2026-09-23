@@ -92,6 +92,21 @@ class DecideTests(unittest.TestCase):
         """A newer build is a new situation — the release that broke may be fixed in it."""
         self.assertEqual(decide(client="1.7.0", server="v1.5.0", synced="1.6.0"), "client-ahead")
 
+    def test_the_first_beta_carries_a_1_x_server_along(self) -> None:
+        """The app reports its semver spelling, the image label the tag's."""
+        self.assertEqual(decide(client="2.0.0-beta.1", server="v1.5.0", synced="1.5.0"), "client-ahead")
+
+    def test_a_beta_app_level_with_its_server_does_nothing(self) -> None:
+        self.assertEqual(decide(client="2.0.0-beta.1", server="v2.0.beta-1", synced=""), "")
+
+    def test_the_stable_release_overtakes_a_beta_server(self) -> None:
+        self.assertEqual(decide(client="2.0.0", server="v2.0.beta-3", synced="2.0.0-beta.3"), "client-ahead")
+
+    def test_a_beta_server_is_not_behind_a_stable_app_it_leads(self) -> None:
+        """Switched to stable while the VM kept the newer beta: nothing to do until a stable
+        release passes it."""
+        self.assertEqual(decide(client="1.5.0", server="v2.0.beta-1", synced="1.5.0"), "")
+
 
 class DecidedTests(unittest.TestCase):
     """Which outcomes count as "this build has had its go at this VM".

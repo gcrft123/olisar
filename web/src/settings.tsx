@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
@@ -6,6 +6,8 @@ import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { BotsPane, useBots } from './bots'
 import { SCALES, getScale, setScale } from './theme'
+import { openFeedback, registerFeedbackHost, type FeedbackPrefill } from './feedback'
+import { isBeta } from './version'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
@@ -59,10 +61,11 @@ export function clearPendingReport(): void {
 }
 
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
-// gears show a subset. `report` opens Feedback pre-filled from a parked blank reply.
+// gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
+// `prefill` opens it pre-filled from whatever screen sent the operator here.
 export function SettingsModal(
-  { onClose, sections, initialSection, report }:
-  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string },
+  { onClose, sections, initialSection, report, prefill }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
   // so an unfiltered modal must not offer both. 'bots' needs the desktop app's gateway.
@@ -70,9 +73,15 @@ export function SettingsModal(
   const visible = (sections ? SECTIONS.filter((s) => sections.includes(s.id))
     : SECTIONS.filter((s) => s.id !== 'size'))
     .filter((s) => s.id !== 'bots' || bots.available || bots.loading)
+  const hasFeedback = visible.some((v) => v.id === 'feedback')
+  const first = prefill && hasFeedback ? 'feedback' : initialSection
   const [section, setSection] = useState<SectionId>(
-    (initialSection && visible.some((v) => v.id === initialSection) ? initialSection : visible[0]?.id) ?? 'general',
+    (first && visible.some((v) => v.id === first) ? first : visible[0]?.id) ?? 'general',
   )
+  // The pre-fill Feedback opens with. Keyed, so a second hand-off from inside this modal
+  // (Logs → "Send with a bug report") starts a fresh form rather than keeping the last one.
+  const [fb, setFb] = useState<{ prefill?: FeedbackPrefill; n: number }>({ prefill, n: 0 })
+  const goFeedback = (p: FeedbackPrefill) => { setFb((f) => ({ prefill: p, n: f.n + 1 })); setSection('feedback') }
 
   // Escape and a backdrop click reach this sheet from anywhere inside it, including the
   // Feedback pane's composer. Ask before discarding text the operator typed but never sent.
@@ -91,8 +100,10 @@ export function SettingsModal(
   }
 
   return (
-    <Modal className="settings-modal" label="Settings" onClose={guardedClose}>
-        <nav className="settings-nav" aria-label="Settings sections">
+    <Modal className={'settings-modal' + (visible.length === 1 ? ' single' : '')} label={visible.length === 1 ? visible[0].label : 'Settings'} onClose={guardedClose}>
+        {/* A modal opened for one pane (Feedback from a screen that has no Settings of its
+            own) gets no nav: a column holding a single item is a menu with nothing to pick. */}
+        {visible.length > 1 && <nav className="settings-nav" aria-label="Settings sections">
           {visible.map((s) => {
             const Glyph = Icon[s.ic]
             return (
@@ -106,7 +117,7 @@ export function SettingsModal(
               </button>
             )
           })}
-        </nav>
+        </nav>}
         <div className="settings-body">
           <button className="settings-close" onClick={guardedClose} aria-label="Close settings" title="Close (Esc)">
             <CloseX size={18} />
@@ -115,12 +126,12 @@ export function SettingsModal(
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
           {section === 'bots' && <BotsPane Head={Head} />}
-          {section === 'logs' && <Logs />}
+          {section === 'logs' && <Logs onReport={hasFeedback ? () => goFeedback({ category: 'Bug report', logs: true }) : undefined} />}
           {section === 'security' && <Security />}
           {section === 'remote' && <Remote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
-          {section === 'feedback' && <Feedback report={report} />}
+          {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
         </div>
     </Modal>
   )
@@ -130,7 +141,7 @@ export function SettingsModal(
 // Bot / Funnel are read from the server VM over SSH (server-hosting mode); This app is the
 // local backend's own log buffer. Bot/Funnel return an "only for server-hosted bots" note
 // when there's no VM configured.
-function Logs() {
+function Logs({ onReport }: { onReport?: () => void }) {
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
   const [source, setSource] = useState<'vm' | 'local'>('vm')
@@ -172,8 +183,11 @@ function Logs() {
           ? 'Container logs from the server, newest first.'
           : 'This bot’s own output, newest first.'}
       />
-      {/* Same toolbar as the Activity ledger, so reload sits in one place across the modal. */}
+      {/* Same toolbar as the Activity ledger, so reload sits in one place across the modal.
+          Nobody opens the logs when things are fine, so the way to report what they show sits
+          beside them, and arrives with "Add bot logs" already on. */}
       <div className="act-toolbar">
+        {onReport && <button className="ghost" onClick={onReport}>Send with a bug report</button>}
         <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh logs" onClick={load}>
           <Icon.refresh size={15} />
         </button>
@@ -238,12 +252,12 @@ function reportDraft(r: { prompt?: string; when?: string; server?: string; chann
   ].join('\n')
 }
 
-function Feedback({ report }: { report?: string }) {
-  const [category, setCategory] = useState(report ? 'Bug report' : 'Feedback')
-  const [message, setMessage] = useState('')
+function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPrefill }) {
+  const [category, setCategory] = useState<string>(report ? 'Bug report' : prefill?.category ?? 'Feedback')
+  const [message, setMessage] = useState(prefill?.message ?? '')
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
-  const [logsAttached, setLogsAttached] = useState(false)
+  const [logsAttached, setLogsAttached] = useState(!!prefill?.logs)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   // The parked failure this report is about, once the server confirms it's ours to claim.
@@ -253,7 +267,7 @@ function Feedback({ report }: { report?: string }) {
   // What we pre-filled, so an untouched draft isn't mistaken for theirs. Without it,
   // opening a report and deciding not to file it asked "Discard your message?" about text
   // the console wrote — a guard on work nobody did.
-  const prefilled = useRef('')
+  const prefilled = useRef(prefill?.message ?? '')
   // A written-but-unsent message is work. Escape used to bin it silently.
   useDraft(() => !done && message.trim() !== '' && message !== prefilled.current)
 
@@ -351,12 +365,12 @@ function Feedback({ report }: { report?: string }) {
         </div>
       )}
       <Field label="Type"><Select value={category} onChange={setCategory} options={FEEDBACK_TYPES} /></Field>
-      <Field label="Message"><Area value={message} onChange={setMessage} rows={claimed ? 9 : 6} placeholder={placeholder} /></Field>
+      <Field label="Message"><Area value={message} onChange={setMessage} rows={claimed || prefill?.message ? 9 : 6} placeholder={placeholder} /></Field>
       <Field label="Your email" desc="Optional, so the team can reply."><Text value={email} onChange={setEmail} placeholder="you@example.com" /></Field>
       <div className="settings-subhead">Attachments (optional)</div>
       <div className="report-attach">
         <button className="ghost" onClick={() => fileRef.current?.click()}><Icon.add size={14} /> Add files</button>
-        <button className={'ghost' + (logsAttached ? ' on' : '')} aria-pressed={logsAttached} onClick={toggleLogs}><Icon.pulse size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}</button>
+        {!prefill?.noLogs && <button className={'ghost' + (logsAttached ? ' on' : '')} aria-pressed={logsAttached} onClick={toggleLogs}><Icon.pulse size={14} /> {logsAttached ? 'Bot logs attached' : 'Add bot logs'}</button>}
       </div>
       {files.length > 0 && (
         <div className="report-files">
@@ -369,6 +383,36 @@ function Feedback({ report }: { report?: string }) {
       <div className="settings-row end" style={{ marginTop: 18 }}>
         <button className="primary" onClick={submit} disabled={busy || !message.trim()}>{busy ? 'Sending…' : 'Send'}</button>
       </div>
+    </>
+  )
+}
+
+// ── Opening Feedback from elsewhere ───────────────────────────────────────────
+/** Make this screen's Settings modal the one `openFeedback` opens. */
+export function useFeedbackHost(open: (prefill?: FeedbackPrefill) => void): void {
+  const latest = useRef(open)
+  latest.current = open
+  useEffect(() => registerFeedbackHost((p) => latest.current(p)), [])
+}
+
+/** For a parent that owns a Settings modal but can't call hooks where it renders it (App's
+ *  console branch sits below a run of early returns). Mounted only while that branch is. */
+export function FeedbackHost({ onOpen }: { onOpen: (prefill?: FeedbackPrefill) => void }) {
+  useFeedbackHost(onOpen)
+  return null
+}
+
+/** A button that opens Feedback pre-filled. On a screen with a Settings modal it opens there;
+ *  on one without (access denied, suspended), it opens a Feedback-only modal of its own. */
+export function FeedbackButton(props: { prefill?: FeedbackPrefill; className?: string; children: ReactNode }) {
+  const [local, setLocal] = useState<FeedbackPrefill | null>(null)
+  return (
+    <>
+      <button type="button" className={props.className ?? 'ghost'}
+        onClick={() => { if (!openFeedback(props.prefill)) setLocal(props.prefill ?? {}) }}>
+        {props.children}
+      </button>
+      {local && <SettingsModal sections={['feedback']} prefill={local} onClose={() => setLocal(null)} />}
     </>
   )
 }
@@ -701,11 +745,14 @@ const desktopUpdates = () => (window as any).olisar?.updates as
   | { state: () => Promise<any>; check: () => Promise<any>; install: () => Promise<any> }
   | undefined
 
+type Channel = 'stable' | 'beta'
+
 function Updates() {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
   const [canSelfUpdate, setCanSelfUpdate] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [channel, setChannel] = useState<Channel | null>(null)
   const du = desktopUpdates()
 
   const load = (notify = false) => {
@@ -718,6 +765,7 @@ function Updates() {
     ])
       .then(([backend, desk]: [any, any]) => {
         setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate)
+        if (backend?.channel) setChannel(backend.channel)
         if (notify) {
           if (backend?.error) toast(backend.error, 'danger')
           else if (backend?.available) toast(`Update available — ${backend.latest}`, 'success')
@@ -727,6 +775,20 @@ function Updates() {
       .finally(() => setChecking(false))
   }
   useEffect(() => { load() }, [])
+
+  // Saved by the backend, where the desktop shell reads it too, then re-checked so the
+  // card and the tray both answer for the new channel.
+  const pickChannel = async (next: Channel) => {
+    const prev = channel
+    setChannel(next)
+    try {
+      await api.putUpdateChannel(next)
+      load()
+    } catch (e: any) {
+      setChannel(prev)
+      toast(e?.message || "Couldn't change the update channel", 'danger')
+    }
+  }
 
   const install = async () => {
     if (!du) return
@@ -768,6 +830,21 @@ function Updates() {
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
+      <div className="settings-subhead">Channel</div>
+      <div className="settings-row">
+        {channel === null ? <span className="settings-muted">…</span> : (
+          <Segmented
+            className="useg"
+            ariaLabel="Update channel"
+            value={channel}
+            onChange={pickChannel}
+            options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
+          />
+        )}
+      </div>
+      {channel === 'stable' && isBeta(data?.current) && (
+        <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
+      )}
       {!du && (
         <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
       )}
