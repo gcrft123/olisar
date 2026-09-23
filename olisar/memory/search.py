@@ -14,8 +14,9 @@ fused:
   (e.g. an ``#announcements`` post), which live outside ``search_message``.
 
 Each candidate is returned with a Discord jump-link so the model can cite it.
-Bot/self messages and other guilds are filtered out; opt-out users were never
-indexed (and ``/forget-me`` purges them — see olisar/memory/purge.py).
+Bot/self messages, other guilds, and channels the asker can't open are filtered
+out; opt-out users were never indexed (and ``/forget-me`` purges them — see
+olisar/memory/purge.py).
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from olisar.db.models import (
 )
 from olisar.gemini.embeddings import embed_query
 from olisar.memory.vectors import knn
+from olisar.message_links import ChannelFilter, message_link
 
 log = logging.getLogger("olisar.search")
 
@@ -398,6 +400,27 @@ async def _name_triggers(session: AsyncSession, guild_id: int) -> list[str]:
     return list(config.name_triggers or []) if config else []
 
 
+async def _only_readable(
+    cands: list[_Cand], readable: ChannelFilter | None, query: str
+) -> list[_Cand]:
+    """Drop server hits from channels the person asking can't open.
+
+    Runs before the top k is taken, so a hidden channel's hits give their places to
+    readable ones rather than leaving the list short. DM hits are already scoped to the
+    asker's own conversation and pass as they are."""
+    if readable is None:
+        return cands
+    ids = {c.channel_id for c in cands if not c.is_dm}
+    ok = await readable(ids) if ids else set()
+    kept = [c for c in cands if c.is_dm or c.channel_id in ok]
+    if len(kept) != len(cands):
+        log.info(
+            "search_messages(%r): hid %d hit(s) from %d channel(s) the asker can't open",
+            query, len(cands) - len(kept), len(ids - ok),
+        )
+    return kept
+
+
 async def _channel_labels(
     session: AsyncSession, guild_id: int, channel_ids: set[int]
 ) -> dict[int, str]:
@@ -421,11 +444,18 @@ async def search_messages(
     *,
     guild_id: int,
     query: str,
+    readable: ChannelFilter | None,
     k: int = FINAL_K,
     dm_channel_id: int | None = None,
 ) -> str:
     """Search the server's message history. Returns a rendered candidate block (with
     Discord jump-links) for the model to read and synthesize, or ''.
+
+    ``readable`` narrows the server hits to channels the person asking can open (see
+    olisar.message_links.channel_filter). It has no default so that every caller decides:
+    the index holds every channel Olisar can read, and a member asking about something
+    posted in a staff channel would otherwise be told what was said there, by whom, and
+    handed a link to it. ``None`` means no filter, for callers with no asker.
 
     ``dm_channel_id`` adds one specific DM channel (the guild-0 bucket is otherwise never
     searched), so a DM conversation can recall its own history. There is deliberately no
@@ -451,7 +481,7 @@ async def search_messages(
         except Exception:
             log.exception("a search pass failed; continuing with the others")
 
-    ranked = _fuse(_merge(passes))
+    ranked = await _only_readable(_fuse(_merge(passes)), readable, query)
 
     # Drop questions put to the bot before ranking decides anything. See
     # _is_question_to_bot: these are the strongest keyword match for a query on the same
@@ -509,11 +539,7 @@ async def search_messages(
             lines.append(f'- DM · {who} · {date} · "{_snippet(c.content)}"{tag}')
             continue
         ch = c.channel_name or labels.get(c.channel_id) or str(c.channel_id)
-        link = (
-            f" · https://discord.com/channels/{guild_id}/{c.channel_id}/{c.message_id}"
-            if c.message_id
-            else ""
-        )
+        link = f" · {message_link(guild_id, c.channel_id, c.message_id)}" if c.message_id else ""
         lines.append(f'- #{ch} · {who} · {date} · "{_snippet(c.content)}"{tag}{link}')
 
     log.info(
@@ -525,8 +551,8 @@ async def search_messages(
         ),
     )
     header = (
-        "Message search results (skim these and answer the question; include a "
-        "jump-link only if they're asking where or when something was posted):"
+        "Message search results (skim these and answer the question; if your answer "
+        "rests on one of them, paste its jump-link):"
     )
     if label_mode == "tags+note" and asked_count and asked_count >= len(cands) / 2:
         # Measured worse than tags alone — see _label_questions_mode. Retained only so the

@@ -20,14 +20,13 @@ from api.auth.deps import (
 from api.auth.oauth import DENIED_COOKIE, denied_identity
 from api.auth.sessions import COOKIE_NAME, MEMBER_COOKIE_NAME
 from api.routers.marketplace import _registry_error, _registry_post
-from api.schemas import DesktopSettingsIn, FeedbackIn, ToolPinIn
-from olisar import logbuffer, runtime_config, toolpin
+from api.schemas import DesktopSettingsIn, FeedbackIn, ToolPinIn, UpdateChannelIn
+from olisar import logbuffer, runtime_config, toolpin, updates
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, AppConfig, Guild, GuildChannelInfo
 from olisar.failures import claim as claim_failure
-from olisar.updates import check_latest
 
 log = logging.getLogger("olisar.api.settings")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -42,8 +41,17 @@ async def get_logs(lines: int = 500, _: AdminUser | None = Depends(require_admin
 
 @router.get("/updates")
 async def get_updates(_: AdminUser | None = Depends(require_admin_or_local)) -> dict:
-    """Whether a newer Olisar release is on GitHub."""
-    return await check_latest()
+    """Whether a newer Olisar release is on GitHub, on this install's update channel."""
+    return await updates.check_latest()
+
+
+@router.put("/updates/channel")
+async def put_update_channel(
+    body: UpdateChannelIn, _: AdminUser | None = Depends(require_admin_or_local)
+) -> dict:
+    """Follow stable or beta releases. The desktop shell reads the same file before each
+    check, so the tray and the in-app installer switch with it."""
+    return {"channel": updates.set_channel(body.channel)}
 
 
 @router.get("/report/{token}")

@@ -320,6 +320,10 @@ start, the previous one is restored automatically. Your data is kept either way.
 The control panel's **Update to v…** button does the same thing on demand, which is what you want
 if you've skipped an update for the app but not for the server.
 
+The server follows the app's [update channel](#settings). On **Beta**, it runs the betas
+too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a
+stable release passes it.
+
 If you don't use the desktop app, update the VM from a terminal on it:
 
 \`\`\`
@@ -467,6 +471,14 @@ full under [Remote access](#remote).
 ## Updates
 Shows Olisar's **current version** and whether a newer one has been released. In the desktop app an
 available update can be installed in one click; from a browser you'll need to open the desktop app.
+
+**Channel** picks which releases you get:
+- **Stable**: finished releases, numbered **2.0**, **2.1** and so on.
+- **Beta**: early builds of the next release, numbered **2.1.beta-1**, **2.1.beta-2** and so on,
+  plus every stable release as it ships.
+
+Switching from Beta to Stable doesn't take you back to an older version. You stay on the beta you
+have until a newer stable release is out, then move onto it.
 
 ## Desktop app
 A single toggle, **Show in the menu bar**, for whether Olisar keeps its tray icon. It applies to the
@@ -1038,6 +1050,9 @@ Before each reply, Olisar assembles the most relevant context: recent summaries,
 in meaning to what's being asked, facts it remembers about you, the glossary, and matching passages from
 the knowledge base. That bundle is treated as **background data**, not instructions.
 
+Older messages only come from the channel Olisar is replying in and from channels **the person asking
+can open**, so a reply in a public channel never draws on a private one that person can't see.
+
 ## Server-wide search index
 Separately from the conversation memory above, **every message in every channel** (except any you
 exclude — see below) is indexed for keyword **and** meaning search. This is what powers questions like
@@ -1046,9 +1061,15 @@ was that link posted?" — Olisar searches the index and answers with a Discord 
 source.
 
 :::note Example
-"olisar, where did someone post the mod list?" → it searches the index and replies with the message and
-a link straight to it.
+"olisar, when do raid sign-ups close?" → "friday the 3rd at 8pm utc", followed by a link that opens the
+message it came from.
 :::
+
+- When an answer comes from **one specific past message**, from a search or from recall, Olisar links
+  that message. A link it wasn't actually given is removed before the reply is sent, so every link opens the
+  message it points to.
+- Results are limited to channels **the person asking can open**. Someone without access to a staff
+  channel gets nothing from it: no quote, no channel name, no link.
 
 - It reads **embeds** (so announcement posts and link previews are searchable) and posted **files** by
   name, and generates a short description of posted **images** so they turn up too.

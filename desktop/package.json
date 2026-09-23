@@ -1,7 +1,7 @@
 {
   "name": "olisar-desktop",
   "productName": "Olisar",
-  "version": "1.5.0",
+  "version": "2.0.0-beta.1",
   "description": "Olisar — a self-hosted AI Discord bot you run on your own machine.",
   "main": "main.js",
   "author": "Olisar",
@@ -10,10 +10,9 @@
     "start": "electron .",
     "dist": "electron-builder",
     "dist:mac": "electron-builder --mac --publish never",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
     "notarize:dmg": "node build/notarize-dmg.js",
-    "release:mac": "npm run dist:mac && npm run notarize:dmg",
-    "release": "electron-builder --publish always"
+    "release:mac": "npm run dist:mac && npm run notarize:dmg"
   },
   "devDependencies": {
     "electron": "^31.7.0",
