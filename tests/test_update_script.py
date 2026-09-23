@@ -222,6 +222,31 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertEqual(self.last_update()["status"], "up-to-date")
         self.assertFalse(self.last_update()["updated"])
 
+    def ups(self) -> int:
+        calls = self.stub_dir / "calls.log"
+        lines = calls.read_text("utf-8").splitlines() if calls.exists() else []
+        return sum(1 for line in lines if line.startswith("docker compose") and " up " in f"{line} ")
+
+    def test_a_redeploy_onto_the_current_release_applies_its_new_env(self) -> None:
+        """A redeploy writes a new .env and runs --start. On a VM already on the release,
+        with the container running, it used to report "already on" and leave that container
+        on the environment it started with: a replaced Tailscale key never reached it."""
+        self.write_compose(NEW_DIGEST)
+        self.set_running(True)
+        self.set_health("healthy")
+        r = self.run_script("--start")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.ups(), 1)
+        self.assertEqual(self.last_update()["status"], "up-to-date")
+        self.assertIn("applied its configuration", self.last_update()["message"])
+
+    def test_an_update_check_on_the_current_release_touches_nothing(self) -> None:
+        self.write_compose(NEW_DIGEST)
+        self.set_running(True)
+        self.set_health("healthy")
+        self.run_script()
+        self.assertEqual(self.ups(), 0)
+
     def test_no_reachable_release_fails_loudly(self) -> None:
         """Better a clear 'could not resolve a release' than silently falling back to a
         mutable tag — which is the behaviour this replaced."""

@@ -156,12 +156,19 @@ fi
 WAS_RUNNING=0; is_running && WAS_RUNNING=1
 
 if [ "$DIGEST" = "$PREV_DIGEST" ] && [ "$FORCE" -eq 0 ]; then
-  # Already pinned to this digest. Still honour --start so a re-run of a half-finished
-  # deploy brings the container up rather than reporting success over a dead VM.
-  if [ "$START" -eq 1 ] && [ "$WAS_RUNNING" -eq 0 ]; then
+  # Already pinned to this digest. --start still runs `up -d`, running or not: a re-run of a
+  # half-finished deploy brings the container up, and a redeploy that just wrote a new .env
+  # gets a container built from it (compose recreates when the resolved config changed and
+  # leaves an unchanged one alone). Skipping this for a running container left a redeploy's
+  # new keys unread: it kept the environment it started with, a dead Tailscale key included.
+  if [ "$START" -eq 1 ]; then
     $DC up -d >/dev/null 2>&1
     if wait_healthy; then
-      emit true started "already on ${TAG}; started the server"
+      if [ "$WAS_RUNNING" -eq 1 ]; then
+        emit true up-to-date "already on ${TAG}; applied its configuration"
+      else
+        emit true started "already on ${TAG}; started the server"
+      fi
       exit 0
     fi
     emit false unhealthy "already on ${TAG} but the server did not become healthy"
