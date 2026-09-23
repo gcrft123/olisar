@@ -240,6 +240,34 @@ async def _get_state_serializer() -> URLSafeTimedSerializer:
     return _state_serializer
 
 
+# A sign-in Olisar refused still proved which Discord account it was. The access-denied
+# screen offers one thing, telling the Olisar team you're stuck, and the feedback endpoint
+# needs to know who is asking, so the refusal leaves this behind for an hour. It is read by
+# that endpoint and nothing else: it is not a session and opens no other route.
+DENIED_COOKIE = "olisar_denied"
+DENIED_TTL = 3600
+
+
+async def _denied_serializer() -> URLSafeTimedSerializer:
+    # Its own salt, so an OAuth state cookie can never be replayed as one of these.
+    return URLSafeTimedSerializer(await runtime_config.session_secret(), salt="olisar-denied-identity")
+
+
+async def denied_cookie_value(user_id: int) -> str:
+    return (await _denied_serializer()).dumps({"u": int(user_id)})
+
+
+async def denied_identity(token: str | None) -> int | None:
+    """The Discord account a refused sign-in belonged to, or None if the cookie is missing,
+    forged, or more than an hour old."""
+    if not token:
+        return None
+    try:
+        return int((await _denied_serializer()).loads(token, max_age=DENIED_TTL)["u"])
+    except Exception:  # noqa: BLE001 — bad signature, expired, or a payload of the wrong shape
+        return None
+
+
 def _origin(request: Request) -> str:
     """The scheme + host the *browser* is actually using for this request — loopback
     when logging in from the desktop window, the tunnel host when a remote admin comes
@@ -430,6 +458,14 @@ async def callback(request: Request, code: str | None = None, state: str | None 
                 return denied_page
             denied = RedirectResponse(_origin(request) + "/?denied=role")
             denied.delete_cookie(STATE_COOKIE)
+            denied.set_cookie(
+                DENIED_COOKIE,
+                await denied_cookie_value(user_id),
+                max_age=DENIED_TTL,
+                httponly=True,
+                samesite="lax",
+                secure=_is_secure(request),
+            )
             return denied
         grant = AdminGrant.allowlist if allowlisted else AdminGrant.manage_guild
         admin = await session.get(AdminUser, user_id)
