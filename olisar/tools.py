@@ -24,6 +24,7 @@ from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
 from olisar.memory.search import search_messages
+from olisar.message_links import ChannelFilter, channel_filter
 from olisar.proactivity import first_emoji
 
 log = logging.getLogger("olisar.tools")
@@ -44,6 +45,11 @@ class DiscordActions(Protocol):
     async def channel_directory(
         self, guild_id: int, *, requester_id: int = ..., limit: int = ...
     ) -> str: ...
+    # Which of `channel_ids` the requester can open (read the history of) in this guild.
+    # Search and recall filter every hit through it; see olisar.message_links.
+    async def readable_channels(
+        self, guild_id: int, channel_ids: set[int], *, requester_id: int
+    ) -> set[int]: ...
     # Post a message (optionally with an embed + interactive components) to a channel —
     # backs host.discord.send for trusted extension tools. `channel` is None for the current
     # channel, or a name/id/#mention resolved within `home_guild_id`. Returns a status string.
@@ -103,6 +109,13 @@ class ToolContext:
     # Set once open_settings has run. From then on the reply also declares the settings
     # write tools (see with_settings_tools), which are left out until then to save tokens.
     settings_open: bool = False
+
+    def readable(self) -> ChannelFilter:
+        """The channels this reply's asker can open, for filtering search and recall."""
+        return channel_filter(
+            self.actions, guild_id=self.cfg_guild, requester_id=self.user_id,
+            here=self.channel_id,
+        )
 
 
 def _str(desc: str) -> types.Schema:
@@ -189,8 +202,8 @@ _DECLARATIONS = [
             "handle, account, date, or decision. Use for 'what's the server's X / "
             "Twitter / Discord invite', 'where did someone post Y', 'has anyone "
             "mentioned Z'. Returns candidate messages with Discord jump-links: read "
-            "them and synthesize the answer (share a jump-link only when they're "
-            "asking where or when something was posted). This is "
+            "them and synthesize the answer, pasting the jump-link of the message "
+            "your answer rests on. This is "
             "broader than recall_memory (which is about you and the current person) "
             "— reach for it when the answer is buried somewhere in past chat. One "
             "good search is usually enough: read the results and answer; don't "
@@ -534,6 +547,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 user_id=ctx.user_id,
                 query_text=args.get("query", ""),
                 recent_ids=set(),
+                channel_id=ctx.channel_id,
+                readable=ctx.readable(),
             )
             return block or "Nothing relevant found in memory."
 
@@ -608,6 +623,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 ctx.session,
                 guild_id=ctx.cfg_guild,
                 query=args.get("query", ""),
+                readable=ctx.readable(),
                 dm_channel_id=dm_channel,
             )
             return block or "No matching messages found in the server's history."

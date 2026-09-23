@@ -48,7 +48,7 @@ colors:
   syntax-keyword: "#b69cff"
   syntax-number: "#e0a458"
 rounded:
-  # The four surface radii. Cards and modals; buttons, inputs and nav items; tags and chips;
+  # The four surface radii. Modals and callouts; buttons, inputs and nav items; tags and chips;
   # and the pill.
   card: "16px"
   control: "12px"
@@ -77,7 +77,7 @@ A dark-only design system for **Olisar**, a self-hosted AI Discord bot configure
 - **Audience:** an operator who knows what they're doing. The tool respects their time and their data.
 - **Voice:** second person ("you"), plainspoken, lightly opinionated. Say *what* a setting does and *why* in one breath, no hedging.
 - **Tone:** calm, competent, a little dry. Never oversell, never exclaim, never apologize performatively. Warnings are direct and specific.
-- **Casing:** **sentence case everywhere** — page titles, card titles, buttons, labels. The only uppercase is the small tracked eyebrow/section-label treatment.
+- **Casing:** **sentence case everywhere** — page titles, section titles, buttons, labels. The only uppercase is the small tracked eyebrow/section-label treatment.
 - **Mechanics:** settings = a terse **label** + a one-sentence **description** with a concrete consequence. Slash commands and code in mono with a leading slash (`/ask`, `/forget-me`). Numbers are concrete ("seen 7×", "12,481 messages"). Em-dash glosses in options ("both — read & talk").
 - **No emoji** in the UI chrome, ever. No unicode-as-icon.
 
@@ -85,7 +85,7 @@ A dark-only design system for **Olisar**, a self-hosted AI Discord bot configure
 
 The heading does the work. A description earns its place only when it says something the heading can't.
 
-- **Cut a description that restates its heading.** "Desktop app — settings for the Olisar desktop application" is one fact written twice; ship the heading alone. Same for card hints that just list the fields beneath them.
+- **Cut a description that restates its heading.** "Desktop app — settings for the Olisar desktop application" is one fact written twice; ship the heading alone. Same for section hints that just list the fields beneath them.
 - **Cut mechanism the reader can't act on.** No "checks GitHub Releases for a new version", no "applies live, no restart needed" — if a restart were needed, the UI would say so. Describe the consequence, not the implementation.
 - **Delete, don't compress.** If trimming a sentence leaves nothing a user would act on, remove the sentence. Shortening slop still ships slop.
 - **Em dashes only where a human would use one.** A genuine aside (`Admins who sign in — locally or remotely — write to that database live`) or an option gloss (`both — read & talk`). Never as a stand-in for a colon, period, or comma: `Saved — live now` is just **Saved**; `Careful — you have unsaved changes.` is **You have unsaved changes.**
@@ -103,12 +103,13 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
 :root {
   color-scheme: dark;
 
-  /* Surfaces (darkest → lightest). Near-black ground; cards sit a hair above it
-     and are read by their BORDER, not by fill contrast — they blend into the bg. */
+  /* Surfaces (darkest → lightest). Near-black ground; overlays sit a hair above it
+     and are read by their BORDER, not by fill contrast — they blend into the bg.
+     Page content sits on the ground itself: see Section. */
   --bg: #020203;            /* app background */
   --bg-sidebar: #040405;    /* sidebar / nav rail */
-  --panel: #08080a;         /* card / modal surface */
-  --bg-inset: #0f0f12;      /* inset wells: inputs, chips, code, nested cards */
+  --panel: #08080a;         /* modal, menu and popover surface */
+  --bg-inset: #0f0f12;      /* inset wells: inputs, chips, code */
   --input-bg: #0f0f12;
 
   /* Borders — the hairlines do the structural work */
@@ -167,7 +168,7 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   /* Radii — generously rounded */
-  --radius: 16px;       /* cards, modals */
+  --radius: 16px;       /* modals, callouts, toasts */
   --radius-sm: 12px;    /* buttons, inputs, nav items */
   --radius-xs: 8px;     /* tags, chips */
   --radius-pill: 999px; /* badges, toggles */
@@ -305,7 +306,7 @@ Small, dense, admin proportions:
 | Docs title | 26px | 600 / −0.02em |
 | Page H1 | 22px | 600 |
 | Modal / section title | 18px | 600 |
-| Card title / brand | 15px | 600 |
+| Section title / brand | 15px | 600 |
 | Body / inputs / buttons | 13.5px | 400 |
 | Secondary / descriptions | 12.5px | 400 |
 | Eyebrow / nav label | 11px | 600 uppercase, 0.04em |
@@ -363,7 +364,7 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 |---|---|
 | Buttons | **Button**, **IconButton** |
 | Forms | **TextField**, **TextArea**, **Select**, **Toggle**, **Field** |
-| Data display | **Card**, **Badge**, **Tag**, **RoleChip**, **StatTile**, **DocTable**, **DataTable**, **ActivityLedger** |
+| Data display | **Section**, **Badge**, **Tag**, **RoleChip**, **StatTile**, **DocTable**, **DataTable**, **ActivityLedger** |
 | Product surfaces | **DiscordPreview**, **DangerZone** |
 | Feedback | **Callout**, **Spinner** |
 | Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast** |
@@ -483,6 +484,8 @@ A **Toggle** is a `div[role=switch]`, so `for` can't reach it: give it `aria-lab
 at the same label id. A toggle used **outside** a Field and without a visible `.lbl` must carry
 its own `aria-label` — otherwise it announces as "switch, on" with no subject.
 
+Inside a **Section** the same three siblings lay out as a settings row, label and description on the left and the control on the right. See Section.
+
 ### Choice groups (mode cards, segmented pickers)
 
 A group of mutually exclusive cards is a **radiogroup**, not a row of clickable divs: `role="radiogroup"`
@@ -504,14 +507,54 @@ normal `--panel` chip at the top left:
 .skip-link:focus-visible { transform: none; outline: none; box-shadow: var(--ring), var(--shadow-pop); }
 ```
 
-### Card (the flat panel)
+### Section (the flat group)
+
+The console draws no cards. A group of settings is a **Section**: a hairline above it, its title in a 200px rail on the left, and its settings as rows beside it. The pages used to be cards whose inputs were themselves bordered boxes, and three levels of border read as clutter before they read as structure. Here the controls are the only things drawn.
 
 ```css
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 20px 22px; margin-bottom: 14px; box-shadow: var(--shadow-card); }
-.card > h3 { font-size: 13.5px; margin: 0 0 2px; }
-.card > .hint { color: var(--text-2); font-size: 12.5px; margin-bottom: 15px; line-height: 1.5; }
+.section { container-type: inline-size; border-top: 1px solid var(--border); padding: 28px 0; position: relative; }
+.section-grid { display: grid; grid-template-columns: 200px minmax(0, 1fr); column-gap: 40px; row-gap: 18px; }
+.section-head { align-self: start; position: sticky; top: 24px; padding-top: 5px; }  /* on the first row's label line */
+.section-head h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.section-head .hint { color: var(--text-2); font-size: 12.5px; line-height: 1.5; }
+
+/* A settings row: label and description on the left, a 300px control column on the right. */
+.field-row { display: grid; grid-template-columns: minmax(0, 1fr) 300px; column-gap: 32px; padding: 16px 0; }
+.field-row.wide { grid-template-columns: minmax(0, 1fr); }     /* control under its label */
+.field-text { padding-top: 6px; }       /* the label's first line on the centre of a 34px control */
+.field-text > label { font-size: 13.5px; font-weight: 550; }
+.section-body > .field-row + .field-row { border-top: 1px solid var(--border); }
+.section-body > * + * { margin-top: 16px; }                    /* everything else is spaced, not ruled */
+
+.section.stacked .section-grid { grid-template-columns: minmax(0, 1fr); }   /* title above the body */
+.section:hover, .section:focus-within { z-index: 1; }
+@container (max-width: 860px) { .section-grid { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 560px) { .field-row { grid-template-columns: minmax(0, 1fr); } }
 ```
+```jsx
+<Section title="Engagement" hint="When and where Olisar joins the conversation.">
+  <Field label="Reply in DMs"><Toggle value={on} onChange={set} /></Field>
+  <Field wide label="System prompt" desc="…"><Area value={text} onChange={setText} /></Field>
+</Section>
+<Section stacked title="Requests over time" actions={<Segmented … />}>{chart}</Section>
+```
+
+- **Every Field placed directly in a Section is a row.** Switches, chip sets and segmented pickers sit at the right edge of the control column; inputs and selects fill it.
+- **A switch in a row carries no text of its own.** The row label is its name, which means no two rows on a page can both be called "Enabled".
+- **`wide`** puts the control under its label across the whole row: a textarea, an editor, a reply beside its Discord preview.
+- **`plain`** is for a row holding several controls, such as a chip set or a pair of hour boxes. The row becomes a `role="group"` named by its label.
+- **`Stack`** takes a compose form back to label-above-control. "Add a source" is one entry typed into two inputs side by side, not two settings.
+- **`stacked`** puts the title above a full-width body. Use it for lists, tables and charts that need the width the rail would take. A railed section falls back to exactly this shape below 860px of its own width, so a page can mix the two.
+- **`actions`** holds a control that acts on the whole group (a range picker, a refresh button): top right when stacked, under the hint in the rail.
+- **Hairlines go between setting rows only.** A legend, a toolbar, a callout, or a list that rules its own rows is spaced by 16px. A line between a filter box and the list it filters cuts one control in two.
+- **A collection is a list, not a card grid.** Members and the marketplace are rows under hairlines. A grid of cards makes each one as tall as its wordiest neighbour and draws a box around what is a name, a line of text and a button.
+- **Two panes side by side are split by a vertical hairline** (the Extensions list and detail, the Usage charts), never two boxes with a gap between them.
+- **The section title is an unnamed `<section>`'s `h2`.** A named section is a region landmark, and five or six regions a page is noise in the landmark list; the heading is the navigation stop.
+
+Two things that will bite you if you rebuild it:
+
+- **Query the container, not the viewport.** The rail's breakpoint is a container query because a media query fires at a physical width while the layout inside it is zoomed by `--ui-scale`. The section measures its own px, and the rail collapses in a narrow Extensions detail pane the same way it does on a phone.
+- **Size containment makes each section a stacking context.** A popup that runs past a section's bottom edge (the "+N" roles card, a menu) would paint under the next section, so the section being hovered or focused rises above its siblings. Anything absolutely positioned inside a section depends on that rule.
 
 ### Badge & Tag
 
@@ -557,13 +600,14 @@ name always ships beside the dot. The dot is redundant encoding, not the encodin
 
 ### StatTile (metric) & Spinner
 
-A single metric — big number over a muted label, on an inset well; compose several in a grid for overview rows. The spinner is a minimal accent ring for quiet loading states.
+A single metric: an eyebrow, a big mono number, and a delta or caption under it. Several sit in one strip divided by vertical hairlines, not in boxed tiles; the four on Usage are one reading of today, and four borders said four unrelated things. The spinner is a minimal accent ring for quiet loading states.
 
 ```css
-.stat { background: var(--bg-inset); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px; }
-.stat .n { font-size: 25px; font-weight: 650; letter-spacing: -.02em; line-height: 1; }
-.stat .k { color: var(--text-2); font-size: 12px; margin-top: 6px; }
-/* grid: display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:12px; */
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); }
+.u-kpi { padding: 24px 24px 28px; border-left: 1px solid var(--border); }
+.u-kpi:first-child { border-left: 0; padding-left: 0; }
+.u-big { font-family: var(--font-mono); font-size: 26px; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+/* 2 × 2 below 1120px (the second row takes a top rule), one column below 560px. */
 
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-strong);
   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
@@ -811,20 +855,24 @@ is a mock-up, and a mock-up answers no question the operator actually has.
 
 ### DangerZone
 
-An irreversible action gets its own card at the **bottom of the page it belongs to**, below
-everything, full width, tinted with the system's red. Placement is the argument: the control that
-wipes an index sits under the index it wipes, where its scope is visible, not in a settings popup
-two levels away from anything it affects.
+An irreversible action gets its own section at the **bottom of the page it belongs to**, below
+everything. Placement is the argument: the control that wipes an index sits under the index it
+wipes, where its scope is visible, not in a settings popup two levels away from anything it
+affects.
 
+```jsx
+<Section tone="danger" title="Danger zone">
+  <Field plain label="Clear memory" desc="Erases everything on this page… This can't be undone.">
+    <button className="danger" onClick={clearMemory}>Clear memory</button>
+  </Field>
+</Section>
+```
 ```css
-/* Enough tint to separate it from an ordinary card, not enough to shout on a page you
-   opened for other reasons — the weight belongs to the confirm dialog, which is where the
-   decision is actually made. Set apart from the content above rather than continuing the
-   14px card rhythm. */
-.danger-zone { margin-top: 34px;
-  border-color: color-mix(in srgb, var(--danger) 22%, transparent);
-  background: color-mix(in srgb, var(--danger) 4%, var(--panel)); }
-.danger-zone h2 { color: var(--danger); }
+/* Set apart from the sections above by one step more than their rhythm. Only the title is
+   red: the hairline stays grey, and the weight belongs to the confirm dialog, which is where
+   the decision is actually made. */
+.section.danger { margin-top: 24px; }
+.section.danger .section-head h2 { color: var(--danger); }
 ```
 
 **Name the target in the dialog title**, not just in the body: "Clear everything Olisar knows about
@@ -1000,7 +1048,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 
 ## Do / Don't
 
-- **Do** lean on hairline borders + inset wells for structure; keep cards flat and shadowless.
+- **Do** structure a page with Sections: a hairline and a heading. **Don't** put a box around a group of settings, and never a box inside a box.
 - **Do** reserve the accent for selection, links, focus, and active state — never as a fill for big surfaces.
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
 - **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
@@ -1008,7 +1056,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other.
 - **Don't** let a press scale go past `.96`. Below that it reads as a bounce rather than a press.
 - **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
-- **Don't** use emoji, bluish-purple gradients, drop shadows on cards, or Title Case headings.
+- **Don't** use emoji, bluish-purple gradients, drop shadows on anything that doesn't float, or Title Case headings.
 - **Don't** introduce new hues — use the accent or a semantic state.
 - **Don't** let a control be named by `title` alone — the tooltip host strips it on focus. See **Button & IconButton**.
 

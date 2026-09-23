@@ -4,8 +4,10 @@ import { BotMenu, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
-import { SettingsModal, type SectionId } from './settings'
+import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
+import { reportBody, type FeedbackPrefill } from './feedback'
 import { Field, Select, Text } from './ui'
+import { displayVersion, isNewer } from './version'
 
 type Status = {
   configured?: boolean
@@ -34,30 +36,12 @@ type UpdateResult = {
   at?: string
 }
 
-/** Numeric version compare, matching the backend's (leading "v" and any suffix ignored). */
-function isNewer(remote: string, local: string): boolean {
-  const parts = (v: string) => (String(v || '').match(/\d+/g) || ['0']).map(Number)
-  const a = parts(remote)
-  const b = parts(local)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] || 0
-    const y = b[i] || 0
-    if (x !== y) return x > y
-  }
-  return false
-}
-
-/** Version strings arrive tagged ("v1.4.2") from the server's image labels and bare
- *  ("1.4.2") from the releases API. Strip it so the one `v` we render is our own —
- *  the panel used to print the server's version as "vv1.4.2". */
-const bareVersion = (v: string | undefined): string => String(v || '').replace(/^v/i, '')
-
 /** What an update attempt should say — the one we pressed, or the one the app applied for
  *  us at launch. Tone drives how it's delivered: a success expires on its own, a rollback or
  *  failure is something the operator has to act on, so it sticks until dismissed. */
 function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone } | null {
   if (!r || !r.at) return null
-  const tag = r.tag ? `v${bareVersion(r.tag)}` : 'the latest release'
+  const tag = r.tag ? `v${displayVersion(r.tag)}` : 'the latest release'
   if (r.rolled_back) return { text: `${tag} failed its healthcheck and was rolled back. The server is on the previous version.`, tone: 'warning' }
   if (r.updated) return { text: `Server updated to ${tag}.`, tone: 'success' }
   if (r.ok === false) return { text: `Last update attempt failed: ${r.message || r.error || 'unknown error'}.`, tone: 'danger' }
@@ -81,6 +65,12 @@ export function ServerControlPanel() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   const bots = useBots()
+  const [fbPrefill, setFbPrefill] = useState<FeedbackPrefill | undefined>(undefined)
+  useFeedbackHost((p) => { setFbPrefill(p); setSettingsOpen(true) })
+  // The last update attempt that needs attention (rolled back or failed). A toast announced
+  // it and was dismissed; this keeps it on the panel, with a way to report it, until an
+  // update succeeds.
+  const [updateNote, setUpdateNote] = useState<{ text: string; tone: Tone } | null>(null)
   const [updating, setUpdating] = useState(false)
   const [available, setAvailable] = useState('')  // newer release tag, if any
 
@@ -145,7 +135,9 @@ export function ServerControlPanel() {
       // while an update is running — that one reports itself when it lands.
       if (!first.auto_updating) {
         const note = await lastUpdateNote()
-        if (!life.cancelled && note && note.tone !== 'success') toast(note.text, note.tone)
+        // Said on the panel rather than toasted: it happened while nobody was watching, so
+        // it isn't news arriving now, and the panel line can carry a Report link.
+        if (!life.cancelled && note && note.tone !== 'success') setUpdateNote(note)
       }
       if (life.cancelled) return
       life.poll = setInterval(() => { if (!life.cancelled) refresh() }, 15000)
@@ -165,7 +157,11 @@ export function ServerControlPanel() {
     wasAuto.current = now
     if (!finished) return
     let alive = true
-    lastUpdateNote().then((note) => { if (alive && note) toast(note.text, note.tone) })
+    lastUpdateNote().then((note) => {
+      if (!alive || !note) return
+      toast(note.text, note.tone)
+      setUpdateNote(note.tone === 'success' ? null : note)
+    })
     return () => { alive = false }
   }, [st?.auto_updating])
 
@@ -177,7 +173,7 @@ export function ServerControlPanel() {
     api.getUpdates()
       .then((r: any) => {
         if (cancelled || !r?.latest) return
-        setAvailable(isNewer(r.latest, st.version || '') ? String(r.latest).replace(/^v/i, '') : '')
+        setAvailable(isNewer(r.latest, st.version) ? displayVersion(r.latest) : '')
       })
       .catch(() => { /* offline: just don't offer an update */ })
     return () => { cancelled = true }
@@ -201,6 +197,7 @@ export function ServerControlPanel() {
     try {
       const r: UpdateResult = await api.serverUpdate()
       const note = noteFor(r)
+      setUpdateNote(note && note.tone !== 'success' ? note : null)
       if (note) toast(note.text, note.tone)
       else toast(r?.ok ? 'Already on the latest release.' : 'The update didn’t complete.',
         r?.ok ? 'neutral' : 'danger')
@@ -268,6 +265,14 @@ export function ServerControlPanel() {
         ? 'success'
         : 'warning'
   const actionsLocked = busy || busyUpdating
+  const modal = settingsOpen && (
+    <SettingsModal
+      sections={['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']}
+      initialSection={settingsPane}
+      prefill={fbPrefill}
+      onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
+    />
+  )
 
   if (reconnect) {
     return (
@@ -300,13 +305,21 @@ export function ServerControlPanel() {
               <Text value={rcUser} onChange={setRcUser} placeholder="ubuntu" mono />
             </Field>
           </details>
-          {rcErr && <div className="err">{rcErr}</div>}
+          {rcErr && (
+            <div className="err-block">
+              <div className="err">{rcErr}</div>
+              <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Reconnecting to my Olisar server failed.', rcErr) }}>
+                Report a problem
+              </FeedbackButton>
+            </div>
+          )}
           <div className="wiz-foot">
             <button disabled={rcBusy} onClick={() => setReconnect(false)}>Cancel</button>
             <span className="grow" />
             <button className="primary" disabled={rcBusy} onClick={doReconnect}>{rcBusy ? 'Reconnecting…' : 'Reconnect'}</button>
           </div>
         </div>
+        {modal}
       </div>
     )
   }
@@ -332,7 +345,7 @@ export function ServerControlPanel() {
           <span className="grow" />
           {available && (
             <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
-              {busyUpdating ? 'Updating…' : `Update to v${bareVersion(available)}`}
+              {busyUpdating ? 'Updating…' : `Update to v${displayVersion(available)}`}
             </button>
           )}
           {running
@@ -343,8 +356,8 @@ export function ServerControlPanel() {
 
         {st?.version && (
           <p className="srv-hint">
-            Server version <b>v{bareVersion(st.version)}</b>
-            {available ? <>, and <b>v{bareVersion(available)}</b> is available.</> : <>, up to date.</>}
+            Server version <b>v{displayVersion(st.version)}</b>
+            {available ? <>, and <b>v{displayVersion(available)}</b> is available.</> : <>, up to date.</>}
           </p>
         )}
         {busyUpdating && (
@@ -359,15 +372,22 @@ export function ServerControlPanel() {
         {!loading && !busyUpdating && !reachable && (
           <p className="srv-hint">Couldn’t reach your server{st?.error ? `: ${st.error}.` : '. Check that the VM is running.'} Still retrying, or use <b>Reconnect</b>.</p>
         )}
+        {!busyUpdating && updateNote && (
+          <p className={'srv-hint ' + updateNote.tone}>
+            {updateNote.text}{' '}
+            <FeedbackButton className="linklike" prefill={{
+              category: 'Bug report',
+              logs: true,
+              message: reportBody(
+                'Updating my Olisar server failed.',
+                `${updateNote.text}${st?.version ? `\nServer version now: v${displayVersion(st.version)}` : ''}`,
+              ),
+            }}>Report it</FeedbackButton>
+          </p>
+        )}
         {err && <div className="err">{err}</div>}
       </div>
-      {settingsOpen && (
-        <SettingsModal
-          sections={['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']}
-          initialSection={settingsPane}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
+      {modal}
     </div>
   )
 }

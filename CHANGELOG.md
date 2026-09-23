@@ -6,11 +6,37 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 Changing anything about Olisar also meant opening the console. You can now ask it in Discord instead: its persona and system prompt, how and when it joins in, its command replies, its knowledge sources, the search index and glossary, and a member's impression. The tools that make those changes are only handed to the model once a conversation turns to settings, so every other reply costs about what it did before.
 
+Olisar could find a past message but couldn't point to it. Search came back with a link to every hit, and Olisar was told to keep it to itself unless someone asked where something was posted. Now when an answer comes from one message, the link comes with it, and clicking it opens the message.
+
+Linking as a matter of course meant fixing what search had been doing all along. It read every channel Olisar could, whatever the person asking could see, so a member asking about something posted in a staff channel was told what was said, who said it and when. The older messages Olisar recalls weren't even limited to the server. Both now stop at what the asker can open.
+
+Every release went to every install at once, and four since 1.0 needed a fix the same day. There's now a beta channel: early builds of the next release go to the installs that opt into them, and a release reaches everyone else once it's done. Versions change shape with it. From 2.0 on a stable release has two numbers, 2.0, 2.1, and the betas leading up to one count up to it: 2.0.beta-1, 2.0.beta-2, then 2.0.
+
+The console itself was cards inside cards. Every group of settings sat in a bordered box, and every input in it was a bordered box too, so a page was mostly edges. Groups are now a heading and a thin rule, with each setting on its own row, and the controls are the only things with a border.
+
+When something went wrong, the way to tell the Olisar team was two clicks behind a gear, and it opened blank. The screens where people actually get stuck now link to it, and the form arrives filled in with what just happened.
+
 An install could hold several bots, but only one of them was ever online: switching stopped the bot you were on and started the other, and the switcher itself had been taken out of Settings. Keeping two bots online meant putting one on a cloud server, and a second bot on a server meant creating and setting up a second server.
 
 Every bot on the desktop app now runs at once, each in its own process with its own data, keys and sign-in, so one bot can't read another's settings, take another down when it crashes, or slow it down. The console still shows one bot at a time, and switching only changes which one. A server can host several bots too: putting a bot on a server another of your bots already uses needs nothing new from you, and each gets its own install there.
 
 ### New
+
+[f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
+
+[c6d7bd8] — Settings → Updates picks a channel: Stable gets finished releases, Beta gets early builds of the next one and every stable release as it ships.
+
+[c6d7bd8] — Switching from Beta to Stable keeps the beta you're on until a newer stable release is out, instead of taking you back to an older version.
+
+[c6d7bd8] — Installing a beta by hand puts the app on the Beta channel.
+
+[c6d7bd8] — A server-hosted bot's VM follows the app's channel, and the app never moves it to an older release than the one it runs.
+
+[a3933dc] — When an answer comes from one specific past message, found by search or remembered, Olisar pastes that message's link, which opens it in Discord.
+
+[a3933dc] — A message link Olisar wasn't actually given is removed from the reply before it's sent, so a mistyped or made-up link never goes out.
+
+[a3933dc] — The test harness has a scenario for it: an answer that lives in another channel should come back with the link, and the small talk after it without one.
 
 [d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
 
@@ -30,6 +56,26 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 [1e2c722] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
 
+[ae7cbcb] — A failed server deploy in setup offers to send the error and the end of the install log to the Olisar team.
+
+[ae7cbcb] — Connecting or reconnecting to an existing server, and the last step of setup, offer a report when they fail, and a Tailscale failure offers to ask the team.
+
+[ae7cbcb] — The access-denied, no-servers and suspended screens can reach the Olisar team; the suspended screen said to contact them and gave no way to.
+
+[a8109fb] — Someone refused at sign-in can send that message from a remote console too, for an hour after the refusal, and it never carries the install's logs.
+
+[ae7cbcb] — A page that crashes, or fails to load again after Try again, has a Report button that arrives with the page and the error written in.
+
+[ae7cbcb] — Settings → Logs sends what it shows with a bug report.
+
+[ae7cbcb] — Test chat can report a reply that wasn't right, with what you said and what it answered.
+
+[ae7cbcb] — A failed or rolled-back server update stays on the server panel, with a link to report it, instead of appearing as a toast when the panel opens.
+
+[ae7cbcb] — Every docs page ends with a way to ask the team about it.
+
+[ae7cbcb] — The command palette finds Feedback when you type "report a bug", "contact the team" or "help".
+
 [04700db] — Every bot on the desktop app runs at the same time, each in its own process; switching bots in the console changes which one it shows and never stops one.
 
 [04700db] — With two or more bots, the top of the sidebar shows the bot on screen and whether it's online, with a menu to switch or add one; the sign-in, setup and server screens carry the same menu in their top-left corner.
@@ -44,6 +90,12 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 ### Changed
 
+[c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
+
+[c6d7bd8] — Betas are published as GitHub pre-releases, and the server image's `latest` tag only moves for a stable release.
+
+[c6d7bd8] — The Windows installer is uploaded with `gh`, like the macOS one, rather than by electron-builder.
+
 [a3e92ef] — The app applies a release to your server itself whenever it starts up on a newer version than the VM, which is every launch after it updates itself.
 
 [a3e92ef] — Reconnecting to a VM, or switching to a server-hosted bot, brings that server up to this build too.
@@ -51,6 +103,20 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 [a3e92ef] — The control panel reports an update it didn't start: **Updating…** while it runs, and the outcome when it lands, instead of reading the restarting container as a server that fell over.
 
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
+
+[ed004dd] — Console pages group their settings under a heading and a rule instead of in cards, with each setting's name and description on the left and its control on the right.
+
+[ed004dd] — A switch no longer repeats its setting in a caption beside it, and the two switches on Behavior that were both called "Enabled" are now "Speak up on its own" and "React with emoji".
+
+[ed004dd] — Members and the extension marketplace are lists instead of grids of cards.
+
+[ed004dd] — Usage shows today's four figures in one strip and its charts in panes split by a rule.
+
+[ed004dd] — Behavior puts Proactivity and Passive reactions straight after Engagement, and Persona keeps style notes and the bio in one section.
+
+[ed004dd] — Command replies splits slash commands from the replies Olisar sends on its own, and shows each reply beside its Discord preview.
+
+[ed004dd] — API keys lists Cloudflare before UEX.
 
 [04700db] — Each bot keeps its own console sign-in, so switching back doesn't ask you to log in again; bots other than the first are signed out once by this update.
 
@@ -64,6 +130,12 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 
 ### Fixed
 
+[f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
+
+[a3933dc] — Message search only returns messages from channels the person asking can open. A member asking about a staff channel used to be told what was said there, who said it and when.
+
+[a3933dc] — The older messages and summaries Olisar recalls come from the channel it's replying in and channels the asker can open, not from any channel, another server, or someone else's DMs.
+
 [7c9263a] — Olisar no longer hands over its own operating rules. It used to protect them only against instructions hidden inside pasted content, so anyone who asked by a route it trusted — a server policy it had been taught, someone it had saved as a maintainer, a request to file them in another channel, or a few members agreeing that refusing was strange — got them back verbatim.
 
 [7c9263a] — A glossary entry is no longer treated as something that can grant permission. Anyone could teach Olisar a "fact" about the server, and it read back as community truth to every member afterwards; entries now read as claims people made, and can't authorize anything.
@@ -75,6 +147,12 @@ Every bot on the desktop app now runs at once, each in its own process with its 
 [1e2c722] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
 
 [c23a12e] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
+
+[a80d9bb] — Warning callouts that open a section on Access no longer sit against their top edge.
+
+[a80d9bb] — The box shown when a page fails to load has a border and rounded corners; it referenced two tokens that don't exist.
+
+[a80d9bb] — A link inside a sentence no longer makes its line taller than the ones around it.
 
 [04700db] — A web page open in your browser can no longer reset a bot or run a server update by sending a request to the app on your machine.
 

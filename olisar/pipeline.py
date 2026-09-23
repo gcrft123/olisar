@@ -20,6 +20,7 @@ from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.memory.retriever import recall
+from olisar.message_links import channel_filter, link_ids, strip_unoffered_links
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, render_message
 from olisar.persona import (
     DEFAULT_PERSONA_NAME,
@@ -121,8 +122,7 @@ _TOOL_LINES: dict[str, str] = {
     "search_messages": (
         "- search_messages — dig a specific fact out of the WHOLE server's history (e.g. "
         "'what's the server's X/Twitter', 'where was that link posted'). Returns candidate "
-        "messages with jump-links; share a link only when they're asking where or when "
-        "something was posted.\n"
+        "messages with jump-links.\n"
     ),
     "remember": (
         "- remember — a durable fact about a person; remember_server_fact — a durable fact "
@@ -186,6 +186,20 @@ _CITE_NOTE = (
     "'(source: …)' labels."
 )
 
+# The briefing when past messages come with jump-links (search_messages, and the older
+# messages recall adds to memory). A bare message link is what a person pastes in Discord,
+# and it renders as a chip that opens the message, so a citation reads as someone pointing
+# rather than as a footnote. Links the model wasn't given are stripped on the way out
+# (olisar.message_links.strip_unoffered_links).
+_CITE_MESSAGES_NOTE = (
+    "Answer in your own words, with no source tags or '(source: …)' labels. Two exceptions: "
+    "name the source when a fact came from web_search, and when your answer rests on one "
+    "specific past message (a search result, or an older message in your memory), paste its "
+    "jump-link right after the sentence it backs up, bare, the way people link a message in "
+    "chat. One link per answer is usually plenty. Only paste links you were given, and none "
+    "for anything already in the visible chat."
+)
+
 
 def render_tools_note(available: set[str] | None = None) -> str:
     """The tool briefing for the tools a call actually has.
@@ -202,10 +216,10 @@ def render_tools_note(available: set[str] | None = None) -> str:
     names = _ALL_TOOL_KEYS if available is None else available
     body = "".join(line for key, line in _TOOL_LINES.items() if key in names)
     if "search_messages" in names:
-        tail = _SERVER_QUESTIONS_NOTE
+        tail = _SERVER_QUESTIONS_NOTE + _CITE_MESSAGES_NOTE
     else:
-        tail = _NO_HISTORY_NOTE
-    return _TOOLS_HEADER + body + tail + _CITE_NOTE
+        tail = _NO_HISTORY_NOTE + _CITE_NOTE
+    return _TOOLS_HEADER + body + tail
 
 
 _ALL_TOOL_KEYS = frozenset(_TOOL_LINES)
@@ -224,6 +238,28 @@ DM_NOTE = (
     "one else watching. You keep all your usual knowledge, memory, and tools. Keep it "
     "personal and one-on-one, and don't act as if other members or channels are here."
 )
+
+
+def _without_invented_links(text: str, system_instruction: str, contents: list) -> str:
+    """``text`` minus any Discord message link the model wasn't given this turn.
+
+    "Given" is anything it could have copied from: the system prompt (recall's older
+    messages), the chat history and the message being answered, and every tool result,
+    all of which end up in ``contents`` by the time the tool loop returns. A link that
+    isn't in any of them was written from nothing, or copied with a digit slipped, and
+    either way opens the wrong message or none."""
+    offered = link_ids(system_instruction)
+    for content in contents:
+        for part in getattr(content, "parts", None) or []:
+            if getattr(part, "text", None):
+                offered |= link_ids(part.text)
+            response = getattr(getattr(part, "function_response", None), "response", None)
+            if response:
+                offered |= link_ids(str(response.get("result", "")))
+    cleaned, removed = strip_unoffered_links(text, offered)
+    if removed:
+        log.warning("removed %d message link(s) the model wasn't given: %s", len(removed), removed)
+    return cleaned
 
 
 def _function_calls(resp) -> list:
@@ -613,6 +649,10 @@ async def generate_reply(
             user_id=user_id,
             query_text=user_text,
             recent_ids=recent_ids,
+            channel_id=channel_id,
+            readable=channel_filter(
+                actions, guild_id=cfg_guild, requester_id=user_id, here=channel_id
+            ),
         )
         if recalled:
             system_instruction += "\n\n" + recalled
@@ -676,6 +716,7 @@ async def generate_reply(
         # one as a blank would hang a Report button off a reply that did exactly what the
         # user asked for.
         return Reply("", silent=True, emoji=ctx.silent)
+    text = _without_invented_links(text, system_instruction, contents) or blank_fallback
     # _fallback_when_synthesis_fails returns the very string handed to it, so an equal
     # result is the loop reporting that it never reached an answer. A model that happened
     # to write the operator's fallback text verbatim would also match; the cost of that
@@ -771,7 +812,7 @@ async def generate_sandbox_reply(
     try:
         # The sandbox renders one reply as one bubble, so a split marker would show up as
         # literal text there rather than as the extra message it asks for on Discord.
-        return strip_breaks(await _run_tool_loop(
+        text = strip_breaks(await _run_tool_loop(
             contents,
             system_instruction,
             model,
@@ -779,6 +820,7 @@ async def generate_sandbox_reply(
             blank_fallback=blank_fallback,
             tools=sandbox_tools(list(ext.declarations)),
         ))
+        return _without_invented_links(text, system_instruction, contents) or blank_fallback
     except RateLimitExceeded:
         return rate_limit_msg
     except Exception:

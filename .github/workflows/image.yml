@@ -1,7 +1,8 @@
 # Build and publish the multi-arch server image to GHCR, so the deploy bootstrap pulls
 # a prebuilt image instead of building on a tiny free VM.
 #
-# Tags:  v<tag> + latest  (releases — what servers actually run)
+# Tags:  v<tag> + latest  (stable releases — what servers actually run)
+#        v<tag>           (betas — a server on the beta channel is pinned to one by tag)
 #        main + <sha>     (tip of main — a canary nothing auto-deploys)
 #
 # `latest` deliberately tracks *releases*, not main. It used to move on every push to main,
@@ -62,9 +63,14 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
+          # Off, so the `latest` rule below is the only thing that decides it. Left at its
+          # default (auto) the action adds `latest` to every tag push by itself, which is how
+          # v2.0.beta-1 moved it despite that rule saying no.
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '.beta-') }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha
 

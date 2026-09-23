@@ -290,10 +290,22 @@ const MOCK_EXTENSIONS = [
   { key: 'poll', name: 'Polls', description: 'Persistent poll buttons that survive a restart.', category: 'Utilities', enabled: false, default_enabled: false, kind: 'user', editable: true, user_modified: false, has_code: true, origin: 'marketplace', publisher: 'm-studio', signed_by: 'a3f1 9c22 dd07', signature_verified: true, tools: [], commands: ['poll'], permissions: ['kv', 'discord.reply'], requested_permissions: ['kv', 'discord.reply', 'discord.components', 'fetch'], behavior: false, settings_schema: null },
 ]
 
+// Marketplace search results, shaped like the registry proxy's `results` rows: one verified
+// publisher, one unverified, one of this install's own (so Yank renders), one with no
+// description or permissions at all.
+const MOCK_MARKET = [
+  { id: 'm-studio/poll', namespace: 'm-studio', name: 'poll', version: '1.4.0', category: 'Utilities', publisher: 'm-studio', publisher_verified: true, description: 'Persistent poll buttons that survive a restart.', permissions: ['kv', 'discord.reply', 'discord.components'] },
+  { id: 'lorekeeper/quotes', namespace: 'lorekeeper', name: 'quotes', version: '0.9.2', category: 'Community', publisher: 'lorekeeper', publisher_verified: false, description: 'Save a message as a quote with a reaction, and pull a random one back up with /quote.', permissions: ['kv', 'discord.reply'] },
+  { id: 'rednebula/fleet-roster', namespace: 'rednebula', name: 'fleet-roster', version: '2.0.0', category: 'Games', publisher: 'rednebula', publisher_verified: false, description: 'Who flies what: a shared ship roster Olisar can answer questions from.', permissions: ['kv', 'kb.write', 'fetch'] },
+  { id: 'tinytools/coinflip', namespace: 'tinytools', name: 'coinflip', version: '1.0.0', category: 'Games', publisher: 'tinytools', publisher_verified: false, description: '', permissions: [] },
+]
+
 // The tool PIN behind Settings → Security. Stateful on purpose: "no PIN yet", "PIN set"
 // and the removal confirm are three different renderings of one pane, and a fixture that
 // always answers "set" leaves two of them unreviewable. It starts unset so Access shows its
 // no-PIN warning. `gated_tools` is empty, which is what every shipped configuration reports.
+const MOCK_UPDATES = { current: '2.0.beta-1', channel: 'beta', latest: 'v2.0.beta-1', available: false }
+
 const MOCK_PIN: { is_set: boolean; timeout_sec: number; updated_at: string | null; gated_tools: string[] } = {
   is_set: false, timeout_sec: 120, updated_at: null, gated_tools: [],
 }
@@ -355,7 +367,17 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/bot/status') || url.startsWith('/api/bot/power')) {
           return send({ available: true, running: true, ready: true, can_power: true })
         }
-        if (url.startsWith('/api/settings/updates')) return send({ current: '1.0.5', available: false })
+        // Running a beta, so switching to Stable shows the "you'll stay on it" line.
+        if (url.startsWith('/api/settings/updates/channel')) {
+          let raw = ''
+          req.on('data', (c) => { raw += c })
+          req.on('end', () => {
+            try { MOCK_UPDATES.channel = JSON.parse(raw || '{}').channel || MOCK_UPDATES.channel } catch { /* keep it */ }
+            send({ channel: MOCK_UPDATES.channel })
+          })
+          return
+        }
+        if (url.startsWith('/api/settings/updates')) return send(MOCK_UPDATES)
         if (url.startsWith('/api/settings/desktop')) return send({ show_in_menu_bar: true })
         // A parked blank reply, reached by the "Report this" button Olisar puts on one.
         // Open http://localhost:5173/?report=expired for the other half of this — the
@@ -410,6 +432,11 @@ function mockPlugin(): Plugin {
         if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
           if (url.startsWith('/api/')) return send({ ok: true })
         }
+        // The marketplace browse view. Without these it could only ever render its error
+        // state in mock mode, so the list itself went unreviewed.
+        if (url.startsWith('/api/marketplace/search')) return send({ results: MOCK_MARKET })
+        if (url.startsWith('/api/marketplace/publisher')) return send({ registered: true, handle: 'rednebula', verified: false })
+        if (url.startsWith('/api/marketplace/published') || url.startsWith('/api/marketplace/installed')) return send({})
         if (url.startsWith('/api/persona')) return send(MOCK_PERSONA)
         if (url.startsWith('/api/config')) return send(MOCK_CONFIG)
         if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)
