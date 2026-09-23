@@ -214,6 +214,8 @@ Updating could leave the console on the version before it. The page was kept by 
 
 [b7a08db] — The desktop app clears its page cache the first time a new version opens, so updating from a version older than this one lands on the new console too.
 
+[ee4ee53] — Setting up a server-hosted bot again on the server it already runs on applies the new settings, such as a replaced Tailscale key; before, the running bot kept its old ones.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
