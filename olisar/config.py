@@ -10,6 +10,7 @@ the database instead, so it can be changed from the dashboard without a restart.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Annotated
 
@@ -25,7 +26,10 @@ from olisar.gemini.models import (
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # A developer's `.env` configures *one* bot. The gateway starts every other bot with
+        # OLISAR_NO_DOTENV set, so a second bot can't inherit the first one's token and keys
+        # through the fallbacks in runtime_config / runtime_keys.
+        env_file=None if os.environ.get("OLISAR_NO_DOTENV") else ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )

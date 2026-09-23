@@ -12,6 +12,7 @@ even be unsigned by it.
 
 from __future__ import annotations
 
+import os
 import secrets
 from datetime import timedelta, timezone
 
@@ -21,8 +22,13 @@ from olisar import runtime_config
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, MemberSession, MemberUser, Session, utcnow
 
-COOKIE_NAME = "olisar_session"
-MEMBER_COOKIE_NAME = "olisar_member"
+# Every bot on a desktop install is served from the same origin (the gateway on 127.0.0.1),
+# so they share one cookie jar. The gateway gives each bot but the original a suffix, which
+# keeps their sessions apart — switching bots doesn't sign you out of the one you left — and
+# leaves the original's cookie names, and so its existing sessions, exactly as they were.
+COOKIE_SUFFIX = os.environ.get("OLISAR_COOKIE_SUFFIX", "")
+COOKIE_NAME = "olisar_session" + COOKIE_SUFFIX
+MEMBER_COOKIE_NAME = "olisar_member" + COOKIE_SUFFIX
 SESSION_TTL_DAYS = 14
 # Members re-authenticate more often than operators. A portal session is reachable from any
 # browser on the public tunnel URL, and its whole purpose is standing access to personal

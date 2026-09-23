@@ -1,7 +1,7 @@
 """Move a bot between hosts, carrying its data and keeping the old copy as a backup.
 
-Operates on the **active** profile only (the API gates it there). The matrix, keyed by the
-profile's current ``hosting_mode``:
+Operates on this process's own bot — each bot is its own process, so moving one never touches
+another. The matrix, keyed by the bot's current ``hosting_mode``:
 
   - **local → server**: deploy the target VM (config rebuilt from this profile's DB), then
     upload the local data into it. The local DB is left in place as the backup.
@@ -13,15 +13,18 @@ profile's current ``hosting_mode``:
   - **server → server, different IP**: download the old VM's data + ``.env``, deploy + upload
     to the new VM. The old VM is stopped but kept as a backup.
 
-Integrity: the source writer is always stopped first — a local bot via
-``server.stop_all_supervisors`` + ``engine.reset_engine`` (which disposes the pool and
-flushes the WAL into the ``.db``), a VM via ``docker compose stop`` — so the SQLite file is
-self-contained before it's copied. ``_finalize_db`` also merges any leftover WAL and re-points
-uploaded-doc paths at the destination's ``kb_uploads`` dir (the absolute path differs between
-a VM at ``/var/lib/olisar`` and the local per-user data dir).
+A destination VM that already runs other bots gets this one alongside them (see
+``remote.deploy``); the data goes into whichever install directory the deploy chose.
 
-Kept separate from :mod:`olisar.runtime.remote` (SSH plumbing) and
-:mod:`olisar.runtime.switch` (profile activation); heavy imports are deferred into functions.
+Integrity: the source writer is always stopped first — a local bot via ``server.stop_bot`` +
+``engine.reset_engine`` (which disposes the pool and flushes the WAL into the ``.db``), a VM
+via ``docker compose stop`` — so the SQLite file is self-contained before it's copied.
+``_finalize_db`` also merges any leftover WAL and re-points uploaded-doc paths at the
+destination's ``kb_uploads`` dir (the absolute path differs between a VM at
+``/var/lib/olisar`` and the local per-user data dir).
+
+Kept separate from :mod:`olisar.runtime.remote` (SSH plumbing); heavy imports are deferred
+into functions.
 """
 
 from __future__ import annotations
@@ -36,8 +39,8 @@ from pathlib import Path
 
 log = logging.getLogger("olisar.runtime.migrate")
 
-# Guards against a concurrent/double move (operator double-click, two console tabs), like
-# switch._switching. A move is a rare, heavy operator action, so a flag + error is enough.
+# Guards against a concurrent/double move (operator double-click, two console tabs). A move
+# is a rare, heavy operator action, so a flag + error is enough.
 _moving = False
 
 
@@ -48,24 +51,49 @@ def is_moving() -> bool:
 # ── local file / sqlite helpers ─────────────────────────────────────────────────
 
 
-def _finalize_db(db_path: str, old_kb: str, new_kb: str) -> None:
+def _finalize_db(db_path: str, new_kb: str) -> None:
     """Merge any WAL into the main file (so the single ``.db`` is self-contained) and
-    re-point uploaded-doc URIs from the source's ``kb_uploads`` dir to the destination's.
-    Runs in a worker thread — plain stdlib ``sqlite3``, no vec extension needed (it only
-    touches ``kb_source`` rows and the journal mode, never the vec0 virtual tables)."""
+    re-point every uploaded doc at ``new_kb/<its file name>`` — where the move put it (see
+    ``_stage_docs``). ``new_kb=""`` only merges. Runs in a worker thread — plain stdlib
+    ``sqlite3``, no vec extension needed (it only touches ``kb_source`` rows and the journal
+    mode, never the vec0 virtual tables)."""
     con = sqlite3.connect(db_path, timeout=60)
     try:
         con.execute("PRAGMA journal_mode=DELETE")  # checkpoint the WAL, drop -wal/-shm
-        old, new = old_kb.rstrip("/"), new_kb.rstrip("/")
-        if old and new and old != new:
-            con.execute(
-                "UPDATE kb_source SET uri = ? || substr(uri, ?) "
-                "WHERE type = 'doc' AND uri LIKE ?",
-                (new, len(old) + 1, old + "/%"),
-            )
+        new = new_kb.rstrip("/")
+        if new:
+            rows = con.execute("SELECT id, uri FROM kb_source WHERE type = 'doc'").fetchall()
+            for row_id, uri in rows:
+                name = _doc_name(uri)
+                if name:
+                    con.execute("UPDATE kb_source SET uri = ? WHERE id = ?", (f"{new}/{name}", row_id))
         con.commit()
     finally:
         con.close()
+
+
+def _doc_name(uri: str) -> str:
+    """The file name of a stored doc path, from either side (POSIX on a VM, maybe Windows here)."""
+    return (uri or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def _stage_docs(db_path: str, dest_kb: Path) -> None:
+    """Copy the docs this bot's database points at into ``dest_kb`` — those, not a directory.
+    Before each bot had its own directory they all uploaded into the install's shared
+    ``kb_uploads`` (the original bot's), so a directory copy would carry other bots' documents
+    along, and one that only looked in this bot's own dir would leave its older ones behind."""
+    con = sqlite3.connect(db_path, timeout=60)
+    try:
+        uris = [u for (u,) in con.execute("SELECT uri FROM kb_source WHERE type = 'doc'")]
+    except sqlite3.Error:
+        uris = []
+    finally:
+        con.close()
+    for uri in uris:
+        src = Path(uri or "")
+        if src.is_file() and not (dest_kb / src.name).exists():
+            dest_kb.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest_kb / src.name)
 
 
 def _copy_db_files(src_db: str, dest_dir: Path) -> None:
@@ -106,17 +134,6 @@ def _backup_and_replace(local_db: str, new_db: Path) -> None:
     shutil.move(str(new_db), str(dst))
 
 
-def _parse_env(text: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for raw in (text or "").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        out[key.strip()] = value.strip()
-    return out
-
-
 # ── config snapshot / rebuild ────────────────────────────────────────────────────
 
 
@@ -125,7 +142,7 @@ def _g(obj: object, attr: str) -> str:
 
 
 async def _snapshot_config() -> dict:
-    """The active profile's config as stored in its DB. Used to build the VM env for a
+    """This bot's config as stored in its DB. Used to build the VM env for a
     local→server move, and to keep the SSH keypair + session secret across a server→local
     move (a local bot's creds live here; a server bot's live in the VM's .env)."""
     from olisar.db.engine import session_scope
@@ -143,6 +160,7 @@ async def _snapshot_config() -> dict:
             "tunnel_node": _g(c, "tunnel_node"),
             "tunnel_token": _g(c, "tunnel_token"),
             "server_host": _g(c, "server_host"),
+            "server_app_dir": _g(c, "server_app_dir"),
             "server_ssh_user": _g(c, "server_ssh_user") or "ubuntu",
             "server_ssh_pubkey": _g(c, "server_ssh_pubkey"),
             "server_ssh_privkey": _g(c, "server_ssh_privkey"),
@@ -221,6 +239,7 @@ async def _restore_config(snap: dict, env: dict[str, str]) -> None:
         server_ssh_privkey=snap.get("server_ssh_privkey") or "",
         hosting_mode="local",
         server_host="",
+        server_app_dir="",
         configured=True,
     )
     async with session_scope() as s:
@@ -241,7 +260,7 @@ async def _restore_config(snap: dict, env: dict[str, str]) -> None:
 
 
 async def move(app, target: str, host: str, user: str) -> dict:
-    """Move the active bot to ``target`` ('local' or 'server'). ``host``/``user`` name the
+    """Move this bot to ``target`` ('local' or 'server'). ``host``/``user`` name the
     destination VM for a server target. Returns ``{ok, hosting_mode, host?, note?/log?, error?}``.
     """
     global _moving
@@ -286,26 +305,24 @@ async def move(app, target: str, host: str, user: str) -> dict:
 async def _local_to_server(app, host: str, user: str, snap: dict) -> dict:
     from olisar import runtime_config
     from olisar.db import engine
-    from olisar.runtime import paths, profiles, remote, server
+    from olisar.runtime import remote, server
 
     if not snap.get("discord_token"):
         return {"ok": False, "error": "This bot has no Discord token stored locally to deploy."}
 
-    active_id = profiles.active_id()
-    local_db = str(profiles.db_path_for(active_id))
-    local_kb = str(paths.kb_uploads_dir())
+    local_db = engine.current_db_path()
     env = _build_env(snap, await _allowlisted_ids())
     steps: list[str] = []
 
     # Quiesce the local writer so the WAL is flushed into the .db before copying.
-    await server.stop_all_supervisors(app)
+    await server.stop_bot(app)
     await engine.reset_engine(local_db)
 
     staging = Path(tempfile.mkdtemp(prefix="olisar-move-"))
     try:
         _copy_db_files(local_db, staging)
-        _copy_kb(local_kb, staging / "kb_uploads")
-        await asyncio.to_thread(_finalize_db, str(staging / "olisar.db"), local_kb, remote.VM_KB)
+        await asyncio.to_thread(_stage_docs, str(staging / "olisar.db"), staging / "kb_uploads")
+        await asyncio.to_thread(_finalize_db, str(staging / "olisar.db"), remote.VM_KB)
 
         steps.append(f"Deploying Olisar to {host} — Docker install + image pull (a few minutes)…")
         dep = await remote.deploy(host, user, env)  # flips this profile to server mode on success
@@ -313,13 +330,13 @@ async def _local_to_server(app, host: str, user: str, snap: dict) -> dict:
             raise RuntimeError(dep.get("error") or "Deploy failed.")
 
         steps.append("Uploading your bot’s data to the server…")
-        await remote.import_data(host, user, staging)
+        await remote.import_data(host, user, staging, dep.get("app_dir") or remote.APP_DIR)
     except Exception as exc:  # noqa: BLE001 — surfaced to the operator
         # If we never flipped to server (deploy didn't persist), the local bot was left stopped
         # — restart it so a failed move doesn't strand the operator with a dead bot.
         if await runtime_config.hosting_mode() == "local":
             with contextlib.suppress(Exception):
-                await server.start_supervisor(app, active_id)
+                await server.start_bot(app)
         return {"ok": False, "error": str(exc), "log": "\n".join(steps)}
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -330,26 +347,26 @@ async def _local_to_server(app, host: str, user: str, snap: dict) -> dict:
 
 async def _server_to_local(app, src_host: str, snap: dict) -> dict:
     from olisar.db import engine
-    from olisar.runtime import paths, profiles, remote, server
+    from olisar.runtime import paths, remote, server
 
-    active_id = profiles.active_id()
-    local_db = str(profiles.db_path_for(active_id))
+    local_db = engine.current_db_path()
     local_kb = str(paths.kb_uploads_dir())
     src_user = snap.get("server_ssh_user") or "ubuntu"
+    src_dir = remote.app_dir_of_name(snap.get("server_app_dir"))
     steps = [f"Reading configuration from {src_host}…"]
 
-    env = _parse_env(await remote.read_env(src_host, src_user))
+    env = remote.parse_env(await remote.read_env(src_host, src_user, src_dir))
 
     steps.append(f"Downloading your bot’s data from {src_host}…")
     staging = Path(tempfile.mkdtemp(prefix="olisar-move-"))
     try:
-        await remote.export_data(src_host, src_user, staging)  # stops the VM container
+        await remote.export_data(src_host, src_user, staging, src_dir)  # stops the VM container
         db_in = staging / "olisar.db"
         if not db_in.exists():
             return {"ok": False, "error": "No database found on the server to download."}
-        await asyncio.to_thread(_finalize_db, str(db_in), remote.VM_KB, local_kb)
+        await asyncio.to_thread(_finalize_db, str(db_in), local_kb)
 
-        await server.stop_all_supervisors(app)
+        await server.stop_bot(app)
         await engine.reset_engine(local_db)
         _backup_and_replace(local_db, db_in)
         _copy_kb(str(staging / "kb_uploads"), Path(local_kb))
@@ -358,7 +375,7 @@ async def _server_to_local(app, src_host: str, snap: dict) -> dict:
 
     await engine.reset_engine(local_db)
     await _restore_config(snap, env)
-    await server.start_supervisor(app, active_id)
+    await server.start_bot(app)
     steps.append("Done — the bot now runs on this computer. The server is stopped but kept as a backup.")
     return {"ok": True, "hosting_mode": "local", "log": "\n".join(steps)}
 
@@ -367,19 +384,20 @@ async def _server_to_server(app, src_host: str, dst_host: str, user: str, snap: 
     from olisar.runtime import remote
 
     src_user = snap.get("server_ssh_user") or "ubuntu"
+    src_dir = remote.app_dir_of_name(snap.get("server_app_dir"))
     steps = [f"Reading configuration from {src_host}…"]
-    env = await remote.read_env(src_host, src_user)
+    env = await remote.read_env(src_host, src_user, src_dir)
     if not env.strip():
         return {"ok": False, "error": f"Couldn’t read the current server’s configuration ({src_host})."}
 
     steps.append(f"Downloading data from {src_host}…")
     staging = Path(tempfile.mkdtemp(prefix="olisar-move-"))
     try:
-        await remote.export_data(src_host, src_user, staging)  # stops the old VM container
+        await remote.export_data(src_host, src_user, staging, src_dir)  # stops the old VM container
         if not (staging / "olisar.db").exists():
             return {"ok": False, "error": "No database found on the current server to move."}
-        # Both VMs use /var/lib/olisar, so doc paths need no rewrite — just merge the WAL.
-        await asyncio.to_thread(_finalize_db, str(staging / "olisar.db"), "", "")
+        # Both VMs keep docs under /var/lib/olisar, so this re-points nothing — just merges the WAL.
+        await asyncio.to_thread(_finalize_db, str(staging / "olisar.db"), remote.VM_KB)
 
         steps.append(f"Deploying Olisar to {dst_host}…")
         dep = await remote.deploy(dst_host, user, env)  # updates this profile's server_host
@@ -387,7 +405,7 @@ async def _server_to_server(app, src_host: str, dst_host: str, user: str, snap: 
             return {"ok": False, "error": dep.get("error") or "Deploy failed.", "log": dep.get("log", "")}
 
         steps.append(f"Uploading data to {dst_host}…")
-        await remote.import_data(dst_host, user, staging)
+        await remote.import_data(dst_host, user, staging, dep.get("app_dir") or remote.APP_DIR)
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 

@@ -21,6 +21,7 @@ from sqlalchemy import select
 
 from api.auth.sessions import (
     COOKIE_NAME,
+    COOKIE_SUFFIX,
     MEMBER_COOKIE_NAME,
     MEMBER_SESSION_TTL_DAYS,
     SESSION_TTL_DAYS,
@@ -223,7 +224,7 @@ TOKEN_URL = "https://discord.com/api/oauth2/token"
 ME_URL = "https://discord.com/api/users/@me"
 MANAGE_GUILD = 0x20  # permission bit
 
-STATE_COOKIE = "olisar_oauth_state"
+STATE_COOKIE = "olisar_oauth_state" + COOKIE_SUFFIX
 
 # Built lazily from the resolved session secret (which may be auto-generated after
 # this module is imported, and changes if the operator reconfigures).

@@ -1,25 +1,29 @@
-"""Bot-profile registry: the list of independent bots this install can run, and which
-one is active.
+"""Bot-profile registry: the list of independent bots this install runs, and which one the
+console is showing.
 
-A **profile** is one bot instance — its own Discord token, config, secrets, and SQLite
-database. v1 runs one active *local* bot at a time; server-hosted profiles run on their own
-VMs. This module is the tiny top-level store that tracks the set of profiles and the active
-one, kept *outside* every per-profile DB so it is readable before any engine exists and
-during a switch when the active engine is disposed.
+A **profile** is one bot — its own Discord token, config, secrets, SQLite database, uploads and
+Tailscale node. In the desktop app every profile runs at once, each in its own process (see
+:mod:`olisar.runtime.gateway`); ``active`` is only which one the console window is looking at,
+and switching it never stops a bot. Server-hosted profiles run on the operator's VM, and their
+local process is just the control panel.
+
+This module is the tiny store that tracks the set of profiles, kept *outside* every
+per-profile directory so it is readable before any engine exists. Only the gateway writes it;
+bot workers read it (for their own name) and never modify it.
 
 Deliberately stdlib-only (no ``olisar.config`` import, like :mod:`olisar.runtime.paths`) so
-it is safe to call at any point in the boot/switch sequence.
+it is safe to call at any point in the boot sequence.
 
-Storage: a JSON file at ``data_dir()/profiles.json``::
+Storage: a JSON file at ``home_dir()/profiles.json``::
 
     { "active": "default", "profiles": [ {id, name, created_at, created, legacy}, ... ] }
 
-- ``default`` is bound to the legacy ``data_dir()/olisar.db`` (``legacy: true``) so existing
-  installs upgrade with **zero file movement** — the file (and its live WAL/SHM sidecars)
-  is never touched, and stored ``kb_uploads`` paths stay valid. Additional profiles live at
-  ``data_dir()/profiles/<id>/olisar.db``.
-- ``created`` marks whether a profile's DB has had its schema built + been seeded, so a
-  switch into a brand-new profile knows to initialise it.
+- ``default`` is bound to the legacy data dir itself (``home_dir()/olisar.db``,
+  ``legacy: true``) so existing installs upgrade with **zero file movement** — the file (and
+  its live WAL/SHM sidecars) is never touched, and stored ``kb_uploads`` paths stay valid.
+  Additional profiles live at ``home_dir()/profiles/<id>/``.
+- ``created`` marks whether a profile's DB has had its schema built + been seeded. Every boot
+  builds the schema anyway (idempotently), so this is informational.
 """
 
 from __future__ import annotations
@@ -31,13 +35,13 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from olisar.runtime.paths import data_dir
+from olisar.runtime.paths import home_dir
 
 DEFAULT_ID = "default"
 
 
 def _registry_path() -> Path:
-    return data_dir() / "profiles.json"
+    return home_dir() / "profiles.json"
 
 
 def _now_iso() -> str:
@@ -46,8 +50,8 @@ def _now_iso() -> str:
 
 def _synthesize_default() -> dict:
     """The registry for a first boot / upgrade: a single ``default`` profile bound to the
-    legacy ``data_dir()/olisar.db`` path. Marked ``created`` (boot builds/seeds its schema
-    unconditionally), so switching is never needed to reach it."""
+    legacy ``home_dir()/olisar.db`` path. Marked ``created`` (boot builds/seeds its schema
+    unconditionally)."""
     return {
         "active": DEFAULT_ID,
         "default": DEFAULT_ID,
@@ -98,9 +102,11 @@ def _read() -> dict:
 
 
 def _write(reg: dict) -> None:
-    """Atomic write: tmp file + ``os.replace`` (atomic on POSIX and Windows)."""
+    """Atomic write: tmp file + ``os.replace`` (atomic on POSIX and Windows). The tmp name
+    carries the pid, so a worker that synthesizes the file at the same moment the gateway
+    writes it can't interleave into one half-written tmp file."""
     path = _registry_path()
-    tmp = path.with_suffix(".json.tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(reg, indent=2), "utf-8")
     os.replace(tmp, path)
 
@@ -141,21 +147,38 @@ def set_default(profile_id: str) -> None:
     _write(reg)
 
 
-def db_path_for(profile_id: str) -> Path:
-    """The SQLite path for a profile. The legacy ``default`` keeps ``data_dir()/olisar.db``;
-    every other profile gets its own ``data_dir()/profiles/<id>/olisar.db`` (parent created
-    on demand). Unknown ids fall back to the legacy path so the engine never blows up."""
+def is_legacy(profile_id: str) -> bool:
     p = get(profile_id)
-    if p is None or p.get("legacy"):
-        return data_dir() / "olisar.db"
-    d = data_dir() / "profiles" / profile_id
+    return bool(p and p.get("legacy"))
+
+
+def data_dir_for(profile_id: str) -> Path:
+    """A profile's own directory: its DB, uploads, Tailscale node and ``state.json``. The
+    legacy ``default`` is the install dir itself (where those have always lived); every other
+    profile gets ``home_dir()/profiles/<id>/`` (created on demand). Raises for an unknown id —
+    handing a deleted bot somebody else's directory is the one mistake this must not make."""
+    p = get(profile_id)
+    if p is None:
+        raise KeyError(f"unknown profile: {profile_id}")
+    if p.get("legacy"):
+        return home_dir()
+    d = home_dir() / "profiles" / profile_id
     d.mkdir(parents=True, exist_ok=True)
-    return d / "olisar.db"
+    return d
+
+
+def db_path_for(profile_id: str) -> Path:
+    """The SQLite path for a profile (``data_dir_for(id)/olisar.db``). Unknown ids fall back
+    to the legacy path so the engine of a single-bot run never blows up."""
+    try:
+        return data_dir_for(profile_id) / "olisar.db"
+    except KeyError:
+        return home_dir() / "olisar.db"
 
 
 def create(name: str) -> dict:
-    """Register a new (unconfigured, uncreated) profile. Does NOT build its DB or switch —
-    the switch orchestrator lazily builds the schema on first switch-in."""
+    """Register a new (unconfigured, uncreated) profile. Does NOT build its DB or select it —
+    its process builds the schema when it first boots."""
     reg = _read()
     pid = secrets.token_hex(4)
     while any(p["id"] == pid for p in reg["profiles"]):
@@ -181,6 +204,7 @@ def mark_created(profile_id: str) -> None:
 
 
 def set_active(profile_id: str) -> None:
+    """Point the console at ``profile_id``. Only changes what the console shows."""
     reg = _read()
     if not any(p["id"] == profile_id for p in reg["profiles"]):
         raise ValueError(f"unknown profile: {profile_id}")
@@ -215,4 +239,4 @@ def delete(profile_id: str) -> None:
     _write(reg)
     # Reclaim the DB dir — but never the shared legacy olisar.db (+ its sidecars).
     if not target.get("legacy"):
-        shutil.rmtree(data_dir() / "profiles" / profile_id, ignore_errors=True)
+        shutil.rmtree(home_dir() / "profiles" / profile_id, ignore_errors=True)

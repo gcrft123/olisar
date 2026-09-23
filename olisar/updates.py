@@ -79,9 +79,11 @@ def current_version() -> str:
 
 
 def _channel_path() -> Path:
-    from olisar.runtime.paths import data_dir
+    """The install's file, not a bot's: every bot on the desktop app runs from its own data
+    dir, but there's one app to update, and the desktop shell reads the channel from here."""
+    from olisar.runtime.paths import home_dir
 
-    return data_dir() / CHANNEL_FILE
+    return home_dir() / CHANNEL_FILE
 
 
 def channel() -> str:
