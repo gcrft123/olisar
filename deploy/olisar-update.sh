@@ -17,7 +17,11 @@
 # "what is deployed" is a fact on disk rather than whatever :latest happened to be. The
 # previous digest is kept in versions.json — that is what makes rollback possible.
 #
-#   ./olisar-update.sh [--force] [--start] [--tag vX.Y.Z]
+#   ./olisar-update.sh [--force] [--start] [--tag v2.0 | --tag v2.0.beta-1]
+#
+# Without --tag it resolves GitHub's latest release, which is always a stable one. The app
+# always passes --tag: the newest release on its own update channel, so a beta tester's VM
+# runs the betas.
 #
 # --start brings the container up even if it wasn't already running; that makes a first
 # deploy the same code path as an update, so there's only one place that knows how to put

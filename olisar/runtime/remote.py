@@ -19,16 +19,18 @@ import asyncio
 import json
 import logging
 import re
+import shlex
 import sys
 from pathlib import Path
 
 import asyncssh
 from sqlalchemy import select
 
-from olisar import runtime_config
+from olisar import runtime_config, updates
 from olisar.db.engine import session_scope
 from olisar.db.models import AppConfig
-from olisar.updates import UNKNOWN_VERSION, current_version, is_newer, same_version
+from olisar.updates import UNKNOWN_VERSION, current_version
+from olisar.versioning import display, is_newer, same_version
 
 log = logging.getLogger("olisar.remote")
 
@@ -192,7 +194,9 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         # newest release, pins its digest into the compose file, starts it, and rolls back
         # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
         log_lines.append("Pulling the latest Olisar release and starting it…")
-        out = await _run(conn, f"bash ~/{APP_DIR}/{UPDATE_SCRIPT} --start", timeout=900)
+        tag = await _target()
+        pin = f" --tag {shlex.quote(tag)}" if tag else ""
+        out = await _run(conn, f"bash ~/{APP_DIR}/{UPDATE_SCRIPT} --start{pin}", timeout=900)
         log_lines.append(out.strip()[-2000:])
     except Exception as exc:  # noqa: BLE001
         conn.close()
@@ -426,25 +430,72 @@ async def last_update() -> dict:
         conn.close()
 
 
-async def _apply_update(conn, host: str) -> dict:
+async def _target() -> str | None:
+    """The release the VM should run: the newest on this app's update channel, so a beta
+    tester's server gets the betas too. The VM's script can find a release by itself, but
+    only GitHub's latest, which is always stable. ``None`` when GitHub couldn't be asked or
+    has nothing on the channel."""
+    try:
+        rel = await updates.newest_release()
+    except Exception as exc:  # noqa: BLE001 — the caller decides what "unknown" means
+        log.warning("couldn't find the newest %s release: %s", updates.channel(), exc)
+        return None
+    return rel["tag"] if rel else None
+
+
+def hold(*, target: str | None, server: str, channel: str) -> dict | None:
+    """Why the VM's update script must not run, as the result it would have reported, or
+    ``None`` to run it. The script pins whatever release it's handed, so both of these
+    would move a server backwards:
+
+    - a beta app that couldn't resolve its release: with no ``--tag`` the script falls back
+      to GitHub's latest release, which is stable
+    - a server already past the target, which is where switching from beta to stable
+      leaves it until the next stable release overtakes the beta it's on
+    """
+    if not target:
+        if channel == "beta":
+            return {"ok": False, "status": "no-release", "message": "couldn't find the newest beta on GitHub"}
+        return None
+    if server and is_newer(server, target):
+        return {
+            "ok": True,
+            "status": "server-ahead",
+            "message": f"the server is on {display(server)}, which is newer than {display(target)}",
+            "tag": target,
+        }
+    return None
+
+
+async def _apply_update(conn, host: str, server_version: str | None = None) -> dict:
     """Run the VM's update script over an open connection and report what it did.
 
     The single implementation behind every trigger — the control panel's "Update now" and
     the automatic reconcile below both land here, so an attended update and an unattended
     one cannot diverge. ``host`` is the VM this connection belongs to, so the outcome is
-    recorded against the right bot.
+    recorded against the right bot. ``server_version`` is what the VM reports running, when
+    the caller has already probed it.
     """
-    # A VM last touched by an older client has no script yet — install it first.
-    probe_script = await asyncio.wait_for(
-        conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False), timeout=30
-    )
-    if "OK" not in (probe_script.stdout or ""):
-        await _install_managed(conn)
-    r = await asyncio.wait_for(
-        conn.run(f"bash ~/{APP_DIR}/{UPDATE_SCRIPT}", check=False), timeout=1200
-    )
-    out = ((r.stdout or "") + (r.stderr or "")).strip()
-    result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
+    tag = await _target()
+    if server_version is None:
+        server_version = (await _probe(conn)).get("version") or ""
+    result = hold(target=tag, server=server_version, channel=updates.channel())
+    out = ""
+    script_ok = False
+    if result is None:
+        # A VM last touched by an older client has no script yet — install it first.
+        probe_script = await asyncio.wait_for(
+            conn.run(f"test -x ~/{APP_DIR}/{UPDATE_SCRIPT} && echo OK", check=False), timeout=30
+        )
+        if "OK" not in (probe_script.stdout or ""):
+            await _install_managed(conn)
+        pin = f" --tag {shlex.quote(tag)}" if tag else ""
+        r = await asyncio.wait_for(
+            conn.run(f"bash ~/{APP_DIR}/{UPDATE_SCRIPT}{pin}", check=False), timeout=1200
+        )
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        script_ok = r.exit_status == 0
+        result = await _read_json(conn, f"~/{APP_DIR}/last-update.json")
     state = await _probe(conn)
 
     # Stamp the build that reconciled this VM, so ``decide`` doesn't keep repeating a run
@@ -461,7 +512,7 @@ async def _apply_update(conn, host: str) -> dict:
         except Exception as exc:  # noqa: BLE001 — the update itself already happened
             log.warning("could not record the synced version: %s", exc)
 
-    ok = bool(result.get("ok")) if result else r.exit_status == 0
+    ok = bool(result.get("ok")) if result else script_ok
     applied = {
         "ok": ok,
         "updated": bool(result.get("updated")),
@@ -480,8 +531,8 @@ async def _apply_update(conn, host: str) -> dict:
 
 
 async def update_image() -> dict:
-    """Apply the newest Olisar *release* on the configured VM, by running the VM's own
-    ``olisar-update.sh`` — which resolves the release tag, pins its digest into the compose
+    """Apply the newest Olisar *release* on this app's update channel to the configured VM,
+    by running the VM's own ``olisar-update.sh`` — which pins that tag's digest into the compose
     file, applies it, waits for the container's healthcheck, and rolls back to the previous
     digest if it never comes up.
 
@@ -614,11 +665,11 @@ async def _reconcile() -> dict:
             return {"skipped": "up-to-date", "version": state.get("version") or ""}
         log.info(
             "auto-update (%s): this app is v%s, the server is v%s — applying the newest release",
-            reason, client, state.get("version") or "unknown",
+            reason, display(client), display(state.get("version")) or "unknown",
         )
         _auto.update(running=True, reason=reason)
         try:
-            applied = await _apply_update(conn, cfg.server_host)
+            applied = await _apply_update(conn, cfg.server_host, state.get("version") or "")
         finally:
             _auto.update(running=False, reason="")
     except Exception as exc:  # noqa: BLE001 — a failed update must not take the app down

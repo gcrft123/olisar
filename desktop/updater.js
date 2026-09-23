@@ -9,6 +9,12 @@
 // The macOS .app inside the .dmg is signed and notarized with its ticket stapled (see
 // RELEASING.md), so the copy this lands in /Applications validates on its own — no online
 // check, no Gatekeeper prompt.
+//
+// It follows the install's update channel: stable reads GitHub's latest release (never a
+// pre-release), beta takes the newest release of either kind. The channel is chosen in the
+// dashboard and stored by the backend in updates.json in the data directory, which is this
+// app's userData (main.js hands it over as OLISAR_DATA_DIR), so it's read fresh from there
+// before every check. See olisar/updates.py.
 
 const https = require('https')
 const fs = require('fs')
@@ -19,6 +25,7 @@ const { app, dialog, shell, Notification } = require('electron')
 
 const REPO = 'gcrft123/olisar'
 const LATEST_URL = `https://api.github.com/repos/${REPO}/releases/latest`
+const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases?per_page=30`
 const RELEASES_PAGE = `https://github.com/${REPO}/releases/latest`
 
 let available = null        // the newest update found, or null
@@ -55,17 +62,72 @@ function getJson(url, redirects = 0) {
   })
 }
 
-// Compare dotted numeric versions (ignoring any leading "v" and pre-release suffix).
-function isNewer(remote, local) {
-  const parse = (v) => String(v || '').replace(/^v/i, '').split('-')[0].split('.').map((n) => parseInt(n, 10) || 0)
-  const a = parse(remote)
-  const b = parse(local)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] || 0
-    const y = b[i] || 0
-    if (x !== y) return x > y
+// ── versions (a port of olisar/versioning.py; keep them in step) ─────────────
+// Stable is "2.0", a beta leading up to it is "2.0.beta-1", and this app reports itself in
+// the semver spelling its package.json needs ("2.0.0-beta.1"). Releases before 2.0 had three
+// numbers ("1.5.0").
+
+const VERSION_RE = /^v?(\d+)\.(\d+)(?:\.(\d+))?(?:[.-]?(?:beta|b)[.-]?(\d+))?$/i
+
+function parseVersion(v) {
+  const m = VERSION_RE.exec(String(v || '').trim())
+  if (!m) return null
+  return { major: +m[1], minor: +m[2], patch: +(m[3] || 0), beta: m[4] ? +m[4] : null }
+}
+
+// A beta sorts below the stable release it leads up to: 2.0.beta-9 < 2.0.
+function sortKey(v) {
+  const p = parseVersion(v)
+  if (!p) {
+    const nums = (String(v || '').match(/\d+/g) || []).slice(0, 3).map(Number)
+    while (nums.length < 3) nums.push(0)
+    return [...nums, 1, 0]
   }
+  return p.beta === null ? [p.major, p.minor, p.patch, 1, 0] : [p.major, p.minor, p.patch, 0, p.beta]
+}
+
+function isNewer(remote, local) {
+  const a = sortKey(remote)
+  const b = sortKey(local)
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]
   return false
+}
+
+function isBeta(v) {
+  const p = parseVersion(v)
+  return !!(p && p.beta !== null)
+}
+
+// "2.0.0-beta.1" -> "2.0.beta-1", "2.0.0" -> "2.0", "1.5.0" stays "1.5.0".
+function displayVersion(v) {
+  const p = parseVersion(v)
+  if (!p) return String(v || '').trim().replace(/^v/i, '')
+  let base = `${p.major}.${p.minor}`
+  if (p.patch || p.major < 2) base += `.${p.patch}`
+  return p.beta === null ? base : `${base}.beta-${p.beta}`
+}
+
+// The install's update channel. With no choice saved, a beta build follows beta: the first
+// beta has to be installed by hand, and that should be all it takes to join.
+function channel() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'updates.json'), 'utf8')).channel
+    if (saved === 'stable' || saved === 'beta') return saved
+  } catch { /* no choice saved yet */ }
+  return isBeta(app.getVersion()) ? 'beta' : 'stable'
+}
+
+// The newest release `ch` should offer. Stable also refuses a beta-shaped tag that wasn't
+// flagged as a pre-release, so a hand-published beta can't reach every stable install.
+function pickRelease(releases, ch) {
+  let best = null
+  for (const rel of releases || []) {
+    const tag = String((rel && rel.tag_name) || '').trim()
+    if (!rel || rel.draft || !parseVersion(tag)) continue
+    if (ch !== 'beta' && (rel.prerelease || isBeta(tag))) continue
+    if (!best || isNewer(tag, best.tag_name)) best = rel
+  }
+  return best
 }
 
 // Pick the installer asset for this platform/arch from a release's assets.
@@ -82,13 +144,15 @@ function assetForPlatform(release) {
 }
 
 async function fetchUpdate() {
-  const rel = await getJson(LATEST_URL)
-  if (!rel || rel.draft || rel.prerelease) return null
-  const tag = rel.tag_name || rel.name || ''
+  const ch = channel()
+  const data = await getJson(ch === 'beta' ? RELEASES_URL : LATEST_URL)
+  const rel = pickRelease(Array.isArray(data) ? data : data ? [data] : [], ch)
+  if (!rel) return null
+  const tag = rel.tag_name.trim()
   if (!isNewer(tag, app.getVersion())) return null
   const asset = assetForPlatform(rel)
   return {
-    version: String(tag).replace(/^v/i, ''),
+    version: displayVersion(tag),
     downloadUrl: asset ? asset.browser_download_url : (rel.html_url || RELEASES_PAGE),
     pageUrl: rel.html_url || RELEASES_PAGE,
     hasInstaller: !!asset,
@@ -126,7 +190,7 @@ async function checkForUpdates({ interactive = false } = {}) {
   available = update
   if (!update) {
     if (interactive) {
-      dialog.showMessageBox({ type: 'info', message: "You're up to date", detail: `Olisar ${app.getVersion()} is the latest version.`, buttons: ['OK'] })
+      dialog.showMessageBox({ type: 'info', message: "You're up to date", detail: `Olisar ${displayVersion(app.getVersion())} is the latest ${channel() === 'beta' ? 'beta' : 'version'}.`, buttons: ['OK'] })
     }
     return null
   }
@@ -144,7 +208,7 @@ function promptInstall(update) {
         defaultId: 0,
         cancelId: 1,
         message: `Olisar ${update.version} is available`,
-        detail: `You're on ${app.getVersion()}. Olisar can download it and restart into the new version.`,
+        detail: `You're on ${displayVersion(app.getVersion())}. Olisar can download it and restart into the new version.`,
       })
       .then(({ response }) => { if (response === 0) installUpdate(update) })
   } else {
@@ -155,7 +219,7 @@ function promptInstall(update) {
         defaultId: 0,
         cancelId: 1,
         message: `Olisar ${update.version} is available`,
-        detail: `You're on ${app.getVersion()}. Download the new installer to update.`,
+        detail: `You're on ${displayVersion(app.getVersion())}. Download the new installer to update.`,
       })
       .then(({ response }) => { if (response === 0) shell.openExternal(update.downloadUrl) })
   }
@@ -318,6 +382,6 @@ async function _applyMac(update, tmpRoot) {
   }
 }
 
-module.exports = { init, checkForUpdates, getAvailableUpdate, openDownload, installUpdate, isInstalling, canSelfUpdate }
+module.exports = { init, checkForUpdates, getAvailableUpdate, openDownload, installUpdate, isInstalling, canSelfUpdate, displayVersion }
 // Exported for unit tests only.
-module.exports._internal = { isNewer, assetForPlatform, swapScript, currentAppPath, downloadFile }
+module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile }

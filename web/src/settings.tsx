@@ -6,6 +6,7 @@ import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { SCALES, getScale, setScale } from './theme'
+import { isBeta } from './version'
 
 // A Notion-style settings popup: a centered overlay with a left section nav and a
 // right content pane. App-wide operator settings (not per-server) live here.
@@ -820,11 +821,14 @@ const desktopUpdates = () => (window as any).olisar?.updates as
   | { state: () => Promise<any>; check: () => Promise<any>; install: () => Promise<any> }
   | undefined
 
+type Channel = 'stable' | 'beta'
+
 function Updates() {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
   const [canSelfUpdate, setCanSelfUpdate] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const [channel, setChannel] = useState<Channel | null>(null)
   const du = desktopUpdates()
 
   const load = (notify = false) => {
@@ -837,6 +841,7 @@ function Updates() {
     ])
       .then(([backend, desk]: [any, any]) => {
         setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate)
+        if (backend?.channel) setChannel(backend.channel)
         if (notify) {
           if (backend?.error) toast(backend.error, 'danger')
           else if (backend?.available) toast(`Update available — ${backend.latest}`, 'success')
@@ -846,6 +851,20 @@ function Updates() {
       .finally(() => setChecking(false))
   }
   useEffect(() => { load() }, [])
+
+  // Saved by the backend, where the desktop shell reads it too, then re-checked so the
+  // card and the tray both answer for the new channel.
+  const pickChannel = async (next: Channel) => {
+    const prev = channel
+    setChannel(next)
+    try {
+      await api.putUpdateChannel(next)
+      load()
+    } catch (e: any) {
+      setChannel(prev)
+      toast(e?.message || "Couldn't change the update channel", 'danger')
+    }
+  }
 
   const install = async () => {
     if (!du) return
@@ -887,6 +906,21 @@ function Updates() {
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
+      <div className="settings-subhead">Channel</div>
+      <div className="settings-row">
+        {channel === null ? <span className="settings-muted">…</span> : (
+          <Segmented
+            className="useg"
+            ariaLabel="Update channel"
+            value={channel}
+            onChange={pickChannel}
+            options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
+          />
+        )}
+      </div>
+      {channel === 'stable' && isBeta(data?.current) && (
+        <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
+      )}
       {!du && (
         <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
       )}
