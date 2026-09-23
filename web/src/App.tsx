@@ -9,7 +9,8 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { SECTIONS as SETTINGS_SECTIONS, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
+import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
+import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
@@ -118,6 +119,8 @@ export default function App() {
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
+  // What Feedback opens with when a screen in the console sent the operator there.
+  const [feedbackPrefill, setFeedbackPrefill] = useState<FeedbackPrefill | undefined>(undefined)
   // A blank reply's "Report this" button delivered a token to this tab. Held until a
   // session resolves, then handed to Feedback — which is the only thing that can redeem it.
   const [report, setReport] = useState('')
@@ -445,7 +448,11 @@ export default function App() {
     // "Search" is a promise the palette has to keep.
     ...SETTINGS_SECTIONS.map((sec) => ({
       id: 'settings:' + sec.id, label: sec.label, group: 'Settings', ic: sec.ic,
-      keywords: 'settings preferences ' + sec.id,
+      // "Feedback" is the pane's name, not what anyone types when something broke. The
+      // palette matches whole phrases, so the phrases people type are written out.
+      keywords: 'settings preferences ' + sec.id + (sec.id === 'feedback'
+        ? ' · report a bug · report a problem · bug report · ask a question · contact the team · help · support'
+        : ''),
       run: () => { setSettingsPane(sec.id); setSettingsOpen(true) },
     })),
     ...DOCS.map((d) => ({
@@ -564,12 +571,14 @@ export default function App() {
           </div>
         </div>
       </aside>
+      <FeedbackHost onOpen={(p) => { setFeedbackPrefill(p); setSettingsPane('feedback'); setSettingsOpen(true) }} />
       {settingsOpen && (
         <SettingsModal
           initialSection={settingsPane}
           report={report}
+          prefill={feedbackPrefill}
           onClose={() => {
-            setSettingsOpen(false); setSettingsPane(undefined)
+            setSettingsOpen(false); setSettingsPane(undefined); setFeedbackPrefill(undefined)
             // Closing the sheet is a decision about this report. Reopening Settings later
             // shouldn't drag it back, and neither should a reload.
             if (report) { clearPendingReport(); setReport('') }
@@ -586,7 +595,7 @@ export default function App() {
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
       <main key={guild ?? ''} id="console-main" tabIndex={-1} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
         {/* Keyed by tab too, so moving to another page clears a failed one. */}
-        <PageBoundary key={tab}>{pages[tab]}</PageBoundary>
+        <PageBoundary key={tab} page={nav.find((n) => n.id === tab)?.label ?? tab}>{pages[tab]}</PageBoundary>
       </main>
     </div>
   )
@@ -683,6 +692,13 @@ function NoServers(props: { username?: string; onLogout: () => void }) {
             <Icon.logout size={16} /> Log out
           </button>
         </div>
+        <p className="login-foot">
+          Still stuck?{' '}
+          <FeedbackButton className="linklike" prefill={{
+            category: 'Question',
+            message: 'I\'m signed in to the Olisar console, but it says Olisar isn\'t in any server where I have Manage Server.\n\nWhat I expected:\n',
+          }}>Tell us</FeedbackButton>
+        </p>
       </div>
     </div>
   )
@@ -707,6 +723,16 @@ function AccessDenied() {
         <a className="btn-discord" href={api.loginUrl()}>
           <Icon.login size={18} weight="Bold" /> Sign in again
         </a>
+        {/* The three hints cover the usual causes. Someone who has Manage Server and is
+            still refused has hit something none of them explain. */}
+        <p className="login-foot">
+          Still stuck?{' '}
+          <FeedbackButton className="linklike" prefill={{
+            category: 'Question',
+            message: 'I can\'t get into the Olisar console. It says access denied.\n\nWhat I expected:\n',
+            noLogs: true,
+          }}>Tell us</FeedbackButton>
+        </p>
       </div>
     </div>
   )
@@ -721,7 +747,11 @@ function Banned(props: { message?: string; onLogout: () => void }) {
         <div className="mark warn"><Icon.ban size={26} weight="Bold" /></div>
         <h1>Account suspended</h1>
         <p>{props.message || 'This account has been banned from Olisar. If you think that’s a mistake, contact the Olisar team.'}</p>
+        {/* The message tells them to contact the team; this is how. */}
         <div className="login-actions">
+          <FeedbackButton className="login-contact" prefill={{ category: 'Question', message: 'About my suspended account:\n\n' }}>
+            Contact the Olisar team
+          </FeedbackButton>
           <button className="ghost" onClick={props.onLogout}><Icon.logout size={16} /> Log out</button>
         </div>
       </div>
