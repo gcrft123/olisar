@@ -3,6 +3,8 @@ dashboard can send partial updates (only the fields the admin changed)."""
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 # The refresh ceiling lives with the scheduler that enforces it. Imported rather than
@@ -255,6 +257,10 @@ class SandboxChatIn(BaseModel):
 
 class DesktopSettingsIn(BaseModel):
     show_in_menu_bar: bool | None = None
+
+
+class UpdateChannelIn(BaseModel):
+    channel: Literal["stable", "beta"]
 
 
 class ToolPinIn(BaseModel):
