@@ -28,6 +28,7 @@ export type SetupStatus = {
 }
 
 type Mode = 'local' | 'tunnel' | 'server'
+type StepId = 'token' | 'app' | 'access' | 'remote' | 'keys' | 'deploy'
 
 // A code-preview box (DESIGN.md CodeBlock) with a copy button that flips to a check.
 export function Cb({ file, code }: { file: string; code: string }) {
@@ -157,6 +158,8 @@ export function SetupWizard(
   const [token, setToken] = useState(pf.discord_token || '')
   const [validating, setValidating] = useState(false)
   const [botName, setBotName] = useState<string | null>(null)
+  // Beside Test token, where the success reads, rather than under the whole step.
+  const [tokenErr, setTokenErr] = useState('')
 
   // Step 2 — application
   const [clientId, setClientId] = useState(pf.discord_client_id || '')
@@ -202,15 +205,27 @@ export function SetupWizard(
   const [shareBusy, setShareBusy] = useState(false)
   const [shareErr, setShareErr] = useState('')
 
+  // Local hosting is four steps. Shared hosting adds one of its own for Tailscale, and server
+  // hosting keeps the API keys step and adds Deploy after it: each used to fold its extra
+  // setup into a step shaped like the others, so a five-step setup showed four.
+  const steps: StepId[] = [
+    'token', 'app', 'access',
+    ...(mode === 'tunnel' ? ['remote' as const] : []),
+    'keys',
+    ...(mode === 'server' ? ['deploy' as const] : []),
+  ]
+  const last = steps.length - 1
+  const cur = steps[Math.min(step, last)]
+
   // The app's SSH key: always needed on the Deploy step (new VM); on the connect/reconnect
   // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
   // when the operator expands "Can't connect?".
-  const pk = usePubkey((step === 3 && mode === 'server' && !sharing) || (connectMode && showKey))
+  const pk = usePubkey((cur === 'deploy' && !sharing) || (connectMode && showKey))
 
   // Reaching the Deploy step with another bot's server picked: get this bot let in, and
   // carry over what the new install should reuse unless the operator already typed it.
   useEffect(() => {
-    if (!(step === 3 && mode === 'server' && sharing) || share?.from === source) return
+    if (!(cur === 'deploy' && sharing) || share?.from === source) return
     let alive = true
     setShareBusy(true); setShareErr('')
     api.shareServer(source)
@@ -224,7 +239,7 @@ export function SetupWizard(
       .catch((e: any) => { if (alive) setShareErr(e?.message || 'Couldn’t use that server.') })
       .finally(() => { if (alive) setShareBusy(false) })
     return () => { alive = false }
-  }, [step, mode, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [cur, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Step 4 — keys
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
@@ -233,20 +248,16 @@ export function SetupWizard(
   const [uex, setUex] = useState(pf.uex_api_key || '')
   const [saving, setSaving] = useState(false)
 
-  // The last step is "API keys" for local hosting, "Deploy" for server hosting.
-  const steps = ['Bot token', 'Application', 'Access', mode === 'server' ? 'Deploy' : 'API keys']
-  const last = steps.length - 1
-
   const redirectLocal = status.local_url.replace(/\/$/, '') + '/auth/callback'
   const redirectTunnel = tunnelUrl ? tunnelUrl.replace(/\/$/, '') + '/auth/callback' : ''
 
   async function validate() {
-    setErr(''); setValidating(true); setBotName(null)
+    setErr(''); setTokenErr(''); setValidating(true); setBotName(null)
     try {
       const r = await api.validateSetupToken(token.trim())
       setBotName(r.username || 'your bot')
     } catch (e: any) {
-      setErr(e?.message || 'token validation failed')
+      setTokenErr(e?.message || 'token validation failed')
     } finally {
       setValidating(false)
     }
@@ -254,11 +265,13 @@ export function SetupWizard(
 
   function next() {
     setErr(''); setSaveFailed(false)
-    if (step === 0 && !token.trim()) return setErr('Paste your bot token to continue.')
-    if (step === 1 && !(clientId.trim() && clientSecret.trim()))
+    if (cur === 'token' && !token.trim()) return setErr('Paste your bot token to continue.')
+    if (cur === 'app' && !(clientId.trim() && clientSecret.trim()))
       return setErr('Client ID and client secret are both required.')
-    if (step === 2 && mode === 'tunnel' && !tunnelDone)
-      return setErr('Turn on remote access before continuing (or pick another option).')
+    if (cur === 'remote' && !tunnelDone)
+      return setErr('Turn on remote access before continuing, or go back and pick another option.')
+    if (cur === 'keys' && mode === 'server' && !gemini.trim())
+      return setErr('A server can’t start Olisar without a Gemini key.')
     setStep((s) => Math.min(s + 1, last))
   }
 
@@ -268,6 +281,7 @@ export function SetupWizard(
       const r = await api.enableTunnel({ auth_key: tunnelAuthKey.trim(), hostname: tunnelNode.trim() })
       setTunnelUrl(r.public_url || '')
       setTunnelDone(true)
+      setErr('')  // "turn on remote access first" no longer applies
     } catch (e: any) {
       setTunnelErr(e?.message || 'Couldn’t turn on remote access.')
     } finally {
@@ -362,6 +376,7 @@ export function SetupWizard(
     L.push(`OLISAR_FUNNEL_HOSTNAME=${tunnelNode.trim() || 'olisar'}`)
     if (cfAccount.trim()) L.push(`CLOUDFLARE_ACCOUNT_ID=${cfAccount.trim()}`)
     if (cfToken.trim()) L.push(`CLOUDFLARE_API_TOKEN=${cfToken.trim()}`)
+    if (uex.trim()) L.push(`UEX_API_KEY=${uex.trim()}`)
     return L.join('\n')
   })()
 
@@ -439,17 +454,18 @@ export function SetupWizard(
           {steps.map((_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
         </div>
 
-        {step === 0 && (
+        {cur === 'token' && (
           <>
             <Field
               label="Discord bot token"
               desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Turn on the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too, plus <strong>Presence Intent</strong> if you want status and voice awareness.</>}
             >
-              <Text value={token} onChange={(v) => { setToken(v); setBotName(null) }} placeholder="your bot token" mono />
+              <Text value={token} onChange={(v) => { setToken(v); setBotName(null); setTokenErr('') }} placeholder="your bot token" mono />
             </Field>
             <div className="wiz-foot">
               <span className="grow">
                 {botName && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Connected as {botName}</span>}
+                {tokenErr && <span className="err">{tokenErr}</span>}
               </span>
               <button disabled={!token.trim() || validating} onClick={validate}>
                 {validating ? 'Checking…' : 'Test token'}
@@ -458,7 +474,7 @@ export function SetupWizard(
           </>
         )}
 
-        {step === 1 && (
+        {cur === 'app' && (
           <>
             <Field
               label="Client ID"
@@ -481,73 +497,16 @@ export function SetupWizard(
           </>
         )}
 
-        {step === 2 && (
+        {cur === 'access' && (
           <>
             <ModeChoice mode={mode} onPick={setMode} />
 
-            {mode === 'tunnel' && (
-              <>
-                <div className="tunnel-help">
-                  <b>Free remote access via Tailscale — no domain needed</b>
-                  <ol>
-                    <li>Create a free {A('https://login.tailscale.com/start', 'Tailscale account')} (sign in with Google, GitHub, etc.).</li>
-                    <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')}, turning on <strong>Reusable</strong>. Paste it below.</li>
-                    <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for this device. Olisar shows the exact link to click, then press Enable again.</li>
-                  </ol>
-                  <div style={{ marginTop: 8 }}>
-                    Your dashboard then lives at a stable <code>https://…ts.net</code> address. Other admins just open it and sign in with Discord; they don't need Tailscale themselves.
-                  </div>
-                </div>
-                <Field
-                  label="Tailscale auth key"
-                  desc="Stored on this machine and only ever handed to Tailscale."
-                >
-                  <Text value={tunnelAuthKey} onChange={(v) => { setTunnelAuthKey(v); setTunnelDone(false) }} placeholder="tskey-auth-…" mono />
-                </Field>
-                <Field
-                  label="Device name (optional)"
-                  desc="Becomes the first part of your dashboard's web address."
-                >
-                  <Text value={tunnelNode} onChange={(v) => { setTunnelNode(v); setTunnelDone(false) }} placeholder="olisar" mono />
-                </Field>
-                <div className="wiz-foot">
-                  <span className="grow">
-                    {tunnelDone && tunnelUrl && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
-                    {tunnelErr && <span className="err" style={{ margin: 0 }}>{tunnelErr}</span>}
-                  </span>
-                  <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
-                    {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
-                  </button>
-                </div>
-                {/* Funnel is the step people get stuck on, and the fix usually lives in
-                    Tailscale's admin panel rather than here: a question, not a bug. */}
-                {tunnelErr && (
-                  <p className="err-help">
-                    Stuck?{' '}
-                    <FeedbackButton className="linklike" prefill={{
-                      category: 'Question',
-                      message: reportBody('I\'m stuck turning on remote access with Tailscale.', tunnelErr, 'What I\'ve tried:'),
-                    }}>Ask the team</FeedbackButton>
-                  </p>
-                )}
-              </>
-            )}
 
-            {mode === 'server' && (
-              <div className="callout note" style={{ marginBottom: 4 }}>
-                <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-                <div className="callout-body">
-                  The next step walks you through creating a free cloud server. Olisar installs
-                  itself onto it over SSH, so you won't need a terminal.
-                </div>
-              </div>
-            )}
-
-            {mode !== 'server' && (
+            {mode === 'local' && (
               <Field
                 plain
                 label="Add this redirect URL in the Developer Portal"
-                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add.{mode === 'tunnel' ? ' Add both, so login works locally and remotely.' : ''}</>}
+                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add.</>}
               >
                 <div className="redirect-box">
                   <span>{redirectLocal}</span>
@@ -555,24 +514,89 @@ export function SetupWizard(
                     {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
                   </button>
                 </div>
-                {mode === 'tunnel' && redirectTunnel && (
-                  <div className="redirect-box" style={{ marginTop: 8 }}>
-                    <span>{redirectTunnel}</span>
-                    <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
-                      {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
-                    </button>
-                  </div>
-                )}
               </Field>
             )}
           </>
         )}
 
-        {step === 3 && mode !== 'server' && (
+        {cur === 'remote' && (
           <>
+            <div className="tunnel-help">
+              <b>Free remote access via Tailscale — no domain needed</b>
+              <ol>
+                <li>Create a free {A('https://login.tailscale.com/start', 'Tailscale account')} (sign in with Google, GitHub, etc.).</li>
+                <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')}, turning on <strong>Reusable</strong>. Paste it below.</li>
+                <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for this device. Olisar shows the exact link to click, then press Enable again.</li>
+              </ol>
+              <div style={{ marginTop: 8 }}>
+                Your dashboard then lives at a stable <code>https://…ts.net</code> address. Other admins just open it and sign in with Discord; they don't need Tailscale themselves.
+              </div>
+            </div>
+            <Field
+              label="Tailscale auth key"
+              desc="Stored on this machine and only ever handed to Tailscale."
+            >
+              <Text value={tunnelAuthKey} onChange={(v) => { setTunnelAuthKey(v); setTunnelDone(false) }} placeholder="tskey-auth-…" mono />
+            </Field>
+            <Field
+              label="Device name (optional)"
+              desc="Becomes the first part of your dashboard's web address."
+            >
+              <Text value={tunnelNode} onChange={(v) => { setTunnelNode(v); setTunnelDone(false) }} placeholder="olisar" mono />
+            </Field>
+            <div className="wiz-foot">
+              <span className="grow">
+                {tunnelDone && tunnelUrl && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
+                {tunnelErr && <span className="err">{tunnelErr}</span>}
+              </span>
+              <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
+                {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
+              </button>
+            </div>
+            {/* Funnel is the step people get stuck on, and the fix usually lives in
+                Tailscale's admin panel rather than here: a question, not a bug. */}
+            {tunnelErr && (
+              <p className="err-help">
+                Stuck?{' '}
+                <FeedbackButton className="linklike" prefill={{
+                  category: 'Question',
+                  message: reportBody('I\'m stuck turning on remote access with Tailscale.', tunnelErr, 'What I\'ve tried:'),
+                }}>Ask the team</FeedbackButton>
+              </p>
+            )}
+
+            <Field
+              plain
+              label="Add these redirect URLs in the Developer Portal"
+              desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add. Add both, so login works locally and remotely.</>}
+            >
+              <div className="redirect-box">
+                <span>{redirectLocal}</span>
+                <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
+                  {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+                </button>
+              </div>
+              {redirectTunnel && (
+                <div className="redirect-box" style={{ marginTop: 8 }}>
+                  <span>{redirectTunnel}</span>
+                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
+                    {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
+                  </button>
+                </div>
+              )}
+            </Field>
+          </>
+        )}
+
+        {cur === 'keys' && (
+          <>
+            {/* Required for a server, which can't start without it; optional here, where the
+                console can add it later. */}
             <Field
               label="Gemini API key"
-              desc={<>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
+              desc={mode === 'server'
+                ? <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
+                : <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
             </Field>
@@ -588,7 +612,7 @@ export function SetupWizard(
           </>
         )}
 
-        {step === 3 && mode === 'server' && !connectMode && (
+        {cur === 'deploy' && !connectMode && (
           <>
             {shared.length > 0 && (
               <Segmented
@@ -650,9 +674,6 @@ export function SetupWizard(
             </Field>
             </>
             )}
-            <Field label="Gemini API key" desc={<>Powers everything Olisar says. Free key from {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>}>
-              <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
-            </Field>
             <Field label="Tailscale auth key" desc={<>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
               <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
             </Field>
@@ -704,7 +725,7 @@ export function SetupWizard(
           </button>
           <span className="grow" />
           {step < last
-            ? (step === 0
+            ? (cur === 'token'
                 ? <div className="cta-reveal">
                     <div className="reveal-slot">
                       <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>

@@ -354,10 +354,11 @@ export function ServerControlPanel() {
           <button className="primary" disabled={!st?.url || busyUpdating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
         </div>
 
-        {st?.version && (
+        {/* Only when there's something to act on: "up to date" was a line of reassurance
+            under every healthy server. */}
+        {st?.version && available && (
           <p className="srv-hint">
-            Server version <b>v{displayVersion(st.version)}</b>
-            {available ? <>, and <b>v{displayVersion(available)}</b> is available.</> : <>, up to date.</>}
+            Server version <b>v{displayVersion(st.version)}</b>, and <b>v{displayVersion(available)}</b> is available.
           </p>
         )}
         {busyUpdating && (

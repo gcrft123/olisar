@@ -50,6 +50,54 @@ export function Stack(props: { children: React.ReactNode }) {
   return <RowCtx.Provider value={false}>{props.children}</RowCtx.Provider>
 }
 
+/** A list that stops growing after `rows` children and scrolls from there, its top and bottom
+ *  edges fading out while there's more past them. The cap is a row count rather than a height
+ *  because rows range from one line (a fact) to a stacked control group (a source). It stops
+ *  partway into the first hidden row, so that row shows through the fade: a cut on a row
+ *  boundary reads as the end of the list. */
+export function ScrollFade(props: { rows: number; className?: string; children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null)
+  const [cap, setCap] = useState<number | null>(null)
+  const [edges, setEdges] = useState('')
+  const readEdges = React.useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    const top = el.scrollTop > 1
+    const bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1
+    setEdges((top ? ' fade-top' : '') + (bottom ? ' fade-bottom' : ''))
+  }, [])
+  // Every render, because rows come and go with the data; and on resize, because a row's
+  // height follows the width it wraps in.
+  React.useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const next = el.children[props.rows] as HTMLElement | undefined
+    setCap(next ? next.offsetTop + Math.min(next.offsetHeight / 2, 36) : null)
+    readEdges()
+  })
+  React.useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => {
+      const next = el.children[props.rows] as HTMLElement | undefined
+      setCap(next ? next.offsetTop + Math.min(next.offsetHeight / 2, 36) : null)
+      readEdges()
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [props.rows, readEdges])
+  return (
+    <div
+      ref={ref}
+      className={'scroll-fade' + (props.className ? ' ' + props.className : '') + edges}
+      style={cap != null ? { maxHeight: cap } : undefined}
+      onScroll={readEdges}
+    >
+      {props.children}
+    </div>
+  )
+}
+
 // A field's label, description, and control are three siblings, so the label can't wrap the
 // control — it has to point at it. Field mints one id per instance and hands it down; the
 // primitives below claim it. Without this every input in the console is an unnamed edit box
@@ -203,8 +251,7 @@ export function useHasInvalidFields(): boolean {
 
 // A bare number box asks the operator to invent a value. `min`/`max` were already being
 // passed and were invisible — the browser enforced a range nobody could see, and nothing
-// said what a sane setting looks like. The range and the default are now on screen, and the
-// default is one click away when the current value has drifted from it.
+// said what a sane setting looks like. The range and the default are now on screen.
 export function Num(props: {
   value: number; onChange: (v: number) => void
   min?: number; max?: number; step?: number; ariaLabel?: string
@@ -234,7 +281,6 @@ export function Num(props: {
   if (props.min !== undefined && props.max !== undefined) bits.push(`${props.min}–${props.max}`)
   else if (props.min !== undefined) bits.push(`${props.min} or more`)
   if (props.def !== undefined) bits.push(`default ${props.def}`)
-  const atDefault = props.def === undefined || props.value === props.def
 
   // Hold the raw text, not just the number. `Number('')` is 0, so clearing the box to type a
   // new value wrote a real 0 into the config on the way — the field said 0 and meant it.
@@ -297,23 +343,8 @@ export function Num(props: {
         {props.unit && <span className="num-unit" ref={unitRef}>{props.unit}</span>}
       </div>
       {err && <div className="num-err" id={errId} role="alert">{err}</div>}
-      {(!!bits.length || !atDefault) && (
-        <div className="num-hint">
-          {/* The id sits on the text alone: with the button inside it, aria-describedby
-              resolved to "0 or more · default 100Reset" and the field's description
-              carried a control's label. */}
-          {!!bits.length && <span id={hintId}>{bits.join(' · ')}</span>}
-          {!atDefault && (
-            <button
-              type="button"
-              className="ghost num-reset"
-              aria-label={`Reset to the default of ${props.def}`}
-              onClick={() => { setText(null); props.onChange(props.def as number) }}
-            >
-              Reset
-            </button>
-          )}
-        </div>
+      {!!bits.length && (
+        <div className="num-hint"><span id={hintId}>{bits.join(' · ')}</span></div>
       )}
     </>
   )
@@ -727,17 +758,6 @@ function inline(text: string, key: string, onLink?: (id: string) => void): React
 
 export function slugify(text: string): string {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-}
-
-// Heading list for an "On this page" TOC: ## -> level 1, ### -> level 2.
-export function headingsOf(md: string): { level: number; text: string; slug: string }[] {
-  const out: { level: number; text: string; slug: string }[] = []
-  for (const raw of md.split('\n')) {
-    const line = raw.trim()
-    if (line.startsWith('### ')) out.push({ level: 2, text: line.slice(4), slug: slugify(line.slice(4)) })
-    else if (line.startsWith('## ')) out.push({ level: 1, text: line.slice(3), slug: slugify(line.slice(3)) })
-  }
-  return out
 }
 
 // Friendly labels for the code-preview box header, keyed by the fence's info string.

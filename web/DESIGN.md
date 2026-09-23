@@ -364,7 +364,7 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 |---|---|
 | Buttons | **Button**, **IconButton** |
 | Forms | **TextField**, **TextArea**, **Select**, **Toggle**, **Field** |
-| Data display | **Section**, **Badge**, **Tag**, **RoleChip**, **StatTile**, **DocTable**, **DataTable**, **ActivityLedger** |
+| Data display | **Section**, **Badge**, **Tag**, **RoleChip**, **StatTile**, **DocTable**, **DataTable**, **ActivityLedger**, **ScrollFade** |
 | Product surfaces | **DiscordPreview**, **DangerZone** |
 | Feedback | **Callout**, **Spinner** |
 | Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast** |
@@ -783,7 +783,7 @@ Three idioms: **underline** (hairline `border-bottom`, active item bold `--text`
 ### Navigation (NavItem / PageNav / Avatar)
 
 - **NavItem** (sidebar row): `padding: 7px 10px; border-radius: var(--radius-sm); color: var(--text-2)`. Hover → `background: var(--bg-inset); color: var(--text)`. Active → same bg, `font-weight: 600`, icon swaps to `-bold`.
-- **PageNav** ("On this page"): a header (list icon + label), a vertical rail (`border-left: 1px solid var(--border)`), items muted (`--text-3`) that brighten on hover; the active item is bold `--text` with a 2px foreground bar on the rail. One level of nesting via extra left padding.
+- **PageNav** ("On this page"): retired from Docs, which is two panes now (see **Documentation layout**). If a page index comes back somewhere: a header (list icon + label), a vertical rail (`border-left: 1px solid var(--border)`), items muted (`--text-3`) that brighten on hover; the active item is bold `--text` with a 2px foreground bar on the rail. One level of nesting via extra left padding.
 - **Avatar**: rounded square (`object-fit: cover`), or a tinted initial — `background: var(--accent-soft); color: var(--accent); font-weight: 700`.
 
 ### DocTable & DataTable
@@ -907,6 +907,26 @@ identifier, and an operator reading their own history should not have to decode 
 the log's real scope**: if the audit table has no per-server column, say the entries are
 install-wide rather than rendering them under a server switcher that implies otherwise.
 
+### ScrollFade (a capped list)
+
+A list that shares a page with other sections stops growing after a set number of rows and scrolls from there: sources after 4, glossary facts after 8, activity after 10. `<ScrollFade rows={n}>` measures its children and sets the height, so the cap is a row count rather than a pixel height. Rows here run from one line to a stacked control group, and a fixed height would show three sources or twelve facts.
+
+It stops partway into the first hidden row, so that row shows through the bottom fade. A cut that lands on a row boundary reads as the end of the list. Each edge fades only while there's more past it: the top stays sharp until you scroll.
+
+```css
+@property --fade-top { syntax: '<length>'; inherits: false; initial-value: 0px; }
+@property --fade-bottom { syntax: '<length>'; inherits: false; initial-value: 0px; }
+.scroll-fade {
+  position: relative; overflow-y: auto; padding-inline: 4px; margin-inline: -4px;
+  mask-image: linear-gradient(to bottom, transparent, black var(--fade-top), black calc(100% - var(--fade-bottom)), transparent);
+  transition: --fade-top var(--dur-mid) var(--ease-out), --fade-bottom var(--dur-mid) var(--ease-out);
+}
+.scroll-fade.fade-top { --fade-top: 36px; }
+.scroll-fade.fade-bottom { --fade-bottom: 36px; }
+```
+
+A mask, not a gradient overlay, so it works on any surface without knowing the colour behind it. The inline padding keeps focus rings inside the clip. Don't use it where the list is the whole view (the Activity pane in Settings runs full length).
+
 ### Content — InlineCode, CodeBlock, CopyField, Link
 
 **InlineCode** — a monospaced chip for tokens/paths in running text; tone it to a semantic state when used inside a matching callout. **CodeBlock** — a titled preview with a filename header, a copy button, and light JS/TS syntax highlighting. **CopyField** — a value in a `--bg-inset` box with a trailing copy button (divider `border-left`) that flips to a green `check-circle` on click (`boxed` for domains/keys, `bare`+`lg` for an editable-title look). **Link** — `default` (accent), `prose` (muted underline → white on hover), `subtle` (quiet foreground), `inherit` (takes the surrounding text colour — use inside callouts/toasts); `external` opens a new tab + appends a ↗ arrow.
@@ -997,9 +1017,7 @@ track, and withhold it at widths where the content needs the room:
 
 ## Documentation layout
 
-A docs surface is three roles: section nav, the article, page index. Three panes is the right
-topology — the mistake is letting the two rails be the constants and the article be whatever
-they leave over.
+A docs surface is two panes: the section nav and the article. There used to be a third, an "On this page" index on the right, and it was removed: the article's own headings do that job, and the rail's 212px was worth more as article. The mistake either way is letting the rails be the constants and the article be whatever they leave over.
 
 **State the measure; derive everything else from it.** Before this rule the console's docs
 article was pure residue: 41 characters per line on a 900px window, 55 with a page index, 90
@@ -1008,8 +1026,8 @@ where the reader had the most screen.
 
 ```css
 .docs-shell {
-  grid-template-columns: 230px minmax(0, 1fr) 212px;
-  --doc-measure: 445px;   /* ~73 characters at the 13.5px body */
+  grid-template-columns: 230px minmax(0, 1fr);
+  --doc-measure: 580px;   /* ~85 characters at the 15px body */
 }
 /* Prose holds the measure. Tables and code are deliberately absent from this list and take
    the full column — a reference table squeezed into a prose measure is just a horizontal
@@ -1023,16 +1041,9 @@ where the reader had the most screen.
 Not `ch` — see the measure note under **Marketing site**: IBM Plex Sans's zero is 1.33× its
 average advance, so a `ch` value overstates a real line by a third.
 
-**Keep the page index's track even when the page has no index.** A section with no `##`
-headings renders no rail; reclaiming its 212px widens the article on exactly those pages, so
-the column jumps and re-wraps as the reader clicks through the set. Hold the track empty and
-the article's left edge and line length are identical on every page.
+**Read like documentation, not like a settings row.** The article body is 15px at a 1.75 line with 18px between paragraphs; `##` is 20px with 48px above it, `###` 16px with 32px; list items sit 8px apart; callouts, code and tables take 22–26px either side. At the 13.5px / 1.6 / 10px it had before, the Docs page was set like the settings pages around it, and a reader working through a section had no rest between blocks. Tables stay a step under the body at 13px because they are read across, not down. All of it is scoped to `.docs-content .doc`: the same `.doc` renders Markdown in test-chat replies and extension readmes, which want the compact rhythm.
 
-**Rails yield in priority order, at the width where they start costing the measure.** The page
-index goes first, then the section nav becomes a band above the article. Pick each breakpoint
-by solving for the measure, not by round numbers: the index drops when the middle column can
-no longer hold `--doc-measure` plus its gutters, and the nav follows when a rail plus the
-app's own sidebar would push the article under ~65 characters. Verify by reading the realized
+**The nav yields at the width where it starts costing the measure.** Below that it becomes a band above the article. Pick the breakpoint by solving for the measure, not by round numbers: the nav goes when its rail plus the app's own sidebar would push the article under ~65 characters. Verify by reading the realized
 line length at each step rather than trusting the arithmetic — and remember media queries do
 not zoom, so a breakpoint fires at `value / --ui-scale` of effective width.
 
