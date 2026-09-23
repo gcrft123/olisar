@@ -17,7 +17,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import toolpin
+from olisar import self_settings, toolpin
 from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.imaging import generate_image, is_configured as image_is_configured
@@ -85,10 +85,13 @@ class ToolContext:
     # tool name -> async handler(args, ctx), supplied per-reply for enabled
     # extensions (olisar/extensions). execute_tool dispatches to these first.
     extension_tools: dict = field(default_factory=dict)
-    # Gated tools whose PIN prompt already came back "no" this reply, and why. A denial
-    # holds for the rest of the reply: without it the model's retry would post a second
-    # prompt, and someone who just declined would be asked again for the same call.
+    # Gated actions (olisar.toolpin.gate) whose PIN prompt already came back "no" this
+    # reply, and why. A denial holds for the rest of the reply: without it the model's retry
+    # would post a second prompt, and someone who just declined would be asked again.
     pin_denied: dict = field(default_factory=dict)
+    # Gated actions a PIN entry already confirmed this reply. The confirmation covers the
+    # action, so "rename yourself and rewrite your bio" asks once rather than per call.
+    pin_approved: set = field(default_factory=set)
     # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
     # silence after a lookup; nothing else depends on the ordering yet.
     tools_run: list = field(default_factory=list)
@@ -97,6 +100,9 @@ class ToolContext:
     # never be set optimistically: a failed reaction that still silenced the reply would be
     # a bot that swallowed the request without a trace anyone can see.
     silent: str = ""
+    # Set once open_settings has run. From then on the reply also declares the settings
+    # write tools (see with_settings_tools), which are left out until then to save tokens.
+    settings_open: bool = False
 
 
 def _str(desc: str) -> types.Schema:
@@ -332,6 +338,7 @@ _DECLARATIONS = [
             ["enabled"],
         ),
     ),
+    self_settings.READ_DECLARATION,
 ]
 
 TOOLS = [types.Tool(function_declarations=_DECLARATIONS)]
@@ -401,6 +408,19 @@ def tools_with_extensions(extra_declarations: list) -> list:
     if not extra_declarations:
         return TOOLS
     return [types.Tool(function_declarations=[*_DECLARATIONS, *extra_declarations])]
+
+
+def with_settings_tools(tools: list) -> list:
+    """``tools`` plus the settings write tools, once open_settings has unlocked them.
+
+    They're withheld until then because they're rarely wanted and every declaration is
+    resent on every model call. See ``olisar.self_settings``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    if any(d.name in self_settings.TOOL_NAMES - {"open_settings"} for d in declared):
+        return tools
+    return [
+        types.Tool(function_declarations=[*declared, *self_settings.WRITE_DECLARATIONS])
+    ]
 
 
 # Core tools exposed in the dashboard sandbox (the enclosed test chat). Only the
@@ -762,6 +782,9 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             r.fired = True
             return f"Cancelled reminder #{rid}."
 
+        if name in self_settings.TOOL_NAMES:
+            return await self_settings.run(name, args, ctx)
+
         if name == "set_dm_indexing":
             from olisar.memory.writer import upsert_profile
 
@@ -811,12 +834,14 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Run a tool, logging the call and a one-line summary of what it returned
     (search-type tools also log the specific items they used, in their modules)."""
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
-    if toolpin.requires_pin(name):
-        outcome = ctx.pin_denied.get(name) or await _confirm_with_pin(name, ctx)
+    action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
+    if action and action not in ctx.pin_approved:
+        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, ctx)
         if outcome != toolpin.APPROVED:
-            ctx.pin_denied[name] = outcome
+            ctx.pin_denied[action] = outcome
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)
             return toolpin.denial_note(name, outcome)
+        ctx.pin_approved.add(action)
     # Recorded after the PIN gate, so a call that never ran doesn't count as one that did.
     ctx.tools_run.append(name)
     result = await _dispatch(name, args, ctx)

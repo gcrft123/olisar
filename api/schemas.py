@@ -185,6 +185,9 @@ class ConfigIn(BaseModel):
     # api/routers/admin.py, put_config.
     member_portal_enabled: bool | None = None
     member_portal_show_persona: bool | None = None
+    # Actions that need the tool PIN on this server — keys of olisar.toolpin.ACTIONS. An
+    # unknown key is refused in the router rather than stored and never matched.
+    pin_actions: list[str] | None = None
 
 
 class ProactivityIn(BaseModel):

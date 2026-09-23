@@ -4,7 +4,17 @@ Ask Olisar to DM someone and two things happened: the DM went out, and then it w
 
 Now it can. Olisar reacts to the message and stops there, after doing what was asked or when a message only needed acknowledging at all. Going quiet is the failure this risks — from the channel, a bot that decided to say nothing and one that crashed look the same — so silence is refused unless it has been earned: the reaction has to have landed, there has to be a message to react to, and a turn that looked something up still owes what it found.
 
+Changing anything about Olisar also meant opening the console. You can now ask it in Discord instead: its persona and system prompt, how and when it joins in, its command replies, its knowledge sources, the search index and glossary, and a member's impression. The tools that make those changes are only handed to the model once a conversation turns to settings, so every other reply costs about what it did before.
+
 ### New
+
+[d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
+
+[d0311f6] — It can add, re-read, reschedule and remove knowledge sources, rebuild or clear the message search index, mine the glossary or delete entries from it, and rebuild a member's impression.
+
+[d0311f6] — A change made from chat shows in the Activity log under the member who asked, with the previous value kept.
+
+[d0311f6] — Until the tool PIN covers them, anyone who can talk to Olisar can make these changes; `OLISAR_PIN_GATED_TOOLS=change_setting,settings_action` puts them behind it now.
 
 [f2fa419] — Olisar can end a turn with a reaction and no message, after sending a DM, posting to another channel, remembering something, or setting a reminder.
 

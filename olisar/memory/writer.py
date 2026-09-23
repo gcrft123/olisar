@@ -101,6 +101,26 @@ async def clear_search_index(session: AsyncSession, guild_id: int) -> int:
     return removed
 
 
+async def rearm_search_index(session: AsyncSession, guild_id: int) -> int:
+    """Re-walk every indexed channel's history into the search index (the console's
+    **Re-index all**). Rows update in place, keyed by message id, so this is safe to run
+    anytime. Returns how many channels were queued."""
+    # Only channels that are actually in the index. Ones set to "not indexed" stay halted
+    # (re-enabling one re-arms it via reindex_channel).
+    result = await session.execute(
+        update(GuildChannelInfo)
+        .where(
+            GuildChannelInfo.guild_id == guild_id,
+            GuildChannelInfo.index_enabled.is_(True),
+        )
+        .values(backfill_done=False, last_indexed_message_id=None)
+    )
+    # DMs are their own category: clearing their rows makes the DM backfill pass rebuild
+    # them from the message table, since Discord can't page DM history.
+    await session.execute(delete(SearchMessage).where(SearchMessage.guild_id == 0))
+    return result.rowcount or 0
+
+
 async def reindex_channel(session: AsyncSession, guild_id: int, channel_id: int) -> None:
     """Re-arm the backfill for a channel (and its threads) so its history gets
     re-indexed — used when indexing is turned back on."""

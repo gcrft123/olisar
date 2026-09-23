@@ -5,10 +5,12 @@ Run:  uv run python -m unittest tests.test_tool_pin -v
 What matters here is what happens when the answer is *no*, so most of these are about
 refusal rather than approval:
 
-  * nothing is gated unless it's been named, and the PIN is inert until it is
+  * a server gates Olisar changing its own settings until an admin says otherwise, and
+    that choice isn't one the gated tools can reach
   * every way of not confirming (silence, wrong digits, an outright no, nowhere to ask)
     stops the call and hands the model a denial it can read
-  * one refusal holds for the rest of the reply, so a retry can't re-prompt the channel
+  * one refusal holds for the rest of the reply, so a retry can't re-prompt the channel,
+    and one approval covers the action, so a two-part edit asks once
   * a gated tool with no PIN set fails closed
 """
 
@@ -18,13 +20,17 @@ import contextlib
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from olisar import toolpin
-from olisar.db.models import Base
+from olisar import self_settings, toolpin
+from olisar.db.models import Base, GuildConfig
+from olisar.guild_setup import ensure_guild_defaults
 from olisar.tools import ToolContext, execute_tool
+
+GUILD = 1
 
 
 class NormalizeTests(unittest.TestCase):
@@ -60,17 +66,30 @@ class HashTests(unittest.TestCase):
 
 
 class GateConfigTests(unittest.TestCase):
-    def test_nothing_is_gated_by_default(self):
-        """The shipped configuration gates no tool at all."""
+    def test_the_override_is_empty_by_default(self):
         with patch.object(toolpin.settings, "pin_gated_tools", ""):
             self.assertEqual(toolpin.gated_tools(), frozenset())
-            self.assertFalse(toolpin.requires_pin("react"))
 
-    def test_named_tools_are_gated(self):
+    def test_the_override_parses_a_list(self):
         with patch.object(toolpin.settings, "pin_gated_tools", "react, send_dm"):
             self.assertEqual(toolpin.gated_tools(), frozenset({"react", "send_dm"}))
-            self.assertTrue(toolpin.requires_pin("react"))
-            self.assertFalse(toolpin.requires_pin("recall_memory"))
+
+    def test_self_edit_covers_every_settings_write(self):
+        """A write tool added to self_settings without being listed here would run
+        unconfirmed on every server that thinks it has self-edit behind the PIN."""
+        writes = {d.name for d in self_settings.WRITE_DECLARATIONS}
+        self.assertEqual(toolpin.ACTIONS["self_edit"], writes)
+        self.assertNotIn("open_settings", toolpin.ACTIONS["self_edit"])
+
+    def test_the_gate_is_not_a_setting_the_gated_tools_can_change(self):
+        keys = {**self_settings._PERSONA, **self_settings._BEHAVIOR}
+        self.assertNotIn("pin_actions", {f.attr for f in keys.values()})
+        self.assertNotIn("pin_actions", keys)
+
+    def test_new_rows_start_with_the_default(self):
+        """The column default and toolpin's own (used when there's no row) must agree."""
+        default = GuildConfig.__table__.c.pin_actions.default.arg(None)
+        self.assertEqual(default, list(toolpin.DEFAULT_ACTIONS))
 
 
 class DenialNoteTests(unittest.TestCase):
@@ -158,6 +177,100 @@ class StoredPinTests(_DbCase):
             self.assertEqual(await toolpin.set_timeout(session, 5), toolpin.MIN_TIMEOUT_SEC)
             self.assertEqual(await toolpin.set_timeout(session, 99999), toolpin.MAX_TIMEOUT_SEC)
             self.assertEqual(await toolpin.set_timeout(session, 60), 60)
+
+
+class ServerGateTests(_DbCase):
+    """What each server chose, read at the moment of the call."""
+
+    async def _set(self, actions: list[str] | None) -> None:
+        async with self.scope() as session:
+            await ensure_guild_defaults(session, GUILD)
+            if actions is not None:
+                (await session.get(GuildConfig, GUILD)).pin_actions = actions
+
+    async def _gate(self, tool: str) -> str:
+        async with self.Session() as session:
+            with patch.object(toolpin.settings, "pin_gated_tools", ""):
+                return await toolpin.gate(session, GUILD, tool)
+
+    async def test_a_new_server_gates_self_edit(self):
+        await self._set(None)
+        self.assertEqual(await self._gate("change_setting"), "self_edit")
+        self.assertEqual(await self._gate("settings_action"), "self_edit")
+
+    async def test_reading_settings_is_never_gated(self):
+        await self._set(None)
+        self.assertEqual(await self._gate("open_settings"), "")
+
+    async def test_a_server_can_turn_it_off(self):
+        await self._set([])
+        self.assertEqual(await self._gate("change_setting"), "")
+
+    async def test_no_config_row_falls_back_to_the_default(self):
+        self.assertEqual(await self._gate("change_setting"), "self_edit")
+
+    async def test_other_tools_never_touch_the_database(self):
+        """The gate runs on every tool call, so it may only read config for tools an
+        action covers. A None session would raise if it tried."""
+        with patch.object(toolpin.settings, "pin_gated_tools", ""):
+            self.assertEqual(await toolpin.gate(None, GUILD, "recall_memory"), "")
+        with patch.object(toolpin.settings, "pin_gated_tools", "react"):
+            self.assertEqual(await toolpin.gate(None, GUILD, "react"), "react")
+
+    async def test_the_override_still_gates_with_the_action_off(self):
+        await self._set([])
+        async with self.Session() as session:
+            with patch.object(toolpin.settings, "pin_gated_tools", "change_setting"):
+                self.assertEqual(
+                    await toolpin.gate(session, GUILD, "change_setting"), "change_setting"
+                )
+
+
+class ConfigApiTests(_DbCase):
+    """The Access page's switches, through the real router against a real session."""
+
+    async def _put(self, body: dict):
+        from api.routers.admin import put_config
+        from api.schemas import ConfigIn
+
+        gctx = MagicMock()
+        gctx.guild_id = GUILD
+        gctx.admin.discord_user_id = 42
+        with patch("api.routers.admin.session_scope", self.scope):
+            return await put_config(ConfigIn(**body), gctx)
+
+    async def _stored(self) -> list:
+        async with self.scope() as session:
+            return (await session.get(GuildConfig, GUILD)).pin_actions
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        async with self.scope() as session:
+            await ensure_guild_defaults(session, GUILD)
+
+    async def test_turning_it_off_and_on(self):
+        await self._put({"pin_actions": []})
+        self.assertEqual(await self._stored(), [])
+        await self._put({"pin_actions": ["self_edit", "self_edit"]})
+        self.assertEqual(await self._stored(), ["self_edit"])
+
+    async def test_an_unknown_action_is_refused_not_stored(self):
+        with self.assertRaises(HTTPException) as caught:
+            await self._put({"pin_actions": ["self_edit", "launch_missiles"]})
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertEqual(await self._stored(), ["self_edit"])
+
+    async def test_the_change_is_audited_on_its_own(self):
+        from sqlalchemy import select
+
+        from olisar.db.models import AuditLog
+
+        await self._put({"pin_actions": []})
+        async with self.scope() as session:
+            rows = (await session.scalars(select(AuditLog))).all()
+        self.assertEqual([r.action for r in rows], ["set_pin_actions"])
+        self.assertEqual(rows[0].before, {"pin_actions": ["self_edit"]})
+        self.assertEqual(rows[0].after, {"pin_actions": []})
 
 
 class _Actions:
@@ -264,6 +377,60 @@ class GatedExecutionTests(_DbCase):
         self.assertEqual(first, second)
         self.assertEqual(actions.asked, ["react"])  # asked once, not twice
         dispatch.assert_not_awaited()
+
+
+class SelfEditTests(_DbCase):
+    """Olisar changing its own settings, on a server that left the default alone."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        async with self.scope() as session:
+            await ensure_guild_defaults(session, GUILD)
+            await toolpin.set_pin(session, "1234")
+
+    async def _calls(self, actions, *tools: str):
+        async with self.Session() as session:
+            ctx = ToolContext(
+                session=session, cfg_guild=GUILD, channel_id=2, user_id=3,
+                display_name="ada", actions=actions,
+            )
+            with patch.object(toolpin.settings, "pin_gated_tools", ""), patch(
+                "olisar.tools._dispatch", new=AsyncMock(return_value="tool ran")
+            ) as dispatch:
+                results = [await execute_tool(t, {}, ctx) for t in tools]
+        return results, dispatch
+
+    async def test_one_confirmation_covers_the_rest_of_the_reply(self):
+        """"Rename yourself and rewrite your bio" is two calls and one decision."""
+        actions = _Actions(toolpin.APPROVED)
+        results, dispatch = await self._calls(
+            actions, "change_setting", "change_setting", "settings_action"
+        )
+        self.assertEqual(results, ["tool ran"] * 3)
+        self.assertEqual(actions.asked, ["change_setting"])
+        self.assertEqual(dispatch.await_count, 3)
+
+    async def test_a_refusal_covers_both_tools(self):
+        actions = _Actions(toolpin.REFUSED, toolpin.APPROVED)
+        results, dispatch = await self._calls(actions, "change_setting", "settings_action")
+        self.assertTrue(all("DENIED" in r for r in results))
+        self.assertIn("settings_action", results[1])  # the note names the call it refuses
+        self.assertEqual(actions.asked, ["change_setting"])
+        dispatch.assert_not_awaited()
+
+    async def test_reading_needs_no_pin(self):
+        actions = _Actions()
+        results, _ = await self._calls(actions, "open_settings")
+        self.assertEqual(results, ["tool ran"])
+        self.assertEqual(actions.asked, [])
+
+    async def test_turned_off_it_runs_unasked(self):
+        async with self.scope() as session:
+            (await session.get(GuildConfig, GUILD)).pin_actions = []
+        actions = _Actions()
+        results, _ = await self._calls(actions, "change_setting")
+        self.assertEqual(results, ["tool ran"])
+        self.assertEqual(actions.asked, [])
 
 
 if __name__ == "__main__":
