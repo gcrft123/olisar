@@ -618,8 +618,8 @@ is yours to change, under Command replies; there is no second system message
 announcing the outcome.
 
 The PIN is stored hashed and is never shown again, including to you — forgetting it means setting a
-new one, not recovering the old one. No tool asks for it yet, so setting one changes nothing in
-Discord today.
+new one, not recovering the old one. Which actions ask for it is chosen per server, on the Access tab
+(see [Access control](#access-control)).
 
 #### Remote access
 The status and **on/off switch** for the public web link, plus the list of who has signed in. Covered in
@@ -944,6 +944,17 @@ For each role you choose:
 > Server admins (Manage Server) **always** have access, so you can't lock yourself out, and `/privacy` and
 > `/forget-me` stay open to everyone for data rights. DM users are gated by their roles in this server.
 
+
+**Require the PIN** picks which of Olisar's actions have to be confirmed with the [tool PIN](#security) on this
+server before it takes them. There's one today: **Changing its own settings from Discord**, which covers
+everything Olisar can change about itself when asked in chat — its persona and system prompt, behavior,
+command replies, knowledge sources, the search index, the glossary, and member impressions. Reading its
+settings never needs the PIN, and nothing you change in this console does either.
+
+It starts on for every server. With no PIN set, anything switched on here is refused rather than run
+unchecked, and the card says so with a link to set one. One PIN entry covers the rest of that reply, so
+"rename yourself and rewrite your bio" asks once. Turning it off lets anyone who can use Olisar here make
+those changes, and it's recorded in the Activity log as its own entry.
 
 This tab also carries the switches for the [Member portal](#member-portal) — the page where members
 manage their own data. Those roles govern who can *use* Olisar; the portal governs what someone can see

@@ -85,10 +85,13 @@ class ToolContext:
     # tool name -> async handler(args, ctx), supplied per-reply for enabled
     # extensions (olisar/extensions). execute_tool dispatches to these first.
     extension_tools: dict = field(default_factory=dict)
-    # Gated tools whose PIN prompt already came back "no" this reply, and why. A denial
-    # holds for the rest of the reply: without it the model's retry would post a second
-    # prompt, and someone who just declined would be asked again for the same call.
+    # Gated actions (olisar.toolpin.gate) whose PIN prompt already came back "no" this
+    # reply, and why. A denial holds for the rest of the reply: without it the model's retry
+    # would post a second prompt, and someone who just declined would be asked again.
     pin_denied: dict = field(default_factory=dict)
+    # Gated actions a PIN entry already confirmed this reply. The confirmation covers the
+    # action, so "rename yourself and rewrite your bio" asks once rather than per call.
+    pin_approved: set = field(default_factory=set)
     # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
     # silence after a lookup; nothing else depends on the ordering yet.
     tools_run: list = field(default_factory=list)
@@ -831,12 +834,14 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Run a tool, logging the call and a one-line summary of what it returned
     (search-type tools also log the specific items they used, in their modules)."""
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
-    if toolpin.requires_pin(name):
-        outcome = ctx.pin_denied.get(name) or await _confirm_with_pin(name, ctx)
+    action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
+    if action and action not in ctx.pin_approved:
+        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, ctx)
         if outcome != toolpin.APPROVED:
-            ctx.pin_denied[name] = outcome
+            ctx.pin_denied[action] = outcome
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)
             return toolpin.denial_note(name, outcome)
+        ctx.pin_approved.add(action)
     # Recorded after the PIN gate, so a call that never ran doesn't count as one that did.
     ctx.tools_run.append(name)
     result = await _dispatch(name, args, ctx)

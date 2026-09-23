@@ -165,12 +165,12 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
 
 @router.get("/pin")
 async def get_pin(_: AdminUser = Depends(require_admin)) -> dict:
-    """Whether a tool PIN is set, how long a prompt waits, and which tools it guards.
+    """Whether a tool PIN is set, and how long a prompt waits.
 
     The PIN itself is never returned — it is stored as a hash and there is no read path
-    for it, here or anywhere else. ``gated_tools`` is empty in every shipped configuration
-    (see olisar/toolpin.py), and the console says so rather than implying the PIN is
-    already standing between the bot and anything.
+    for it, here or anywhere else. What it guards is chosen per server (``pin_actions`` on
+    /api/config); ``gated_tools`` is only the ``OLISAR_PIN_GATED_TOOLS`` override, which is
+    empty in every shipped configuration.
     """
     async with session_scope() as session:
         state = await toolpin.get_state(session)

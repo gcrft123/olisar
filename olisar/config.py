@@ -107,10 +107,9 @@ class Settings(BaseSettings):
 
     # ── Tool PIN gating (test hook) ──────────────────────────────────────
     # Comma-separated tool names that must be confirmed with the 4-digit PIN before they
-    # run (olisar/toolpin.py). Empty in every shipped configuration: the PIN is set from
-    # the console and the confirmation flow works, but nothing is gated until per-tool
-    # policy becomes a real setting. This exists so the flow can be driven end to end
-    # against a live Discord server without pretending a policy that doesn't exist yet.
+    # run (olisar/toolpin.py), on every server. Empty in every shipped configuration: what
+    # needs the PIN is chosen per server on the console's Access page. This gates a single
+    # tool no action covers, so the flow can be driven end to end against a live server.
     pin_gated_tools: str = Field(default="", alias="OLISAR_PIN_GATED_TOOLS")
 
     # ── Mock auth (local dev/testing only) ───────────────────────────────

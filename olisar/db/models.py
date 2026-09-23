@@ -198,6 +198,10 @@ class GuildConfig(Base):
     # and can be unflattering or simply wrong, so enabling the portal must never expose it
     # by accident.
     member_portal_show_persona: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Actions Olisar has to have confirmed with the tool PIN before it takes them on this
+    # server — keys of olisar.toolpin.ACTIONS, chosen on the console's Access page. Self-edit
+    # is on from the start (toolpin.DEFAULT_ACTIONS), including for rows that predate this.
+    pin_actions: Mapped[list] = mapped_column(JSON, default=lambda: ["self_edit"])
     # Bumped on every config save (reserved for future cache invalidation).
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(

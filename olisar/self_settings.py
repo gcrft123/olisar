@@ -14,8 +14,10 @@ almost all of them:
   ``change_setting`` can swap one passage (``find``) or add to the end (``append``), so
   changing a sentence of the system prompt doesn't mean re-typing all of it.
 
-Who may call these isn't decided here. They're meant to sit behind the tool PIN
-(``olisar.toolpin``), which checks each call before it reaches this module.
+Who may call these isn't decided here. The writes sit behind the tool PIN on any server
+that keeps "self_edit" in its ``pin_actions`` (the default), and ``olisar.toolpin.gate``
+checks each call before it reaches this module. ``pin_actions`` itself is deliberately not
+one of the keys below: the setting that guards these tools can't be one they change.
 
 Every change is committed as soon as it's made, rather than with the rest of the reply.
 The model tells the user "done" from the result string, so the result has to be true
