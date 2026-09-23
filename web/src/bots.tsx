@@ -370,14 +370,17 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
             // Healthy is the default and says nothing, so only a bot that isn't up gets a chip.
             // A server-hosted bot's line is where it runs, not whether it's down, so it stays text.
             const healthy = up && !!b.configured && (b.hosting_mode === 'server' || !!b.bot?.ready)
+            const hostedAt = healthy && b.hosting_mode === 'server'
+              ? 'On a server' + (b.server_host ? ` · ${b.server_host}` : '') : ''
             return (
               <div key={b.id} className={'bot-row' + (isCurrent ? ' on' : '')}>
                 <span className="bot-ic"><BotAvatar bot={b} /></span>
+                {/* Where a healthy server bot runs is a hover detail, not a second line of text
+                    competing with its name for the row's ~120px. The visually hidden copy is
+                    what a screen reader gets, since the tooltip is drawn for the pointer. */}
                 <div className="bot-name">
-                  <span className="bot-title">{b.name}</span>
-                  {healthy && b.hosting_mode === 'server' && (
-                    <span className="bot-sub">On a server{b.server_host ? ` · ${b.server_host}` : ''}</span>
-                  )}
+                  <span className="bot-title" data-tip={hostedAt || undefined}>{b.name}</span>
+                  {hostedAt && <span className="visually-hidden">, {hostedAt}</span>}
                 </div>
                 {/* No Default chip: the filled star beside Open already says this bot opens on
                     launch, and the chip was the same fact twice in one row. */}

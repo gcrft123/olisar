@@ -384,16 +384,112 @@ const MOCK_AUDIT = {
   ],
 }
 
+// ── Dev-only: first-run setup ──────────────────────────────────────────────────────────────
+// `SETUP_MOCK=1 USAGE_MOCK=1 npm run dev` opens on the setup wizard instead of the console, and
+// answers every call the wizard makes after a delay close to the real one. Nothing persists: a
+// reload starts setup over, and finishing lands in the mock console (or, after a server deploy,
+// the server control panel). `SETUP_MOCK=second` sets up a second bot instead of the first, so
+// the deploy step offers the server another bot already runs on.
+//
+// A value starting with "bad" takes that step's failure path: a token (Discord rejects it), a
+// Tailscale key (Funnel refuses), a VM address (the deploy fails with its install log, or the
+// connect can't reach it). Connecting to a VM whose address ends in .9 finds two installs and
+// asks which bot this is.
+const SETUP = process.env.SETUP_MOCK || ''
+const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
+const MOCK_PUBKEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHq7mZ0x3cN8vWkq2d1p5sQyR4tLb9uFjE6aGhYcTzUo olisar-app'
+const MOCK_INSTALL_LOG = [
+  '==> Checking the VM', 'Ubuntu 22.04.4 LTS (aarch64), 23 GB free',
+  '==> Installing Docker', 'docker 27.3.1 installed',
+  '==> Writing the config to ~/olisar/.env',
+  '==> Pulling ghcr.io/gcrft123/olisar:2.0.0-beta.1',
+  'Error response from daemon: Get "https://ghcr.io/v2/": dial tcp: lookup ghcr.io: temporary failure in name resolution',
+].join('\n')
+
+function setupMock(req: any, url: string, send: (obj: unknown, status?: number) => void): boolean {
+  const later = (ms: number, fn: () => void) => { setTimeout(fn, ms); return true }
+  const body = (fn: (b: any) => void) => {
+    let raw = ''
+    req.on('data', (c: any) => { raw += c })
+    req.on('end', () => { let b: any = {}; try { b = JSON.parse(raw || '{}') } catch { /* empty */ } fn(b) })
+    return true
+  }
+  const bad = (v: unknown) => typeof v === 'string' && v.trim().toLowerCase().startsWith('bad')
+  const finish = (as: 'local' | 'server') => { SETUP_STATE.done = as; SETUP_STATE.unread = true }
+
+  if (url.startsWith('/api/setup/status')) {
+    // The read straight after finishing sees the finished install, which is what routes the
+    // wizard into the console. Any read after that is a reload, and starts setup over.
+    const done = SETUP_STATE.unread ? SETUP_STATE.done : ''
+    SETUP_STATE.unread = false
+    if (!done) SETUP_STATE.done = ''
+    return send({
+      configured: !!done, local_url: 'http://localhost:8723', redirect_uri: 'http://localhost:8723/auth/callback',
+      tunnel_enabled: false, hosting_mode: done === 'server' ? 'server' : 'local', ...(done ? {} : { prefill: {} }),
+    }), true
+  }
+  if (url.startsWith('/api/bots/share-server')) return body(() => later(1400, () => send({
+    ok: true, host: '203.0.113.9', user: 'ubuntu', tailscale_auth: 'tskey-auth-kSh4r3dExample-1a2b3c', admin_allowlist: 'gcrft123',
+  })))
+  if (/^\/api\/bots\/[^/]+\/pubkey/.test(url)) return later(500, () => send({ public_key: MOCK_PUBKEY }))
+  if (url.startsWith('/api/bots')) {
+    const first = SETUP !== 'second'
+    const configured = !!SETUP_STATE.done
+    const me = { id: first ? 'default' : 'e5f6a7b8', name: first ? 'Olisar' : 'Staging bot', created: true, state: 'ready',
+      configured, hosting_mode: SETUP_STATE.done === 'server' ? 'server' : 'local', server_host: SETUP_STATE.done === 'server' ? '203.0.113.9' : '',
+      bot: { running: configured, ready: configured, id: '', name: '', avatar: '' } }
+    const others = first ? [] : [
+      { id: 'default', name: 'Red Nebula bot', created: true, state: 'ready', configured: true, hosting_mode: 'local', server_host: '',
+        bot: { running: true, ready: true, id: '1', name: 'Red Nebula', avatar: '' } },
+      { id: 'a1b2c3d4', name: 'Support bot', created: true, state: 'ready', configured: true, hosting_mode: 'server', server_host: '203.0.113.9',
+        bot: { running: false, ready: false, id: '', name: '', avatar: '' } },
+    ]
+    if (url.startsWith('/api/bots/active')) return send({ ...me, active_id: me.id }), true
+    return send({ active_id: me.id, default_id: 'default', profiles: first ? [me] : [others[0], others[1], me] }), true
+  }
+  if (url.startsWith('/api/setup/validate-token')) return body((b) => later(800, () => bad(b.token)
+    ? send({ detail: 'Discord rejected that bot token' }, 400)
+    : send({ ok: true, id: '1537976722840887296', username: 'Olisar' })))
+  if (url.startsWith('/api/setup/keys')) return body(() => later(400, () => send({ ok: true })))
+  if (url.startsWith('/api/setup/save')) return body(() => later(900, () => { finish('local'); send({ ok: true, redirect_uri: 'http://localhost:8723/auth/callback' }) }))
+  if (url.startsWith('/api/tunnel/enable')) return body((b) => later(2200, () => bad(b.auth_key)
+    ? send({ detail: 'Funnel isn’t turned on for this tailnet. Turn it on at https://login.tailscale.com/f/funnel?node=olisar, then press Enable again.' }, 400)
+    : send({ ok: true, public_url: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net`, redirect_uri: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net/auth/callback` })))
+  if (url.startsWith('/api/server/pubkey')) return later(600, () => send({ public_key: MOCK_PUBKEY }))
+  if (url.startsWith('/api/server/deploy')) return body((b) => later(4500, () => {
+    if (bad(b.host)) return send({ ok: false, error: 'The install stopped: the VM couldn’t download the Olisar image.', log: MOCK_INSTALL_LOG })
+    finish('server'); send({ ok: true })
+  }))
+  if (url.startsWith('/api/server/connect')) return body((b) => later(1800, () => {
+    if (bad(b.host)) return send({ ok: false, error: `Couldn't reach the VM: connection to ${b.host}:22 timed out` })
+    if (String(b.host).trim().endsWith('.9') && !b.app_dir) {
+      return send({ ok: false, choose: [{ dir: 'olisar', name: 'Support bot' }, { dir: 'olisar-e5f6a7b8', name: 'Staging bot' }] })
+    }
+    finish('server'); send({ ok: true })
+  }))
+  // The control panel a server deploy lands on.
+  if (url.startsWith('/api/server/status')) return send({
+    configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
+    health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', url: 'https://olisar.tail4f2a.ts.net', logs: '',
+  }), true
+  if (url.startsWith('/api/server/last-update')) return send({}), true
+  if (url.startsWith('/api/server/logs')) return send({ ok: true, logs: 'olisar  | Logged in as Olisar#0412\nolisar  | Ready in 1 server' }), true
+  if (url.startsWith('/api/server/power')) return body((b) => later(1200, () => send({ ok: true, running: b.action === 'up' })))
+  return false
+}
+
 function mockPlugin(): Plugin {
   return {
     name: 'olisar-usage-mock',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = req.url || ''
-        const send = (obj: unknown) => {
+        const send = (obj: unknown, status = 200) => {
+          res.statusCode = status
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(obj))
         }
+        if (SETUP && setupMock(req, url, send)) return
         if (url.startsWith('/api/setup/status')) return send({ configured: true })
         // Exact-match: `/api/me` as a prefix also swallows `/api/messages`.
         if (url === '/api/me' || url.startsWith('/api/me?')) return send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
