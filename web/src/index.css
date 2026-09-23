@@ -1211,6 +1211,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .login .hint-list b { color: var(--text); font-weight: 600; }
 .login-actions { display: flex; gap: 10px; justify-content: center; }
 .login-actions button { flex: 1; max-width: 160px; justify-content: center; }
+/* "Contact the Olisar team" is the suspended screen's real action and doesn't fit 160px. */
+.login-actions .login-contact { flex: 1.5; max-width: none; }
+/* "Still stuck? Tell us" under a sign-in gate's actions: a way out, not another choice. */
+.login .login-foot { margin: 20px 0 0; font-size: 12.5px; color: var(--text-3); }
 
 .loading { min-height: var(--vh); display: flex; align-items: center; justify-content: center; gap: 11px; color: var(--text-2); }
 /* In-page loading, for a tab that is still fetching. Centred and moving, so an empty
@@ -1277,6 +1281,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 .setup .wiz-foot .grow { flex: 1; }
 .setup .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
+/* A failure with a way to report it: the error, then the secondary action under it, so the
+   footer's Back / primary pair stays the only thing on the footer line. */
+.setup .err-block { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
+.setup .err-block .err { margin-top: 0; flex: 1 1 240px; min-width: 0; }
+.setup .err-block > button { flex: none; }
+.setup .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
 .setup .ok-pill { color: var(--ok); font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
 .setup .redirect-box {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -1288,6 +1298,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .srv-head h1 { margin: 0; }
 .setup .srv-head .badge { margin-left: auto; }
 .setup .srv-hint { color: var(--text-2); font-size: 12.5px; margin-top: 12px; line-height: 1.5; }
+/* The last update needing attention, in the tone its toast used. */
+.setup .srv-hint.warning { color: var(--warn); }
+.setup .srv-hint.danger { color: var(--danger); }
+.setup .srv-hint.warning .linklike, .setup .srv-hint.danger .linklike { color: inherit; }
 .setup .srv-logs {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 14px; margin-top: 14px; font-family: var(--mono); font-size: 11.5px;
@@ -1422,6 +1436,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   margin-top: 36px; padding-top: 18px; border-top: 1px solid var(--border);
 }
 .docs-prevnext > button { min-width: 0; max-width: 100%; }
+.docs-ask { margin: 20px 0 0; color: var(--text-3); font-size: 12.5px; }
 
 .docs-toc {
   position: sticky; top: 0; align-self: start;
@@ -1649,7 +1664,20 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .sb-who {
   font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
   text-transform: uppercase; color: var(--text-3); padding: 0 4px;
+  /* Baseline, not centre: the uppercase label and the mixed-case Report are different
+     heights, and centring the two boxes left Report's text sitting visibly below it. */
+  display: flex; align-items: baseline; gap: 6px; min-height: 24px;
 }
+/* A reply's Report: there when the reply is pointed at, out of the way otherwise, and always
+   there on a touch screen, which has no hover to reveal it. 24px for the WCAG 2.5.8 target. */
+.sb-report {
+  height: 24px; padding: 0 7px; font-size: 11px; font-weight: 550; letter-spacing: 0;
+  text-transform: none; color: var(--text-3); opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+.sb-msg:hover .sb-report, .sb-report:focus-visible { opacity: 1; }
+@media (hover: none) { .sb-report { opacity: 1; } }
+.sandbox-err .linklike { color: inherit; }
 .sb-bubble {
   padding: 9px 13px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--bg-inset);
@@ -1814,6 +1842,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .settings-nav-item:hover { background: var(--bg-inset); color: var(--text); }
 .settings-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 .settings-body { position: relative; padding: 30px 34px; overflow-y: auto; display: flex; flex-direction: column; }
+/* One pane, no nav: Feedback opened from a screen that has no Settings of its own. The
+   sheet narrows to the form's width rather than keeping an empty 212px column. */
+.settings-modal.single { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+@media (min-width: 701px) { .settings-modal.single { width: min(620px, calc(var(--vw) * 0.94)); } }
 .settings-close {
   position: absolute; top: 16px; right: 16px; height: auto; padding: 6px;
   background: transparent; border: none; color: var(--text-3);
@@ -2445,6 +2477,8 @@ h2.u-eyebrow {
 .loadfail strong { display: block; color: var(--text); font-size: 14px; margin-bottom: 4px; }
 .loadfail p { margin: 0; color: var(--text-2); font-size: 13px; word-break: break-word; }
 .loadfail button { flex: none; }
+/* Centred on the title and message together; the icon stays on the title's line. */
+.loadfail .lf-actions { display: flex; gap: 8px; flex: none; align-self: center; }
 
 /* A number outside the range its own hint advertises. */
 input[type="number"].bad, input.bad { border-color: var(--danger); }

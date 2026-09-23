@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { api } from './api'
 import { Icon } from './icons'
-import { SettingsModal } from './settings'
+import { FeedbackButton, SettingsModal, useFeedbackHost } from './settings'
+import { logTail, reportBody, type FeedbackPrefill } from './feedback'
 import { Field, Text } from './ui'
 
 export type SetupPrefill = {
@@ -137,6 +138,12 @@ export function SetupWizard(
   const [err, setErr] = useState('')
   const [copied, setCopied] = useState<'' | 'local' | 'tunnel'>('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Feedback opened from a failure below arrives pre-filled in this screen's own Settings.
+  const [fbPrefill, setFbPrefill] = useState<FeedbackPrefill | undefined>(undefined)
+  useFeedbackHost((p) => { setFbPrefill(p); setSettingsOpen(true) })
+  // Whether `err` is the save failing, rather than a field left empty. Only the first is
+  // ours to hear about.
+  const [saveFailed, setSaveFailed] = useState(false)
 
   // Step 1 — bot token
   const [token, setToken] = useState(pf.discord_token || '')
@@ -204,7 +211,7 @@ export function SetupWizard(
   }
 
   function next() {
-    setErr('')
+    setErr(''); setSaveFailed(false)
     if (step === 0 && !token.trim()) return setErr('Paste your bot token to continue.')
     if (step === 1 && !(clientId.trim() && clientSecret.trim()))
       return setErr('Client ID and client secret are both required.')
@@ -227,7 +234,7 @@ export function SetupWizard(
   }
 
   async function finish() {
-    setErr(''); setSaving(true)
+    setErr(''); setSaveFailed(false); setSaving(true)
     try {
       const keys: Record<string, string> = {}
       if (gemini.trim()) keys.gemini_api_key = gemini.trim()
@@ -244,6 +251,7 @@ export function SetupWizard(
       onDone()
     } catch (e: any) {
       setErr(e?.message || 'Save failed.')
+      setSaveFailed(true)
       setSaving(false)
     }
   }
@@ -315,7 +323,8 @@ export function SetupWizard(
         {settingsOpen && (
           <SettingsModal
             sections={['general', 'updates', 'desktop', 'feedback']}
-            onClose={() => setSettingsOpen(false)}
+            prefill={fbPrefill}
+            onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
           />
         )}
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
@@ -348,7 +357,14 @@ export function SetupWizard(
                 <div className="callout-body">Connecting to your VM over SSH…</div>
               </div>
             )}
-            {deployErr && <div className="err">{deployErr}</div>}
+            {deployErr && (
+              <div className="err-block">
+                <div className="err">{deployErr}</div>
+                <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Connecting to my existing Olisar server failed.', deployErr) }}>
+                  Report a problem
+                </FeedbackButton>
+              </div>
+            )}
             <div className="wiz-foot">
               <button disabled={deploying} onClick={() => { setConnectMode(false); setDeployErr('') }}>Back</button>
               <span className="grow" />
@@ -445,6 +461,17 @@ export function SetupWizard(
                     {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
                   </button>
                 </div>
+                {/* Funnel is the step people get stuck on, and the fix usually lives in
+                    Tailscale's admin panel rather than here: a question, not a bug. */}
+                {tunnelErr && (
+                  <p className="err-help">
+                    Stuck?{' '}
+                    <FeedbackButton className="linklike" prefill={{
+                      category: 'Question',
+                      message: reportBody('I\'m stuck turning on remote access with Tailscale.', tunnelErr, 'What I\'ve tried:'),
+                    }}>Ask the team</FeedbackButton>
+                  </p>
+                )}
               </>
             )}
 
@@ -556,14 +583,39 @@ export function SetupWizard(
               </div>
             )}
             {deployLog && <Cb file="install log" code={deployLog} />}
-            {deployErr && <div className="err">{deployErr}</div>}
+            {/* The costliest failure in setup: minutes in, with the log already on screen.
+                The report carries both, so nobody has to copy a terminal's worth of text. */}
+            {deployErr && (
+              <div className="err-block">
+                <div className="err">{deployErr}</div>
+                <FeedbackButton className="" prefill={{
+                  category: 'Bug report',
+                  logs: true,
+                  message: [
+                    `Deploying Olisar to my server failed (${provider === 'oracle' ? 'Oracle Cloud' : 'another cloud'}).`,
+                    '', 'Error:', deployErr,
+                    ...(deployLog ? ['', 'Install log (last lines):', logTail(deployLog)] : []),
+                    '', 'What I was doing:', '',
+                  ].join('\n'),
+                }}>
+                  Send this to the Olisar team
+                </FeedbackButton>
+              </div>
+            )}
           </>
         )}
 
-        {err && <div className="err">{err}</div>}
+        {err && (saveFailed ? (
+          <div className="err-block">
+            <div className="err">{err}</div>
+            <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Finishing setup failed.', err) }}>
+              Report a problem
+            </FeedbackButton>
+          </div>
+        ) : <div className="err">{err}</div>)}
 
         <div className="wiz-foot">
-          <button disabled={step === 0 || saving} onClick={() => { setErr(''); setStep((s) => Math.max(0, s - 1)) }}>
+          <button disabled={step === 0 || saving} onClick={() => { setErr(''); setSaveFailed(false); setStep((s) => Math.max(0, s - 1)) }}>
             Back
           </button>
           <span className="grow" />
