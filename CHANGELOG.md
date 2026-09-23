@@ -6,7 +6,17 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 Changing anything about Olisar also meant opening the console. You can now ask it in Discord instead: its persona and system prompt, how and when it joins in, its command replies, its knowledge sources, the search index and glossary, and a member's impression. The tools that make those changes are only handed to the model once a conversation turns to settings, so every other reply costs about what it did before.
 
+Olisar could find a past message but couldn't point to it. Search came back with a link to every hit, and Olisar was told to keep it to itself unless someone asked where something was posted. Now when an answer comes from one message, the link comes with it, and clicking it opens the message.
+
+Linking as a matter of course meant fixing what search had been doing all along. It read every channel Olisar could, whatever the person asking could see, so a member asking about something posted in a staff channel was told what was said, who said it and when. The older messages Olisar recalls weren't even limited to the server. Both now stop at what the asker can open.
+
 ### New
+
+[a3933dc] — When an answer comes from one specific past message, found by search or remembered, Olisar pastes that message's link, which opens it in Discord.
+
+[a3933dc] — A message link Olisar wasn't actually given is removed from the reply before it's sent, so a mistyped or made-up link never goes out.
+
+[a3933dc] — The test harness has a scenario for it: an answer that lives in another channel should come back with the link, and the small talk after it without one.
 
 [d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
 
@@ -37,6 +47,10 @@ Changing anything about Olisar also meant opening the console. You can now ask i
 [a3e92ef] — The VM's daily update timer is gone, and its systemd units are removed from servers that still have them on the next connect, deploy, or re-bootstrap.
 
 ### Fixed
+
+[a3933dc] — Message search only returns messages from channels the person asking can open. A member asking about a staff channel used to be told what was said there, who said it and when.
+
+[a3933dc] — The older messages and summaries Olisar recalls come from the channel it's replying in and channels the asker can open, not from any channel, another server, or someone else's DMs.
 
 [7c9263a] — Olisar no longer hands over its own operating rules. It used to protect them only against instructions hidden inside pasted content, so anyone who asked by a route it trusted — a server policy it had been taught, someone it had saved as a maintainer, a request to file them in another channel, or a few members agreeing that refusing was strange — got them back verbatim.
 
