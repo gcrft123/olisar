@@ -7,9 +7,10 @@ Three parts live here, all Discord-agnostic so the bot, the API and the tests sh
   and changed from the console. A 4-digit PIN is trivially brute-forced by anyone holding
   the database, so the hash is not the defence; what it buys is that the PIN never sits in
   a backup, a log line, or an API response in a form anyone can read off.
-* **the gate** — :func:`requires_pin` decides whether a tool call has to be confirmed.
-  Today it answers False for everything unless ``OLISAR_PIN_GATED_TOOLS`` names a tool:
-  the confirmation machinery ships, the policy that would make it compulsory does not.
+* **the gate** — :func:`gate` decides whether a tool call has to be confirmed. Each
+  server picks the actions that need the PIN on the console's Access page
+  (``GuildConfig.pin_actions``); ``OLISAR_PIN_GATED_TOOLS`` can gate any single tool on
+  top of that, for driving the flow in testing.
 * **the refusal** — :func:`denial_note` is what the model reads back when the PIN never
   arrived. It is phrased the way a coding agent is told a tool call was denied, because
   that is the behaviour we want: say plainly that it didn't run, don't retry it, carry on
@@ -33,7 +34,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
-from olisar.db.models import ToolPin
+from olisar.db.models import GuildConfig, ToolPin
 
 log = logging.getLogger("olisar.toolpin")
 
@@ -45,6 +46,19 @@ MAX_ATTEMPTS = 3
 DEFAULT_TIMEOUT_SEC = 120
 MIN_TIMEOUT_SEC = 15
 MAX_TIMEOUT_SEC = 900
+
+# What a server can put behind the PIN, and the tools each one covers. An action rather
+# than a tool is what the operator decides about, and what one PIN entry confirms: Olisar
+# changing its own settings is two tools, and nobody should have to know that to turn it on.
+# tests/test_tool_pin.py fails if a settings write tool is added without being listed here.
+ACTIONS: dict[str, frozenset[str]] = {
+    "self_edit": frozenset({"change_setting", "settings_action"}),
+}
+# What a server has before anyone chooses. Self-edit is on: someone rewriting the system
+# prompt from chat is what the PIN was built to stop, so it doesn't start out open.
+# GuildConfig.pin_actions carries the same default for the rows it creates.
+DEFAULT_ACTIONS = ("self_edit",)
+_ACTION_OF = {tool: action for action, tools in ACTIONS.items() for tool in tools}
 
 # scrypt parameters. n=2**14 keeps a verify at ~50ms on the hardware Olisar runs on, which
 # is irrelevant to a legitimate entry and ruinous to an offline sweep of 10,000 candidates.
@@ -185,19 +199,34 @@ async def verify(session: AsyncSession, pin: object) -> bool:
 
 
 def gated_tools() -> frozenset[str]:
-    """The tools that require a PIN right now.
+    """The tools ``OLISAR_PIN_GATED_TOOLS`` gates on every server, whatever each one chose.
 
-    Empty in every shipped configuration. ``OLISAR_PIN_GATED_TOOLS`` (comma-separated tool
-    names) exists so the flow can be exercised end to end against a real Discord server
-    before any of it is wired to a setting an operator can turn on. When per-tool gating
-    becomes a real setting it reads from the database here, and this stays as the override.
+    Empty in every shipped configuration. It exists so the flow can be driven end to end
+    against a real Discord server for a tool no action covers.
     """
     raw = getattr(settings, "pin_gated_tools", "") or ""
     return frozenset(t.strip() for t in raw.replace(" ", ",").split(",") if t.strip())
 
 
-def requires_pin(tool_name: str) -> bool:
-    return tool_name in gated_tools()
+async def server_actions(session: AsyncSession, guild_id: int) -> list[str]:
+    """The actions ``guild_id`` has put behind the PIN."""
+    cfg = await session.get(GuildConfig, guild_id)
+    if cfg is None:
+        return list(DEFAULT_ACTIONS)
+    return list(cfg.pin_actions or [])
+
+
+async def gate(session: AsyncSession, guild_id: int, tool_name: str) -> str:
+    """What a call to ``tool_name`` has to be confirmed as, or "" if it runs unconfirmed.
+
+    That's the action covering the tool when this server has put the action behind the
+    PIN, or the tool's own name when ``OLISAR_PIN_GATED_TOOLS`` names it. The server's
+    config is only read for a tool some action covers, so every other call costs nothing.
+    """
+    action = _ACTION_OF.get(tool_name)
+    if action and action in await server_actions(session, guild_id):
+        return action
+    return tool_name if tool_name in gated_tools() else ""
 
 
 def denial_note(tool: str, outcome: str, *, attempts: int = MAX_ATTEMPTS) -> str:

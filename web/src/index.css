@@ -2345,6 +2345,8 @@ input[type="number"].bad:focus-visible, input.bad:focus-visible { border-color: 
   text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
 .linklike:hover { color: var(--text); }
+/* Inside a callout it takes the callout's colour, as a link there does. */
+.callout .linklike { color: var(--cc); }
 
 /* The route from a configuration page into the section of the docs that explains it. Sits
    with the title, not above it, so it reads as an aside rather than as a page action. */

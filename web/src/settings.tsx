@@ -644,6 +644,7 @@ function Security() {
       await api.putPin({ pin })
       setPin(''); setConfirm('')
       await load()
+      window.dispatchEvent(new Event('olisar:pin-changed'))
       toast(data?.is_set ? 'PIN changed' : 'PIN set', 'success')
     } catch (e: any) {
       setErr(e?.message || 'Could not save the PIN')
@@ -663,7 +664,11 @@ function Security() {
     if (ok !== true) return
     setErr('')
     setBusy(true)
-    try { await api.clearPin(); await load(); toast('PIN removed', 'neutral') }
+    try {
+      await api.clearPin(); await load()
+      window.dispatchEvent(new Event('olisar:pin-changed'))
+      toast('PIN removed', 'neutral')
+    }
     catch (e: any) { setErr(e?.message || 'Could not remove the PIN') }
     finally { setBusy(false) }
   }
@@ -680,7 +685,7 @@ function Security() {
     <>
       <Head
         title="Security"
-        sub="[COMING SOON™] A 4-digit PIN to allow Olisar to make certain tool calls. Any member who has this PIN can allow these requests. Currently, no tool calls require a PIN."
+        sub="A 4-digit PIN that confirms certain actions in Discord before Olisar takes them. Anyone who has it can confirm. Each server picks its actions under Access."
       />
       {err && <div className="settings-err" role="alert">{err}</div>}
       {!data ? <Spinner /> : (
