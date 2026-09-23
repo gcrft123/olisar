@@ -8,6 +8,8 @@ Changing anything about Olisar also meant opening the console. You can now ask i
 
 The console itself was cards inside cards. Every group of settings sat in a bordered box, and every input in it was a bordered box too, so a page was mostly edges. Groups are now a heading and a thin rule, with each setting on its own row, and the controls are the only things with a border.
 
+When something went wrong, the way to tell the Olisar team was two clicks behind a gear, and it opened blank. The screens where people actually get stuck now link to it, and the form arrives filled in with what just happened.
+
 ### New
 
 [d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
@@ -27,6 +29,26 @@ The console itself was cards inside cards. Every group of settings sat in a bord
 [f2fa419] — A turn answered with a reaction is recorded, so the next reply doesn't read it as having been ignored and do the thing twice.
 
 [1e2c722] — The test harness observes reactions, with six scenarios covering the silent turns and the question that must still get an answer.
+
+[ae7cbcb] — A failed server deploy in setup offers to send the error and the end of the install log to the Olisar team.
+
+[ae7cbcb] — Connecting or reconnecting to an existing server, and the last step of setup, offer a report when they fail, and a Tailscale failure offers to ask the team.
+
+[ae7cbcb] — The access-denied, no-servers and suspended screens can reach the Olisar team; the suspended screen said to contact them and gave no way to.
+
+[a8109fb] — Someone refused at sign-in can send that message from a remote console too, for an hour after the refusal, and it never carries the install's logs.
+
+[ae7cbcb] — A page that crashes, or fails to load again after Try again, has a Report button that arrives with the page and the error written in.
+
+[ae7cbcb] — Settings → Logs sends what it shows with a bug report.
+
+[ae7cbcb] — Test chat can report a reply that wasn't right, with what you said and what it answered.
+
+[ae7cbcb] — A failed or rolled-back server update stays on the server panel, with a link to report it, instead of appearing as a toast when the panel opens.
+
+[ae7cbcb] — Every docs page ends with a way to ask the team about it.
+
+[ae7cbcb] — The command palette finds Feedback when you type "report a bug", "contact the team" or "help".
 
 ### Changed
 
@@ -65,6 +87,12 @@ The console itself was cards inside cards. Every group of settings sat in a bord
 [1e2c722] — A model parked because Google retired it stops voiding every run made in the hour after a restart.
 
 [c23a12e] — The guardrail suite reads what Olisar posted in other channels, not only what it replied here, so a refusal in one channel and a dump into the next stops scoring as a pass.
+
+[a80d9bb] — Warning callouts that open a section on Access no longer sit against their top edge.
+
+[a80d9bb] — The box shown when a page fails to load has a border and rounded corners; it referenced two tokens that don't exist.
+
+[a80d9bb] — A link inside a sentence no longer makes its line taller than the ones around it.
 
 ## [1.5.0] — 2026-09-21
 
