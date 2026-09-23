@@ -6,6 +6,7 @@ import { PubkeyBox, usePubkey } from './setup'
 import { FeedbackButton, SettingsModal, useFeedbackHost } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
 import { Field, Text } from './ui'
+import { displayVersion, isNewer } from './version'
 
 type Status = {
   configured?: boolean
@@ -34,30 +35,12 @@ type UpdateResult = {
   at?: string
 }
 
-/** Numeric version compare, matching the backend's (leading "v" and any suffix ignored). */
-function isNewer(remote: string, local: string): boolean {
-  const parts = (v: string) => (String(v || '').match(/\d+/g) || ['0']).map(Number)
-  const a = parts(remote)
-  const b = parts(local)
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const x = a[i] || 0
-    const y = b[i] || 0
-    if (x !== y) return x > y
-  }
-  return false
-}
-
-/** Version strings arrive tagged ("v1.4.2") from the server's image labels and bare
- *  ("1.4.2") from the releases API. Strip it so the one `v` we render is our own —
- *  the panel used to print the server's version as "vv1.4.2". */
-const bareVersion = (v: string | undefined): string => String(v || '').replace(/^v/i, '')
-
 /** What an update attempt should say — the one we pressed, or the one the app applied for
  *  us at launch. Tone drives how it's delivered: a success expires on its own, a rollback or
  *  failure is something the operator has to act on, so it sticks until dismissed. */
 function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone } | null {
   if (!r || !r.at) return null
-  const tag = r.tag ? `v${bareVersion(r.tag)}` : 'the latest release'
+  const tag = r.tag ? `v${displayVersion(r.tag)}` : 'the latest release'
   if (r.rolled_back) return { text: `${tag} failed its healthcheck and was rolled back. The server is on the previous version.`, tone: 'warning' }
   if (r.updated) return { text: `Server updated to ${tag}.`, tone: 'success' }
   if (r.ok === false) return { text: `Last update attempt failed: ${r.message || r.error || 'unknown error'}.`, tone: 'danger' }
@@ -184,7 +167,7 @@ export function ServerControlPanel() {
     api.getUpdates()
       .then((r: any) => {
         if (cancelled || !r?.latest) return
-        setAvailable(isNewer(r.latest, st.version || '') ? String(r.latest).replace(/^v/i, '') : '')
+        setAvailable(isNewer(r.latest, st.version) ? displayVersion(r.latest) : '')
       })
       .catch(() => { /* offline: just don't offer an update */ })
     return () => { cancelled = true }
@@ -344,7 +327,7 @@ export function ServerControlPanel() {
           <span className="grow" />
           {available && (
             <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
-              {busyUpdating ? 'Updating…' : `Update to v${bareVersion(available)}`}
+              {busyUpdating ? 'Updating…' : `Update to v${displayVersion(available)}`}
             </button>
           )}
           {running
@@ -355,8 +338,8 @@ export function ServerControlPanel() {
 
         {st?.version && (
           <p className="srv-hint">
-            Server version <b>v{bareVersion(st.version)}</b>
-            {available ? <>, and <b>v{bareVersion(available)}</b> is available.</> : <>, up to date.</>}
+            Server version <b>v{displayVersion(st.version)}</b>
+            {available ? <>, and <b>v{displayVersion(available)}</b> is available.</> : <>, up to date.</>}
           </p>
         )}
         {busyUpdating && (
@@ -379,7 +362,7 @@ export function ServerControlPanel() {
               logs: true,
               message: reportBody(
                 'Updating my Olisar server failed.',
-                `${updateNote.text}${st?.version ? `\nServer version now: v${bareVersion(st.version)}` : ''}`,
+                `${updateNote.text}${st?.version ? `\nServer version now: v${displayVersion(st.version)}` : ''}`,
               ),
             }}>Report it</FeedbackButton>
           </p>

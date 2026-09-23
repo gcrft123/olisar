@@ -6,11 +6,33 @@ Now it can. Olisar reacts to the message and stops there, after doing what was a
 
 Changing anything about Olisar also meant opening the console. You can now ask it in Discord instead: its persona and system prompt, how and when it joins in, its command replies, its knowledge sources, the search index and glossary, and a member's impression. The tools that make those changes are only handed to the model once a conversation turns to settings, so every other reply costs about what it did before.
 
+Olisar could find a past message but couldn't point to it. Search came back with a link to every hit, and Olisar was told to keep it to itself unless someone asked where something was posted. Now when an answer comes from one message, the link comes with it, and clicking it opens the message.
+
+Linking as a matter of course meant fixing what search had been doing all along. It read every channel Olisar could, whatever the person asking could see, so a member asking about something posted in a staff channel was told what was said, who said it and when. The older messages Olisar recalls weren't even limited to the server. Both now stop at what the asker can open.
+
+Every release went to every install at once, and four since 1.0 needed a fix the same day. There's now a beta channel: early builds of the next release go to the installs that opt into them, and a release reaches everyone else once it's done. Versions change shape with it. From 2.0 on a stable release has two numbers, 2.0, 2.1, and the betas leading up to one count up to it: 2.0.beta-1, 2.0.beta-2, then 2.0.
+
 The console itself was cards inside cards. Every group of settings sat in a bordered box, and every input in it was a bordered box too, so a page was mostly edges. Groups are now a heading and a thin rule, with each setting on its own row, and the controls are the only things with a border.
 
 When something went wrong, the way to tell the Olisar team was two clicks behind a gear, and it opened blank. The screens where people actually get stuck now link to it, and the form arrives filled in with what just happened.
 
 ### New
+
+[f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
+
+[c6d7bd8] — Settings → Updates picks a channel: Stable gets finished releases, Beta gets early builds of the next one and every stable release as it ships.
+
+[c6d7bd8] — Switching from Beta to Stable keeps the beta you're on until a newer stable release is out, instead of taking you back to an older version.
+
+[c6d7bd8] — Installing a beta by hand puts the app on the Beta channel.
+
+[c6d7bd8] — A server-hosted bot's VM follows the app's channel, and the app never moves it to an older release than the one it runs.
+
+[a3933dc] — When an answer comes from one specific past message, found by search or remembered, Olisar pastes that message's link, which opens it in Discord.
+
+[a3933dc] — A message link Olisar wasn't actually given is removed from the reply before it's sent, so a mistyped or made-up link never goes out.
+
+[a3933dc] — The test harness has a scenario for it: an answer that lives in another channel should come back with the link, and the small talk after it without one.
 
 [d0311f6] — Olisar can read and change its own settings when asked in Discord, covering everything on the Persona, Behavior and Command replies pages.
 
@@ -52,6 +74,12 @@ When something went wrong, the way to tell the Olisar team was two clicks behind
 
 ### Changed
 
+[c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
+
+[c6d7bd8] — Betas are published as GitHub pre-releases, and the server image's `latest` tag only moves for a stable release.
+
+[c6d7bd8] — The Windows installer is uploaded with `gh`, like the macOS one, rather than by electron-builder.
+
 [a3e92ef] — The app applies a release to your server itself whenever it starts up on a newer version than the VM, which is every launch after it updates itself.
 
 [a3e92ef] — Reconnecting to a VM, or switching to a server-hosted bot, brings that server up to this build too.
@@ -75,6 +103,12 @@ When something went wrong, the way to tell the Olisar team was two clicks behind
 [ed004dd] — API keys lists Cloudflare before UEX.
 
 ### Fixed
+
+[f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
+
+[a3933dc] — Message search only returns messages from channels the person asking can open. A member asking about a staff channel used to be told what was said there, who said it and when.
+
+[a3933dc] — The older messages and summaries Olisar recalls come from the channel it's replying in and channels the asker can open, not from any channel, another server, or someone else's DMs.
 
 [7c9263a] — Olisar no longer hands over its own operating rules. It used to protect them only against instructions hidden inside pasted content, so anyone who asked by a route it trusted — a server policy it had been taught, someone it had saved as a maintainer, a request to file them in another channel, or a few members agreeing that refusing was strange — got them back verbatim.
 

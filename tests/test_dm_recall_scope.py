@@ -43,11 +43,16 @@ def _dm_ctx(*, is_admin: bool, cfg_guild: int = HOME_GUILD, is_dm: bool = True) 
 
 
 def _search_kwargs_for(ctx: ToolContext) -> dict:
-    """Run the search_messages tool against `ctx`, returning the kwargs it passed down."""
+    """Run the search_messages tool against `ctx`, returning the kwargs it passed down.
+
+    The asker's channel filter is a fresh closure per call, so it's checked for and then
+    left out; tests/test_message_links.py covers what it lets through."""
     with patch("olisar.tools.search_messages", new=AsyncMock(return_value="")) as spy:
         asyncio.run(execute_tool("search_messages", {"query": "starlancer"}, ctx))
     spy.assert_awaited_once()
-    return spy.await_args.kwargs
+    kwargs = dict(spy.await_args.kwargs)
+    assert callable(kwargs.pop("readable"))
+    return kwargs
 
 
 class DmRecallScopeTests(unittest.TestCase):

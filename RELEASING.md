@@ -1,6 +1,6 @@
 # Releasing Olisar
 
-The desktop app checks this repo's **latest GitHub Release** on launch (and every 6 hours,
+The desktop app checks this repo's **GitHub Releases** on launch (and every 6 hours,
 and on demand from the tray → *Check for Updates…*). When a release with a **higher version
 number** than the running app is found, it **installs it in place**: *Install & Restart*
 downloads the release `.dmg`, swaps the app bundle, and relaunches into the new version.
@@ -11,28 +11,58 @@ can't self-install yet, it opens the installer to download instead.)
 So "cutting a release" = publishing a GitHub Release whose tag/version is newer than what
 people are running, with the installers attached as assets.
 
+## Channels and version numbers
+
+Every install follows one of two channels, picked in Settings → Updates:
+
+- **Stable** gets stable releases only.
+- **Beta** gets betas and every stable release as it ships.
+
+A server-hosted bot's VM follows the app's channel.
+
+From 2.0 on, a stable release has **two numbers**: `2.0`, `2.1`, `2.2`. There's no third
+number, so a fix after a release is simply the next release. A beta carries the number of
+the stable release it leads up to, counted from 1: `2.1.beta-1`, `2.1.beta-2`, then `2.1`.
+Betas sort below their own release, so a beta tester moves onto `2.1` when it ships. Releases
+before 2.0 had three numbers (`1.5.0`); they still sort below everything after them.
+
+Switching from beta to stable doesn't downgrade anyone. The install stays on its beta until a
+stable release passes it. A build with no channel saved follows the kind it is, so installing
+a beta by hand (the only way onto the first one, since a stable build never sees betas) joins
+the beta channel.
+
+The parsing and ordering live in [`olisar/versioning.py`](olisar/versioning.py), with ports in
+[`desktop/updater.js`](desktop/updater.js) and [`web/src/version.ts`](web/src/version.ts).
+
 ## 1. Bump the version
 
 The release version lives in **three** files, and they must all match the tag — or the
 release misfires (electron-builder builds/publishes under the wrong version and the tagged
 GitHub release ends up empty; this bit v0.4.0). Bump all three:
 
-- [`desktop/package.json`](desktop/package.json) — what electron-builder builds & publishes
+- [`desktop/package.json`](desktop/package.json) — what electron-builder builds
 - [`pyproject.toml`](pyproject.toml) — the Python project version
 - [`web/package.json`](web/package.json) — the dashboard
 
-Then confirm they agree before tagging:
+npm and electron-builder only accept semver, so the files spell the version differently
+from the tag:
+
+| Tag | Version files |
+|---|---|
+| `v2.0.beta-1` | `2.0.0-beta.1` |
+| `v2.0` | `2.0.0` |
+
+Then run `npm install --package-lock-only` in `web/` and `uv lock` so the lockfiles follow,
+and confirm everything agrees before tagging:
 
 ```sh
-python3 scripts/check_release_version.py          # do the files agree with each other?
-python3 scripts/check_release_version.py v0.4.0   # …and with the tag you're about to push?
+python3 scripts/check_release_version.py               # do the files agree with each other?
+python3 scripts/check_release_version.py v2.0.beta-1   # …and with the tag you're about to push?
 ```
 
-CI runs this same check first (the `version-check` job) and **fails the release fast** if
-anything is out of sync, so a mismatch can't silently ship.
-
-Tag names should be `v<version>` (e.g. `v0.2.0`). The updater strips the leading `v` and
-compares numerically, so `v0.2.0` > `0.1.0`.
+The check names the exact string the files need when they're off, and refuses a tag that
+isn't spelled as above (`v2.0.0`, `v2.0-beta.1`). CI runs it first (the `version-check` job)
+and **fails the release fast** if anything is out of sync, so a mismatch can't silently ship.
 
 ## 2. Signing & notarization (macOS, one-time setup)
 
@@ -133,19 +163,25 @@ Push a tag and let CI build and publish — see
 [`.github/workflows/release.yml`](.github/workflows/release.yml):
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v2.0.beta-1
+git push origin v2.0.beta-1
 ```
 
 The workflow builds **both** installers in parallel — macOS (Apple-Silicon `.dmg`) and
 Windows (`.exe`) — each running the full chain (Tailscale sidecar → dashboard → PyInstaller
 backend → electron-builder) on its own runner, and both land on the same `v<tag>` GitHub
-Release using the repo's `GITHUB_TOKEN` (`releaseType: "release"`, so it's live immediately).
+Release using the repo's `GITHUB_TOKEN`. It's live immediately. A beta is published as a
+**pre-release**, which keeps it off every stable install, and the server image's `:latest`
+tag only moves for a stable release. To point `:latest` somewhere else (back to the previous
+release after a bad one, say), run the **Point :latest at a release** workflow from the
+Actions tab with a stable tag. It copies that release's image instead of rebuilding it.
 
-Windows uploads through electron-builder. macOS signs and notarizes first and then uploads
-with `gh` — stapling the notarization ticket rewrites the `.dmg`, so it can't be published
-until Apple has answered. Expect the macOS job to take ~10 minutes longer than it used to:
-two notarization round trips (the `.app`, then the `.dmg`), each a few minutes at Apple.
+Both jobs build with `--publish never` and upload with `gh`. electron-builder can only
+publish to a tag spelled `v` + the package.json version (`v2.0.0-beta.1`), which isn't the
+release's tag. macOS has a second reason: it signs and notarizes first, and stapling the
+notarization ticket rewrites the `.dmg`, so it can't be published until Apple has answered.
+Expect the macOS job to take ~10 minutes longer than it used to: two notarization round
+trips (the `.app`, then the `.dmg`), each a few minutes at Apple.
 
 ### Manual
 
@@ -163,9 +199,9 @@ uv run pyinstaller desktop/backend.spec --noconfirm --clean
 # 3. build, sign and notarize the .dmg  (see §2 for APPLE_KEYCHAIN_PROFILE)
 cd desktop && npm install && npm run release:mac
 
-# 4. publish it
-gh release create v0.2.0 --title "v0.2.0" --notes "…"
-gh release upload v0.2.0 out/Olisar-0.2.0-arm64.dmg --clobber
+# 4. publish it (drop --prerelease for a stable release)
+gh release create v2.0.beta-1 --title "v2.0.beta-1" --notes "…" --prerelease
+gh release upload v2.0.beta-1 out/Olisar-2.0.0-beta.1-arm64.dmg --clobber
 ```
 
 `npm run release:mac` = `npm run dist:mac` (build + sign + notarize + staple the `.app`,
@@ -174,8 +210,8 @@ then build and sign the `.dmg`) followed by `npm run notarize:dmg` (notarize + s
 step on purpose — electron-builder starts uploading an artifact the moment it's written, and
 stapling rewrites the file.
 
-On **Windows**, which isn't signed, `npm run release` still does build-and-publish in one go
-(`electron-builder --publish always`).
+On **Windows**, which isn't signed, `npm run dist:win` builds the installer into
+`desktop/out/`; upload the `.exe` the same way.
 
 ## 4. Write the release notes
 
@@ -183,20 +219,23 @@ On **Windows**, which isn't signed, `npm run release` still does build-and-publi
 as the work is done, by hand — never generated from commit subjects or `git log` afterwards.
 A version with nothing written under it shouldn't go out.
 
-Cutting a release renames that section to `## [X.Y.Z] — YYYY-MM-DD` (em dash, ISO date) and
-leaves `## [Unreleased]` empty above it. CI publishes the GitHub Release with an **empty
-body**, so paste the section in afterwards — it ships verbatim:
+Cutting a stable release renames that section to `## [2.1] — YYYY-MM-DD` (em dash, ISO
+date) and leaves `## [Unreleased]` empty above it. A beta doesn't get a heading: it ships the
+`## [Unreleased]` section as it stands and leaves it in place, so the section keeps growing
+through the betas and each beta's notes cover everything since the last stable release. CI
+publishes the GitHub Release with an **empty body**, so paste the section in afterwards — it
+ships verbatim:
 
 ```sh
-gh release edit vX.Y.Z --notes-file notes.md   # notes.md = that section, minus its heading
+gh release edit v2.1 --notes-file notes.md   # notes.md = that section, minus its heading
 ```
 
-Title the release **`vX.Y.Z — <short summary>`**.
+Title the release **`v2.1 — <short summary>`** (or **`v2.1.beta-1 — <short summary>`**).
 
 The shape of a section:
 
 ```markdown
-## [2.1.0] — 2026-09-13
+## [2.1] — 2026-09-13
 
 One or two paragraphs on what was wrong and what the release does about it.
 The reasoning lives here.
@@ -220,11 +259,11 @@ The reasoning lives here.
 
 ## 5. Verify
 
-Running an older build, open the tray → **Check for Updates…**. It should report the new
-version and offer **Download**. (Or wait — it polls automatically a few seconds after launch
-and every 6 hours.)
+Running an older build on the right channel (a beta needs Settings → Updates → **Beta**),
+open the tray → **Check for Updates…**. It should report the new version and offer
+**Download**. (Or wait — it polls automatically a few seconds after launch and every 6 hours.)
 
 > **Cross-platform:** the tag-push CI builds macOS *and* Windows automatically. The updater
 > picks the `.exe` asset on Windows and the `arm64.dmg` on Apple-Silicon macOS, and self-installs
 > on both (macOS swaps the `.app`; Windows runs the NSIS installer). To build a Windows
-> installer by hand instead, run `npm run dist:win` (or `npm run release`) on a Windows machine.
+> installer by hand instead, run `npm run dist:win` on a Windows machine.
