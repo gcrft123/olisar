@@ -26,7 +26,7 @@ class DeployIn(BaseModel):
 
 
 class PowerIn(BaseModel):
-    action: str  # 'up' | 'stop'
+    action: str  # 'up' | 'stop' | 'restart'
 
 
 @router.get("/pubkey")
@@ -67,6 +67,19 @@ async def update() -> dict:
     On demand. The backend also runs this by itself, whenever it starts up ahead of the VM
     (see ``remote.autoupdate``) — ``/status`` reports that one as ``auto_updating``."""
     return await remote.update_image()
+
+
+@router.get("/discord")
+async def discord(url: str = "") -> dict:
+    """What Discord says about the server's bot: whether the console's sign-in address
+    (``url`` + /auth/callback) is registered, and which intents are off."""
+    return await remote.discord_check(url)
+
+
+@router.post("/reconnect")
+async def reconnect() -> dict:
+    """Turn the server bot's missing intents on and restart it."""
+    return await remote.reconnect()
 
 
 @router.get("/last-update")
