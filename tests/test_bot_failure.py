@@ -78,5 +78,35 @@ class ReconnectTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 403)
 
 
+class ConnectWatchdogTests(unittest.IsolatedAsyncioTestCase):
+    """Discord can answer a bot asking for an intent it doesn't have with an invalid session
+    rather than the 4014 close, and discord.py then identifies again every few seconds,
+    forever. The watchdog is what stops that."""
+
+    async def _watch(self, missing: list[str], *, ready: bool = False):
+        sup = BotSupervisor()
+        sup.connect_grace = 0
+        bot = SimpleNamespace(is_ready=lambda: ready, is_closed=lambda: False, close=AsyncMock())
+        inspect = AsyncMock(return_value={"id": "1500", "intents_missing": missing})
+        with patch("olisar.discord_app.inspect", inspect):
+            await sup._watch_connect(bot, "tok")
+        return sup, bot, inspect
+
+    async def test_stops_a_bot_missing_an_intent_and_says_why(self) -> None:
+        sup, bot, _ = await self._watch(["members"])
+        bot.close.assert_awaited_once()
+        self.assertEqual(sup._error, {"kind": "intents", "missing": ["members"], "app_id": "1500"})
+
+    async def test_leaves_a_slow_start_alone(self) -> None:
+        sup, bot, _ = await self._watch([])
+        bot.close.assert_not_awaited()
+        self.assertIsNone(sup._error)
+
+    async def test_doesnt_ask_about_a_bot_that_got_in(self) -> None:
+        sup, bot, inspect = await self._watch(["members"], ready=True)
+        inspect.assert_not_awaited()
+        bot.close.assert_not_awaited()
+
+
 if __name__ == "__main__":
     unittest.main()

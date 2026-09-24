@@ -102,6 +102,7 @@ class BotSupervisor:
         from bot.client import OlisarBot
 
         bot = self._bot = OlisarBot()
+        watch = asyncio.create_task(self._watch_connect(bot, token), name="olisar-bot-watch")
         try:
             async with bot:
                 await bot.start(token)
@@ -111,7 +112,37 @@ class BotSupervisor:
             log.exception("bot task crashed")
             self._error = await _describe_failure(exc, token)
         finally:
+            watch.cancel()
             self._bot = None
+
+    # How long a bot gets to become ready before the watchdog asks Discord why it hasn't.
+    connect_grace = 20.0
+
+    async def _watch_connect(self, bot, token: str) -> None:
+        """Stop a bot Discord won't let in over an intent, and say why.
+
+        discord.py raises on the 4014 close Discord's docs describe for a disallowed
+        intent, but Discord answers with an invalid session instead (seen 2026-09-24), and
+        discord.py takes that as a cue to identify again. The bot then retries every few
+        seconds forever: never ready, never failing, and spending the token's daily budget of
+        1000 identifies, past which Discord resets the token. So if it isn't ready in time,
+        the app's intents are read back, and a bot missing one is stopped rather than left
+        to loop."""
+        from olisar import discord_app
+
+        await asyncio.sleep(self.connect_grace)
+        if bot.is_ready() or bot.is_closed():
+            return
+        try:
+            app = await discord_app.inspect(token)
+        except Exception:  # noqa: BLE001 (can't tell why; leave it to keep trying)
+            return
+        if not app["intents_missing"]:
+            return  # a slow start, not a refusal
+        log.warning("bot not ready after %.0fs and its app is missing intents %s; stopping it",
+                    self.connect_grace, ", ".join(app["intents_missing"]))
+        self._error = {"kind": "intents", "missing": app["intents_missing"], "app_id": app["id"]}
+        await bot.close()
 
     async def stop(self) -> None:
         task, bot = self._task, self._bot
