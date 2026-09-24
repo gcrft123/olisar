@@ -767,10 +767,21 @@ export function Channels() {
   const configured = rows.filter((c) => c.mode !== 'off').length
   const term = q.trim().toLowerCase()
   const shown = term ? rows.filter((c) => (c.name || c.channel_id).toLowerCase().includes(term)) : rows
+  // Every channel starts off, so a server Olisar just joined ignores everyone who talks to it
+  // until one is set to speak. Read from what's saved: that's what the bot is doing now.
+  const speaks = (ed.baseline() ?? []).some((c: any) => c.mode === 'respond' || c.mode === 'both')
 
   return (
     <>
       <PageHead icon="channels" title="Channels" doc="channels" sub="Customize how Olisar treats each of your channels." />
+      {rows.length > 0 && !speaks && (
+        <div className="callout warning">
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
+            Olisar doesn’t reply in any channel yet. Set at least one to <b>respond</b> or <b>both</b>, then save.
+          </div>
+        </div>
+      )}
       <Section stacked title="What the modes mean">
         <div className="mode-legend">
           <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
