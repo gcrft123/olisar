@@ -26,6 +26,8 @@ Setup showed four steps whichever way you chose to host Olisar, so two of the th
 
 Updating could leave the console on the version before it. The page was kept by the browser and reused without asking the server, so after 2.0.beta-2 the desktop window ran the old console against the new backend. The console's page is now checked with the server every time it loads.
 
+Olisar could answer the same message twice. A question asked by name that took more than about 15 seconds to answer still looked unanswered to the part of Olisar that joins conversations on its own, so a second reply could land under the first. That same part never counted its replies toward the hourly limit, and never checked whether the person was someone Olisar is set to ignore.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -215,6 +217,14 @@ Updating could leave the console on the version before it. The page was kept by 
 [b7a08db] — The desktop app clears its page cache the first time a new version opens, so updating from a version older than this one lands on the new console too.
 
 [ee4ee53] — Setting up a server-hosted bot again on the server it already runs on applies the new settings, such as a replaced Tailscale key; before, the running bot kept its old ones.
+
+[d15afcd] — A question asked by Olisar's name no longer gets a second, unprompted reply when the first one takes a while to write.
+
+[d15afcd] — An unprompted reply is dropped if someone else spoke in the channel while Olisar was writing it.
+
+[60bd29c] — The hourly limit on how often Olisar joins in unprompted now works; before, it never counted a reply.
+
+[6eeab43] — Olisar no longer replies or reacts unprompted to people in a blocked role or on the global ban list.
 
 ## [1.5.0] — 2026-09-21
 
