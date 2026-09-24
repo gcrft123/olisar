@@ -400,6 +400,13 @@ const MOCK_AUDIT = {
 // Bot step waits for the operator to; they come on 8 seconds in. The redirect URLs register
 // themselves 5 seconds after that wait, and the bot joins a server 4 seconds after those.
 const SETUP = process.env.SETUP_MOCK || ''
+// `FRESH_MOCK=1` is a console just after setup: every channel off and no Gemini key, so the
+// Get started list and the Channels warning show. `FRESH_MOCK=refused` is a bot Discord
+// refused (Message Content Intent off), which lands on "No servers yet" until Turn on and
+// reconnect; `FRESH_MOCK=refused-console` is the same bot with its servers still listed, so
+// the sidebar's bot card shows it.
+const FRESH = process.env.FRESH_MOCK || ''
+const FRESH_STATE = { reconnected: false }
 const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
 // When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
 // later as if the operator had done it: the intents coming on, the redirect URLs being added,
@@ -509,6 +516,13 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
     health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', url: 'https://olisar.tail4f2a.ts.net', logs: '',
   }), true
+  // The console's sign-in address turns up registered 6 seconds after the panel first asks.
+  // SETUP_MOCK=intents also has the server bot's intents off until Turn on and restart.
+  if (url.startsWith('/api/server/discord')) return later(400, () => send({
+    ok: true, app_id: MOCK_APP_ID, redirect: 'https://olisar.tail4f2a.ts.net/auth/callback', added: waited('signin', 6000),
+    intents_missing: SETUP === 'intents' && !SETUP_WAIT.intentsFixed ? ['message_content'] : [],
+  }))
+  if (url.startsWith('/api/server/reconnect')) return later(1500, () => { SETUP_WAIT.intentsFixed = 1; send({ ok: true, running: true, intents_missing: [] }) })
   if (url.startsWith('/api/server/last-update')) return send({}), true
   if (url.startsWith('/api/server/logs')) return send({ ok: true, logs: 'olisar  | Logged in as Olisar#0412\nolisar  | Ready in 1 server' }), true
   if (url.startsWith('/api/server/power')) return body((b) => later(1200, () => send({ ok: true, running: b.action === 'up' })))
@@ -530,7 +544,7 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/setup/status')) return send({ configured: true })
         // Exact-match: `/api/me` as a prefix also swallows `/api/messages`.
         if (url === '/api/me' || url.startsWith('/api/me?')) return send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
-        if (url.startsWith('/api/guilds')) return send([
+        if (url.startsWith('/api/guilds')) return send(FRESH === 'refused' && !FRESH_STATE.reconnected ? [] : [
           { id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' },
           { id: '1089266822827737190', name: 'Test Server', icon: '' },
         ])
@@ -554,7 +568,15 @@ function mockPlugin(): Plugin {
         }
         // Operator power card: online + ready so USAGE_MOCK can also show the rate-limit
         // amber state (driven by mockLive().exhausted) without a running Discord gateway.
+        if (url.startsWith('/api/bot/reconnect')) {
+          FRESH_STATE.reconnected = true
+          return send({ available: true, running: true, ready: false, can_power: true, error: null, intents_missing: [], app_id: MOCK_APP_ID })
+        }
         if (url.startsWith('/api/bot/status') || url.startsWith('/api/bot/power')) {
+          if (FRESH.startsWith('refused') && !FRESH_STATE.reconnected) {
+            return send({ available: true, running: false, ready: false, can_power: true,
+              error: { kind: 'intents', missing: ['message_content'], app_id: MOCK_APP_ID } })
+          }
           return send({ available: true, running: true, ready: true, can_power: true })
         }
         // Running a beta, so switching to Stable shows the "you'll stay on it" line.
@@ -619,6 +641,27 @@ function mockPlugin(): Plugin {
         // matchers, where /api/knowledge/1/schedule matched the /api/knowledge prefix and
         // came back 200 with the whole sources array — a write that "succeeded" by being
         // answered as a read, which is exactly the drift this fixture is supposed to expose.
+        // A value starting with "bad" fails its check. With no account ID typed or saved, the
+        // token can't find its own, like the Workers AI template's.
+        if (url.startsWith('/api/keys/check/')) {
+          let raw = ''
+          req.on('data', (c: any) => { raw += c })
+          req.on('end', () => {
+            const b = JSON.parse(raw || '{}')
+            const bad = (v: string) => String(v || '').trim().toLowerCase().startsWith('bad')
+            setTimeout(() => {
+              if (url.includes('gemini')) {
+                const saved = !FRESH
+                return send(!b.key && !saved ? { set: false, ok: false } : { set: true, ok: !bad(b.key) })
+              }
+              if (bad(b.token)) return send({ set: true, ok: false, problem: 'token' })
+              if (FRESH && !b.token) return send({ set: false, ok: false, problem: '' })
+              if (FRESH && !b.account_id) return send({ set: true, ok: false, account_id: '', problem: 'account' })
+              send(bad(b.account_id) ? { set: true, ok: false, problem: 'account' } : { set: true, ok: true, problem: '' })
+            }, 600)
+          })
+          return
+        }
         if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
           if (url.startsWith('/api/')) return send({ ok: true })
         }
@@ -632,14 +675,14 @@ function mockPlugin(): Plugin {
         if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)
         if (url.startsWith('/api/models')) return send(MOCK_MODELS)
         if (url.startsWith('/api/messages')) return send(mockMessages())
-        if (url.startsWith('/api/channels')) return send(MOCK_CHANNELS)
+        if (url.startsWith('/api/channels')) return send(FRESH ? MOCK_CHANNELS.map((c) => ({ ...c, mode: 'off' })) : MOCK_CHANNELS)
         if (url.startsWith('/api/roles')) return send(MOCK_ROLES)
         if (url.startsWith('/api/profiles')) return send(MOCK_PROFILES)
         if (url.startsWith('/api/knowledge/reindex/status')) return send(MOCK_REINDEX)
         if (url.startsWith('/api/knowledge')) return send(MOCK_KNOWLEDGE)
         if (url.startsWith('/api/facts')) return send(MOCK_FACTS)
         if (url.startsWith('/api/extensions')) return send(MOCK_EXTENSIONS)
-        if (url.startsWith('/api/keys')) return send(MOCK_KEYS)
+        if (url.startsWith('/api/keys')) return send(FRESH ? { ...MOCK_KEYS, gemini_api_key: { dashboard: false, env: false, value: '' }, cloudflare_account_id: { dashboard: false, env: false, value: '' }, cloudflare_api_token: { dashboard: false, env: false, value: '' } } : MOCK_KEYS)
         if (url.startsWith('/api/audit')) return send(MOCK_AUDIT)
         if (url.startsWith('/api/stats')) return send({ today: { requests: 4120, grounding: 38 }, by_model: {} })
         if (url.startsWith('/api/settings/remote')) return send({ running: false, public_url: '', sessions: [] })
