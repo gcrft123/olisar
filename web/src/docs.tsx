@@ -977,7 +977,13 @@ Without a Gemini key, Olisar can't reply until you add one.
 :::warning Handle keys with care
 Once saved, a key is never sent back to the browser: the field stays blank and only shows its status.
 Keys are stored in plain text in Olisar's local database on the operator's machine, so keep that machine
-and its database private. Only server admins can open this tab.
+and its database private.
+:::
+
+:::note Operator only
+Only the **operator** sees this tab: the account that owns the bot's Discord application, or one on its
+allowlist. Keys are shared by every server the bot is in, so Manage Server on one of them isn't enough to
+read or change them.
 :::
 `,
   },
@@ -1267,7 +1273,8 @@ date, languages, main org with rank and stars, and bio. Available to everyone on
 :::tip UEX token (optional)
 The UEX tools work on [UEX](https://uexcorp.uk/)'s public endpoints with no setup. Adding a free
 [UEX API token](https://uexcorp.uk/api) under **Keys** on this extension's page in [Extensions](tab:extensions)
-just raises the rate limits — it's not required. Like the API keys, it's one token for the whole install.
+just raises the rate limits — it's not required. Like the API keys, it's one token for the whole install,
+and only the operator sees it.
 :::
 
 :::note

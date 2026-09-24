@@ -406,6 +406,7 @@ const SETUP = process.env.SETUP_MOCK || ''
 // reconnect; `FRESH_MOCK=refused-console` is the same bot with its servers still listed, so
 // the sidebar's bot card shows it.
 const FRESH = process.env.FRESH_MOCK || ''
+const MOCK_ROLE = process.env.MOCK_ROLE || ''
 const FRESH_STATE = { reconnected: false }
 const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
 // When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
@@ -543,7 +544,14 @@ function mockPlugin(): Plugin {
         if (SETUP && setupMock(req, url, send)) return
         if (url.startsWith('/api/setup/status')) return send({ configured: true })
         // Exact-match: `/api/me` as a prefix also swallows `/api/messages`.
-        if (url === '/api/me' || url.startsWith('/api/me?')) return send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
+        // `MOCK_ROLE=admin` signs in as a Manage Server admin rather than the operator, who
+        // doesn't get the API keys.
+        if (url === '/api/me' || url.startsWith('/api/me?')) {
+          return MOCK_ROLE === 'admin'
+            ? send({ id: '1089266822827737191', username: 'intmorg', granted_via: 'manage_guild' })
+            : send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
+        }
+        if (MOCK_ROLE === 'admin' && url.startsWith('/api/keys')) return send({ detail: "only the bot's operator can do that" }, 403)
         if (url.startsWith('/api/guilds')) return send(FRESH === 'refused' && !FRESH_STATE.reconnected ? [] : [
           { id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' },
           { id: '1089266822827737190', name: 'Test Server', icon: '' },

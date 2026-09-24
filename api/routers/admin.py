@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
-from api.auth.deps import GuildContext, require_admin, require_guild_admin
+from api.auth.deps import GuildContext, require_admin, require_guild_admin, require_operator
 from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
@@ -301,7 +301,7 @@ _KEY_FIELDS = (
 
 
 @router.get("/keys")
-async def get_keys(request: Request, admin: AdminUser = Depends(require_admin)):
+async def get_keys(request: Request, admin: AdminUser = Depends(require_operator)):
     """Per-key status, plus a ``value`` that autofills the field from the operator's
     environment — but ONLY on a local (loopback) request, the same gate the setup
     wizard uses, so secrets are never sent to a remote (tunnel) browser."""
@@ -319,7 +319,7 @@ async def get_keys(request: Request, admin: AdminUser = Depends(require_admin)):
 
 
 @router.put("/keys")
-async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_admin)):
+async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_operator)):
     """Store any non-empty submitted keys (blank fields are left unchanged)."""
     data = body.model_dump(exclude_unset=True)
     updates = {
@@ -344,7 +344,7 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_admin)):
 
 
 @router.post("/keys/check/gemini")
-async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(require_admin)):
+async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(require_operator)):
     """Whether the Gemini key works: the one typed, or the saved one when nothing is.
     ``ok`` is null when Google couldn't be reached, and ``set`` false when there's no key."""
     key = body.key.strip() or await runtime_keys.gemini_api_key()
@@ -357,7 +357,7 @@ async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(requi
 
 
 @router.post("/keys/check/cloudflare")
-async def check_cloudflare_key(body: CloudflareCheckIn, admin: AdminUser = Depends(require_admin)):
+async def check_cloudflare_key(body: CloudflareCheckIn, admin: AdminUser = Depends(require_operator)):
     """Whether the Cloudflare token can run Workers AI on the account, each typed value
     standing in for the saved one. With no account ID anywhere, it's looked up from the
     token; ``account_id`` comes back only then, so a saved one is never shown again."""
@@ -375,7 +375,7 @@ async def check_cloudflare_key(body: CloudflareCheckIn, admin: AdminUser = Depen
 
 
 @router.delete("/keys/{field}")
-async def clear_key(field: str, admin: AdminUser = Depends(require_admin)):
+async def clear_key(field: str, admin: AdminUser = Depends(require_operator)):
     """Clear one stored key so it falls back to .env (or off)."""
     if field not in _KEY_FIELDS:
         raise HTTPException(status_code=404, detail="unknown key")
