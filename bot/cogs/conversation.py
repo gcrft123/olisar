@@ -30,7 +30,14 @@ from bot.content import (
     message_text,
     resolve_reply,
 )
-from bot.replies import anchor_for, composing, record_bot_messages, report_view, send_paced
+from bot.replies import (
+    anchor_for,
+    composing,
+    record_bot_messages,
+    reply_pending,
+    report_view,
+    send_paced,
+)
 from bot.triggers import detect_trigger
 from olisar.addressing import AMBIGUOUS, PASSING, confirm_addressed, name_mention_kind
 from olisar.failures import open_report
@@ -63,6 +70,12 @@ class Conversation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
+        # Held until the reply is sent and stored, so the proactive scans don't pick the
+        # message up as unanswered while it's still being answered here (bot/replies.py).
+        with reply_pending(message.id):
+            await self._handle(message)
+
+    async def _handle(self, message: discord.Message) -> None:
         bot_user = self.bot.user
         if bot_user is not None and message.author.id == bot_user.id:
             return  # never act on our own messages
