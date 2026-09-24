@@ -486,6 +486,18 @@ its own `aria-label` — otherwise it announces as "switch, on" with no subject.
 
 Inside a **Section** the same three siblings lay out as a settings row, label and description on the left and the control on the right. See Section.
 
+A value the backend can check (a token, a secret, an API key) is checked as it's pasted, not by a
+**Test** button beside it. The result is a **check line** under the input: a spinner while it
+runs, then the success in `--ok` or the failure in `--danger`, with a **Try again** link only
+when the check itself failed (an outage, not a wrong value). Anything that gates the next step
+says what to do in the footer error, not in the check line.
+
+```css
+.setup .check-line { display: flex; align-items: center; gap: 6px; margin: -9px 0 16px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.setup .check-line.ok { color: var(--ok); }
+.setup .check-line.err { color: var(--danger); }
+```
+
 ### Choice groups (mode cards, segmented pickers)
 
 A group of mutually exclusive cards is a **radiogroup**, not a row of clickable divs: `role="radiogroup"`
