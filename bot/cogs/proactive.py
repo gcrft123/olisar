@@ -17,7 +17,13 @@ from sqlalchemy import select
 
 from bot.actions import BotActions, MessageActions
 from bot.content import channel_identity
-from bot.replies import anchor_for, composing, record_bot_messages, send_paced
+from bot.replies import (
+    anchor_for,
+    composing,
+    is_reply_pending,
+    record_bot_messages,
+    send_paced,
+)
 from olisar import prompt_overrides
 from olisar.context import is_own_message, name_map, speaker_name
 from olisar.db.engine import session_scope
@@ -174,6 +180,10 @@ class Proactive(commands.Cog):
                 latest = recent[0] if recent else None
                 if latest is None or latest.author_is_bot:
                     continue  # nothing new, or a bot (incl. Olisar) spoke last
+                if is_reply_pending(latest.message_id):
+                    # Being answered as addressed. Not marked considered: if that path
+                    # decides it wasn't addressed after all, it's fair game next tick.
+                    continue
                 if latest.message_id <= self._last_considered.get(cid, 0):
                     continue
                 age = _age_seconds(latest.created_at)
@@ -252,6 +262,8 @@ class Proactive(commands.Cog):
                 )
                 if latest is None or latest.author_is_bot:
                     continue
+                if is_reply_pending(latest.message_id):
+                    continue  # a reply (which may itself react) is on its way
                 if latest.message_id <= self._react_considered.get(cid, 0):
                     continue
                 age = _age_seconds(latest.created_at)
@@ -304,6 +316,16 @@ class Proactive(commands.Cog):
             )
             names = await name_map(session, {m.author_id for m in rows if not m.author_is_bot})
         return "\n".join(f"{speaker_name(m, names)}: {m.content}" for m in rows)
+
+    async def _still_latest(self, channel_id: int, msg_id: int) -> bool:
+        async with session_scope() as session:
+            latest = await session.scalar(
+                select(Message.message_id)
+                .where(Message.channel_id == channel_id)
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )
+        return latest == msg_id
 
     async def _chime_in(
         self,
@@ -362,6 +384,12 @@ class Proactive(commands.Cog):
         clean = (reply.text or "").strip()
         if not clean or clean.lower() in (SKIP_SENTINEL, "skip"):
             log.info("proactive self-skipped ch=%s", channel_id)
+            return False
+        # Writing the reply takes long enough for the room to move on: someone answers the
+        # question, or asks Olisar something by name. Either way this reply is to a message
+        # that's no longer the one on the table, so it doesn't go out.
+        if not await self._still_latest(channel_id, msg_id):
+            log.info("proactive dropped ch=%s: channel moved on while composing", channel_id)
             return False
         # Chiming in unprompted almost always anchors: the message being answered has sat
         # for at least MIN_AGE and the room has usually moved on — which is exactly the case
