@@ -8,14 +8,18 @@ they return 403 and the normal OAuth-gated admin API takes over.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Awaitable
+from typing import TypeVar
 
+import aiohttp
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from api.schemas import ApiKeysIn, SetupSaveIn, SetupTokenIn
+from api.schemas import ApiKeysIn, SetupKeyIn, SetupSaveIn, SetupSecretIn, SetupTokenIn
 from api.trust import is_local_request
-from olisar import runtime_config, runtime_keys
+from olisar import discord_app, runtime_config, runtime_keys
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AppSecret
@@ -23,7 +27,8 @@ from olisar.db.models import AppSecret
 log = logging.getLogger("olisar.api.setup")
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-_ME_URL = "https://discord.com/api/users/@me"
+_GEMINI_MODELS = "https://generativelanguage.googleapis.com/v1beta/models"
+T = TypeVar("T")
 _KEY_FIELDS = (
     "gemini_api_key",
     "cloudflare_account_id",
@@ -80,22 +85,68 @@ async def status(request: Request) -> dict:
     return body
 
 
-@router.post("/validate-token", dependencies=[Depends(require_setup_access)])
-async def validate_token(body: SetupTokenIn) -> dict:
-    """Confirm a bot token by calling Discord as the bot, so the wizard can show
-    'connected as <name>' before saving."""
+def _token(body: SetupTokenIn) -> str:
     token = (body.token or "").strip()
     if not token:
         raise HTTPException(status_code=400, detail="token is required")
+    return token
+
+
+async def _ask_discord(call: Awaitable[T]) -> T:
+    """Await a Discord call, turning its failures into the errors the wizard shows."""
+    try:
+        return await call
+    except discord_app.BadToken:
+        raise HTTPException(status_code=400, detail="Discord rejected that bot token")
+    except (aiohttp.ClientError, asyncio.TimeoutError, discord_app.DiscordUnavailable) as exc:
+        log.warning("Discord call failed during setup: %r", exc)
+        raise HTTPException(status_code=502, detail="couldn't reach Discord — check your connection")
+
+
+@router.post("/bot", dependencies=[Depends(require_setup_access)])
+async def bot(body: SetupTokenIn) -> dict:
+    """Check a pasted bot token and get its application ready: the client ID comes from
+    it, and the intents Olisar needs are switched on where Discord allows it (see
+    ``discord_app.prepare``)."""
+    return await _ask_discord(discord_app.prepare(_token(body)))
+
+
+@router.post("/discord-status", dependencies=[Depends(require_setup_access)])
+async def discord_status(body: SetupTokenIn) -> dict:
+    """What the wizard polls while the operator is in the Developer Portal or inviting
+    the bot: the application's intents and redirect URLs, and the servers it's in."""
+    token = _token(body)
+    info = await _ask_discord(discord_app.inspect(token))
+    info["guilds"] = await _ask_discord(discord_app.bot_guilds(token))
+    return info
+
+
+@router.post("/secret", dependencies=[Depends(require_setup_access)])
+async def check_secret(body: SetupSecretIn) -> dict:
+    """Whether a pasted client secret belongs to the bot's application."""
+    client_id, secret = body.client_id.strip(), body.client_secret.strip()
+    if not (client_id and secret):
+        raise HTTPException(status_code=400, detail="client id and secret are required")
+    return {"ok": await _ask_discord(discord_app.check_client_secret(client_id, secret))}
+
+
+@router.post("/gemini", dependencies=[Depends(require_setup_access)])
+async def check_gemini(body: SetupKeyIn) -> dict:
+    """Whether Google accepts a pasted Gemini key, by listing one model with it."""
+    key = body.key.strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(_ME_URL, headers={"Authorization": f"Bot {token}"})
+            # The header rather than ?key=, so the key stays out of any logged URL.
+            resp = await client.get(_GEMINI_MODELS, params={"pageSize": 1}, headers={"x-goog-api-key": key})
     except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="couldn't reach Discord — check your connection")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=400, detail="Discord rejected that bot token")
-    me = resp.json()
-    return {"ok": True, "id": me.get("id"), "username": me.get("username")}
+        raise HTTPException(status_code=502, detail="couldn't reach Google — check your connection")
+    if resp.status_code == 200:
+        return {"ok": True}
+    if 400 <= resp.status_code < 500:
+        return {"ok": False}
+    raise HTTPException(status_code=502, detail="Google couldn't check the key right now")
 
 
 @router.post("/keys", dependencies=[Depends(require_setup_access)])
@@ -145,6 +196,8 @@ async def save(body: SetupSaveIn, request: Request) -> dict:
     )
     # Make sure a stable signing secret exists now that we're configured.
     await runtime_config.session_secret()
+    # The cached application belongs to whatever token was configured before, if any.
+    discord_app.invalidate()
 
     # (Re)start the bot in the packaged app; in dev there's no supervisor (the bot is a
     # separate process that reads .env), so this is a best-effort no-op.

@@ -24,7 +24,7 @@ from api.schemas import (
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import runtime_config, runtime_keys, toolpin
+from olisar import discord_app, runtime_config, runtime_keys, toolpin
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -85,6 +85,18 @@ async def get_guilds(admin: AdminUser = Depends(require_admin)):
         for g in rows
         if admin.is_allowlisted or str(g.id) in managed
     ]
+
+
+@router.get("/invite")
+async def invite(admin: AdminUser = Depends(require_admin)):
+    """The link that adds Olisar to a server. Only the owner can add a private bot, so
+    for anyone else it's unavailable unless the bot is public."""
+    app = await discord_app.application()
+    client_id = (app or {}).get("id") or await runtime_config.discord_client_id()
+    if not client_id:
+        return {"url": "", "available": False}
+    public = bool((app or {}).get("bot_public", True))
+    return {"url": discord_app.invite_url(client_id), "available": public or admin.is_allowlisted}
 
 
 @router.get("/models")
