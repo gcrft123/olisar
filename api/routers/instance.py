@@ -84,6 +84,8 @@ async def status(request: Request) -> dict:
             "id": str(user.id) if ready and user else "",
             "name": str(user.name) if ready and user else "",
             "avatar": str(user.display_avatar.url) if ready and user else "",
+            # Why it stopped, if it did so on its own (see BotSupervisor.error).
+            "error": supervisor.error if supervisor is not None else None,
         },
         "remote": bool(tunnel is not None and tunnel.running),
     }

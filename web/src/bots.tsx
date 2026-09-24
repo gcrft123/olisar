@@ -22,7 +22,7 @@ export type Bot = {
   configured?: boolean
   hosting_mode?: 'local' | 'server'
   server_host?: string
-  bot?: { running: boolean; ready: boolean; id: string; name: string; avatar: string }
+  bot?: { running: boolean; ready: boolean; id: string; name: string; avatar: string; error?: BotError | null }
   remote?: boolean
   /** The last lines a bot that couldn't start printed. */
   log?: string
@@ -76,6 +76,7 @@ export function botStatus(b: Bot): { label: string; tone: '' | 'success' | 'warn
   if (b.hosting_mode === 'server') return { label: 'On a server', tone: 'info' }
   if (b.bot?.ready) return { label: 'Online', tone: 'success' }
   if (b.bot?.running) return { label: 'Connecting…', tone: 'info' }
+  if (b.bot?.error) return { label: 'Can’t connect', tone: 'error' }
   return { label: 'Offline', tone: 'warning' }
 }
 
@@ -255,6 +256,63 @@ export function BotMenu(
 }
 
 // ── A bot whose process keeps failing ─────────────────────────────────────────
+// ── A bot Discord won't let in ──────────────────────────────────────────────────
+// The Developer Portal's own names for the intents, so the operator can find the switch.
+export const INTENT_NAMES: Record<string, string> = {
+  message_content: 'Message Content Intent',
+  members: 'Server Members Intent',
+  presences: 'Presence Intent',
+}
+export const intentList = (names: string[]) => names.map((n) => INTENT_NAMES[n] || n).join(' and ')
+
+/** Why the bot stopped on its own (BotSupervisor.error on the backend). */
+export type BotError = { kind: 'intents' | 'token' | 'other'; missing?: string[]; app_id?: string; message?: string }
+
+// Why the bot can't connect, and the way back. A refused connection used to be a log line
+// and a bot marked "Offline", the same as one switched off on purpose. Reconnecting turns the
+// missing intents on where Discord lets the app do that itself; what's left is a switch in
+// the Developer Portal, linked.
+export function BotProblem({ error, onReconnected }: { error: BotError; onReconnected: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  // Intents Discord wouldn't let the app turn on itself, from the last reconnect.
+  const [left, setLeft] = useState<{ missing: string[]; appId: string } | null>(null)
+  const missing = left?.missing ?? error.missing ?? []
+  const appId = left?.appId || error.app_id || ''
+  const botPage = `https://discord.com/developers/applications${appId ? `/${appId}/bot` : ''}`
+  async function reconnect() {
+    setBusy(true); setErr('')
+    try {
+      const r = await api.botReconnect()
+      if (r?.intents_missing?.length) setLeft({ missing: r.intents_missing, appId: r.app_id || '' })
+      else { setLeft(null); onReconnected() }
+    } catch (e: any) {
+      setErr(e?.message || 'Couldn’t reconnect.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const text = error.kind === 'token'
+    ? <>Discord rejected the bot token. Reset this bot under Settings → Bots to paste a new one.</>
+    : error.kind === 'other'
+      ? <>The bot stopped: {error.message}</>
+      : left
+        ? <>Turn on <b>{intentList(missing)}</b> on <a href={botPage} target="_blank" rel="noreferrer">the Bot page</a>, under Privileged Gateway Intents, then try again.</>
+        : missing.length
+          ? <>Discord refused it because <b>{intentList(missing)}</b> {missing.length > 1 ? 'are' : 'is'} off.</>
+          : <>Discord refused it over its intents, which are on now.</>
+  const action = error.kind === 'intents' && missing.length && !left ? 'Turn on and reconnect' : 'Try again'
+  return (
+    <>
+      <p>{text}</p>
+      {err && <p className="err">{err}</p>}
+      <div className="login-actions">
+        <button className="primary" disabled={busy} onClick={reconnect}>{busy ? 'Reconnecting…' : action}</button>
+      </div>
+    </>
+  )
+}
+
 // Shown instead of the console when the bot on screen couldn't start. Without it the console
 // would sit on "couldn't reach the backend" with no way to the bots that are fine.
 export function BotFailed({ bot }: { bot: Bot }) {
