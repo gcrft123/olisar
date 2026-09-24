@@ -123,5 +123,30 @@ class KeyCheckEndpointTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await admin.check_gemini_key(GeminiCheckIn(), self.admin_user), {"set": True, "ok": None})
 
 
+class OperatorOnlyTests(unittest.IsolatedAsyncioTestCase):
+    """The keys run every server on the install, so Manage Server on one of them isn't
+    enough to read, change, check or remove them."""
+
+    def test_every_keys_route_is_operator_only(self) -> None:
+        from api.auth.deps import require_operator
+
+        routes = [r for r in admin.router.routes if getattr(r, "path", "").startswith("/api/keys")]
+        self.assertGreaterEqual(len(routes), 5)
+        for route in routes:
+            calls = [d.call for d in route.dependant.dependencies]
+            self.assertIn(require_operator, calls, f"{sorted(route.methods)} {route.path}")
+
+    async def test_a_manage_server_admin_is_refused(self) -> None:
+        from fastapi import HTTPException
+
+        from api.auth.deps import require_operator
+
+        with self.assertRaises(HTTPException) as ctx:
+            await require_operator(SimpleNamespace(is_allowlisted=False))
+        self.assertEqual(ctx.exception.status_code, 403)
+        operator = SimpleNamespace(is_allowlisted=True)
+        self.assertIs(await require_operator(operator), operator)
+
+
 if __name__ == "__main__":
     unittest.main()

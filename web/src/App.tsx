@@ -303,6 +303,16 @@ export default function App() {
 
   const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
 
+  // The operator: allowlisted, or an owner of the bot's Discord app. Authoring extension code
+  // is theirs alone (everyone else just sees the toggles), and so are the API keys, which are
+  // install-wide: Manage Server on one server shouldn't reach the keys every server runs on.
+  const isOperator = me?.granted_via === 'allowlist'
+  // `#/keys` stays a route, so an operator's bookmark survives the first paint, before who's
+  // signed in is known. Anyone else who lands there is moved on once it is.
+  useEffect(() => {
+    if (me && !isOperator && tab === 'keys') setTab('persona')
+  }, [me, isOperator, tab])
+
 
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
@@ -413,10 +423,6 @@ export default function App() {
 
 
 
-  // Authoring extension code is operator-only; the merged Extensions tab shows the
-  // editor drill-in only to operators (everyone else just sees the toggles).
-  const isOperator = me?.granted_via === 'allowlist'
-
   const pages: Record<string, JSX.Element> = {
     persona: <Persona />,
     behavior: <Behavior />,
@@ -426,7 +432,7 @@ export default function App() {
     knowledge: <Knowledge serverName={current.name} />,
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
-    keys: <ApiKeys />,
+    ...(isOperator ? { keys: <ApiKeys /> } : {}),
     usage: <Usage />,
     docs: <Docs onNavigate={goTab} />,
     // Gated here, not only in the rail: the rail hides the item for non-developers, but the
@@ -440,9 +446,10 @@ export default function App() {
   // rather than named groups — eleven items don't need taxonomy, but the two items that
   // aren't configuration shouldn't sit in the same run as the nine that are.
   const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName, rule: true }
+  const rail = isOperator ? NAV : NAV.filter((n) => n.id !== 'keys')
   const nav = isDev
-    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
-    : [...NAV, docsNav]
+    ? [...rail, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
+    : [...rail, docsNav]
 
   // Everything the rail can reach, plus the server switcher, plus whatever the page in
   // front of the operator is currently offering. A palette that can only do what the

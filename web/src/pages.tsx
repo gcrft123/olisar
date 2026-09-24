@@ -2028,7 +2028,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       </div>
 
       {e.settings_schema?.fields?.length > 0 && <SettingsForm key={e.key} extKey={e.key} schema={e.settings_schema} />}
-      {secretKeys.length > 0 && <ExtensionKeys key={e.key} fields={secretKeys} />}
+      {/* The keys are the operator's, like the API keys page they'd otherwise be on. */}
+      {props.isOperator && secretKeys.length > 0 && <ExtensionKeys key={e.key} fields={secretKeys} />}
     </>
   )
 }
