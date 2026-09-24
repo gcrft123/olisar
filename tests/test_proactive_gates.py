@@ -11,6 +11,10 @@ question, and a second reply went out under the first.
 
 The hourly cap never filled. The scan used one variable for the hour's timestamps and for the
 rows it read inside the loop, so each chime was appended to a list of messages instead.
+
+Nothing checked who was being answered. Someone the role gate or the global ban list
+refuses is ignored when they ask Olisar by name, and was then answered anyway 15 seconds
+later, because the scan never asked.
 """
 
 from __future__ import annotations
@@ -29,9 +33,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import bot.cogs.proactive as proactive
 from bot.cogs.conversation import Conversation
 from bot.replies import is_reply_pending, reply_pending
+from olisar import moderation
 from olisar.db.models import (
     Base,
     Guild,
+    GuildConfig,
     Message,
     ProactivityConfig,
     ProactivityLevel,
@@ -39,6 +45,7 @@ from olisar.db.models import (
 )
 
 GUILD, CHANNEL, ASKER = 1, 10, 500
+BLOCKED_ROLE = 77
 
 
 class ReplyPendingTest(unittest.TestCase):
@@ -102,9 +109,10 @@ class _DbCase(unittest.IsolatedAsyncioTestCase):
                     reaction_cooldown_sec=0,
                 )
             )
-        # The scan loops aren't under test, and starting them needs a real client.
+        # The scan loops aren't under test, and starting them needs a real client. No guild
+        # in the cache means no member to look up: no roles, so open access lets them in.
         with patch.object(tasks.Loop, "start"):
-            self.cog = proactive.Proactive(SimpleNamespace())
+            self.cog = proactive.Proactive(SimpleNamespace(get_guild=lambda _gid: None))
 
     async def asyncTearDown(self) -> None:
         self._patch.stop()
@@ -185,6 +193,56 @@ class HourlyCapTest(_DbCase):
             await self._store(2002, "which ship is best for salvage?", age=20)
             self.assertFalse(await self.cog._scan_guild(GUILD))
         chime.assert_awaited_once()
+
+
+class AccessTest(_DbCase):
+    """Whoever the conversation handler refuses, the scans refuse too."""
+
+    async def asyncSetUp(self) -> None:
+        await super().asyncSetUp()
+        async with self.scope() as session:
+            session.add(GuildConfig(guild_id=GUILD, blocked_role_ids=[BLOCKED_ROLE]))
+
+    def _member_with(self, role_id: int) -> None:
+        role = SimpleNamespace(id=role_id, is_default=lambda: False)
+        member = SimpleNamespace(
+            id=ASKER, roles=[role], guild_permissions=SimpleNamespace(manage_guild=False)
+        )
+        guild = SimpleNamespace(get_member=lambda uid: member if uid == ASKER else None)
+        self.cog.bot = SimpleNamespace(get_guild=lambda _gid: guild)
+
+    async def _chimed(self) -> bool:
+        await self._store(3001, "anyone know when the patch drops?", age=20)
+        chime = AsyncMock(return_value=True)
+        with self._chiming(AsyncMock(return_value=(True, 0.9, "open question")), chime):
+            await self.cog._scan_guild(GUILD)
+        return chime.await_count > 0
+
+    async def _reacted(self) -> bool:
+        await self._store(3002, "gg we finally shipped it lol", age=10)
+        pick = AsyncMock(return_value=None)
+        with self._reacting(pick):
+            await self.cog._scan_reactions_guild(GUILD)
+        return pick.await_count > 0
+
+    async def test_a_blocked_role_is_not_answered(self) -> None:
+        self._member_with(BLOCKED_ROLE)
+        self.assertFalse(await self._chimed())
+
+    async def test_a_blocked_role_gets_no_reaction(self) -> None:
+        self._member_with(BLOCKED_ROLE)
+        self.assertFalse(await self._reacted())
+
+    async def test_a_banned_user_is_not_answered(self) -> None:
+        self._member_with(1)
+        with patch.object(moderation, "_banned", {ASKER}):
+            self.assertFalse(await self._chimed())
+            self.assertFalse(await self._reacted())
+
+    async def test_everyone_else_still_is(self) -> None:
+        self._member_with(1)
+        self.assertTrue(await self._chimed())
+        self.assertTrue(await self._reacted())
 
 
 class ChimeRechecksBeforeSendingTest(_DbCase):

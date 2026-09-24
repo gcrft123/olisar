@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from discord.ext import commands, tasks
 from sqlalchemy import select
 
+from bot.access import member_allowed
 from bot.actions import BotActions, MessageActions
 from bot.content import channel_identity
 from bot.replies import (
@@ -30,6 +31,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,
     ChannelMode,
+    GuildConfig,
     Message,
     ProactivityConfig,
     ProactivityLevel,
@@ -120,6 +122,18 @@ class Proactive(commands.Cog):
         hour = datetime.now(timezone.utc).hour
         return (start <= hour < end) if start < end else (hour >= start or hour < end)
 
+    def _may_answer(self, guild_id: int, author_id: int, gconf: GuildConfig | None) -> bool:
+        """The conversation handler's access check (roles and the global ban list), applied
+        to a message nobody addressed to Olisar. Someone it would ignore if they asked by
+        name shouldn't get an answer, or a reaction, when they didn't ask."""
+        guild = self.bot.get_guild(guild_id)
+        return member_allowed(
+            guild.get_member(author_id) if guild else None,
+            allowed=gconf.allowed_role_ids if gconf else [],
+            blocked=gconf.blocked_role_ids if gconf else [],
+            user_id=author_id,
+        )
+
     async def _candidate_channels(self, session, guild_id: int, pconf) -> list[int]:
         if pconf.allowed_channels:
             return [int(c) for c in pconf.allowed_channels]
@@ -162,6 +176,7 @@ class Proactive(commands.Cog):
             if len(recent) >= pconf.max_per_hour:
                 return False
 
+            gconf = await session.get(GuildConfig, guild_id)
             conf_threshold = pconf.confidence_threshold
             threshold = level_threshold(pconf.level)
             for cid in await self._candidate_channels(session, guild_id, pconf):
@@ -190,6 +205,8 @@ class Proactive(commands.Cog):
                 if age < MIN_AGE or age > MAX_AGE:
                     continue
                 self._last_considered[cid] = latest.message_id  # don't re-evaluate
+                if not self._may_answer(guild_id, latest.author_id, gconf):
+                    continue
                 answered_olisar = len(last_two) > 1 and is_own_message(last_two[1])
                 reply_signal = follow_up_score(latest.content, after_olisar=answered_olisar)
                 # A reply to Olisar is a message that wants an answer, whether or not it
@@ -250,6 +267,7 @@ class Proactive(commands.Cog):
                 return False
             if len(recent) >= pconf.reaction_max_per_hour:
                 return False
+            gconf = await session.get(GuildConfig, guild_id)
             threshold = pconf.reaction_threshold
             for cid in await self._candidate_channels(session, guild_id, pconf):
                 if now - self._react_cooldown.get(cid, 0.0) < pconf.reaction_cooldown_sec:
@@ -270,6 +288,8 @@ class Proactive(commands.Cog):
                 if age < REACT_MIN_AGE or age > REACT_MAX_AGE:
                     continue
                 self._react_considered[cid] = latest.message_id  # don't re-evaluate
+                if not self._may_answer(guild_id, latest.author_id, gconf):
+                    continue
                 # A zero is a hard no whatever the operator's threshold is (the default
                 # threshold is 0.0, so without this every question reached the picker).
                 score = reaction_score(latest.content)
