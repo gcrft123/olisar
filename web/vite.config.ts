@@ -429,7 +429,7 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     }), true
   }
   if (url.startsWith('/api/bots/share-server')) return body(() => later(1400, () => send({
-    ok: true, host: '203.0.113.9', user: 'ubuntu', tailscale_auth: 'tskey-auth-kSh4r3dExample-1a2b3c', admin_allowlist: 'gcrft123',
+    ok: true, host: '203.0.113.9', user: 'ubuntu', tailscale_auth: 'tskey-auth-mock', admin_allowlist: 'gcrft123',
   })))
   if (/^\/api\/bots\/[^/]+\/pubkey/.test(url)) return later(500, () => send({ public_key: MOCK_PUBKEY }))
   if (url.startsWith('/api/bots')) {
