@@ -30,6 +30,8 @@ Olisar could answer the same message twice. A question asked by name that took m
 
 Setting Olisar up took eight fields and three trips to the Discord Developer Portal, and the wizard never mentioned one of them: inviting the bot. You'd finish setup, sign in, and be told Olisar wasn't in any server, with no link to fix that. Most of what the portal was visited for can be read from the bot token, so setup now takes the client ID from it, turns the intents on through it, and builds the invite link from it. What's left to paste is the token, the client secret and a Gemini key, and each step ticks itself off once it's done.
 
+Finishing setup didn't mean Olisar worked. Every channel starts off, so a server it had just joined heard nothing from it and nothing said why. A bot Discord refused over an intent looked the same as one switched off, and landed its operator on a screen saying it wasn't in any server. A saved key showed as set whether or not it was right. The console now says what's left and what's wrong, and where it can, fixes it.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -118,6 +120,22 @@ Setting Olisar up took eight fields and three trips to the Discord Developer Por
 
 [d21c6b4] — "No servers yet" has a button that adds Olisar to a server, and opens the console once the bot joins.
 
+[d26bc50] — A Get started list under the server switcher shows what a server still needs, a channel to reply in and the Gemini key, and ticks each off once it's done.
+
+[d26bc50] — The Channels page warns while Olisar replies in no channel.
+
+[63ffd71] — When Discord refuses the bot, the console names the intents that are off instead of calling the bot offline.
+
+[63ffd71] — Turn on and reconnect, on that screen or the sidebar's bot card, switches the intents on where Discord allows and restarts the bot.
+
+[021e6ae] — A server-hosted bot's control panel shows the redirect URL its console needs, and ticks it off once it's registered.
+
+[021e6ae] — The control panel says when Discord refuses the server's bot over an intent, and can turn it on and restart the bot.
+
+[31d8676] — The API keys page checks each key with its service and says whether it works, whether it's the one you typed or the saved one.
+
+[31d8676] — A Cloudflare token that can see its own account fills in the account ID.
+
 ### Changed
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -201,6 +219,12 @@ Setting Olisar up took eight fields and three trips to the Discord Developer Por
 [fd49f6d] — The Cloudflare and UEX keys are added from the console's API keys page instead of during setup.
 
 [fd49f6d] — Server hosting's deploy step no longer asks for an admin username; the owner of the bot's Discord app is already its operator.
+
+[31d8676] — The Cloudflare token help links to Cloudflare's Workers AI page, which creates a correctly scoped token and shows the account ID beside it.
+
+[31d8676] — The UEX token is set on the Star Citizen extension's page instead of the API keys page.
+
+[63ffd71] — The bot switcher says Can't connect for a bot Discord refused, instead of Offline.
 
 ### Fixed
 
