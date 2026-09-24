@@ -108,7 +108,7 @@ The tabs on the left:
 - Knowledge — documents and lore you teach it, and the wipe button.
 - Members — what it has picked up about each person.
 - Extensions — optional packages of extra features.
-- API keys — your own Gemini, Cloudflare, and UEX keys.
+- API keys — your own Gemini and Cloudflare keys.
 - Usage — how much of the free model quota you're using.
 
 The sidebar footer has [Settings](#console-settings) too: app-wide preferences that aren't tied to any one
@@ -148,7 +148,7 @@ sets that server up with sensible defaults and it appears in your switcher. Conf
 
 | Per-server (one set per server) | Shared across the whole bot |
 | --- | --- |
-| Persona, Behavior, Channels, Access, Command replies | The API keys (Gemini / Cloudflare / UEX) |
+| Persona, Behavior, Channels, Access, Command replies | The API keys (Gemini / Cloudflare), and the UEX token on the Star Citizen extension |
 | Knowledge base, glossary, memory, search index | Gemini usage and the free-tier quota |
 | Extensions (toggled per server) | — |
 
@@ -328,12 +328,14 @@ Launch Olisar. The wizard asks one thing per step and ticks each one off as soon
 5. **Add to your server** — press **Add to Discord**, pick your server, and authorize. The wizard notices the
    bot joining; no server ID to copy. **Copy link** gives you the same invite to send to someone else.
 6. **Gemini key** — paste your free key from [Google AI Studio](https://aistudio.google.com/apikey); Olisar
-   checks it with Google. Cloudflare (image generation) and UEX (the optional Star Citizen extension) are
-   added later on the [API keys](#api-keys) tab.
+   checks it with Google. Cloudflare (image generation) is added later on the [API keys](#api-keys) tab,
+   and UEX on the Star Citizen extension's page.
 7. **Deploy** (server hosting only) — create the VM, enter its IP, and Olisar installs itself onto it over SSH.
 
 Click **Finish & start Olisar**. The bot connects and the window reloads to **Continue with Discord**; sign in
 with the account that owns the bot's application, or any account with *Manage Server* on a server it's in.
+A **Get started** list under the server switcher then shows what's left: a channel for Olisar to reply in
+(they all start off) and, if you skipped it, the Gemini key.
 
 > [!NOTE]
 > **Access is live-checked.** Only accounts with *Manage Server* on a server Olisar is in, or an
@@ -467,6 +469,11 @@ needs. Paste the **client secret**, add the redirect URL it shows in the
 the bot in your server. Each step ticks itself off as you finish it. Add your free **Gemini key**, and the bot
 starts and hands off to the normal Discord login. You only do this once.
 
+Once you're in, a **Get started** list under the server switcher shows what that server still needs:
+choosing a channel for Olisar to reply in (every channel starts off, so a new server hears nothing from it
+until you do) and a Gemini key, if you skipped it. Each item ticks itself off, and the list goes away once
+they're done.
+
 #### The menu-bar app
 
 Olisar lives in your **menu bar / system tray**, not as an ordinary window. From its icon you can open this
@@ -521,6 +528,11 @@ It installs Docker, asks for your tokens, starts Olisar, and prints two things: 
 2. Open the `…ts.net` URL in a browser and **sign in with Discord** (the account whose ID you allowlisted).
 
 That's it — the bot is live and you manage everything from the browser. The desktop app is now **optional**.
+
+Deployed from the desktop app's setup wizard instead? Its server control panel shows the `…/auth/callback`
+to add and ticks it off once Discord has it. It also tells you if Discord refuses the bot because an intent
+is off, which the server itself can't: the container still reads as running. **Turn on and restart** fixes
+it where Discord allows.
 
 #### Several bots on one server
 
@@ -1091,8 +1103,8 @@ see [Feedback](#console-settings).
 
 ### API keys
 
-The API keys tab is where you give Olisar its own keys for the outside services it uses. You
-first enter these in the [setup wizard](#hosting-your-data), and you can add or change them here any time.
+The API keys tab is where you give Olisar its own keys for the outside services it uses. The
+[setup wizard](#hosting-your-data) asks only for the Gemini key; the rest are added here, any time.
 
 Unlike almost everything else in this console, keys are **not per server**: one set powers every server on
 this install. Changing a key here changes it everywhere Olisar runs.
@@ -1103,19 +1115,20 @@ this install. Changing a key here changes it everywhere Olisar runs.
 > the console and paste their own keys.
 
 
-#### The three providers
+#### The two providers
 
 | Service | Powers | Required? | Where to get it |
 | --- | --- | --- | --- |
 | **Google Gemini** | everything Olisar says — chat, memory, summaries, image understanding | **Yes** | [Google AI Studio → Get API key](https://aistudio.google.com/apikey) (free tier) |
-| **Cloudflare Workers AI** | image **generation** (FLUX) — needs an account ID **and** an API token | Optional | account ID from the [Cloudflare dashboard](https://dash.cloudflare.com/); a token from [API Tokens](https://dash.cloudflare.com/profile/api-tokens) with the **Workers AI** permission |
-| **UEX** | the Star Citizen extension's trade / ship / location data | Optional | [uexcorp.uk → API](https://uexcorp.uk/api) — register an app for a bearer token |
+| **Cloudflare Workers AI** | image **generation** (FLUX) — needs an API token **and** an account ID | Optional | Cloudflare's [Workers AI page](https://dash.cloudflare.com/?to=/:account/ai/workers-ai) → **Use REST API** → **Create a Workers AI API Token**; the account ID is on the same page |
 
-Without the Cloudflare keys, image generation is simply off (Olisar says it can't make pictures). Without
-a UEX token the Star Citizen tools still work on UEX's public endpoints. A token just raises the rate
-limits. See [Models](#models) for the full breakdown of what each key powers.
+Without the Cloudflare keys, image generation is simply off (Olisar says it can't make pictures). See
+[Models](#models) for the full breakdown of what each key powers. The Star Citizen extension's optional UEX
+token is on [that extension's page](#extensions), since nobody without the extension needs it.
 
-Each field shows whether its key is **set** or **not set**, and press **Clear** to remove a saved one.
+Each field shows whether its key is **Saved**, **From environment** or **Not set**, and the trash icon removes
+a saved one. Olisar also checks each key with its service, the one you've typed or else the saved one, and
+says whether it **Works**. If a Cloudflare token can see its own account, the account ID fills itself in.
 Without a Gemini key, Olisar can't reply until you add one.
 
 > [!WARNING]
@@ -1409,8 +1422,8 @@ date, languages, main org with rank and stars, and bio. Available to everyone on
 > [!TIP]
 > **UEX token (optional)**
 > The UEX tools work on [UEX](https://uexcorp.uk/)'s public endpoints with no setup. Adding a free
-> [UEX API token](https://uexcorp.uk/api) on the API keys tab just raises the rate limits — it's
-> not required.
+> [UEX API token](https://uexcorp.uk/api) under **Keys** on this extension's page in Extensions
+> just raises the rate limits — it's not required. Like the API keys, it's one token for the whole install.
 
 
 > [!NOTE]
@@ -2149,7 +2162,7 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 | `/citizen` says the extension is off | Star Citizen extension disabled | Enable it on the Extensions tab |
 | Web lookups stopped working | The daily web-search cap is used up | Raise it on Behavior, or wait for the reset |
 | Olisar quoted a deleted message | Rare timing between the edit/delete and the sync | It syncs automatically — try again |
-| Bot stays offline after setup | Its **Message Content** or **Server Members** intent was turned off in the Developer Portal | Turn both back on under **Bot → Privileged Gateway Intents**, then restart Olisar |
+| "Olisar can't connect to Discord", or the bot card says **Can't connect** | Discord refused the bot, usually because its **Message Content** or **Server Members** intent is off | Press **Turn on and reconnect** (or tap the bot card). If Discord won't let Olisar switch them itself, turn them on under **Bot → Privileged Gateway Intents**, then try again |
 | Console won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting-your-data)) |
 | Other admins can't open the web link | Remote access is off, or the address changed | The operator turns it back on under **Settings → Remote access** and re-shares the link from the sidebar ([Remote access](#remote-access)) |
 | Discord sign-in bounces or says "invalid or expired state" | The redirect URL for that address isn't registered | Register the exact `…/auth/callback` the wizard shows (both the local and `…ts.net` ones) |
