@@ -284,6 +284,8 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 
 [568cc79] — The remote-access docs no longer say Olisar shows a per-device Funnel link or registers the tunnel's sign-in URL with Discord; it does neither.
 
+[9388392] — A bot missing an intent no longer retries connecting every few seconds until Discord resets its token for too many attempts; it stops within 20 seconds and says which intent is off.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
