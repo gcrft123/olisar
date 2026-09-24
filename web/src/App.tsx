@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
-import { Icon, CopyGlyph, DiscordLogo, type IconName } from './icons'
+import { Icon, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
@@ -536,6 +536,7 @@ export default function App() {
         )}
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} invite={invite} />
+        <GetStarted guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -1090,6 +1091,58 @@ function BotPower() {
 // The public web address to reach this dashboard, surfaced in the sidebar. Only a
 // real `https://…` (Tailscale Funnel) origin counts as a shareable web link; a plain
 // loopback origin means remote access is off, so we show how to turn it on instead.
+// What this server still needs before Olisar is any use in it, ticked off from what's saved
+// and gone once the required steps are done. Setup can't do these: every channel starts off,
+// so a server Olisar just joined ignores everyone until one is set to reply, and the Gemini
+// key can be skipped during setup.
+function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string; onGo: (id: string) => void; storeKey: string }) {
+  const [speaks, setSpeaks] = useState<boolean | null>(null)
+  const [keys, setKeys] = useState<Record<string, { dashboard: boolean; env: boolean }> | null>(null)
+  const [hidden, setHidden] = useState(() => localStorage.getItem(storeKey) === '1')
+  useEffect(() => { setHidden(localStorage.getItem(storeKey) === '1') }, [storeKey])
+  // Re-read on every page change: leaving a page is when a save on it may have finished a step.
+  useEffect(() => {
+    let alive = true
+    api.getChannels()
+      .then((cs: any[]) => { if (alive) setSpeaks(cs.some((c) => c.mode === 'respond' || c.mode === 'both')) })
+      .catch(() => {})
+    api.getKeys().then((k: any) => { if (alive) setKeys(k) }).catch(() => {})
+    return () => { alive = false }
+  }, [guild, tab])
+  if (hidden || speaks === null) return null
+  const has = (f: string) => !!(keys?.[f]?.dashboard || keys?.[f]?.env)
+  const items = [
+    { key: 'channels', tab: 'channels', label: 'Choose where Olisar replies', done: speaks, required: true },
+    ...(keys ? [
+      { key: 'gemini', tab: 'keys', label: 'Add a Gemini key', done: has('gemini_api_key'), required: true },
+      { key: 'images', tab: 'keys', label: 'Turn on images', done: has('cloudflare_account_id') && has('cloudflare_api_token'), required: false },
+    ] : []),
+  ]
+  if (items.every((i) => i.done || !i.required)) return null
+  const hide = () => { localStorage.setItem(storeKey, '1'); setHidden(true) }
+  return (
+    <div className="getstarted" role="region" aria-label="Get started">
+      <div className="getstarted-head">
+        <span className="weblink-label">Get started</span>
+        <button className="ghost icon-btn sm" data-tip="Hide" aria-label="Hide the get started list" onClick={hide}>
+          <CloseX size={14} />
+        </button>
+      </div>
+      <ul>
+        {items.map((it) => (
+          <li key={it.key}>
+            <button className={'getstarted-item' + (it.done ? ' done' : '')} onClick={() => onGo(it.tab)}>
+              <span className="getstarted-mark">{it.done && <Icon.check size={11} weight="Bold" />}</span>
+              <span className="getstarted-label">{it.label}</span>
+              {!it.required && !it.done && <span className="getstarted-opt">Optional</span>}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
   const [copied, setCopied] = useState(false)
   if (!tunnel) return null

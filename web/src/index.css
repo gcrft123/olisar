@@ -305,6 +305,29 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .weblink-row a:hover { text-decoration: underline; }
 .weblink-row button { flex: none; }
 .weblink.off { gap: 4px; }
+/* Get started (under the server switcher): what this server still needs. The web link's
+   inset card, so the rail has one card language; rows are buttons into the page that
+   finishes them. */
+.getstarted {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 5px 5px 6px 10px; margin: -4px 0 14px; display: flex; flex-direction: column; gap: 2px;
+}
+.getstarted-head { display: flex; align-items: center; justify-content: space-between; }
+.getstarted ul { list-style: none; margin: 0; padding: 0; }
+.getstarted-item {
+  width: 100%; height: 28px; padding: 0 5px 0 0; justify-content: flex-start; gap: 8px;
+  background: transparent; border: 0; font-size: 12.5px; font-weight: 500; color: var(--text);
+}
+.getstarted-item:hover { background: transparent; color: var(--accent); }
+.getstarted-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.getstarted-mark {
+  width: 15px; height: 15px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  border: 1.5px solid var(--border-strong); color: var(--bg);
+}
+.getstarted-item.done { color: var(--text-3); }
+.getstarted-item.done .getstarted-mark { background: var(--ok); border-color: var(--ok); }
+.getstarted-opt { margin-left: auto; font-size: 11px; font-weight: 450; color: var(--text-3); }
+
 .weblink.off .weblink-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
 
 /* ── Bot power (operator-only, sidebar footer) ──────────────────────────────── */
