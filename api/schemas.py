@@ -146,6 +146,15 @@ class SetupTokenIn(BaseModel):
     token: str
 
 
+class SetupSecretIn(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+class SetupKeyIn(BaseModel):
+    key: str
+
+
 class SetupSaveIn(BaseModel):
     # First-run wizard payload. Guild id is a string (snowflakes exceed JS's safe int).
     # Tunnel config is handled separately by /api/tunnel/enable, not here.
