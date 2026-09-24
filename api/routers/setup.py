@@ -14,12 +14,11 @@ from collections.abc import Awaitable
 from typing import TypeVar
 
 import aiohttp
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from api.schemas import ApiKeysIn, SetupKeyIn, SetupSaveIn, SetupSecretIn, SetupTokenIn
 from api.trust import is_local_request
-from olisar import discord_app, runtime_config, runtime_keys
+from olisar import discord_app, key_checks, runtime_config, runtime_keys
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AppSecret
@@ -27,7 +26,6 @@ from olisar.db.models import AppSecret
 log = logging.getLogger("olisar.api.setup")
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-_GEMINI_MODELS = "https://generativelanguage.googleapis.com/v1beta/models"
 T = TypeVar("T")
 _KEY_FIELDS = (
     "gemini_api_key",
@@ -132,21 +130,14 @@ async def check_secret(body: SetupSecretIn) -> dict:
 
 @router.post("/gemini", dependencies=[Depends(require_setup_access)])
 async def check_gemini(body: SetupKeyIn) -> dict:
-    """Whether Google accepts a pasted Gemini key, by listing one model with it."""
+    """Whether Google accepts a pasted Gemini key."""
     key = body.key.strip()
     if not key:
         raise HTTPException(status_code=400, detail="key is required")
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            # The header rather than ?key=, so the key stays out of any logged URL.
-            resp = await client.get(_GEMINI_MODELS, params={"pageSize": 1}, headers={"x-goog-api-key": key})
-    except httpx.HTTPError:
+        return {"ok": await key_checks.gemini(key)}
+    except key_checks.Unreachable:
         raise HTTPException(status_code=502, detail="couldn't reach Google — check your connection")
-    if resp.status_code == 200:
-        return {"ok": True}
-    if 400 <= resp.status_code < 500:
-        return {"ok": False}
-    raise HTTPException(status_code=502, detail="Google couldn't check the key right now")
 
 
 @router.post("/keys", dependencies=[Depends(require_setup_access)])

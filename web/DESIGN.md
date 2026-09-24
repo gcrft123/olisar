@@ -494,10 +494,15 @@ runs, then the success in `--ok` or the failure in `--danger`, with a **Try agai
 when the check itself failed (an outage, not a wrong value). Anything that gates the next step
 says what to do in the footer error, not in the check line.
 
+On the API keys page the same line checks the saved key when nothing is typed, so it says
+whether the key in use works, not only that one is set.
+
 ```css
-.setup .check-line { display: flex; align-items: center; gap: 6px; margin: -9px 0 16px; min-height: 20px; font-size: 13px; color: var(--text-2); }
-.setup .check-line.ok { color: var(--ok); }
-.setup .check-line.err { color: var(--danger); }
+.check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.check-line.ok { color: var(--ok); }
+.check-line.err { color: var(--danger); }
+.setup .check-line { margin: -9px 0 16px; }       /* tucked up under a wizard field */
+.key-status + .check-line { margin-top: 8px; }   /* under a key's Saved / Not set row */
 ```
 
 ### Choice groups (mode cards, segmented pickers)
