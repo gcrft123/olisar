@@ -169,7 +169,7 @@ class Proactive(commands.Cog):
                     continue
                 # Two rows, not one: whether Olisar wrote the message directly above is
                 # what separates "someone is talking back to me" from "someone is talking".
-                recent = (
+                last_two = (
                     await session.scalars(
                         select(Message)
                         .where(Message.channel_id == cid)
@@ -177,7 +177,7 @@ class Proactive(commands.Cog):
                         .limit(2)
                     )
                 ).all()
-                latest = recent[0] if recent else None
+                latest = last_two[0] if last_two else None
                 if latest is None or latest.author_is_bot:
                     continue  # nothing new, or a bot (incl. Olisar) spoke last
                 if is_reply_pending(latest.message_id):
@@ -190,7 +190,7 @@ class Proactive(commands.Cog):
                 if age < MIN_AGE or age > MAX_AGE:
                     continue
                 self._last_considered[cid] = latest.message_id  # don't re-evaluate
-                answered_olisar = len(recent) > 1 and is_own_message(recent[1])
+                answered_olisar = len(last_two) > 1 and is_own_message(last_two[1])
                 reply_signal = follow_up_score(latest.content, after_olisar=answered_olisar)
                 # A reply to Olisar is a message that wants an answer, whether or not it
                 # parses as a question — which is all `heuristic_score` can see. Whichever
