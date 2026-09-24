@@ -9,7 +9,7 @@
 // serves one console, forwarding it to whichever bot is selected. Its bots watch it and
 // exit when it does, however it goes.
 
-const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog, ipcMain, screen, session } = require('electron')
 const updater = require('./updater')
 const { spawn } = require('child_process')
 const path = require('path')
@@ -361,8 +361,24 @@ function registerUpdateIpc() {
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
 
+// The first launch of a new version starts from an empty HTTP cache. The console's page is
+// served no-cache now (olisar/runtime/console_files.py), but a page cached from an older build
+// carries that build's headers, which had none: Chromium can count it fresh for hours and open
+// the previous version's console against the new backend. That happened on 1.5 → 2.0.beta-2,
+// and the server-side fix can't reach a copy already in the cache. Only the HTTP cache goes;
+// cookies and local storage stay.
+async function clearCacheOnNewVersion() {
+  const marker = path.join(app.getPath('userData'), 'last-launched-version')
+  let last = ''
+  try { last = fs.readFileSync(marker, 'utf8').trim() } catch { /* first launch */ }
+  if (last === app.getVersion()) return
+  try { await session.defaultSession.clearCache() } catch { /* a stale page is the worst case */ }
+  try { fs.writeFileSync(marker, app.getVersion()) } catch { /* retried next launch */ }
+}
+
 async function boot() {
   registerUpdateIpc()
+  await clearCacheOnNewVersion()
   backendPort = await choosePort()
   startBackend(backendPort)
   createTray()
