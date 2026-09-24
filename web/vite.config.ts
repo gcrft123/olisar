@@ -392,11 +392,39 @@ const MOCK_AUDIT = {
 // the deploy step offers the server another bot already runs on.
 //
 // A value starting with "bad" takes that step's failure path: a token (Discord rejects it), a
-// Tailscale key (Funnel refuses), a VM address (the deploy fails with its install log, or the
-// connect can't reach it). Connecting to a VM whose address ends in .9 finds two installs and
-// asks which bot this is.
+// client secret or Gemini key (not accepted), a Tailscale key (Funnel refuses), a VM address
+// (the deploy fails with its install log, or the connect can't reach it). Connecting to a VM
+// whose address ends in .9 finds two installs and asks which bot this is.
+//
+// A token containing "intents" belongs to an app whose intents setup can't switch on, so the
+// Bot step waits for the operator to; they come on 8 seconds in. The redirect URLs register
+// themselves 5 seconds after that wait, and the bot joins a server 4 seconds after those.
 const SETUP = process.env.SETUP_MOCK || ''
 const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
+// When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
+// later as if the operator had done it: the intents coming on, the redirect URLs being added,
+// then the bot joining a server. Each wait starts once the one before it is over.
+const SETUP_WAIT: Record<string, number> = {}
+const waited = (what: string, ms: number) => {
+  SETUP_WAIT[what] ??= Date.now()
+  return Date.now() - SETUP_WAIT[what] >= ms
+}
+const MOCK_APP_ID = '1537976722840887296'
+function mockSetupApp(token: string, polled: boolean, origin = '') {
+  const intentsOn = !token.includes('intents') || (polled && waited('intents', 8000))
+  const redirectsIn = polled && intentsOn && waited('redirects', 5000)
+  return {
+    app: {
+      id: MOCK_APP_ID, username: 'Olisar', avatar: '', bot_public: true, code_grant: false,
+      intents_missing: intentsOn ? [] : ['message_content', 'members'],
+      redirect_uris: redirectsIn
+        ? [`${origin}/auth/callback`, 'https://olisar.tail4f2a.ts.net/auth/callback']
+        : [],
+      invite_url: `https://discord.com/oauth2/authorize?client_id=${MOCK_APP_ID}&scope=bot+applications.commands&permissions=274878024768`,
+    },
+    joined: redirectsIn && waited('invite', 4000),
+  }
+}
 const MOCK_PUBKEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHq7mZ0x3cN8vWkq2d1p5sQyR4tLb9uFjE6aGhYcTzUo olisar-app'
 const MOCK_INSTALL_LOG = [
   '==> Checking the VM', 'Ubuntu 22.04.4 LTS (aarch64), 23 GB free',
@@ -422,7 +450,10 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     // wizard into the console. Any read after that is a reload, and starts setup over.
     const done = SETUP_STATE.unread ? SETUP_STATE.done : ''
     SETUP_STATE.unread = false
-    if (!done) SETUP_STATE.done = ''
+    if (!done) {
+      SETUP_STATE.done = ''
+      for (const k of Object.keys(SETUP_WAIT)) delete SETUP_WAIT[k]
+    }
     return send({
       configured: !!done, local_url: 'http://localhost:8723', redirect_uri: 'http://localhost:8723/auth/callback',
       tunnel_enabled: false, hosting_mode: done === 'server' ? 'server' : 'local', ...(done ? {} : { prefill: {} }),
@@ -447,9 +478,15 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     if (url.startsWith('/api/bots/active')) return send({ ...me, active_id: me.id }), true
     return send({ active_id: me.id, default_id: 'default', profiles: first ? [me] : [others[0], others[1], me] }), true
   }
-  if (url.startsWith('/api/setup/validate-token')) return body((b) => later(800, () => bad(b.token)
+  if (url.startsWith('/api/setup/bot')) return body((b) => later(800, () => bad(b.token)
     ? send({ detail: 'Discord rejected that bot token' }, 400)
-    : send({ ok: true, id: '1537976722840887296', username: 'Olisar' })))
+    : send(mockSetupApp(String(b.token), false).app)))
+  if (url.startsWith('/api/setup/discord-status')) return body((b) => later(300, () => {
+    const { app, joined } = mockSetupApp(String(b.token), true, `http://${req.headers.host}`)
+    send({ ...app, guilds: joined ? [{ id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' }] : [] })
+  }))
+  if (url.startsWith('/api/setup/secret')) return body((b) => later(500, () => send({ ok: !bad(b.client_secret) })))
+  if (url.startsWith('/api/setup/gemini')) return body((b) => later(500, () => send({ ok: !bad(b.key) })))
   if (url.startsWith('/api/setup/keys')) return body(() => later(400, () => send({ ok: true })))
   if (url.startsWith('/api/setup/save')) return body(() => later(900, () => { finish('local'); send({ ok: true, redirect_uri: 'http://localhost:8723/auth/callback' }) }))
   if (url.startsWith('/api/tunnel/enable')) return body((b) => later(2200, () => bad(b.auth_key)

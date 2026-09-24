@@ -96,8 +96,9 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
             : (j.detail?.message || JSON.stringify(j.detail))
       }
     } catch { /* not JSON — use the raw body */ }
-    const err = new Error(msg) as Error & { detail?: any }
+    const err = new Error(msg) as Error & { detail?: any; status?: number }
     err.detail = detail  // structured payloads (e.g. a risk-blocked publish) ride here
+    err.status = res.status  // so a caller can tell "you got it wrong" (4xx) from an outage
     throw err
   }
   if (res.status === 204) return null
@@ -255,8 +256,19 @@ export const api = {
 
   // First-run setup (loopback-only, pre-OAuth).
   setupStatus: () => req('/api/setup/status'),
-  validateSetupToken: (token: string) =>
-    req('/api/setup/validate-token', { method: 'POST', body: JSON.stringify({ token }) }),
+  // Checks a pasted bot token and gets its Discord application ready (intents, default
+  // install). Answers the application's id, bot name and avatar, what's still missing, its
+  // registered redirect URLs and the invite link.
+  setupBot: (token: string) =>
+    req('/api/setup/bot', { method: 'POST', body: JSON.stringify({ token }), timeoutMs: 25000 }),
+  // The same, read-only, plus the servers the bot is in: polled while the operator works in
+  // the Developer Portal or invites the bot.
+  setupDiscordStatus: (token: string) =>
+    req('/api/setup/discord-status', { method: 'POST', body: JSON.stringify({ token }), timeoutMs: 25000 }),
+  checkSetupSecret: (clientId: string, clientSecret: string) =>
+    req('/api/setup/secret', { method: 'POST', body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }), timeoutMs: 15000 }),
+  checkSetupGemini: (key: string) =>
+    req('/api/setup/gemini', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 15000 }),
   saveSetupKeys: (b: any) => req('/api/setup/keys', { method: 'POST', body: JSON.stringify(b) }),
   saveSetup: (b: any) => req('/api/setup/save', { method: 'POST', body: JSON.stringify(b) }),
   // Server hosting: the app drives the operator's cloud VM over SSH (no local bot). The

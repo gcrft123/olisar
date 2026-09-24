@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { api } from './api'
 import { BotMenu, deviceNameFor, serverLabel, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { logTail, reportBody, type FeedbackPrefill } from './feedback'
-import { Field, Segmented, Select, Text } from './ui'
+import { Field, Segmented, Select, Text, usePoll } from './ui'
 
 export type SetupPrefill = {
   discord_token?: string
@@ -28,7 +28,6 @@ export type SetupStatus = {
 }
 
 type Mode = 'local' | 'tunnel' | 'server'
-type StepId = 'token' | 'app' | 'access' | 'remote' | 'keys' | 'deploy'
 
 // A code-preview box (DESIGN.md CodeBlock) with a copy button that flips to a check.
 export function Cb({ file, code }: { file: string; code: string }) {
@@ -126,10 +125,118 @@ function ModeChoice({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => void })
   )
 }
 
+type StepId = 'where' | 'bot' | 'remote' | 'signin' | 'server' | 'keys' | 'deploy'
+
+// What /api/setup/bot and /api/setup/discord-status say about the bot's Discord application.
+type BotApp = {
+  id: string; username: string; avatar: string; bot_public: boolean; code_grant: boolean
+  intents_missing: string[]; redirect_uris: string[]; invite_url: string
+}
+type BotGuild = { id: string; name: string; icon: string }
+
+const PORTAL = 'https://discord.com/developers/applications'
+// The Developer Portal's own names for the intents, so the operator can find the switch.
+const INTENT_NAMES: Record<string, string> = {
+  message_content: 'Message Content Intent',
+  members: 'Server Members Intent',
+  presences: 'Presence Intent',
+}
+
+type CheckState = 'idle' | 'checking' | 'ok' | 'bad' | 'error'
+type LiveCheck<T> = { state: CheckState; result?: T; error: string; recheck: () => void }
+
+// Checks a pasted value once typing pauses, so there's no Test button to find and press.
+// `run` answers whether the value is good; a 4xx from the backend also means no, while
+// anything else is an outage the operator can retry. Only the latest value's answer lands:
+// a slow reply about what was in the field a keystroke ago is dropped. `key` re-runs the
+// check when something else it depends on changes.
+function useLiveCheck<T>(
+  value: string, run: (v: string) => Promise<{ ok: boolean; result?: T }>, key = '',
+): LiveCheck<T> {
+  const [st, setSt] = useState<{ state: CheckState; result?: T; error: string }>({ state: 'idle', error: '' })
+  const seq = useRef(0)
+  const runRef = useRef(run)
+  runRef.current = run
+  const start = useCallback((v: string) => {
+    const n = ++seq.current
+    if (!v) { setSt({ state: 'idle', error: '' }); return }
+    setSt({ state: 'checking', error: '' })
+    runRef.current(v)
+      .then((r) => { if (n === seq.current) setSt({ state: r.ok ? 'ok' : 'bad', result: r.result, error: '' }) })
+      .catch((e: any) => {
+        if (n !== seq.current) return
+        const refused = e?.status >= 400 && e?.status < 500
+        setSt({ state: refused ? 'bad' : 'error', error: e?.message || 'Couldn’t check that.' })
+      })
+  }, [])
+  const v = value.trim()
+  useEffect(() => {
+    // Straight to "checking", so an answer about the previous value can't pass for this one
+    // while the pause runs out.
+    seq.current++
+    setSt({ state: v ? 'checking' : 'idle', error: '' })
+    if (!v) return
+    const t = setTimeout(() => start(v), 450)
+    return () => clearTimeout(t)
+  }, [v, key, start])
+  return { ...st, recheck: () => start(v) }
+}
+
+// The line under a live-checked field.
+function CheckLine({ check, ok, bad }: { check: LiveCheck<unknown>; ok: ReactNode; bad: string }) {
+  if (check.state === 'checking') return <div className="check-line" role="status"><span className="spinner" /> Checking…</div>
+  if (check.state === 'ok') return <div className="check-line ok" role="status">{ok}</div>
+  if (check.state === 'bad') return <div className="check-line err" role="alert">{bad}</div>
+  if (check.state === 'error') {
+    return (
+      <div className="check-line err" role="alert">
+        {check.error} <button className="linklike" onClick={check.recheck}>Try again</button>
+      </div>
+    )
+  }
+  return null
+}
+
+function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false)
+  return (
+    <button className="ghost" onClick={() => { navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}>
+      {done ? <><Icon.check size={13} weight="Bold" /> Copied</> : label}
+    </button>
+  )
+}
+
+// A redirect URL to register, ticked off once Discord lists it.
+function RedirectRow({ url, added }: { url: string; added: boolean }) {
+  return (
+    <div className="redirect-box">
+      <span>{url}</span>
+      {added
+        ? <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Added</span>
+        : <CopyText text={url} />}
+    </div>
+  )
+}
+
+// Tailscale's errors end in a help link, which as plain text had to be retyped.
+function Linkified({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(https?:\/\/\S+)/g).map((part, i) => {
+        if (!/^https?:\/\//.test(part)) return part
+        const url = part.replace(/[.,;:]+$/, '')
+        return <Fragment key={i}><a href={url} target="_blank" rel="noreferrer">{url}</a>{part.slice(url.length)}</Fragment>
+      })}
+    </>
+  )
+}
+
 /** First-run wizard, shown full-screen when the backend reports the app is
- *  unconfigured. Collects the operator's Discord credentials + hosting choice.
- *  Local hosting saves + starts the bot here; server hosting instead hands the
- *  operator a turnkey deploy package (env + commands) for a cloud VM. */
+ *  unconfigured. Hosting comes first, since it decides the steps after it. The bot token
+ *  then stands in for most of what the Developer Portal used to be visited for: the client
+ *  ID comes from it, the intents are switched on through it, and the invite link is built
+ *  from it. Local hosting saves + starts the bot here; server hosting instead installs
+ *  Olisar onto the operator's VM over SSH. */
 export function SetupWizard(
   { status, onDone, initialConnectMode }:
   { status: SetupStatus; onDone: () => void; initialConnectMode?: boolean },
@@ -144,7 +251,6 @@ export function SetupWizard(
 
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
-  const [copied, setCopied] = useState<'' | 'local' | 'tunnel'>('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
   // Feedback opened from a failure below arrives pre-filled in this screen's own Settings.
@@ -154,20 +260,33 @@ export function SetupWizard(
   // ours to hear about.
   const [saveFailed, setSaveFailed] = useState(false)
 
-  // Step 1 — bot token
-  const [token, setToken] = useState(pf.discord_token || '')
-  const [validating, setValidating] = useState(false)
-  const [botName, setBotName] = useState<string | null>(null)
-  // Beside Test token, where the success reads, rather than under the whole step.
-  const [tokenErr, setTokenErr] = useState('')
-
-  // Step 2 — application
-  const [clientId, setClientId] = useState(pf.discord_client_id || '')
-  const [clientSecret, setClientSecret] = useState(pf.discord_client_secret || '')
-  const [guildId, setGuildId] = useState(pf.target_guild_id || '')
-
-  // Step 3 — hosting mode
+  // Where it runs
   const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
+
+  // The bot. Checking the token also gets its application ready (see /api/setup/bot).
+  const [token, setToken] = useState(pf.discord_token || '')
+  const tokenCheck = useLiveCheck<BotApp>(token, (t) => api.setupBot(t).then((r: BotApp) => ({ ok: true, result: r })))
+  // The application as last read: from the token check, then from the polls below.
+  const [bot, setBot] = useState<BotApp | null>(null)
+  const [guilds, setGuilds] = useState<BotGuild[]>([])
+  useEffect(() => {
+    setBot(tokenCheck.state === 'ok' ? tokenCheck.result ?? null : null)
+    setGuilds([])
+  }, [tokenCheck.state, tokenCheck.result])
+
+  // Sign-in
+  const [secret, setSecret] = useState(pf.discord_client_secret || '')
+  const secretCheck = useLiveCheck(
+    bot ? secret : '', (s) => api.checkSetupSecret(bot!.id, s), bot?.id,
+  )
+
+  // Main server: whichever one the bot joins, unless it's already in several.
+  const [guildId, setGuildId] = useState(pf.target_guild_id || '')
+  useEffect(() => {
+    if (guilds.length && !guilds.some((g) => g.id === guildId)) setGuildId(guilds[0].id)
+  }, [guilds])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Remote access (shared hosting)
   const [tunnelNode, setTunnelNode] = useState(
     thisBot && thisBot.id !== 'default' ? deviceNameFor(thisBot.name) : 'olisar',
   )
@@ -179,6 +298,9 @@ export function SetupWizard(
 
   // Server-hosting extras (collected on the Deploy step)
   const [provider, setProvider] = useState<'oracle' | 'other'>('oracle')
+  // Only ever carried over from a server another bot runs on (see the share effect). Asking
+  // for it outright went wrong: the operator is already whoever owns the Discord app, and the
+  // username the field invited isn't something ADMIN_ALLOWLIST can parse.
   const [adminUser, setAdminUser] = useState('')
   // A standalone shortcut (from the first page): adopt a VM that already runs Olisar,
   // skipping the whole setup. Rendered as its own screen, not a wizard step.
@@ -205,17 +327,43 @@ export function SetupWizard(
   const [shareBusy, setShareBusy] = useState(false)
   const [shareErr, setShareErr] = useState('')
 
-  // Local hosting is four steps. Shared hosting adds one of its own for Tailscale, and server
-  // hosting keeps the API keys step and adds Deploy after it: each used to fold its extra
-  // setup into a step shaped like the others, so a five-step setup showed four.
+  // Keys. Cloudflare and UEX aren't asked for here: images and the Star Citizen extension
+  // are added from the console. A developer `.env` still carries them through.
+  const [gemini, setGemini] = useState(pf.gemini_api_key || '')
+  const geminiCheck = useLiveCheck(gemini, (k) => api.checkSetupGemini(k))
+  const [saving, setSaving] = useState(false)
+
+  // Each hosting choice gets the steps it needs. Shared hosting's Tailscale step comes before
+  // sign-in, so sign-in can show both redirect URLs at once.
   const steps: StepId[] = [
-    'token', 'app', 'access',
+    'where', 'bot',
     ...(mode === 'tunnel' ? ['remote' as const] : []),
-    'keys',
+    'signin', 'server', 'keys',
     ...(mode === 'server' ? ['deploy' as const] : []),
   ]
   const last = steps.length - 1
   const cur = steps[Math.min(step, last)]
+
+  // Sign-in redirects back to whichever address the browser used, so that's the one to
+  // register: this window's own. A server's console lives on the VM, not here.
+  const redirects = mode === 'server' ? [] : [
+    window.location.origin + '/auth/callback',
+    ...(mode === 'tunnel' && tunnelUrl ? [tunnelUrl.replace(/\/$/, '') + '/auth/callback'] : []),
+  ]
+  const added = (u: string) => !!bot?.redirect_uris.includes(u)
+
+  // While the operator is off in the Developer Portal or inviting the bot, keep reading the
+  // application so each step ticks itself off without a "Check again" button.
+  const watching = !!bot && (
+    (cur === 'bot' && (bot.intents_missing.length > 0 || bot.code_grant))
+    || (cur === 'signin' && !redirects.every(added))
+    || cur === 'server'
+  )
+  usePoll(() => api.setupDiscordStatus(token.trim()).then((r: BotApp & { guilds: BotGuild[] }) => {
+    const { guilds: gs, ...app } = r
+    setBot(app)
+    setGuilds(gs)
+  }), 3000, watching)
 
   // The app's SSH key: always needed on the Deploy step (new VM); on the connect/reconnect
   // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
@@ -241,38 +389,50 @@ export function SetupWizard(
     return () => { alive = false }
   }, [cur, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Step 4 — keys
-  const [gemini, setGemini] = useState(pf.gemini_api_key || '')
-  const [cfAccount, setCfAccount] = useState(pf.cloudflare_account_id || '')
-  const [cfToken, setCfToken] = useState(pf.cloudflare_api_token || '')
-  const [uex, setUex] = useState(pf.uex_api_key || '')
-  const [saving, setSaving] = useState(false)
-
-  const redirectLocal = status.local_url.replace(/\/$/, '') + '/auth/callback'
-  const redirectTunnel = tunnelUrl ? tunnelUrl.replace(/\/$/, '') + '/auth/callback' : ''
-
-  async function validate() {
-    setErr(''); setTokenErr(''); setValidating(true); setBotName(null)
-    try {
-      const r = await api.validateSetupToken(token.trim())
-      setBotName(r.username || 'your bot')
-    } catch (e: any) {
-      setTokenErr(e?.message || 'token validation failed')
-    } finally {
-      setValidating(false)
+  function pickMode(m: Mode) {
+    // Remote access turned on for shared hosting and then abandoned for another choice was
+    // left running, publishing this machine for a setup that no longer wanted it.
+    if (m !== 'tunnel' && tunnelDone) {
+      api.disableTunnel().catch(() => {})
+      setTunnelDone(false); setTunnelUrl('')
     }
+    setMode(m)
   }
 
+  // What stops the current step from moving on, in words that say what to do about it.
+  function blocker(): string {
+    if (cur === 'bot') {
+      if (!token.trim()) return 'Paste your bot token to continue.'
+      if (!bot) return tokenCheck.state === 'checking' ? 'Still checking the token.' : 'Olisar needs a token Discord accepts.'
+      if (bot.intents_missing.length) return 'Turn on the intents above to continue.'
+    }
+    if (cur === 'remote' && !tunnelDone) return 'Turn on remote access before continuing, or go back and pick another option.'
+    if (cur === 'signin') {
+      if (!secret.trim()) return 'Paste the client secret to continue.'
+      if (secretCheck.state !== 'ok')
+        return secretCheck.state === 'checking' ? 'Still checking the secret.' : 'Olisar needs the secret that belongs to this bot.'
+      if (!redirects.every(added)) return redirects.length > 1 ? 'Add both redirect URLs to continue.' : 'Add the redirect URL to continue.'
+    }
+    if (cur === 'server' && !guilds.length) return `Add ${bot?.username || 'your bot'} to a server to continue.`
+    if (cur === 'keys') {
+      if (mode === 'server' && !gemini.trim()) return 'A server can’t start Olisar without a Gemini key.'
+      if (gemini.trim() && geminiCheck.state === 'bad') return 'Fix the Gemini key, or clear it to add it later.'
+    }
+    return ''
+  }
+
+  // A "do this first" message goes once it's done. The checks and polls resolve on their own,
+  // and a stale instruction under a step that's ready reads as still blocked.
+  const blocked = blocker()
+  useEffect(() => {
+    if (!blocked && !saveFailed) setErr('')
+  }, [blocked])  // eslint-disable-line react-hooks/exhaustive-deps
+
   function next() {
-    setErr(''); setSaveFailed(false)
-    if (cur === 'token' && !token.trim()) return setErr('Paste your bot token to continue.')
-    if (cur === 'app' && !(clientId.trim() && clientSecret.trim()))
-      return setErr('Client ID and client secret are both required.')
-    if (cur === 'remote' && !tunnelDone)
-      return setErr('Turn on remote access before continuing, or go back and pick another option.')
-    if (cur === 'keys' && mode === 'server' && !gemini.trim())
-      return setErr('A server can’t start Olisar without a Gemini key.')
-    setStep((s) => Math.min(s + 1, last))
+    setSaveFailed(false)
+    const why = blocker()
+    setErr(why)
+    if (!why) setStep((s) => Math.min(s + 1, last))
   }
 
   async function enableTunnel() {
@@ -289,20 +449,27 @@ export function SetupWizard(
     }
   }
 
+  // Keys a developer `.env` supplied, which this wizard no longer has fields for.
+  const envKeys: Record<string, string> = {}
+  if (pf.cloudflare_account_id) envKeys.cloudflare_account_id = pf.cloudflare_account_id
+  if (pf.cloudflare_api_token) envKeys.cloudflare_api_token = pf.cloudflare_api_token
+  if (pf.uex_api_key) envKeys.uex_api_key = pf.uex_api_key
+
   async function finish() {
-    setErr(''); setSaveFailed(false); setSaving(true)
+    setSaveFailed(false)
+    const why = blocker()
+    setErr(why)
+    if (why) return
+    setSaving(true)
     try {
-      const keys: Record<string, string> = {}
+      const keys: Record<string, string> = { ...envKeys }
       if (gemini.trim()) keys.gemini_api_key = gemini.trim()
-      if (cfAccount.trim()) keys.cloudflare_account_id = cfAccount.trim()
-      if (cfToken.trim()) keys.cloudflare_api_token = cfToken.trim()
-      if (uex.trim()) keys.uex_api_key = uex.trim()
       if (Object.keys(keys).length) await api.saveSetupKeys(keys)
       await api.saveSetup({
         discord_token: token.trim(),
-        discord_client_id: clientId.trim(),
-        discord_client_secret: clientSecret.trim(),
-        target_guild_id: guildId.trim(),
+        discord_client_id: bot?.id || '',
+        discord_client_secret: secret.trim(),
+        target_guild_id: guildId,
       })
       onDone()
     } catch (e: any) {
@@ -366,19 +533,21 @@ export function SetupWizard(
   const envFile = (() => {
     const L = [
       `DISCORD_TOKEN=${token.trim() || '…'}`,
-      `DISCORD_CLIENT_ID=${clientId.trim() || '…'}`,
-      `DISCORD_CLIENT_SECRET=${clientSecret.trim() || '…'}`,
+      `DISCORD_CLIENT_ID=${bot?.id || '…'}`,
+      `DISCORD_CLIENT_SECRET=${secret.trim() || '…'}`,
     ]
-    if (guildId.trim()) L.push(`TARGET_GUILD_ID=${guildId.trim()}`)
+    if (guildId) L.push(`TARGET_GUILD_ID=${guildId}`)
     if (adminUser.trim()) L.push(`ADMIN_ALLOWLIST=${adminUser.trim()}`)
     L.push(`GEMINI_API_KEY=${gemini.trim() || '…'}`)
     L.push(`TAILSCALE_AUTH=${tunnelAuthKey.trim() || 'tskey-auth-…'}`)
     L.push(`OLISAR_FUNNEL_HOSTNAME=${tunnelNode.trim() || 'olisar'}`)
-    if (cfAccount.trim()) L.push(`CLOUDFLARE_ACCOUNT_ID=${cfAccount.trim()}`)
-    if (cfToken.trim()) L.push(`CLOUDFLARE_API_TOKEN=${cfToken.trim()}`)
-    if (uex.trim()) L.push(`UEX_API_KEY=${uex.trim()}`)
+    if (envKeys.cloudflare_account_id) L.push(`CLOUDFLARE_ACCOUNT_ID=${envKeys.cloudflare_account_id}`)
+    if (envKeys.cloudflare_api_token) L.push(`CLOUDFLARE_API_TOKEN=${envKeys.cloudflare_api_token}`)
+    if (envKeys.uex_api_key) L.push(`UEX_API_KEY=${envKeys.uex_api_key}`)
     return L.join('\n')
   })()
+
+  const missing = (bot?.intents_missing || []).map((n) => INTENT_NAMES[n] || n)
 
   return (
     <div className="setup">
@@ -454,67 +623,42 @@ export function SetupWizard(
           {steps.map((_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
         </div>
 
-        {cur === 'token' && (
+        {cur === 'where' && <ModeChoice mode={mode} onPick={pickMode} />}
+
+        {cur === 'bot' && (
           <>
-            <Field
-              label="Discord bot token"
-              desc={<>In the {A('https://discord.com/developers/applications', 'Discord Developer Portal')}, open your application → <strong>Bot</strong> → Reset/Copy Token. Turn on the <strong>Message Content</strong> and <strong>Server Members</strong> intents there too, plus <strong>Presence Intent</strong> if you want status and voice awareness.</>}
-            >
-              <Text value={token} onChange={(v) => { setToken(v); setBotName(null); setTokenErr('') }} placeholder="your bot token" mono />
-            </Field>
-            <div className="wiz-foot">
-              <span className="grow">
-                {botName && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Connected as {botName}</span>}
-                {tokenErr && <span className="err">{tokenErr}</span>}
-              </span>
-              <button disabled={!token.trim() || validating} onClick={validate}>
-                {validating ? 'Checking…' : 'Test token'}
-              </button>
+            <div className="tunnel-help">
+              <ol>
+                <li>Create an application in the {A(PORTAL, 'Discord Developer Portal')}, or open the one you have.</li>
+                <li>Open <strong>Bot</strong>, press <strong>Reset Token</strong>, and copy the token.</li>
+              </ol>
             </div>
-          </>
-        )}
-
-        {cur === 'app' && (
-          <>
-            <Field
-              label="Client ID"
-              desc={<>Developer Portal → <strong>OAuth2</strong> → Client ID (also called Application ID).</>}
-            >
-              <Text value={clientId} onChange={setClientId} placeholder="application / client id" mono />
+            <Field label="Bot token">
+              <Text value={token} onChange={setToken} placeholder="Paste the token here" mono />
             </Field>
-            <Field
-              label="Client secret"
-              desc={<>Developer Portal → <strong>OAuth2</strong> → Reset Secret. Used so admins can sign in to this console.</>}
-            >
-              <Text value={clientSecret} onChange={setClientSecret} placeholder="client secret" mono />
-            </Field>
-            <Field
-              label="Main server ID (optional)"
-              desc={<>With Developer Mode on, right-click your server in Discord → Copy Server ID. This only sets Olisar's home for DMs; it still works in every server it's invited to.</>}
-            >
-              <Text value={guildId} onChange={setGuildId} placeholder="e.g. 1321947496179568680" mono />
-            </Field>
-          </>
-        )}
-
-        {cur === 'access' && (
-          <>
-            <ModeChoice mode={mode} onPick={setMode} />
-
-
-            {mode === 'local' && (
-              <Field
-                plain
-                label="Add this redirect URL in the Developer Portal"
-                desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add.</>}
-              >
-                <div className="redirect-box">
-                  <span>{redirectLocal}</span>
-                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
-                    {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
-                  </button>
+            <CheckLine
+              check={tokenCheck}
+              ok={<>
+                {bot?.avatar ? <img className="check-avatar" src={bot.avatar} alt="" /> : <Icon.check size={14} weight="Bold" />}
+                <span>Connected as <b>{bot?.username}</b></span>
+              </>}
+              bad="Discord didn’t accept that token."
+            />
+            {bot && missing.length > 0 && (
+              <div className="callout warning">
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  Turn on <strong>{missing.join(' and ')}</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, under Privileged Gateway Intents.
                 </div>
-              </Field>
+              </div>
+            )}
+            {bot?.code_grant && (
+              <div className="callout warning">
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  Turn off <strong>Requires OAuth2 Code Grant</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, or the invite link won’t work.
+                </div>
+              </div>
             )}
           </>
         )}
@@ -526,7 +670,7 @@ export function SetupWizard(
               <ol>
                 <li>Create a free {A('https://login.tailscale.com/start', 'Tailscale account')} (sign in with Google, GitHub, etc.).</li>
                 <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')}, turning on <strong>Reusable</strong>. Paste it below.</li>
-                <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for this device. Olisar shows the exact link to click, then press Enable again.</li>
+                <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for your tailnet: follow the link in the message, then press Enable again.</li>
               </ol>
               <div style={{ marginTop: 8 }}>
                 Your dashboard then lives at a stable <code>https://…ts.net</code> address. Other admins just open it and sign in with Discord; they don't need Tailscale themselves.
@@ -547,7 +691,7 @@ export function SetupWizard(
             <div className="wiz-foot">
               <span className="grow">
                 {tunnelDone && tunnelUrl && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
-                {tunnelErr && <span className="err">{tunnelErr}</span>}
+                {tunnelErr && <span className="err"><Linkified text={tunnelErr} /></span>}
               </span>
               <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
                 {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
@@ -564,27 +708,54 @@ export function SetupWizard(
                 }}>Ask the team</FeedbackButton>
               </p>
             )}
+          </>
+        )}
 
+        {cur === 'signin' && bot && (
+          <>
             <Field
-              plain
-              label="Add these redirect URLs in the Developer Portal"
-              desc={<>Developer Portal → <strong>OAuth2</strong> → Redirects → Add. Add both, so login works locally and remotely.</>}
+              label="Client secret"
+              desc={<>On {A(`${PORTAL}/${bot.id}/oauth2`, 'the OAuth2 page')}, press <strong>Reset Secret</strong> and copy it.</>}
             >
-              <div className="redirect-box">
-                <span>{redirectLocal}</span>
-                <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectLocal); setCopied('local'); setTimeout(() => setCopied(''), 1200) }}>
-                  {copied === 'local' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
-                </button>
-              </div>
-              {redirectTunnel && (
-                <div className="redirect-box" style={{ marginTop: 8 }}>
-                  <span>{redirectTunnel}</span>
-                  <button className="ghost" onClick={() => { navigator.clipboard?.writeText(redirectTunnel); setCopied('tunnel'); setTimeout(() => setCopied(''), 1200) }}>
-                    {copied === 'tunnel' ? <><Icon.check size={13} weight="Bold" /> Copied</> : 'Copy'}
-                  </button>
-                </div>
-              )}
+              <Text value={secret} onChange={setSecret} placeholder="Paste the secret here" mono />
             </Field>
+            <CheckLine
+              check={secretCheck}
+              ok={<><Icon.check size={14} weight="Bold" /> Secret matches</>}
+              bad={`That isn’t ${bot.username}’s client secret.`}
+            />
+            {redirects.length > 0 && (
+              <Field
+                plain
+                label={redirects.length > 1 ? 'Redirect URLs' : 'Redirect URL'}
+                desc={<>On the same page, under <strong>Redirects</strong>, add {redirects.length > 1 ? 'both' : 'it'} and press <strong>Save Changes</strong>.</>}
+              >
+                <div className="redirect-list">
+                  {redirects.map((u) => <RedirectRow key={u} url={u} added={added(u)} />)}
+                </div>
+              </Field>
+            )}
+          </>
+        )}
+
+        {cur === 'server' && bot && (
+          <>
+            <Field plain label={`Add ${bot.username} to your server`}>
+              <div className="invite-row">
+                <a className="btn-discord" href={bot.invite_url} target="_blank" rel="noreferrer">
+                  <Icon.add size={17} weight="Bold" /> Add to Discord
+                </a>
+                <CopyText text={bot.invite_url} label="Copy link" />
+              </div>
+            </Field>
+            {guilds.length === 0
+              ? <div className="check-line" role="status"><span className="spinner" /> Waiting for {bot.username} to join a server…</div>
+              : <div className="check-line ok" role="status"><Icon.check size={14} weight="Bold" /> <span>In {guilds.map((g) => g.name).join(', ')}</span></div>}
+            {guilds.length > 1 && (
+              <Field label="Main server" desc="Its persona and settings also apply in DMs.">
+                <Select value={guildId} onChange={setGuildId} options={guilds.map((g) => ({ value: g.id, label: g.name }))} />
+              </Field>
+            )}
           </>
         )}
 
@@ -600,15 +771,11 @@ export function SetupWizard(
             >
               <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
             </Field>
-            <Field label="Cloudflare account ID (optional)" desc="Turns on image generation. Leave blank to skip.">
-              <Text value={cfAccount} onChange={setCfAccount} placeholder="cloudflare account id" mono />
-            </Field>
-            <Field label="Cloudflare API token (optional)" desc="Needs the Workers AI permission (Read is enough).">
-              <Text value={cfToken} onChange={setCfToken} placeholder="cloudflare api token" mono />
-            </Field>
-            <Field label="UEX token (optional)" desc="Only for the Star Citizen extension.">
-              <Text value={uex} onChange={setUex} placeholder="uex token" mono />
-            </Field>
+            <CheckLine
+              check={geminiCheck}
+              ok={<><Icon.check size={14} weight="Bold" /> Key works</>}
+              bad="Google didn’t accept that key."
+            />
           </>
         )}
 
@@ -677,9 +844,6 @@ export function SetupWizard(
             <Field label="Tailscale auth key" desc={<>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
               <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
             </Field>
-            <Field label="Your Discord username (admin)" desc="Only you (and anyone you list) can sign in to the console. Your Discord username or numeric ID.">
-              <Text value={adminUser} onChange={setAdminUser} placeholder="e.g. gcrft123" mono />
-            </Field>
 
             {deploying && (
               <div className="callout note" style={{ marginBottom: 4 }}>
@@ -725,7 +889,7 @@ export function SetupWizard(
           </button>
           <span className="grow" />
           {step < last
-            ? (cur === 'token'
+            ? (cur === 'where'
                 ? <div className="cta-reveal">
                     <div className="reveal-slot">
                       <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>
