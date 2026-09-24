@@ -262,6 +262,27 @@ async def composing(channel: discord.abc.Messageable) -> AsyncIterator[None]:
         _composing.reset(token)
 
 
+# Messages the conversation handler hasn't finished with. The proactive scans judge a
+# message unanswered until Olisar's reply to it is stored, which only happens once the last
+# part of that reply is sent — for a slow answer, well past the age at which they'd pick
+# the message up and answer it a second time.
+_pending: set[int] = set()
+
+
+@contextmanager
+def reply_pending(message_id: int) -> Iterator[None]:
+    """Mark ``message_id`` as possibly about to be answered for the duration of the block."""
+    _pending.add(message_id)
+    try:
+        yield
+    finally:
+        _pending.discard(message_id)
+
+
+def is_reply_pending(message_id: int) -> bool:
+    return message_id in _pending
+
+
 async def send_paced(
     channel: discord.abc.Messageable,
     text: str,

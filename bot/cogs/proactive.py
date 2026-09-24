@@ -15,15 +15,23 @@ from datetime import datetime, timezone
 from discord.ext import commands, tasks
 from sqlalchemy import select
 
+from bot.access import member_allowed
 from bot.actions import BotActions, MessageActions
 from bot.content import channel_identity
-from bot.replies import anchor_for, composing, record_bot_messages, send_paced
+from bot.replies import (
+    anchor_for,
+    composing,
+    is_reply_pending,
+    record_bot_messages,
+    send_paced,
+)
 from olisar import prompt_overrides
 from olisar.context import is_own_message, name_map, speaker_name
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,
     ChannelMode,
+    GuildConfig,
     Message,
     ProactivityConfig,
     ProactivityLevel,
@@ -114,6 +122,18 @@ class Proactive(commands.Cog):
         hour = datetime.now(timezone.utc).hour
         return (start <= hour < end) if start < end else (hour >= start or hour < end)
 
+    def _may_answer(self, guild_id: int, author_id: int, gconf: GuildConfig | None) -> bool:
+        """The conversation handler's access check (roles and the global ban list), applied
+        to a message nobody addressed to Olisar. Someone it would ignore if they asked by
+        name shouldn't get an answer, or a reaction, when they didn't ask."""
+        guild = self.bot.get_guild(guild_id)
+        return member_allowed(
+            guild.get_member(author_id) if guild else None,
+            allowed=gconf.allowed_role_ids if gconf else [],
+            blocked=gconf.blocked_role_ids if gconf else [],
+            user_id=author_id,
+        )
+
     async def _candidate_channels(self, session, guild_id: int, pconf) -> list[int]:
         if pconf.allowed_channels:
             return [int(c) for c in pconf.allowed_channels]
@@ -156,6 +176,7 @@ class Proactive(commands.Cog):
             if len(recent) >= pconf.max_per_hour:
                 return False
 
+            gconf = await session.get(GuildConfig, guild_id)
             conf_threshold = pconf.confidence_threshold
             threshold = level_threshold(pconf.level)
             for cid in await self._candidate_channels(session, guild_id, pconf):
@@ -163,7 +184,7 @@ class Proactive(commands.Cog):
                     continue
                 # Two rows, not one: whether Olisar wrote the message directly above is
                 # what separates "someone is talking back to me" from "someone is talking".
-                recent = (
+                last_two = (
                     await session.scalars(
                         select(Message)
                         .where(Message.channel_id == cid)
@@ -171,16 +192,22 @@ class Proactive(commands.Cog):
                         .limit(2)
                     )
                 ).all()
-                latest = recent[0] if recent else None
+                latest = last_two[0] if last_two else None
                 if latest is None or latest.author_is_bot:
                     continue  # nothing new, or a bot (incl. Olisar) spoke last
+                if is_reply_pending(latest.message_id):
+                    # Being answered as addressed. Not marked considered: if that path
+                    # decides it wasn't addressed after all, it's fair game next tick.
+                    continue
                 if latest.message_id <= self._last_considered.get(cid, 0):
                     continue
                 age = _age_seconds(latest.created_at)
                 if age < MIN_AGE or age > MAX_AGE:
                     continue
                 self._last_considered[cid] = latest.message_id  # don't re-evaluate
-                answered_olisar = len(recent) > 1 and is_own_message(recent[1])
+                if not self._may_answer(guild_id, latest.author_id, gconf):
+                    continue
+                answered_olisar = len(last_two) > 1 and is_own_message(last_two[1])
                 reply_signal = follow_up_score(latest.content, after_olisar=answered_olisar)
                 # A reply to Olisar is a message that wants an answer, whether or not it
                 # parses as a question — which is all `heuristic_score` can see. Whichever
@@ -240,6 +267,7 @@ class Proactive(commands.Cog):
                 return False
             if len(recent) >= pconf.reaction_max_per_hour:
                 return False
+            gconf = await session.get(GuildConfig, guild_id)
             threshold = pconf.reaction_threshold
             for cid in await self._candidate_channels(session, guild_id, pconf):
                 if now - self._react_cooldown.get(cid, 0.0) < pconf.reaction_cooldown_sec:
@@ -252,12 +280,16 @@ class Proactive(commands.Cog):
                 )
                 if latest is None or latest.author_is_bot:
                     continue
+                if is_reply_pending(latest.message_id):
+                    continue  # a reply (which may itself react) is on its way
                 if latest.message_id <= self._react_considered.get(cid, 0):
                     continue
                 age = _age_seconds(latest.created_at)
                 if age < REACT_MIN_AGE or age > REACT_MAX_AGE:
                     continue
                 self._react_considered[cid] = latest.message_id  # don't re-evaluate
+                if not self._may_answer(guild_id, latest.author_id, gconf):
+                    continue
                 # A zero is a hard no whatever the operator's threshold is (the default
                 # threshold is 0.0, so without this every question reached the picker).
                 score = reaction_score(latest.content)
@@ -304,6 +336,16 @@ class Proactive(commands.Cog):
             )
             names = await name_map(session, {m.author_id for m in rows if not m.author_is_bot})
         return "\n".join(f"{speaker_name(m, names)}: {m.content}" for m in rows)
+
+    async def _still_latest(self, channel_id: int, msg_id: int) -> bool:
+        async with session_scope() as session:
+            latest = await session.scalar(
+                select(Message.message_id)
+                .where(Message.channel_id == channel_id)
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )
+        return latest == msg_id
 
     async def _chime_in(
         self,
@@ -362,6 +404,12 @@ class Proactive(commands.Cog):
         clean = (reply.text or "").strip()
         if not clean or clean.lower() in (SKIP_SENTINEL, "skip"):
             log.info("proactive self-skipped ch=%s", channel_id)
+            return False
+        # Writing the reply takes long enough for the room to move on: someone answers the
+        # question, or asks Olisar something by name. Either way this reply is to a message
+        # that's no longer the one on the table, so it doesn't go out.
+        if not await self._still_latest(channel_id, msg_id):
+            log.info("proactive dropped ch=%s: channel moved on while composing", channel_id)
             return False
         # Chiming in unprompted almost always anchors: the message being answered has sat
         # for at least MIN_AGE and the room has usually moved on — which is exactly the case
