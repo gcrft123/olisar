@@ -226,6 +226,8 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 
 [63ffd71] — The bot switcher says Can't connect for a bot Discord refused, instead of Offline.
 
+[4a7f8ff] — The API keys page, and the UEX token on the Star Citizen page, are the operator's alone; before, any server's admin could replace or remove keys every server shares.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
