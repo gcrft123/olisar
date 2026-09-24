@@ -8,6 +8,9 @@ path only stores its reply after the last part of it has been sent. A slow answe
 what's the best mining ship?" plus a web search and a three-bubble reply) is still in flight
 when the message turns 15 seconds old, so the scan picked it up, the classifier saw an open
 question, and a second reply went out under the first.
+
+The hourly cap never filled. The scan used one variable for the hour's timestamps and for the
+rows it read inside the loop, so each chime was appended to a list of messages instead.
 """
 
 from __future__ import annotations
@@ -167,6 +170,21 @@ class ScansSkipPendingTest(_DbCase):
 
             await self.cog._scan_reactions_guild(GUILD)
             pick.assert_awaited_once()
+
+
+class HourlyCapTest(_DbCase):
+    async def test_a_chime_counts_toward_the_cap(self) -> None:
+        async with self.scope() as session:
+            (await session.get(ProactivityConfig, GUILD)).max_per_hour = 1
+        classify = AsyncMock(return_value=(True, 0.9, "open question"))
+        chime = AsyncMock(return_value=True)
+        with self._chiming(classify, chime):
+            await self._store(2001, "anyone know when the patch drops?", age=30)
+            self.assertTrue(await self.cog._scan_guild(GUILD))
+
+            await self._store(2002, "which ship is best for salvage?", age=20)
+            self.assertFalse(await self.cog._scan_guild(GUILD))
+        chime.assert_awaited_once()
 
 
 class ChimeRechecksBeforeSendingTest(_DbCase):
