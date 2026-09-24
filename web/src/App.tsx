@@ -53,6 +53,8 @@ const PAGE_KEYWORDS: Record<string, string> = {
 }
 
 type Guild = { id: string; name: string; icon: string }
+// From /api/invite. `available` is false when the bot is private and this isn't its operator.
+type Invite = { url: string; available: boolean }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
 // Every bot's console is the same origin, so each remembers its server under its own key
@@ -123,6 +125,7 @@ export default function App() {
   const [tab, setTab] = useState('persona')
   const [guilds, setGuilds] = useState<Guild[] | null>(null)
   const [guild, setGuildState] = useState<string | null>(null)
+  const [invite, setInvite] = useState<Invite | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
@@ -341,20 +344,26 @@ export default function App() {
   usePoll(() => { api.devStanding().then(setStanding).catch(() => {}) }, 20000, auth === 'in')
 
   // Waits for the bot list too: the saved server is remembered per bot (see guildKey).
+  const adoptGuilds = (gs: Guild[]) => {
+    setGuilds(gs)
+    if (gs.length) {
+      const saved = localStorage.getItem(guildKey(bots.activeId))
+      const sel = gs.find((g) => g.id === saved)?.id ?? gs[0].id
+      apiSetGuild(sel)
+      setGuildState(sel)
+    }
+  }
   useEffect(() => {
     if (auth !== 'in' || bots.loading) return
-    api.guilds()
-      .then((gs: Guild[]) => {
-        setGuilds(gs)
-        if (gs.length) {
-          const saved = localStorage.getItem(guildKey(bots.activeId))
-          const sel = gs.find((g) => g.id === saved)?.id ?? gs[0].id
-          apiSetGuild(sel)
-          setGuildState(sel)
-        }
-      })
-      .catch(() => setGuilds([]))
-  }, [auth, bots.loading, bots.activeId])
+    api.guilds().then(adoptGuilds).catch(() => setGuilds([]))
+  }, [auth, bots.loading, bots.activeId])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The link that adds the bot to another server, offered from the switcher and from the
+  // "No servers yet" screen. Only asked for once signed in: it needs a console session.
+  useEffect(() => {
+    if (auth !== 'in') { setInvite(null); return }
+    api.invite().then(setInvite).catch(() => setInvite(null))
+  }, [auth, bots.activeId])
 
   // Bounced here by the OAuth callback because the Discord account isn't an admin of
   // any server Olisar is in. Takes precedence over the normal auth flow.
@@ -386,7 +395,7 @@ export default function App() {
   }
   if (auth === 'out') return <Login />
   if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
-  if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
+  if (guilds.length === 0) return <NoServers username={me?.username} invite={invite} onFound={adoptGuilds} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
   // Both `tab` and `guild` key a remount below, which throws away whatever the page was
   // holding. Ask first. Gated here rather than on the nav item because Docs reaches
@@ -526,7 +535,7 @@ export default function App() {
           </div>
         )}
 
-        <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
+        <ServerMenu guilds={guilds} current={current} onPick={changeGuild} invite={invite} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -698,7 +707,10 @@ function Login() {
   )
 }
 
-function NoServers(props: { username?: string; onLogout: () => void }) {
+function NoServers(props: { username?: string; invite: Invite | null; onFound: (gs: Guild[]) => void; onLogout: () => void }) {
+  // Watched rather than left to a Reload button: the console opens the moment the bot joins.
+  usePoll(() => api.guilds().then((gs: Guild[]) => { if (gs.length) props.onFound(gs) }), 4000)
+  const canAdd = !!props.invite?.available
   return (
     <div className="login">
       <div className="box">
@@ -707,10 +719,14 @@ function NoServers(props: { username?: string; onLogout: () => void }) {
         <h1>No servers yet</h1>
         <p>
           You're signed in as <b>{props.username}</b>, but Olisar isn't in any server where you have
-          Manage Server. Add the bot to one, then reload.
+          Manage Server. {canAdd ? 'Add it to one and this page opens the console.' : 'Ask its operator to add it to one.'}
         </p>
         <div className="login-actions">
-          <button className="primary" onClick={() => window.location.reload()}>Reload</button>
+          {canAdd && (
+            <a className="btn-discord" href={props.invite!.url} target="_blank" rel="noreferrer">
+              <Icon.add size={18} weight="Bold" /> Add Olisar to a server
+            </a>
+          )}
           <button className="ghost" onClick={props.onLogout}>
             <Icon.logout size={16} /> Log out
           </button>
@@ -802,7 +818,7 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
 
 // Server picker: a popup menu that always opens (even with a single server), instead of
 // a native select that disables itself when there's only one option.
-function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Guild; onPick: (id: string) => void }) {
+function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; current: Guild; onPick: (id: string) => void; invite: Invite | null }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -813,6 +829,12 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
+  // Adding the bot somewhere else starts where the servers it's in are listed: open the
+  // invite, or copy it for whoever manages the other server.
+  const actions = invite?.available ? [
+    { key: 'add', label: 'Add to a server', ic: Icon.add, run: () => { window.open(invite.url, '_blank', 'noopener'); setOpen(false) } },
+    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: () => { navigator.clipboard?.writeText(invite.url); toast('Invite link copied', 'success'); setOpen(false) } },
+  ] : []
   // Roving focus starts on the server you're already on, so the list opens where you are.
   const optRefs = useRef<(HTMLButtonElement | null)[]>([])
   const [active, setActive] = useState(0)
@@ -829,21 +851,22 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
   return (
     <div className={'server-switch' + (open ? ' open' : '')} ref={ref}>
       {icon(current)}
-      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
         <span className="server-name">{current.name}</span>
         <Icon.chevron size={14} className="server-chev" />
       </button>
       {open && (
-        // A listbox whose options are each independently tabbable is not the pattern: the
-        // arrow keys did nothing and Tab walked through every server one at a time. Same
-        // roving tabindex `Segmented` already implements — one stop for the whole list,
-        // arrows to move within it.
+        // A list whose items are each independently tabbable is not the pattern: the arrow
+        // keys did nothing and Tab walked through every server one at a time. Same roving
+        // tabindex `Segmented` already implements — one stop for the whole list, arrows to
+        // move within it. A menu rather than a listbox since it gained actions, the way the
+        // bot switcher (BotMenu) holds its bots and then "Add a bot".
         <div
           className="server-menu"
-          role="listbox"
+          role="menu"
           aria-label="Switch server"
           onKeyDown={(e) => {
-            const last = guilds.length - 1
+            const last = guilds.length + actions.length - 1
             let next = active
             if (e.key === 'ArrowDown') next = active >= last ? 0 : active + 1
             else if (e.key === 'ArrowUp') next = active <= 0 ? last : active - 1
@@ -859,8 +882,8 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
             <button
               key={g.id}
               ref={(el) => { optRefs.current[i] = el }}
-              role="option"
-              aria-selected={g.id === current.id}
+              role="menuitemradio"
+              aria-checked={g.id === current.id}
               tabIndex={i === active ? 0 : -1}
               className={'server-menu-item' + (g.id === current.id ? ' on' : '')}
               onFocus={() => setActive(i)}
@@ -871,6 +894,25 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
               {g.id === current.id && <Icon.check size={14} weight="Bold" className="server-menu-check" />}
             </button>
           ))}
+          {actions.length > 0 && <div className="bot-menu-rule" role="separator" />}
+          {actions.map((a, j) => {
+            const i = guilds.length + j
+            const Glyph = a.ic
+            return (
+              <button
+                key={a.key}
+                ref={(el) => { optRefs.current[i] = el }}
+                role="menuitem"
+                tabIndex={i === active ? 0 : -1}
+                className="server-menu-item bot-menu-action"
+                onFocus={() => setActive(i)}
+                onClick={a.run}
+              >
+                <span className="bot-menu-ic"><Glyph size={15} /></span>
+                <span className="server-menu-name">{a.label}</span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

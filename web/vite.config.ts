@@ -534,6 +534,7 @@ function mockPlugin(): Plugin {
           { id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' },
           { id: '1089266822827737190', name: 'Test Server', icon: '' },
         ])
+        if (url.startsWith('/api/invite')) return send({ url: `https://discord.com/oauth2/authorize?client_id=${MOCK_APP_ID}&scope=bot+applications.commands&permissions=274878024768`, available: true })
         if (url.startsWith('/api/dev/status')) return send({ is_developer: false })
         if (url.startsWith('/api/dev/standing')) return send({ banned: false, warning: null })
         if (url.startsWith('/api/tunnel/status')) return send({ available: false, running: false, helper: false, headless: false, hostname: '', public_url: '' })
