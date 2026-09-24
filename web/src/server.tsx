@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { BotMenu, sharedServers, useBots } from './bots'
+import { BotMenu, intentList, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
-import { PubkeyBox, usePubkey } from './setup'
+import { PubkeyBox, RedirectRow, usePubkey } from './setup'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
-import { Field, Select, Text } from './ui'
+import { Field, Select, Text, usePoll } from './ui'
 import { displayVersion, isNewer } from './version'
 
 type Status = {
@@ -87,6 +87,32 @@ export function ServerControlPanel() {
   // The app's SSH key is only a fallback here (a VM the app set up already trusts it), so
   // fetch it lazily when the operator expands the disclosure — never blocks the panel.
   const pk = usePubkey(reconnect && showKey)
+
+  // What Discord says about the server's bot, which the VM can't: its console's sign-in
+  // address has to be registered with the bot's Discord app (setup couldn't show it, since
+  // it only exists once the server is up), and a bot whose intents are off is refused while
+  // the container still reads as healthy. Read until both are fine, then left alone.
+  const [dc, setDc] = useState<{ app_id: string; redirect: string; added: boolean; intents_missing: string[] } | null>(null)
+  const dcFine = !!dc && dc.added && !dc.intents_missing.length
+  usePoll(() => api.serverDiscord(st?.url || '').then((r: any) => { if (r?.ok) setDc(r) }), 5000, !!st?.url && !dcFine)
+  // Once seen missing, the redirect row stays to show its tick.
+  const signinMissing = useRef(false)
+  if (dc?.redirect && !dc.added) signinMissing.current = true
+  const [fixing, setFixing] = useState(false)
+  const [fixLeft, setFixLeft] = useState(false)  // Discord wouldn't let the app turn them on
+  async function fixIntents() {
+    setFixing(true)
+    try {
+      const r = await api.serverReconnect()
+      if (r?.intents_missing?.length) setFixLeft(true)
+      else if (r?.ok) { toast('Intents on. Restarting the bot.', 'success'); setDc((d) => (d ? { ...d, intents_missing: [] } : d)) }
+      else toast(r?.error || 'Couldn’t reconnect the bot', 'danger')
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t reconnect the bot', 'danger')
+    } finally {
+      setFixing(false)
+    }
+  }
 
   // Whether the last reading had an automatic update in flight. Read by `refresh` below as
   // well as the effect that announces one landing, so it's declared before both.
@@ -339,6 +365,29 @@ export function ServerControlPanel() {
         <p className="step-sub">
           Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here.
         </p>
+
+        {dc && dc.intents_missing.length > 0 && (
+          <div className="callout warning">
+            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">
+              {fixLeft
+                ? <>Turn on <b>{intentList(dc.intents_missing)}</b> on <a href={`https://discord.com/developers/applications/${dc.app_id}/bot`} target="_blank" rel="noreferrer">the Bot page</a>, under Privileged Gateway Intents, then try again.</>
+                : <>Discord refuses the bot because <b>{intentList(dc.intents_missing)}</b> {dc.intents_missing.length > 1 ? 'are' : 'is'} off.</>}
+              <div style={{ marginTop: 10 }}>
+                <button disabled={fixing} onClick={fixIntents}>{fixing ? 'Working…' : fixLeft ? 'Try again' : 'Turn on and restart'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {dc?.redirect && signinMissing.current && (
+          <Field
+            plain
+            label="Redirect URL"
+            desc={<>Signing in to your server’s console needs it. On <a href={`https://discord.com/developers/applications/${dc.app_id}/oauth2`} target="_blank" rel="noreferrer">the OAuth2 page</a>, under <strong>Redirects</strong>, add it and press <strong>Save Changes</strong>.</>}
+          >
+            <RedirectRow url={dc.redirect} added={dc.added} />
+          </Field>
+        )}
 
         <div className="wiz-foot">
           <button className="ghost" disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>

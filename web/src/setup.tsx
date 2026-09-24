@@ -201,7 +201,7 @@ function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
 }
 
 // A redirect URL to register, ticked off once Discord lists it.
-function RedirectRow({ url, added }: { url: string; added: boolean }) {
+export function RedirectRow({ url, added }: { url: string; added: boolean }) {
   return (
     <div className="redirect-box">
       <span>{url}</span>

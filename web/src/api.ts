@@ -297,6 +297,11 @@ export const api = {
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
   serverStatus: () => req('/api/server/status', { timeoutMs: 75000 }),
+  // What Discord says about the server's bot: { ok, app_id, redirect, added, intents_missing }
+  // (or { ok: false, error }). The first call reads the bot token off the VM over SSH.
+  serverDiscord: (url: string) => req(`/api/server/discord?url=${encodeURIComponent(url)}`, { timeoutMs: 40000 }),
+  // Turn the server bot's missing intents on and restart it: { ok, intents_missing, app_id? }.
+  serverReconnect: () => req('/api/server/reconnect', { method: 'POST', timeoutMs: 120000 }),
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 
