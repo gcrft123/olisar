@@ -50,11 +50,11 @@ import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.trust import LOOPBACK, require_local_request
 from olisar.runtime import profiles
+from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import home_dir, web_dist_dir
 from olisar.runtime.server import WORKER_PORT_MARKER
 
@@ -798,7 +798,7 @@ def create_app(pool: Pool) -> FastAPI:
     # The dashboard itself, as the bot's own API serves it.
     dist = web_dist_dir()
     if dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="spa")
+        app.mount("/", ConsoleFiles(directory=str(dist), html=True), name="spa")
     return app
 
 

@@ -12,7 +12,6 @@ import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from api.auth.oauth import router as auth_router
 from api.routers.admin import router as admin_router
@@ -29,6 +28,7 @@ from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
 from api.routers.tunnel import router as tunnel_router
 from api.routers.usage import router as usage_router
+from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import web_dist_dir
 
 
@@ -39,7 +39,7 @@ def create_app() -> FastAPI:
     # API never hits a missing attribute).
     app.state.bot_supervisor = None
 
-    # The dashboard is served same-origin in the desktop app/production (StaticFiles
+    # The dashboard is served same-origin in the desktop app/production (ConsoleFiles
     # below) and through the tunnel, so CORS only needs to admit the dev Vite server
     # on whatever loopback port it picked. A regex keeps that origin-agnostic.
     app.add_middleware(
@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
     # server serves the UI on its own port instead).
     dist = web_dist_dir()
     if dist.is_dir():
-        app.mount("/", StaticFiles(directory=str(dist), html=True), name="spa")
+        app.mount("/", ConsoleFiles(directory=str(dist), html=True), name="spa")
 
     return app
 
