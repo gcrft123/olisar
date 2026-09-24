@@ -46,8 +46,8 @@ const PAGE_KEYWORDS: Record<string, string> = {
   access: 'roles allowed blocked open restrict lock out permissions pin self edit own settings',
   knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',
   members: 'profiles impressions remembered facts roles avatars',
-  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator',
-  keys: 'gemini cloudflare uex api key token secret credentials',
+  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator uex token',
+  keys: 'gemini cloudflare workers ai images api key token secret credentials account id',
   usage: 'quota rate limits requests tokens rpm tpm by model by process free tier',
   docs: 'documentation help guide reference',
 }

@@ -1385,10 +1385,13 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .mode-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
 /* A live-checked field's result (bot token, client secret, Gemini key), tucked up under its
    input the way a description sits under its label. It replaced a Test button beside it. */
-.setup .check-line { display: flex; align-items: center; gap: 6px; margin: -9px 0 16px; min-height: 20px; font-size: 13px; color: var(--text-2); }
-.setup .check-line.ok { color: var(--ok); }
-.setup .check-line.err { color: var(--danger); }
-.setup .check-line b { font-weight: 600; }
+.check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.check-line.ok { color: var(--ok); }
+.check-line.err { color: var(--danger); }
+.check-line b { font-weight: 600; }
+.setup .check-line { margin: -9px 0 16px; }
+/* Under a key's Saved / Not set row on the API keys page. */
+.key-status + .check-line { margin-top: 8px; }
 .setup .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
 .setup .redirect-list { display: grid; gap: 8px; }
 /* The ghost Copy link carries its own 14px of invisible padding, so the row adds little. */

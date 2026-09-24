@@ -17,14 +17,16 @@ from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
     ChannelModeIn,
+    CloudflareCheckIn,
     ConfigIn,
     ExtensionToggleIn,
     FactIn,
+    GeminiCheckIn,
     PersonaIn,
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import discord_app, runtime_config, runtime_keys, toolpin
+from olisar import discord_app, key_checks, runtime_config, runtime_keys, toolpin
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -339,6 +341,37 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_admin)):
             )
         runtime_keys.invalidate()
     return {"ok": True}
+
+
+@router.post("/keys/check/gemini")
+async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(require_admin)):
+    """Whether the Gemini key works: the one typed, or the saved one when nothing is.
+    ``ok`` is null when Google couldn't be reached, and ``set`` false when there's no key."""
+    key = body.key.strip() or await runtime_keys.gemini_api_key()
+    if not key:
+        return {"set": False, "ok": False}
+    try:
+        return {"set": True, "ok": await key_checks.gemini(key)}
+    except key_checks.Unreachable:
+        return {"set": True, "ok": None}
+
+
+@router.post("/keys/check/cloudflare")
+async def check_cloudflare_key(body: CloudflareCheckIn, admin: AdminUser = Depends(require_admin)):
+    """Whether the Cloudflare token can run Workers AI on the account, each typed value
+    standing in for the saved one. With no account ID anywhere, it's looked up from the
+    token; ``account_id`` comes back only then, so a saved one is never shown again."""
+    token = body.token.strip() or await runtime_keys.cloudflare_api_token()
+    if not token:
+        return {"set": False, "ok": False, "problem": ""}
+    account = body.account_id.strip() or await runtime_keys.cloudflare_account_id()
+    try:
+        result = await key_checks.cloudflare(token, account)
+    except key_checks.Unreachable:
+        return {"set": True, "ok": None, "problem": ""}
+    if account:
+        result.pop("account_id", None)
+    return {"set": True, **result}
 
 
 @router.delete("/keys/{field}")

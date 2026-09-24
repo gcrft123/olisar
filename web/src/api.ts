@@ -256,6 +256,13 @@ export const api = {
   getKeys: () => req('/api/keys'),
   putKeys: (b: any) => req('/api/keys', { method: 'PUT', body: JSON.stringify(b) }),
   clearKey: (field: string) => req(`/api/keys/${field}`, { method: 'DELETE' }),
+  // Whether a key works: the typed value, or the saved one when it's blank. Gemini answers
+  // { set, ok } and Cloudflare { set, ok, problem: 'token' | 'account' | '', account_id? },
+  // with `ok` null when the service couldn't be reached.
+  checkGeminiKey: (key: string) =>
+    req('/api/keys/check/gemini', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 20000 }),
+  checkCloudflareKey: (token: string, accountId: string) =>
+    req('/api/keys/check/cloudflare', { method: 'POST', body: JSON.stringify({ token, account_id: accountId }), timeoutMs: 20000 }),
 
   // First-run setup (loopback-only, pre-OAuth).
   setupStatus: () => req('/api/setup/status'),
