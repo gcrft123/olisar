@@ -1387,9 +1387,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .check-line b { font-weight: 600; }
 .setup .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
 .setup .redirect-list { display: grid; gap: 8px; }
-.setup .invite-row { display: flex; align-items: center; gap: 10px; }
-/* Sized like the footer buttons, not the login screen's full-width call to action. */
-.setup .invite-row .btn-discord { width: auto; padding: 8px 16px; font-size: 13.5px; }
+/* The ghost Copy link carries its own 14px of invisible padding, so the row adds little. */
+.setup .invite-row { display: flex; align-items: center; gap: 4px; }
+/* Sized like the footer buttons, not the login screen's full-width call to action. The logo
+   side is 2px tighter: a filled mark carries more ink than text, so even padding reads as a
+   wider gap on its side. */
+.setup .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
 .setup .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .setup .srv-head h1 { margin: 0; }
 .setup .srv-head .badge { margin-left: auto; }

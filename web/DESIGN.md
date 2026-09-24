@@ -338,6 +338,8 @@ Common semantic names: `user-circle` (persona), `tuning-2` (behavior), `hashtag`
 
 **One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The one exception is `<CloseX>`, which stays at 2: a two-stroke × carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
 
+**The one brand mark:** Discord's logo (`<DiscordLogo>`), filled in `currentColor`, and only on a Discord-blue `.btn-discord` that hands off to Discord, such as adding the bot to a server. Nowhere else, and never as a stand-in for a Solar glyph.
+
 **Logo:** a rounded-square shield with a centered star (slate blue, navy star). Place it on `--bg`, `--bg-inset`, or `--accent-soft` tiles; don't recolor it.
 
 ### Raster images

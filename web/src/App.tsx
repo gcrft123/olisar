@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
-import { Icon, CopyGlyph, type IconName } from './icons'
+import { Icon, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
@@ -724,7 +724,7 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
         <div className="login-actions">
           {canAdd && (
             <a className="btn-discord" href={props.invite!.url} target="_blank" rel="noreferrer">
-              <Icon.add size={18} weight="Bold" /> Add Olisar to a server
+              <DiscordLogo size={20} /> Add Olisar to a server
             </a>
           )}
           <button className="ghost" onClick={props.onLogout}>

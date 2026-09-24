@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { api } from './api'
 import { BotMenu, deviceNameFor, serverLabel, sharedServers, useBots } from './bots'
-import { Icon } from './icons'
+import { DiscordLogo, Icon } from './icons'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { logTail, reportBody, type FeedbackPrefill } from './feedback'
 import { Field, Segmented, Select, Text, usePoll } from './ui'
@@ -743,7 +743,7 @@ export function SetupWizard(
             <Field plain label={`Add ${bot.username} to your server`}>
               <div className="invite-row">
                 <a className="btn-discord" href={bot.invite_url} target="_blank" rel="noreferrer">
-                  <Icon.add size={17} weight="Bold" /> Add to Discord
+                  <DiscordLogo /> Add to Discord
                 </a>
                 <CopyText text={bot.invite_url} label="Copy link" />
               </div>
