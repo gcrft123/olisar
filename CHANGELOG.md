@@ -28,6 +28,8 @@ Updating could leave the console on the version before it. The page was kept by 
 
 Olisar could answer the same message twice. A question asked by name that took more than about 15 seconds to answer still looked unanswered to the part of Olisar that joins conversations on its own, so a second reply could land under the first. That same part never counted its replies toward the hourly limit, and never checked whether the person was someone Olisar is set to ignore.
 
+Setting Olisar up took eight fields and three trips to the Discord Developer Portal, and the wizard never mentioned one of them: inviting the bot. You'd finish setup, sign in, and be told Olisar wasn't in any server, with no link to fix that. Most of what the portal was visited for can be read from the bot token, so setup now takes the client ID from it, turns the intents on through it, and builds the invite link from it. What's left to paste is the token, the client secret and a Gemini key, and each step ticks itself off once it's done.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -99,6 +101,22 @@ Olisar could answer the same message twice. A question asked by name that took m
 [6804316] — Knowledge's source, glossary and activity lists stop after a few rows and scroll, with a fade at whichever edge has more past it.
 
 [6804316] — The member portal's remote-access warning links straight to Settings → Remote access.
+
+[22bbe45] — Setup turns on the Message Content and Server Members intents itself, which Discord allows for any bot in fewer than 100 servers.
+
+[fd49f6d] — When Discord won't let setup turn an intent on, setup links to the switch on the Bot page and waits until it's on.
+
+[22bbe45] — Setup makes the Add App button on the bot's Discord profile add the bot, when it's still on Discord's default of adding only the bot's commands.
+
+[fd49f6d] — Setup has an Add to Discord step with the bot's invite link, which asks for only the seven permissions Olisar uses, and moves on once the bot has joined a server.
+
+[fd49f6d] — The client secret and Gemini key are checked as they're pasted.
+
+[fd49f6d] — Setup ticks off each redirect URL once it's registered in the Developer Portal, and links straight to that app's OAuth2 page.
+
+[d21c6b4] — The server switcher can add Olisar to another server, or copy the invite link for whoever manages it.
+
+[d21c6b4] — "No servers yet" has a button that adds Olisar to a server, and opens the console once the bot joins.
 
 ### Changed
 
@@ -174,6 +192,16 @@ Olisar could answer the same message twice. A question asked by name that took m
 
 [9da31c7] — The server control panel only mentions its version when an update is available.
 
+[fd49f6d] — Setup asks where Olisar runs first, since that decides which steps follow.
+
+[fd49f6d] — Setup no longer asks for the client ID or the main server's ID: the ID comes from the bot token, and the main server is the one the bot joins.
+
+[fd49f6d] — The bot token is checked as it's pasted, instead of with a Test token button.
+
+[fd49f6d] — The Cloudflare and UEX keys are added from the console's API keys page instead of during setup.
+
+[fd49f6d] — Server hosting's deploy step no longer asks for an admin username; the owner of the bot's Discord app is already its operator.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -225,6 +253,12 @@ Olisar could answer the same message twice. A question asked by name that took m
 [60bd29c] — The hourly limit on how often Olisar joins in unprompted now works; before, it never counted a reply.
 
 [6eeab43] — Olisar no longer replies or reacts unprompted to people in a blocked role or on the global ban list.
+
+[fd49f6d] — Deploying to a server with a Discord username in the admin field no longer leaves the server unable to start.
+
+[fd49f6d] — Turning on remote access during setup and then picking a different kind of hosting turns remote access back off.
+
+[568cc79] — The remote-access docs no longer say Olisar shows a per-device Funnel link or registers the tunnel's sign-in URL with Discord; it does neither.
 
 ## [1.5.0] — 2026-09-21
 
