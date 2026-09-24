@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { api } from './api'
-import { BotMenu, deviceNameFor, serverLabel, sharedServers, useBots } from './bots'
+import { BotMenu, deviceNameFor, intentList, serverLabel, sharedServers, useBots } from './bots'
 import { DiscordLogo, Icon } from './icons'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { logTail, reportBody, type FeedbackPrefill } from './feedback'
@@ -135,12 +135,6 @@ type BotApp = {
 type BotGuild = { id: string; name: string; icon: string }
 
 const PORTAL = 'https://discord.com/developers/applications'
-// The Developer Portal's own names for the intents, so the operator can find the switch.
-const INTENT_NAMES: Record<string, string> = {
-  message_content: 'Message Content Intent',
-  members: 'Server Members Intent',
-  presences: 'Presence Intent',
-}
 
 type CheckState = 'idle' | 'checking' | 'ok' | 'bad' | 'error'
 type LiveCheck<T> = { state: CheckState; result?: T; error: string; recheck: () => void }
@@ -547,7 +541,6 @@ export function SetupWizard(
     return L.join('\n')
   })()
 
-  const missing = (bot?.intents_missing || []).map((n) => INTENT_NAMES[n] || n)
 
   return (
     <div className="setup">
@@ -644,11 +637,11 @@ export function SetupWizard(
               </>}
               bad="Discord didn’t accept that token."
             />
-            {bot && missing.length > 0 && (
+            {bot && bot.intents_missing.length > 0 && (
               <div className="callout warning">
                 <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
                 <div className="callout-body">
-                  Turn on <strong>{missing.join(' and ')}</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, under Privileged Gateway Intents.
+                  Turn on <strong>{intentList(bot.intents_missing)}</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, under Privileged Gateway Intents.
                 </div>
               </div>
             )}

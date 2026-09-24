@@ -9,7 +9,7 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { BotFailed, BotMenu, useBots } from './bots'
+import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
@@ -710,7 +710,26 @@ function Login() {
 function NoServers(props: { username?: string; invite: Invite | null; onFound: (gs: Guild[]) => void; onLogout: () => void }) {
   // Watched rather than left to a Reload button: the console opens the moment the bot joins.
   usePoll(() => api.guilds().then((gs: Guild[]) => { if (gs.length) props.onFound(gs) }), 4000)
+  // A bot that never got into Discord never recorded its servers either, so this screen is
+  // where a refused connection lands the operator, and "no servers" was the wrong reason.
+  const [botErr, setBotErr] = useState<BotError | null>(null)
+  usePoll(() => api.botStatus().then((s: any) => setBotErr(!s?.running && s?.error ? s.error : null)), 5000)
   const canAdd = !!props.invite?.available
+  if (botErr) {
+    return (
+      <div className="login">
+        <div className="box">
+          <BotMenu variant="chip" />
+          <div className="mark warn"><Icon.warn size={26} weight="Bold" /></div>
+          <h1>Olisar can’t connect to Discord</h1>
+          <BotProblem error={botErr} onReconnected={() => setBotErr(null)} />
+          <p className="login-foot">
+            <button className="linklike" onClick={props.onLogout}>Log out</button>
+          </p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="login">
       <div className="box">
@@ -919,7 +938,7 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   )
 }
 
-type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean }
+type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean; error?: BotError | null }
 const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
 
 // Operator-only control to take the Discord bot offline (and back). Powering down is a
@@ -989,7 +1008,21 @@ function BotPower() {
   }
   async function powerUp() {
     setPhase('starting')
-    try { setSt(await api.botPower(true)) } catch { toast('Couldn’t start the bot', 'danger') }
+    // A bot Discord refused comes back through reconnect, which turns missing intents on
+    // first; a plain power-on would just be refused again.
+    if (st?.error) {
+      try {
+        const r = await api.botReconnect()
+        setSt(r)
+        if (r?.intents_missing?.length) {
+          toast(`Turn on ${intentList(r.intents_missing)} in the Discord Developer Portal, then tap again.`, 'warning')
+          setPhase('idle')
+          return
+        }
+      } catch (e: any) { toast(e?.message || 'Couldn’t reconnect the bot', 'danger') }
+    } else {
+      try { setSt(await api.botPower(true)) } catch { toast('Couldn’t start the bot', 'danger') }
+    }
     // poll until the gateway connection is actually ready
     for (let i = 0; i < 25; i++) {
       await new Promise((r) => setTimeout(r, 700))
@@ -1015,21 +1048,25 @@ function BotPower() {
   const limited = online && exhausted
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
     : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
+  // Stopped on its own, not switched off: Discord refused it (intents, token) or it crashed.
+  const refused = offline && !!st.error
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
     : starting ? 'Starting up…'
     : limited ? 'Offline: rate-limited'
-    : online ? 'Bot online' : 'Bot offline'
+    : online ? 'Bot online'
+    : refused ? 'Can’t connect' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
     : limited ? 'hold to power down'
     : online ? 'hold to power down'
+    : refused ? (st.error?.kind === 'intents' ? 'intents off, tap to fix' : 'tap to try again')
     : offline ? 'tap to power on' : ' '
 
   return (
-    <div className={'botpower ' + cls}>
+    <div className={'botpower ' + cls + (refused ? ' refused' : '')}>
       <button
         className="power-btn"
-        aria-label={online ? 'Power the bot down (press and hold)' : offline ? 'Power the bot on' : label}
+        aria-label={online ? 'Power the bot down (press and hold)' : refused ? 'Reconnect the bot' : offline ? 'Power the bot on' : label}
         disabled={busy}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}

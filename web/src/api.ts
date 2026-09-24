@@ -332,6 +332,9 @@ export const api = {
   // Remote-access status (loopback-readable): { available, running, helper, hostname, public_url }.
   tunnelStatus: () => req('/api/tunnel/status'),
 
+  // Turn on the intents the bot is missing (where Discord lets the app) and start it again.
+  // Answers the bot's state plus any `intents_missing` left for the Developer Portal.
+  botReconnect: () => req('/api/bot/reconnect', { method: 'POST', timeoutMs: 30000 }),
   // Bot power (operator only): { available, running, ready, can_power }.
   botStatus: () => req('/api/bot/status'),
   botPower: (on: boolean) => req('/api/bot/power', { method: 'POST', body: JSON.stringify({ on }) }),

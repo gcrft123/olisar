@@ -353,6 +353,10 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
 .botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+/* Stopped on its own: Discord refused it or it crashed. Red, because it won't come back
+   without the operator, unlike a bot switched off on purpose. */
+.botpower.refused .power-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border-strong)); }
+.botpower.refused .bp-status { color: var(--danger); }
 
 @keyframes bp-spin { to { transform: rotate(360deg); } }
 @keyframes bp-shutdown { 0% { box-shadow: 0 0 0 3px var(--danger-soft); } 45% { box-shadow: 0 0 0 9px var(--danger-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
