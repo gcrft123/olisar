@@ -78,8 +78,10 @@ server it's in). Someone who manages a different server signs in with Discord an
 
 ## Adding Olisar to another server
 
-Invite the bot with an account that has **Manage Server** there. As it joins, Olisar sets that server
-up with sensible defaults and it appears in your switcher. Configure it like any other.
+Open the server switcher and choose **Add to a server**, or **Copy invite link** to send it to whoever
+manages the other server. Adding it takes **Manage Server** there. The link asks Discord for only what Olisar
+uses: reading and sending messages (threads included), embeds, files, and reactions. As it joins, Olisar
+sets that server up with sensible defaults and it appears in your switcher. Configure it like any other.
 
 :::tip Don't see a server you just got access to?
 Olisar checks your Manage Server permissions when you sign in. If you were just given it (or just added
@@ -235,11 +237,12 @@ anything. They sign in to this console with Discord, either on the operator's ma
 
 ## First run
 
-The first time you open Olisar it walks you through a short **setup wizard**: paste your Discord **bot
-token**, the OAuth **client ID + secret**, your main server ID, and (optionally) your free **API keys**. It
-checks the token live and shows you the exact redirect URL to register in the
-[Discord Developer Portal](https://discord.com/developers/applications). Save, and the bot starts and hands
-off to the normal Discord login. You only do this once.
+The first time you open Olisar it walks you through a short **setup wizard**. Pick where it runs, then paste
+your Discord **bot token**: Olisar reads the rest of your bot's settings from it and turns on the intents it
+needs. Paste the **client secret**, add the redirect URL it shows in the
+[Discord Developer Portal](https://discord.com/developers/applications), and press **Add to Discord** to put
+the bot in your server. Each step ticks itself off as you finish it. Add your free **Gemini key**, and the bot
+starts and hands off to the normal Discord login. You only do this once.
 
 ## The menu-bar app
 
@@ -367,10 +370,12 @@ The operator sets it up once, from the **setup wizard** or the **menu-bar icon**
 - Create a free [Tailscale account](https://login.tailscale.com/start).
 - Generate a **reusable** auth key under [Settings → Keys](https://login.tailscale.com/admin/settings/keys)
   and paste it in.
-- Choose **Enable remote access**. The first time, Tailscale may ask you to turn on **Funnel** for this
-  device — Olisar shows the exact link to click, then enable again.
+- Choose **Enable remote access**. The first time, Tailscale may ask you to turn on **Funnel** for your
+  tailnet. Follow the link in the message, then enable again.
 
-Olisar then registers the public \`…/auth/callback\` so Discord login works both locally and remotely.
+Then register the public \`…/auth/callback\` in the Developer Portal under **OAuth2 → Redirects**, next to the
+local one, so Discord login works both locally and remotely. The setup wizard shows both and ticks each off
+once Discord has it.
 
 :::tip Flip it on and off from the console
 Once it's been set up once, you don't need the tray to toggle it. **Settings → Remote access** (the
@@ -431,7 +436,7 @@ that can't start says so, with the last thing it printed and a **Retry**; your o
 ## Adding a bot
 
 **Add a bot** (in the switcher or Settings → Bots) creates an empty bot and drops you into its
-[setup wizard](#overview). Connect its Discord token and credentials just like the first one. Each new bot
+[setup wizard](#hosting). Connect its Discord token and credentials just like the first one. Each new bot
 needs its **own** bot application from the Discord Developer Portal. Register the same local redirect URL
 the wizard shows; it's the same for every bot on this machine.
 
@@ -2006,6 +2011,7 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 | \`/citizen\` says the extension is off | Star Citizen extension disabled | Enable it on the [Extensions](tab:extensions) tab |
 | Web lookups stopped working | The daily web-search cap is used up | Raise it on [Behavior](tab:behavior), or wait for the reset |
 | Olisar quoted a deleted message | Rare timing between the edit/delete and the sync | It syncs automatically — try again |
+| Bot stays offline after setup | Its **Message Content** or **Server Members** intent was turned off in the Developer Portal | Turn both back on under **Bot → Privileged Gateway Intents**, then restart Olisar |
 | Console won't load / bot offline | The operator's machine is asleep, off, or Olisar was quit from the tray | Wake the machine and reopen Olisar — it must stay running ([Hosting](#hosting)) |
 | Other admins can't open the web link | Remote access is off, or the address changed | The operator turns it back on under **Settings → Remote access** and re-shares the link from the sidebar ([Remote access](#remote)) |
 | Discord sign-in bounces or says "invalid or expired state" | The redirect URL for that address isn't registered | Register the exact \`…/auth/callback\` the wizard shows (both the local and \`…ts.net\` ones) |
