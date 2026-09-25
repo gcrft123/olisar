@@ -304,6 +304,10 @@ export function ServerControlPanel() {
     return (
       <div className="setup">
         <div className="box">
+          <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
+          <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
+            <Icon.settings size={16} />
+          </button>
           <img className="brand-logo" src="/logo.png" alt="Olisar" />
           <h1>Reconnect to your server</h1>
           <p className="step-sub">

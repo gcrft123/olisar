@@ -10,7 +10,7 @@ import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
-import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
+import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
@@ -741,7 +741,7 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
   return (
     <div className="login">
       <div className="box">
-        <BotMenu variant="chip" />
+        <ScreenCorners />
         <div className="mark info"><Icon.add size={26} weight="Bold" /></div>
         <h1>No servers yet</h1>
         <p>
@@ -776,7 +776,7 @@ function AccessDenied() {
   return (
     <div className="login">
       <div className="box wide">
-        <BotMenu variant="chip" />
+        <ScreenCorners />
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>
@@ -811,6 +811,7 @@ function Banned(props: { message?: string; onLogout: () => void }) {
   return (
     <div className="login">
       <div className="box wide">
+        <ScreenCorners />
         <div className="mark warn"><Icon.ban size={26} weight="Bold" /></div>
         <h1>Account suspended</h1>
         <p>{props.message || 'This account has been banned from Olisar. If you think that’s a mistake, contact the Olisar team.'}</p>
