@@ -4,7 +4,7 @@ import { Icon } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
 import { ScreenCorners } from './settings'
-import { Field, Select, Text } from './ui'
+import { Badge, Field, Select, Text, type BadgeGlyph, type BadgeTone } from './ui'
 
 // Every bot on a desktop install runs at once, each in its own process behind the gateway
 // (olisar/runtime/gateway.py); the console shows one of them. This module is everything that
@@ -70,15 +70,15 @@ export function useBots(pollMs = 0) {
 }
 
 /** A short, honest line about where a bot stands, for the switcher and the list. */
-export function botStatus(b: Bot): { label: string; tone: '' | 'success' | 'warning' | 'error' | 'info' } {
-  if (b.state === 'failed') return { label: 'Couldn’t start', tone: 'error' }
-  if (b.state !== 'ready') return { label: 'Starting…', tone: 'info' }
-  if (!b.configured) return { label: 'Not set up', tone: '' }
-  if (b.hosting_mode === 'server') return { label: 'On a server', tone: 'info' }
-  if (b.bot?.ready) return { label: 'Online', tone: 'success' }
-  if (b.bot?.running) return { label: 'Connecting…', tone: 'info' }
-  if (b.bot?.error) return { label: 'Can’t connect', tone: 'error' }
-  return { label: 'Offline', tone: 'warning' }
+export function botStatus(b: Bot): BadgeGlyph & { label: string; tone: BadgeTone } {
+  if (b.state === 'failed') return { label: 'Couldn’t start', tone: 'danger', icon: 'close-circle' }
+  if (b.state !== 'ready') return { label: 'Starting…', tone: 'info', busy: true }
+  if (!b.configured) return { label: 'Not set up', tone: 'neutral', icon: 'minus-circle' }
+  if (b.hosting_mode === 'server') return { label: 'On a server', tone: 'neutral', icon: 'global' }
+  if (b.bot?.ready) return { label: 'Online', tone: 'success', icon: 'check-circle' }
+  if (b.bot?.running) return { label: 'Connecting…', tone: 'info', busy: true }
+  if (b.bot?.error) return { label: 'Can’t connect', tone: 'danger', icon: 'close-circle' }
+  return { label: 'Offline', tone: 'warning', icon: 'stop-circle' }
 }
 
 export function BotAvatar({ bot, size = 'sm' }: { bot: Bot; size?: 'sm' | 'md' }) {
@@ -225,7 +225,7 @@ export function BotMenu(
                 <BotAvatar bot={b} />
                 <span className="bot-menu-text">
                   <span className="server-menu-name">{b.name}</span>
-                  <span className={'bot-menu-sub' + (s.tone ? ' ' + s.tone : '')}>{s.label}</span>
+                  <span className={'bot-menu-sub ' + s.tone}>{s.label}</span>
                 </span>
                 {on && <Icon.check size={14} weight="Bold" className="server-menu-check" />}
               </button>
@@ -429,7 +429,7 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
           {bots.map((b) => {
             const isCurrent = b.id === activeId
             const isDefault = b.id === defaultId
-            const s = botStatus(b)
+            const { label, ...chip } = botStatus(b)
             const up = b.state === 'ready'
             // Healthy is the default and says nothing, so only a bot that isn't up gets a chip.
             // A server-hosted bot's line is where it runs, not whether it's down, so it stays text.
@@ -449,8 +449,8 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
                 {/* No Default chip: the filled star beside Open already says this bot opens on
                     launch, and the chip was the same fact twice in one row. */}
                 <div className="bot-badges">
-                  {!healthy && <span className={'badge' + (s.tone ? ' ' + s.tone : '')}>{s.label}</span>}
-                  {isCurrent && <span className="badge success">Current</span>}
+                  {!healthy && <Badge {...chip}>{label}</Badge>}
+                  {isCurrent && <Badge icon="record-audio-circle">Current</Badge>}
                 </div>
                 <div className="bot-actions">
                   {/* Disabled, not hidden: every row shows the same controls in the same

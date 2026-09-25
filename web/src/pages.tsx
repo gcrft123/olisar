@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom'
 import { api } from './api'
 import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
-import { Icon, CloseX, type IconName } from './icons'
+import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
-import { Area, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver } from './ui'
+import { Area, Badge, Disclosure, DonutChart, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, U_SERIES, hasUnsavedChanges, uReq, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
 
 function PageHead(props: { icon: IconName; title: string; sub: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -640,7 +640,7 @@ export function Messages() {
         // Which replies you have actually rewritten was carried only by whether the box
         // held grey placeholder text or real text — a distinction you have to read
         // fourteen boxes to make.
-        badge={overridden ? <span className="badge preference">Custom</span> : undefined}
+        badge={overridden ? <Badge icon="text-circle">Custom</Badge> : undefined}
         desc={placeholders.length > 0
           ? <>Placeholders: {placeholders.map((p) => <code key={p} className="ph">{`{${p}}`}</code>)}</>
           : undefined}
@@ -1262,11 +1262,11 @@ function SearchIndexCard() {
                 <div className="reindex-row" key={c.channel_id}>
                   <span className="rx-name">{c.kind === 'dm' ? c.name : '#' + c.name}</span>
                   <span className="rx-count">{c.indexed.toLocaleString()}<span className="rx-dim"> msgs</span></span>
-                  <span className={'rx-chip ' + c.status}>
-                    {c.status === 'done'
-                      ? <><Icon.check size={12} weight="Bold" /> indexed</>
-                      : c.status === 'indexing' ? 'indexing…' : 'queued'}
-                  </span>
+                  {c.status === 'done'
+                    ? <Badge tone="success" icon="check-circle">Indexed</Badge>
+                    : c.status === 'indexing'
+                      ? <Badge tone="info" busy>Indexing…</Badge>
+                      : <Badge icon="menu-dots-circle">Queued</Badge>}
                 </div>
               ))}
             </div>
@@ -1513,7 +1513,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
                   every settled source was a column of identical green pills. */}
               <div className="source-head">
                 <div className="title" title={s.title || s.uri}>{s.title || s.uri}</div>
-                {s.status !== 'ready' && <span className="source-chip"><span className={'badge ' + s.status}>{SOURCE_STATUS[s.status] ?? s.status}</span></span>}
+                {s.status !== 'ready' && <span className="source-chip"><SourceBadge status={s.status} /></span>}
               </div>
               <div className="meta">{sourceMeta(s)}</div>
               {s.error && <div className="meta-warn"><Icon.warn size={13} weight="Bold" /> {s.error}</div>}
@@ -1616,8 +1616,17 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
 
 // Badge text is written in the case it renders (the stylesheet no longer capitalizes),
 // and these two come off the API as lowercase enum values.
-const SOURCE_STATUS: Record<string, string> = {
-  pending: 'Queued', crawling: 'Reading', chunking: 'Indexing', ready: 'Ready', error: 'Error',
+const SOURCE_STATUS: Record<string, BadgeGlyph & { label: string; tone: BadgeTone }> = {
+  pending: { label: 'Queued', tone: 'neutral', icon: 'menu-dots-circle' },
+  crawling: { label: 'Reading', tone: 'info', busy: true },
+  chunking: { label: 'Indexing', tone: 'info', busy: true },
+  error: { label: 'Error', tone: 'danger', icon: 'close-circle' },
+}
+function SourceBadge({ status }: { status: string }) {
+  const c = SOURCE_STATUS[status]
+  if (!c) return <Badge icon="minus-circle">{status}</Badge>
+  const { label, ...chip } = c
+  return <Badge {...chip}>{label}</Badge>
 }
 /** Statuses the backend will still move on its own — worth watching. */
 const SOURCE_BUSY = new Set(['pending', 'crawling', 'chunking'])
@@ -1682,8 +1691,10 @@ function sourceMeta(s: any): string {
 }
 // Abbreviated so the three memory chips are the same size and never wrap — "Preference"
 // rendered 60x40 beside 23px siblings and broke mid-word into "Prefere / nce".
-const MEMORY_KIND: Record<string, string> = {
-  fact: 'Fact', preference: 'Pref.', event: 'Event',
+const MEMORY_KIND: Record<string, { label: string; icon: BadgeIconName }> = {
+  fact: { label: 'Fact', icon: 'info-circle' },
+  preference: { label: 'Pref.', icon: 'bookmark-circle' },
+  event: { label: 'Event', icon: 'bolt-circle' },
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
@@ -1913,20 +1924,22 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
           <div className="grow">
             <div className="ext-dtitle">{e.name}</div>
             <div className="ext-chips">
-              <span className="badge">{e.category}</span>
+              <Badge icon="hashtag-circle">{e.category}</Badge>
               {marketplace
-                ? <span className="badge info">Marketplace</span>
+                ? <Badge icon="global">Marketplace</Badge>
                 : imported
-                  ? <span className="badge info">Imported</span>
+                  ? <Badge icon="round-arrow-down">Imported</Badge>
                   : e.editable
-                    ? <span className="badge info">Custom</span>
-                    : <span className="badge">Built-in</span>}
-              {e.user_modified && <span className="badge">Edited</span>}
-              {isPublished && <span className="badge info">Published</span>}
-              {isPublished && pub.has_changes && <span className="badge warning">Unpublished changes</span>}
-              {mkt?.update_available && <span className="badge info">Update available</span>}
-              {mkt?.yanked && <span className="badge warning">Removed from marketplace</span>}
-              <span className={'badge' + (e.enabled ? ' ready' : '')}>{e.enabled ? 'Enabled' : 'Disabled'}</span>
+                    ? <Badge icon="user-circle">Custom</Badge>
+                    : <Badge icon="star-circle">Built-in</Badge>}
+              {e.user_modified && <Badge icon="code-circle">Edited</Badge>}
+              {isPublished && <Badge tone="info" icon="round-arrow-right-up">Published</Badge>}
+              {isPublished && pub.has_changes && <Badge tone="warning" icon="danger-circle">Unpublished changes</Badge>}
+              {mkt?.update_available && <Badge tone="info" icon="round-arrow-up">Update available</Badge>}
+              {mkt?.yanked && <Badge tone="warning" icon="slash-circle">Removed from marketplace</Badge>}
+              {e.enabled
+                ? <Badge tone="success" icon="check-circle">Enabled</Badge>
+                : <Badge icon="minus-circle">Disabled</Badge>}
             </div>
           </div>
           <div className="ext-dactions">
@@ -2005,7 +2018,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
             <div className="ext-caps">
               {tools.map((t) => <span key={'t' + t} className="tag">{t}()</span>)}
               {commands.map((c) => <span key={'c' + c} className="tag">/{c}</span>)}
-              {e.behavior && <span className="badge">Shapes replies</span>}
+              {e.behavior && <Badge icon="chat-round-line">Shapes replies</Badge>}
             </div>
           </div>
         )}
@@ -2069,7 +2082,7 @@ function ConsentModal(props: {
         <div className="import-review">
           <div className="import-title">{preview.name} <span className="import-ver">v{preview.version}</span></div>
           <div className="import-sub">
-            <span className="badge">{preview.category}</span>
+            <Badge icon="hashtag-circle">{preview.category}</Badge>
             <code>{preview.id}</code>
             {preview.author?.name && <span className="settings-muted">by {preview.author.name}</span>}
           </div>
@@ -2092,7 +2105,7 @@ function ConsentModal(props: {
               <div className="ext-caps">
                 {(preview.tools || []).map((t: string) => <span key={'t' + t} className="tag">{t}()</span>)}
                 {(preview.commands || []).map((c: string) => <span key={'c' + c} className="tag">/{c}</span>)}
-                {preview.behavior && <span className="badge">Shapes replies</span>}
+                {preview.behavior && <Badge icon="chat-round-line">Shapes replies</Badge>}
               </div>
             </>
           )}
@@ -2563,7 +2576,7 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
         <div className="mkt-pubbar">
           <span>Publishing as <code>{pubInfo.handle}</code></span>
           {pubInfo.verified
-            ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> Discord-verified</span>
+            ? <Badge tone="success" icon="verified-check">Discord-verified</Badge>
             : <button className="ghost" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
           <span className="grow" />
           <button className="ghost" onClick={changeHandle}>Change handle</button>
@@ -2584,10 +2597,10 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 <div className="mkt-titleline">
                   <span className="mkt-name">{r.name}</span>
                   <span className="import-ver">v{r.version}</span>
-                  <span className="badge">{r.category}</span>
+                  <Badge icon="hashtag-circle">{r.category}</Badge>
                   {r.publisher_verified
-                    ? <span className="badge publisher"><Icon.verified size={13} weight="Bold" /> {r.publisher}</span>
-                    : <span className="badge publisher">{r.publisher || 'unknown publisher'}</span>}
+                    ? <Badge tone="success" icon="verified-check">{r.publisher}</Badge>
+                    : <Badge icon="user-circle">{r.publisher || 'Unknown publisher'}</Badge>}
                 </div>
                 {r.description && <div className="mkt-desc">{r.description}</div>}
                 {r.permissions?.length > 0 && (
@@ -3131,7 +3144,7 @@ export function Members() {
                     {p.memories?.length > 0 && (
                       <div className="member-memories">
                         {p.memories.map((m: any, i: number) => (
-                          <div className="mem" key={i}><span className={'badge ' + m.kind}>{MEMORY_KIND[m.kind] ?? m.kind}</span> {m.content}</div>
+                          <div className="mem" key={i}><Badge icon={MEMORY_KIND[m.kind]?.icon ?? 'info-circle'}>{MEMORY_KIND[m.kind]?.label ?? m.kind}</Badge> {m.content}</div>
                         ))}
                       </div>
                     )}
@@ -3231,15 +3244,15 @@ function KeyField(props: {
         {s.dashboard ? (
           <>
             {/* "set in dashboard" read equally as "done" and as an instruction to go do it. */}
-            <span className="badge ready">Saved</span>
+            <Badge tone="success" icon="check-circle">Saved</Badge>
             <button className="ghost icon-btn" onClick={props.onClear} data-tip="Remove this key" aria-label={`Remove the saved ${props.label}`}>
               <Icon.trash size={16} />
             </button>
           </>
         ) : s.env ? (
-          <span className="badge">From environment</span>
+          <Badge icon="round-arrow-down">From environment</Badge>
         ) : (
-          <span className="badge">Not set</span>
+          <Badge icon="minus-circle">Not set</Badge>
         )}
         {state && <span className="key-state">{state}</span>}
       </div>
@@ -3753,11 +3766,12 @@ export function Usage() {
           stacked
           title="Requests / min"
           hint="live · per model against its cap"
+          // Amber once the poll stops landing: a green "Live" over numbers that have stopped
+          // moving is the most misleading thing this page could show.
           actions={
-            <div className="u-livehead">
-              <span className={'u-livedot' + (livePoll.stale ? ' stale' : '')} />
-              <span className="u-hint">{livePoll.stale ? 'not responding' : 'live'}</span>
-            </div>
+            livePoll.stale
+              ? <Badge tone="warning" icon="danger-circle">Not responding</Badge>
+              : <Badge tone="success" icon="soundwave-circle">Live</Badge>
           }
         >
           {livePoll.stale && (

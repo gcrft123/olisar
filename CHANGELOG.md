@@ -34,6 +34,8 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 
 Operators bring their own Discord bot and name it, but Olisar kept calling it Olisar. A bot called Everest introduced itself as Olisar in every new server, didn't answer to "everest", and sat above slash commands that said "Ask Olisar something." The console said Olisar on nearly every page. A new server now starts from the bot's own name, and the console and the command list use that name wherever they mean the bot. Olisar is still the name of the app, the console and the team, and servers that already exist keep their persona as it is.
 
+The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -249,6 +251,18 @@ Operators bring their own Discord bot and name it, but Olisar kept calling it Ol
 [e07b897] — The Get started step for channels reads "Choose reply channels", so a long bot name no longer cuts it short in the sidebar.
 
 [978634b] — On the No servers screen, the button that adds the bot to a server takes its own row, with Log out beneath it.
+
+[3fb1326] — Every status chip in the console has the same shape and an icon, or a spinner while something is in progress.
+
+[3fb1326] — Something in progress is blue everywhere, including a knowledge source being read or indexed, which was amber.
+
+[3fb1326] — A banned extension in the developer console is red, like a banned publisher.
+
+[3fb1326] — The marketplace shows a verified publisher in green and the rest in gray, instead of every publisher in violet.
+
+[3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
+
+[3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
 
 ### Fixed
 
