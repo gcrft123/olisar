@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Status chips</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400..700&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: #f3f3f3;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+
+  .stack { display: flex; flex-direction: column; align-items: center; gap: 13.4px; }
+
+  /* Every measurement is in em, so the chip scales with font-size (13px = 24px tall). */
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.35em;
+    box-sizing: border-box; height: 1.846em;
+    padding: 0 0.6em 0.04em 0.37em;
+    border: 0.077em solid transparent; border-radius: 999px;
+    background:
+      linear-gradient(var(--fill), var(--fill)) padding-box,
+      linear-gradient(var(--edge-top), var(--edge-mid) 50%, var(--edge-bottom)) border-box;
+    color: var(--ink);
+    font: 425 13px/1 "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    letter-spacing: -0.015em; white-space: nowrap;
+  }
+
+  .chip .ic { position: relative; flex: none; width: 1.02em; height: 1.02em; }
+  .chip .ic svg { position: relative; display: block; width: 100%; height: 100%; }
+  /* The tinted disc inside the ring: the ink at 20% over the fill. */
+  .chip .ic::before {
+    content: ""; position: absolute; inset: 8.333%; border-radius: 50%;
+    background: currentColor; opacity: 0.2;
+  }
+
+  .chip.pending   { --fill: #f9ddb0; --ink: #d28630; --edge-top: #fbead8; --edge-mid: #e5bf8a; --edge-bottom: #d6ac6b; }
+  .chip.submitted { --fill: #cbd6fb; --ink: #2a52e2; --edge-top: #e6e9fb; --edge-mid: #a6b8ea; --edge-bottom: #8198da; }
+  .chip.success   { --fill: #c2e8c9; --ink: #49a241; --edge-top: #daf8de; --edge-mid: #8ec296; --edge-bottom: #76ab81; }
+  .chip.failed    { --fill: #f0cccb; --ink: #b8342a; --edge-top: #f7dedc; --edge-mid: #d0a2a7; --edge-bottom: #c27c7e; }
+  .chip.expired   { --fill: #d9d9d9; --ink: #000000; --edge-top: #e8e8e8; --edge-mid: #b4b4b4; --edge-bottom: #a0a0a0; }
+</style>
+</head>
+<body>
+  <div class="stack">
+    <!-- Icons are Solar -linear glyphs, copied verbatim from @solar-icons/react. -->
+    <span class="chip pending">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><!-- solar:danger-circle-linear -->
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M12 7V13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        <circle cx="12" cy="16" r="1" fill="currentColor"/>
+      </svg></span>
+      Pending
+    </span>
+
+    <span class="chip submitted">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><!-- solar:round-arrow-right-up-linear -->
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M9 15L15 9M15 9H10.5M15 9V13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg></span>
+      Submitted
+    </span>
+
+    <span class="chip success">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><!-- solar:check-circle-linear -->
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M8.5 12.5L10.5 14.5L15.5 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg></span>
+      Success
+    </span>
+
+    <span class="chip failed">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><!-- solar:close-circle-linear -->
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M14.5 9.50002L9.5 14.5M9.49998 9.5L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      </svg></span>
+      Failed
+    </span>
+
+    <span class="chip expired">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><!-- solar:clock-circle-linear -->
+        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5"/>
+        <path d="M12 8V12L14.5 14.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg></span>
+      Expired
+    </span>
+  </div>
+</body>
+</html>
