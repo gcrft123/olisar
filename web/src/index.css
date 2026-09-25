@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: dark;
+  /* Device pixels per CSS pixel; theme.ts keeps it current. */
+  --dpr: 1;
 
   /* ── Interface size ──────────────────────────────────────────────────────
      Everything here is sized in px — 34px controls, a 244px rail, chart geometry — so there
@@ -830,9 +832,11 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .badge {
   --ink: var(--text-2);
   --badge-fill: color-mix(in srgb, var(--ink) 14%, var(--bg-inset));
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-  box-sizing: border-box; height: 22px; padding: 0 7px 0 4px;
-  border: 1px solid transparent; border-radius: var(--radius-pill);
+  --badge-h: 22px;
+  --badge-bw: 1px;
+  display: inline-flex; align-items: center; flex: none;
+  box-sizing: border-box; height: var(--badge-h); padding: 0 7px 0 0;
+  border: var(--badge-bw) solid transparent; border-radius: var(--radius-pill);
   background:
     linear-gradient(var(--badge-fill), var(--badge-fill)) padding-box,
     linear-gradient(
@@ -846,25 +850,44 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   /* A pill that wraps is a broken pill: "Preference" rendered 60x40 beside 23px siblings,
      split mid-word as "Prefere / nce". */
   white-space: nowrap;
+  /* Its own layer, so everything inside is rounded to the pixel grid from the badge's corner.
+     Without it Chrome rounds the text against the page instead, and at 110% it sat a device
+     pixel above center in one badge and below in the next. */
+  will-change: transform;
+}
+/* Whole device pixels. At 110% a 22px badge is 48.4 device pixels on a 2x screen and its 1px
+   edge is 2.2, and Chrome rounds the outline and the icon to the pixel grid separately — so
+   the icon sat a pixel high in one badge and a pixel low in the next. Rounding the height to
+   an even number of device pixels, and the edge to a whole one, leaves nothing to round.
+   `--dpr` comes from theme.ts. */
+@supports (height: round(nearest, 1px, 1px)) {
+  .badge {
+    --dpx: calc(1px / (var(--ui-scale) * var(--dpr, 1)));
+    --badge-h: round(nearest, 22px, calc(2 * var(--dpx)));
+    --badge-bw: max(var(--dpx), round(down, 1px, var(--dpx)));
+  }
 }
 .badge.info    { --ink: var(--info); }
 .badge.success { --ink: var(--ok); }
 .badge.warning { --ink: var(--warn); }
 .badge.danger  { --ink: var(--danger); }
 
-/* 12px, with 4px of padding to its left — the same as the space above and below it, so the
-   glyph's ring sits concentric in the pill's round end. */
-.badge-ic { position: relative; flex: none; width: 12px; height: 12px; }
-.badge-ic svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
-/* The disc inside the ring: r=10 of the 24 box, so 2/24 in from each side, at 20% ink. */
-.badge-ic::before {
-  content: ""; position: absolute; inset: 8.333%; border-radius: 50%;
-  background: currentColor; opacity: 0.2;
+/* The glyph's SVG is the pill's round end: as tall as the badge, pulled out over the edge so
+   it covers the outline too, with the 24-unit icon centered in a 44-unit view (so 12px in a
+   22px badge, 4px clear of the edge on every side). The same negative margin on the right
+   puts the label where a 12px icon and a 4px gap would. */
+.badge-ic {
+  flex: none; display: block;
+  width: var(--badge-h); height: var(--badge-h); margin: calc(-1 * var(--badge-bw));
 }
-/* RingSpinner: Solar's bare `record` ring as a faint track, and a quarter of its 62.83
-   circumference turning over it. */
-.ring-track { opacity: 0.3; }
-.ring-arc { stroke-dasharray: 15.71 47.12; stroke-linecap: round; animation: spin 0.8s linear infinite; }
+/* The disc inside the ring, at 20% ink. */
+.badge-disc { fill: currentColor; opacity: 0.2; }
+/* The spinner: Solar's bare `record` ring as the arc, a quarter of its 62.83 circumference,
+   turning over a faint full copy of itself. The ring is Solar's own circle, drawn after the
+   children. */
+.ring-track { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.3; }
+.ring-arc { animation: spin 0.8s linear infinite; }
+.ring-arc > circle:last-child { stroke-dasharray: 15.71 47.12; stroke-linecap: round; }
 @media (prefers-reduced-motion: reduce) { .ring-arc { animation-duration: 1.6s; } }
 
 /* Members: one row per person. Who they are on the left, what Olisar has made of them in

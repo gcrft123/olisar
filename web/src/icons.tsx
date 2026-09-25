@@ -159,17 +159,9 @@ export const BadgeIcon = {
 
 export type BadgeIconName = keyof typeof BadgeIcon
 
-// The badge's loading state. Solar's `record` is the bare ring every badge glyph is drawn
-// on, so the spinner is that ring twice: a faint track, and a quarter of it that turns. It
-// keeps the glyphs' size and 1.5 stroke without redrawing either.
-export function RingSpinner() {
-  return (
-    <>
-      <Record className="ring-track" aria-hidden />
-      <Record className="ring-arc" aria-hidden />
-    </>
-  )
-}
+// The badge's loading state is Solar's `record`: the bare ring every badge glyph is drawn
+// on, so a spinner made from it has the glyphs' size and 1.5 stroke without redrawing either.
+export const SpinnerRing = Record
 
 // The copy → copied swap, shared by every copy affordance in the console.
 //
