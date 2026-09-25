@@ -669,7 +669,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                     "image at the moment."
                 )
             ext = "jpg" if "jpeg" in (mime or "") or "jpg" in (mime or "") else "png"
-            result = await ctx.actions.send_image(data, filename=f"olisar.{ext}")
+            result = await ctx.actions.send_image(data, filename=f"image.{ext}")
             if result != "image posted":
                 return result  # surface the failure reason to the model
             return (
