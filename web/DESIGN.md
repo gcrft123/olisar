@@ -133,8 +133,8 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --accent: #5b9cf6;
   --accent-soft: rgba(91, 156, 246, 0.16);
 
-  /* Chart series palette (.us0–.us5) and the marketplace publisher chip. Distinct hues for
-     CATEGORICAL data only — never UI state, which is what the semantic tokens below are. */
+  /* Chart series palette (.us0–.us5). Distinct hues for CATEGORICAL data only — never UI
+     state, which is what the semantic tokens below are. */
   --accent-violet: #8a8af2; --accent-blue: #5b9cf6;
   --accent-teal: #2dd4bf;   --accent-green: #43cf8e; --accent-amber: #e0a458;
   --accent-rose: #f2728a;
@@ -309,6 +309,7 @@ Small, dense, admin proportions:
 | Section title / brand | 15px | 600 |
 | Body / inputs / buttons | 13.5px | 400 |
 | Secondary / descriptions | 12.5px | 400 |
+| Badge | 12px | 500 |
 | Eyebrow / nav label | 11px | 600 uppercase, 0.04em |
 
 Form **labels** sit at weight **550** (a hair above medium). Body line-height 1.55.
@@ -620,17 +621,108 @@ Two things that will bite you if you rebuild it:
 - **Query the container, not the viewport.** The rail's breakpoint is a container query because a media query fires at a physical width while the layout inside it is zoomed by `--ui-scale`. The section measures its own px, and the rail collapses in a narrow Extensions detail pane the same way it does on a phone.
 - **Size containment makes each section a stacking context.** A popup that runs past a section's bottom edge (the "+N" roles card, a menu) would paint under the next section, so the section being hovered or focused rises above its siblings. Anything absolutely positioned inside a section depends on that rule.
 
-### Badge & Tag
+### Badge
+
+The status chip, built from the reference in `design/status-chips/` and moved onto the dark ground.
+Render it with `<Badge>` from `ui.tsx`. Never hand-write a `<span className="badge">`: the glyph,
+the tone and the spinner are the component's job, and a hand-rolled one drifts.
+
+**Five tones, one meaning each.** The tone says how the thing stands; the words say what it is.
+
+| Tone | Means | For example |
+|---|---|---|
+| `success` | Done, healthy, on | Running, Enabled, Saved, Indexed, Discord-verified |
+| `info` | Working on it (always with the spinner), or something new | Starting…, Indexing…, Published, Update available |
+| `warning` | Needs a look, and won't sort itself out | Offline, Stopped, Unpublished changes, Warned |
+| `danger` | Failed, refused or blocked | Couldn't start, Unreachable, Yanked, Banned |
+| `neutral` | A plain fact or a label | a category, where an extension came from, Current, Not set |
+
+Don't reach for a sixth tone. A label that wants to stand out is still a label: the marketplace
+publisher chip was violet and the user role chip was the accent, and now a verified publisher is
+`success` and the rest are `neutral`. A state that doesn't fit one of the five is usually two
+badges.
+
+**Every badge has a glyph, or the spinner while `busy`.** The tone is never the only signal. Glyphs
+come from `BadgeIcon` in `icons.tsx`, keyed by their Solar name, and only a Solar icon whose outline
+is the r=10 circle on the 24-unit box can go there, because the badge fills that ring with a tinted
+disc. `design/status-chips/circle-icons.html` lists every one that qualifies. This isn't a circled
+glyph in a circle (see **Iconography**): the disc sits inside the glyph's own ring, so there is one
+ring.
+
+The same glyph means the same thing everywhere:
+
+| Glyph | Meaning |
+|---|---|
+| `check-circle` | Done, on, or verified |
+| `close-circle` | Failed or refused |
+| `danger-circle` | Needs attention |
+| `minus-circle` | Absent or off: Not set, Not set up, Disabled |
+| `play-circle`, `stop-circle` | Running, stopped |
+| `clock-circle` | Waiting in a queue |
+| `slash-circle` | Withdrawn from the marketplace |
+| `forbidden-circle` | Banned |
+| `round-arrow-right-up`, `round-arrow-up`, `round-arrow-down` | Published, update available, imported |
+| `pen-new-round` | Rewritten or edited by you |
+| `hashtag-circle` | A category |
+| `user-circle` | A person made it, or a person's role |
+
+**The spinner is Solar's `record`,** the bare ring every badge glyph is drawn on: a faint copy as the
+track, and a quarter of it turning over the top. It has the glyphs' size and 1.5 stroke because it
+is their ring. `RingSpinner` in `icons.tsx`.
 
 ```css
-.badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px;
-  font-size: 11px; font-weight: 600; text-transform: capitalize;
-  background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2); }
-.badge.success { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
-.badge.error   { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
-.badge.warning { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
-.badge.info    { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
+.badge {
+  --ink: var(--text-2);
+  --badge-fill: color-mix(in srgb, var(--ink) 14%, var(--bg-inset));
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  box-sizing: border-box; height: 22px; padding: 0 7px 0 4px;
+  border: 1px solid transparent; border-radius: var(--radius-pill);
+  /* The edge is lit from above: brightest along the top, dimmest along the bottom. The fill
+     has to be opaque, or the edge gradient under the padding box shows through it. */
+  background:
+    linear-gradient(var(--badge-fill), var(--badge-fill)) padding-box,
+    linear-gradient(
+      color-mix(in srgb, var(--ink) 52%, var(--bg-inset)),
+      color-mix(in srgb, var(--ink) 34%, var(--bg-inset)) 50%,
+      color-mix(in srgb, var(--ink) 22%, var(--bg-inset))
+    ) border-box;
+  color: var(--ink);
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500; line-height: 1;
+  vertical-align: middle; white-space: nowrap;
+}
+.badge.info    { --ink: var(--info); }
+.badge.success { --ink: var(--ok); }
+.badge.warning { --ink: var(--warn); }
+.badge.danger  { --ink: var(--danger); }
 
+/* 4px of padding on the left, the same as the space above and below the glyph, so its ring
+   sits concentric in the pill's round end. */
+.badge-ic { position: relative; flex: none; width: 12px; height: 12px; }
+.badge-ic svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.badge-ic::before { content: ""; position: absolute; inset: 8.333%; border-radius: 50%;
+  background: currentColor; opacity: 0.2; }
+
+.ring-track { opacity: 0.3; }
+.ring-arc { stroke-dasharray: 15.71 47.12; stroke-linecap: round; animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .ring-arc { animation-duration: 1.6s; } }
+```
+```jsx
+<Badge tone="success" icon="check-circle">Saved</Badge>
+<Badge tone="info" busy>Indexing…</Badge>
+<Badge icon="hashtag-circle">{category}</Badge>
+```
+
+Badge text is sentence case and written the way it should read ("Published", not the API's
+`published`). Every tone's text clears 4.5:1 on its own fill. A layout that needs badges to line
+up sets a width on the badge from its parent (`.mem > .badge`, the re-index list's last column);
+the badge itself has no size variants.
+
+### Tag
+
+A monospaced chip for a token the operator might type: a permission, a tool name, a slash command.
+It carries no state, so it has no tone and no glyph.
+
+```css
 .tag { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 7px; border-radius: 8px;
   background: var(--bg-inset); border: 1px solid var(--border); color: var(--text); }
 ```
@@ -664,7 +756,7 @@ name always ships beside the dot. The dot is redundant encoding, not the encodin
 
 ### StatTile (metric) & Spinner
 
-A single metric: an eyebrow, a big mono number, and a delta or caption under it. Several sit in one strip divided by vertical hairlines, not in boxed tiles; the four on Usage are one reading of today, and four borders said four unrelated things. The spinner is a minimal accent ring for quiet loading states.
+A single metric: an eyebrow, a big mono number, and a delta or caption under it. Several sit in one strip divided by vertical hairlines, not in boxed tiles; the four on Usage are one reading of today, and four borders said four unrelated things. The spinner is a minimal accent ring for quiet loading states; inside a badge, use the badge's own `busy` state instead (see **Badge**).
 
 ```css
 .u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); }
