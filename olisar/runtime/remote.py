@@ -5,8 +5,7 @@ creating their cloud VM, so the private key never leaves this machine. With that
 with no terminal work from the operator:
   - install Docker + write the .env / compose file + start the container (`deploy`)
   - start/stop it later from the in-app control panel (`power`)
-  - pull a newer image and recreate the container when running (`update_image`)
-  - do that unattended whenever this client is ahead of the VM (`autoupdate`)
+  - apply the newest release whenever this client is ahead of the VM (`autoupdate`)
   - read whether it's running, recent logs, and the public URL (`status`)
 
 One VM can run several bots. Each is its own Docker Compose project in its own directory
@@ -812,18 +811,13 @@ def hold(*, target: str | None, server: str, channel: str) -> dict | None:
     return None
 
 
-async def _apply_update(conn, host: str, app_dir: str, server_version: str | None = None) -> dict:
+async def _apply_update(conn, host: str, app_dir: str, server_version: str) -> dict:
     """Run the VM's update script over an open connection and report what it did.
 
-    The single implementation behind every trigger — the control panel's "Update now" and
-    the automatic reconcile below both land here, so an attended update and an unattended
-    one cannot diverge. ``host`` and ``app_dir`` are the install this connection belongs to,
-    so the outcome is recorded against the right bot. ``server_version`` is what the VM
-    reports running, when the caller has already probed it.
+    ``host`` and ``app_dir`` are the install this connection belongs to, so the outcome is
+    recorded against the right bot. ``server_version`` is what the VM reports running.
     """
     tag = await _target()
-    if server_version is None:
-        server_version = (await _probe(conn, app_dir)).get("version") or ""
     result = hold(target=tag, server=server_version, channel=updates.channel())
     out = ""
     script_ok = False
@@ -872,34 +866,6 @@ async def _apply_update(conn, host: str, app_dir: str, server_version: str | Non
     if not ok:
         applied["error"] = result.get("message") or "The update did not complete."
     return applied
-
-
-async def update_image() -> dict:
-    """Apply the newest Olisar *release* on this app's update channel to the configured VM,
-    by running the VM's own ``olisar-update.sh`` — which pins that tag's digest into the compose
-    file, applies it, waits for the container's healthcheck, and rolls back to the previous
-    digest if it never comes up.
-
-    The control panel's on-demand trigger. Best-effort: SSH failures return ``ok: False``
-    without raising so the panel can still show status. Shares ``_gate`` with the automatic
-    reconcile, so two runs of the script can never race over the same compose file.
-    """
-    cfg = await _load()
-    if not (cfg and cfg.server_host):
-        return {"ok": False, "error": "No server configured yet."}
-    base = {"host": cfg.server_host}
-    try:
-        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
-    except Exception as exc:  # noqa: BLE001
-        return {**base, "ok": False, "reachable": False, "error": f"Couldn't reach the VM: {exc}"}
-    try:
-        async with _gate:
-            applied = await _apply_update(conn, cfg.server_host, app_dir_of(cfg))
-    except Exception as exc:  # noqa: BLE001
-        return {**base, "ok": False, "reachable": True, "error": str(exc)}
-    finally:
-        conn.close()
-    return {**base, "reachable": True, **applied}
 
 
 # ── automatic updates ───────────────────────────────────────────────────────────
@@ -1031,7 +997,7 @@ async def power(action: str) -> dict:
 
     ``up`` boots whatever digest the compose file is pinned to — it deliberately does NOT
     pull. Start used to pull first, which meant an operator who stopped their bot for a
-    week silently came back on a different version; updating is now its own action.
+    week silently came back on a different version. Only ``autoupdate`` moves the release.
     """
     cfg = await _load()
     if not (cfg and cfg.server_host):
