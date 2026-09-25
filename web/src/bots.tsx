@@ -3,6 +3,7 @@ import { api } from './api'
 import { Icon } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
 import { PubkeyBox, usePubkey } from './setup'
+import { ScreenCorners } from './settings'
 import { Field, Select, Text } from './ui'
 
 // Every bot on a desktop install runs at once, each in its own process behind the gateway
@@ -328,7 +329,7 @@ export function BotFailed({ bot }: { bot: Bot }) {
   return (
     <div className="login">
       <div className="box wide">
-        <BotMenu variant="chip" />
+        <ScreenCorners />
         <div className="mark warn"><Icon.warn size={26} weight="Bold" /></div>
         <h1>{bot.name} couldn’t start</h1>
         <p>Your other bots aren’t affected. The end of its output:</p>
