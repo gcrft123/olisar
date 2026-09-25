@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
+import { botName } from './botname'
 import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
 import { ActivityCard } from './pages'
@@ -601,7 +602,7 @@ function Security() {
   const remove = async () => {
     const ok = await confirmDialog({
       title: 'Remove the PIN?',
-      message: 'Anything that asks for it can’t be confirmed, so Olisar won’t run it.',
+      message: `Anything that asks for it can’t be confirmed, so ${botName()} won’t run it.`,
       confirmLabel: 'Remove',
       cancelLabel: 'Keep it',
       tone: 'danger',
@@ -630,7 +631,7 @@ function Security() {
     <>
       <Head
         title="Security"
-        sub="A 4-digit PIN that confirms certain actions in Discord before Olisar takes them. Anyone who has it can confirm. Each server picks its actions under Access."
+        sub={`A 4-digit PIN that confirms certain actions in Discord before ${botName()} takes them. Anyone who has it can confirm. Each server picks its actions under Access.`}
       />
       {err && <div className="settings-err" role="alert">{err}</div>}
       {!data ? <Spinner /> : (
