@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { api } from './api'
 import { BotMenu, deviceNameFor, intentList, serverLabel, sharedServers, useBots } from './bots'
 import { DiscordLogo, Icon } from './icons'
@@ -126,6 +126,55 @@ function ModeChoice({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => void })
 }
 
 type StepId = 'where' | 'bot' | 'remote' | 'signin' | 'server' | 'keys' | 'deploy'
+// Every step any hosting choice can have, in order. The progress bar draws all of them and
+// folds away the ones this choice skips, so picking a hosting option grows or shrinks the
+// bar rather than redrawing it.
+const ALL_STEPS: StepId[] = ['where', 'bot', 'remote', 'signin', 'server', 'keys', 'deploy']
+
+// The setup card's height follows its content, which changes on every step and whenever a
+// check, a warning or an error arrives. It used to snap, and since the card was centred its
+// top moved by half of every change: the title jumped up to 110px between steps, and the
+// token field slid 63px while the operator was typing into it. The card now hangs from a
+// fixed line (see `.setup`) and `body` tweens from the height it had to the one its content
+// now needs, clipped along the bottom so the footer rides the moving edge.
+//
+// `flow` is measured, not `body`: it always sits at its content's height, while `body`'s is
+// the one being animated. A width change (window drag, interface size) snaps, since a card
+// trailing the window by a few hundred ms reads as lag rather than motion.
+function useHeightTween() {
+  const body = useRef<HTMLDivElement>(null)
+  const flow = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const b = body.current, f = flow.current
+    if (!b || !f || typeof ResizeObserver === 'undefined') return
+    let last: { w: number; h: number } | null = null
+    let anim: Animation | null = null
+    const ro = new ResizeObserver(([e]) => {
+      const { width: w, height: h } = e.contentRect
+      const prev = last
+      last = { w, h }
+      if (!prev) return
+      // Mid-tween, start from where the edge is now rather than where it was headed.
+      const from = anim?.playState === 'running' ? parseFloat(getComputedStyle(b).height) : prev.h
+      anim?.cancel()
+      anim = null
+      if (w !== prev.w || Math.abs(h - from) < 1) return
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+      // Growing, the new content overflows until the edge reaches it. Clip only the bottom:
+      // the sides stay open so a focus ring or a step sliding in isn't shaved.
+      const clip = 'inset(-12px -24px 0 -24px)'
+      const ease = getComputedStyle(document.documentElement).getPropertyValue('--ease-out').trim() || 'ease-out'
+      anim = b.animate(
+        [{ height: `${from}px`, clipPath: clip }, { height: `${h}px`, clipPath: clip }],
+        // Longer for a longer move: a check line's 20px in ~190ms, a whole step in ~300ms.
+        { duration: Math.min(340, 180 + Math.abs(h - from) * 0.6), easing: ease },
+      )
+    })
+    ro.observe(f)
+    return () => { ro.disconnect(); anim?.cancel() }
+  }, [])
+  return { body, flow }
+}
 
 // What /api/setup/bot and /api/setup/discord-status say about the bot's Discord application.
 type BotApp = {
@@ -176,19 +225,28 @@ function useLiveCheck<T>(
   return { ...st, recheck: () => start(v) }
 }
 
-// The line under a live-checked field.
+// The line under a live-checked field. Each answer arrives as new words rather than changing
+// under a line that sat still, but only the words are replaced: the live region itself stays,
+// because a screen reader announces what changes inside one and can miss one that turns up
+// already filled.
 function CheckLine({ check, ok, bad }: { check: LiveCheck<unknown>; ok: ReactNode; bad: string }) {
-  if (check.state === 'checking') return <div className="check-line" role="status"><span className="spinner" /> Checking…</div>
-  if (check.state === 'ok') return <div className="check-line ok" role="status">{ok}</div>
-  if (check.state === 'bad') return <div className="check-line err" role="alert">{bad}</div>
-  if (check.state === 'error') {
-    return (
-      <div className="check-line err" role="alert">
-        {check.error} <button className="linklike" onClick={check.recheck}>Try again</button>
-      </div>
-    )
-  }
-  return null
+  if (check.state === 'idle') return null
+  const told = check.state === 'checking' || check.state === 'ok'
+  return (
+    <div className={'check-line' + (check.state === 'ok' ? ' ok' : told ? '' : ' err')} role={told ? 'status' : 'alert'}>
+      <ArrivingLine id={check.state}>
+        {check.state === 'checking' ? <><span className="spinner" /> Checking…</>
+          : check.state === 'ok' ? ok
+          : check.state === 'bad' ? bad
+          : <>{check.error} <button className="linklike" onClick={check.recheck}>Try again</button></>}
+      </ArrivingLine>
+    </div>
+  )
+}
+
+// A check line's contents, replayed whenever `id` changes (see CheckLine).
+function ArrivingLine({ id, children }: { id: string; children: ReactNode }) {
+  return <span key={id} className="check-line-in wiz-appear">{children}</span>
 }
 
 function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
@@ -206,7 +264,7 @@ export function RedirectRow({ url, added }: { url: string; added: boolean }) {
     <div className="redirect-box">
       <span>{url}</span>
       {added
-        ? <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Added</span>
+        ? <span className="ok-pill wiz-pop"><Icon.check size={14} weight="Bold" /> Added</span>
         : <CopyText text={url} />}
     </div>
   )
@@ -253,6 +311,17 @@ export function SetupWizard(
   // Whether `err` is the save failing, rather than a field left empty. Only the first is
   // ours to hear about.
   const [saveFailed, setSaveFailed] = useState(false)
+  // Bumped each time Continue or Finish is refused, so the reason arrives again even when
+  // it's the one already on screen. Otherwise a second press did nothing anyone could see.
+  const [errSeq, setErrSeq] = useState(0)
+
+  // What just changed, so only that part plays its entrance: a step (from the side it came
+  // from) or the whole screen (the wizard ↔ connecting to an existing server). Nothing plays
+  // on first paint.
+  const [moved, setMoved] = useState<{ what: 'step' | 'screen'; back: boolean } | null>(null)
+  const enter = (what: 'step' | 'screen') =>
+    moved?.what === what ? ' enter' + (moved.back ? ' back' : '') : ''
+  const { body, flow } = useHeightTween()
 
   // Where it runs
   const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
@@ -429,7 +498,21 @@ export function SetupWizard(
     setSaveFailed(false)
     const why = blocker()
     setErr(why)
-    if (!why) setStep((s) => Math.min(s + 1, last))
+    if (why) { setErrSeq((n) => n + 1); return }
+    setMoved({ what: 'step', back: false })
+    setStep((s) => Math.min(s + 1, last))
+  }
+
+  function back() {
+    setErr(''); setSaveFailed(false)
+    setMoved({ what: 'step', back: true })
+    setStep((s) => Math.max(0, s - 1))
+  }
+
+  function showConnect(on: boolean) {
+    setDeployErr('')
+    setMoved({ what: 'screen', back: !on })
+    setConnectMode(on)
   }
 
   async function enableTunnel() {
@@ -456,7 +539,7 @@ export function SetupWizard(
     setSaveFailed(false)
     const why = blocker()
     setErr(why)
-    if (why) return
+    if (why) { setErrSeq((n) => n + 1); return }
     setSaving(true)
     try {
       const keys: Record<string, string> = { ...envKeys }
@@ -471,6 +554,7 @@ export function SetupWizard(
       onDone()
     } catch (e: any) {
       setErr(e?.message || 'Save failed.')
+      setErrSeq((n) => n + 1)
       setSaveFailed(true)
       setSaving(false)
     }
@@ -522,6 +606,25 @@ export function SetupWizard(
     }
   }
 
+  // The footer's primary action, per screen and step.
+  const primary = connectMode
+    ? { label: deploying ? 'Connecting…' : 'Connect', run: connectServer, off: deploying }
+    : step < last
+      ? { label: 'Continue', run: next, off: redirectPending }
+      : mode === 'server'
+        ? { label: deploying ? 'Deploying…' : 'Deploy to server', run: deployServer, off: deploying || (sharing && shareBusy) }
+        : { label: saving ? 'Saving…' : 'Finish & start Olisar', run: finish, off: saving }
+
+  // "Connect to existing server" goes with the screen it was on, and Back comes home to a
+  // first step where Back is disabled. Either way focus would drop to the page: land on the
+  // address the connect screen asks for, and on the way back on the button that opened it.
+  const revealBtn = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (moved?.what !== 'screen') return
+    if (connectMode) flow.current?.querySelector<HTMLInputElement>('input')?.focus()
+    else revealBtn.current?.focus()
+  }, [connectMode])  // eslint-disable-line react-hooks/exhaustive-deps
+
   const A = (href: string, text: string) => (
     <a href={href} target="_blank" rel="noreferrer">{text}</a>
   )
@@ -560,9 +663,11 @@ export function SetupWizard(
             onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
           />
         )}
+        <div className="box-body" ref={body}>
+        <div ref={flow}>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         {connectMode ? (
-          <>
+          <div key="connect" className={'wiz-screen' + enter('screen')}>
             <h1>Connect to an existing server</h1>
             <p className="step-sub">
               Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.
@@ -590,35 +695,34 @@ export function SetupWizard(
               </Field>
             </details>
             {deploying && (
-              <div className="callout note" style={{ marginBottom: 4 }}>
+              <div className="callout note wiz-appear" style={{ marginBottom: 4 }}>
                 <span className="ic"><span className="spinner" /></span>
                 <div className="callout-body">Connecting to your VM over SSH…</div>
               </div>
             )}
             {deployErr && (
-              <div className="err-block">
+              <div className="err-block wiz-appear">
                 <div className="err">{deployErr}</div>
                 <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Connecting to my existing Olisar server failed.', deployErr) }}>
                   Report a problem
                 </FeedbackButton>
               </div>
             )}
-            <div className="wiz-foot">
-              <button disabled={deploying} onClick={() => { setConnectMode(false); setDeployErr('') }}>Back</button>
-              <span className="grow" />
-              <button className="primary" disabled={deploying} onClick={connectServer}>{deploying ? 'Connecting…' : 'Connect'}</button>
-            </div>
-          </>
+          </div>
         ) : (
-          <>
+          <div key="wizard" className={'wiz-screen' + enter('screen')}>
         <h1>Set up Olisar</h1>
         <p className="step-sub">
           A one-time setup to connect Olisar to your Discord server.
         </p>
-        <div className="steps">
-          {steps.map((_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
+        <div className="steps" style={{ gridTemplateColumns: ALL_STEPS.map((id) => (steps.includes(id) ? '1fr' : '0fr')).join(' ') }}>
+          {ALL_STEPS.map((id) => {
+            const i = steps.indexOf(id)
+            return <i key={id} className={i >= 0 && i <= step ? 'on' : ''} />
+          })}
         </div>
 
+        <div key={cur} className={'wiz-step' + enter('step')}>
         {cur === 'where' && <ModeChoice mode={mode} onPick={pickMode} />}
 
         {cur === 'bot' && (
@@ -641,7 +745,7 @@ export function SetupWizard(
               bad="Discord didn’t accept that token."
             />
             {bot && bot.intents_missing.length > 0 && (
-              <div className="callout warning">
+              <div className="callout warning wiz-appear">
                 <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
                 <div className="callout-body">
                   Turn on <strong>{intentList(bot.intents_missing)}</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, under Privileged Gateway Intents.
@@ -649,7 +753,7 @@ export function SetupWizard(
               </div>
             )}
             {bot?.code_grant && (
-              <div className="callout warning">
+              <div className="callout warning wiz-appear">
                 <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
                 <div className="callout-body">
                   Turn off <strong>Requires OAuth2 Code Grant</strong> on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}, or the invite link won’t work.
@@ -686,8 +790,8 @@ export function SetupWizard(
             </Field>
             <div className="wiz-foot">
               <span className="grow">
-                {tunnelDone && tunnelUrl && <span className="ok-pill"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
-                {tunnelErr && <span className="err"><Linkified text={tunnelErr} /></span>}
+                {tunnelDone && tunnelUrl && <span className="ok-pill wiz-pop"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
+                {tunnelErr && <span className="err wiz-appear"><Linkified text={tunnelErr} /></span>}
               </span>
               <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
                 {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
@@ -731,7 +835,7 @@ export function SetupWizard(
                 </div>
               </Field>
               {!redirects.every(added) && (
-                <div className="check-line" role="status">
+                <div className="check-line wiz-appear" role="status">
                   <span className="spinner" /> Waiting for Discord to list {redirects.length > 1 ? 'them' : 'it'}…
                 </div>
               )}
@@ -749,9 +853,13 @@ export function SetupWizard(
                 <CopyText text={bot.invite_url} label="Copy link" />
               </div>
             </Field>
-            {guilds.length === 0
-              ? <div className="check-line" role="status"><span className="spinner" /> Waiting for {bot.username} to join a server…</div>
-              : <div className="check-line ok" role="status"><Icon.check size={14} weight="Bold" /> <span>In {guilds.map((g) => g.name).join(', ')}</span></div>}
+            <div className={'check-line' + (guilds.length ? ' ok' : '')} role="status">
+              <ArrivingLine id={guilds.length ? 'joined' : 'waiting'}>
+                {guilds.length === 0
+                  ? <><span className="spinner" /> Waiting for {bot.username} to join a server…</>
+                  : <><Icon.check size={14} weight="Bold" /> <span>In {guilds.map((g) => g.name).join(', ')}</span></>}
+              </ArrivingLine>
+            </div>
             {guilds.length > 1 && (
               <Field label="Main server" desc="Its persona and settings also apply in DMs.">
                 <Select value={guildId} onChange={setGuildId} options={guilds.map((g) => ({ value: g.id, label: g.name }))} />
@@ -847,7 +955,7 @@ export function SetupWizard(
             </Field>
 
             {deploying && (
-              <div className="callout note" style={{ marginBottom: 4 }}>
+              <div className="callout note wiz-appear" style={{ marginBottom: 4 }}>
                 <span className="ic"><span className="spinner" /></span>
                 <div className="callout-body">Installing Olisar on your VM. This takes a few minutes — keep this window open.</div>
               </div>
@@ -856,7 +964,7 @@ export function SetupWizard(
             {/* The costliest failure in setup: minutes in, with the log already on screen.
                 The report carries both, so nobody has to copy a terminal's worth of text. */}
             {deployErr && (
-              <div className="err-block">
+              <div className="err-block wiz-appear">
                 <div className="err">{deployErr}</div>
                 <FeedbackButton className="" prefill={{
                   category: 'Bug report',
@@ -876,34 +984,36 @@ export function SetupWizard(
         )}
 
         {err && (saveFailed ? (
-          <div className="err-block">
+          <div key={errSeq} className="err-block wiz-appear">
             <div className="err">{err}</div>
             <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Finishing setup failed.', err) }}>
               Report a problem
             </FeedbackButton>
           </div>
-        ) : <div className="err">{err}</div>)}
+        ) : <div key={errSeq} className="err wiz-appear">{err}</div>)}
+        </div>
+          </div>
+        )}
+        </div>
+        </div>
 
+        {/* Outside the tweened body, so it rides the card's bottom edge. One footer and one
+            primary button for every step and both screens: the button that was pressed is
+            still there afterwards, so focus stays on it and Enter walks the whole wizard. */}
         <div className="wiz-foot">
-          <button disabled={step === 0 || saving} onClick={() => { setErr(''); setSaveFailed(false); setStep((s) => Math.max(0, s - 1)) }}>
+          <button disabled={connectMode ? deploying : step === 0 || saving} onClick={connectMode ? () => showConnect(false) : back}>
             Back
           </button>
           <span className="grow" />
-          {step < last
-            ? (cur === 'where'
-                ? <div className="cta-reveal">
-                    <div className="reveal-slot">
-                      <button className="ghost reveal-btn" onClick={() => { setConnectMode(true); setDeployErr('') }}>Connect to existing server</button>
-                    </div>
-                    <button className="primary" onClick={next}>Continue</button>
-                  </div>
-                : <button className="primary" disabled={redirectPending} onClick={next}>Continue</button>)
-            : mode === 'server'
-              ? <button className="primary" disabled={deploying || (sharing && shareBusy)} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
-              : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}
+          <div className="cta-reveal">
+            <div className="reveal-slot">
+              {!connectMode && cur === 'where' && (
+                <button ref={revealBtn} className="ghost reveal-btn" onClick={() => showConnect(true)}>Connect to existing server</button>
+              )}
+            </div>
+            <button className="primary" disabled={primary.off} onClick={primary.run}>{primary.label}</button>
+          </div>
         </div>
-          </>
-        )}
       </div>
     </div>
   )
