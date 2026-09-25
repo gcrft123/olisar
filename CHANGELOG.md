@@ -228,6 +228,8 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 
 [4a7f8ff] — The API keys page, and the UEX token on the Star Citizen page, are the operator's alone; before, any server's admin could replace or remove keys every server shares.
 
+[2cd9741] — The screens that stop you getting in (No servers yet, Access denied, Account suspended, a bot that couldn't start) have the Settings gear in the corner, like setup and sign-in.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
