@@ -345,6 +345,9 @@ export function SetupWizard(
     ...(mode === 'tunnel' && tunnelUrl ? [tunnelUrl.replace(/\/$/, '') + '/auth/callback'] : []),
   ]
   const added = (u: string) => !!bot?.redirect_uris.includes(u)
+  // Sign-in can't move on until Discord lists every redirect: without them, the first sign-in
+  // after setup fails on Discord's own error page, with nothing here to say why.
+  const redirectPending = cur === 'signin' && !redirects.every(added)
 
   // While the operator is off in the Developer Portal or inviting the bot, keep reading the
   // application so each step ticks itself off without a "Check again" button.
@@ -717,7 +720,7 @@ export function SetupWizard(
               ok={<><Icon.check size={14} weight="Bold" /> Secret matches</>}
               bad={`That isn’t ${bot.username}’s client secret.`}
             />
-            {redirects.length > 0 && (
+            {redirects.length > 0 && (<>
               <Field
                 plain
                 label={redirects.length > 1 ? 'Redirect URLs' : 'Redirect URL'}
@@ -727,7 +730,12 @@ export function SetupWizard(
                   {redirects.map((u) => <RedirectRow key={u} url={u} added={added(u)} />)}
                 </div>
               </Field>
-            )}
+              {!redirects.every(added) && (
+                <div className="check-line" role="status">
+                  <span className="spinner" /> Waiting for Discord to list {redirects.length > 1 ? 'them' : 'it'}…
+                </div>
+              )}
+            </>)}
           </>
         )}
 
@@ -889,7 +897,7 @@ export function SetupWizard(
                     </div>
                     <button className="primary" onClick={next}>Continue</button>
                   </div>
-                : <button className="primary" onClick={next}>Continue</button>)
+                : <button className="primary" disabled={redirectPending} onClick={next}>Continue</button>)
             : mode === 'server'
               ? <button className="primary" disabled={deploying || (sharing && shareBusy)} onClick={deployServer}>{deploying ? 'Deploying…' : 'Deploy to server'}</button>
               : <button className="primary" disabled={saving} onClick={finish}>{saving ? 'Saving…' : 'Finish & start Olisar'}</button>}

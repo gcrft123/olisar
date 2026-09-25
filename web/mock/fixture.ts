@@ -436,6 +436,9 @@ const waited = (what: string, ms: number) => {
 }
 // A made-up application, so the invite link in a published demo can't add a real bot.
 const MOCK_APP_ID = '1100000000000000001'
+// The address remote access last came up at, so the redirect the wizard asks for is the one
+// that gets "registered", whatever device name was typed.
+const SETUP_TUNNEL = { url: 'https://olisar.tail4f2a.ts.net' }
 function mockSetupApp(token: string, polled: boolean, origin = '') {
   const intentsOn = !token.includes('intents') || (polled && waited('intents', 8000))
   const redirectsIn = polled && intentsOn && waited('redirects', 5000)
@@ -444,7 +447,7 @@ function mockSetupApp(token: string, polled: boolean, origin = '') {
       id: MOCK_APP_ID, username: 'Olisar', avatar: '', bot_public: true, code_grant: false,
       intents_missing: intentsOn ? [] : ['message_content', 'members'],
       redirect_uris: redirectsIn
-        ? [`${origin}/auth/callback`, 'https://olisar.tail4f2a.ts.net/auth/callback']
+        ? [`${origin}/auth/callback`, `${SETUP_TUNNEL.url}/auth/callback`]
         : [],
       invite_url: `https://discord.com/oauth2/authorize?client_id=${MOCK_APP_ID}&scope=bot+applications.commands&permissions=274878024768`,
     },
@@ -517,7 +520,8 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
   if (url.startsWith('/api/setup/save')) return body(() => later(900, () => { finish('local'); send({ ok: true, redirect_uri: 'http://localhost:8723/auth/callback' }) }))
   if (url.startsWith('/api/tunnel/enable')) return body((b) => later(2200, () => bad(b.auth_key)
     ? send({ detail: 'Funnel isn’t turned on for this tailnet. Turn it on at https://login.tailscale.com/f/funnel?node=olisar, then press Enable again.' }, 400)
-    : send({ ok: true, public_url: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net`, redirect_uri: `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net/auth/callback` })))
+    : (SETUP_TUNNEL.url = `https://${(b.hostname || 'olisar').trim()}.tail4f2a.ts.net`,
+      send({ ok: true, public_url: SETUP_TUNNEL.url, redirect_uri: `${SETUP_TUNNEL.url}/auth/callback` }))))
   if (url.startsWith('/api/server/pubkey')) return later(600, () => send({ public_key: MOCK_PUBKEY }))
   if (url.startsWith('/api/server/deploy')) return body((b) => later(4500, () => {
     if (bad(b.host)) return send({ ok: false, error: 'The install stopped: the VM couldn’t download the Olisar image.', log: MOCK_INSTALL_LOG })

@@ -1417,6 +1417,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .key-status + .check-line { margin-top: 8px; }
 .setup .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
 .setup .redirect-list { display: grid; gap: 8px; }
+/* The URL takes what's left and breaks anywhere; its Copy / Added never shrinks or breaks.
+   `break-all` on the box reached into the pill, so a long URL split "Added" over two lines. */
+.setup .redirect-box > span:first-child { flex: 1; min-width: 0; }
+.setup .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
 /* The ghost Copy link carries its own 14px of invisible padding, so the row adds little. */
 .setup .invite-row { display: flex; align-items: center; gap: 4px; }
 /* Sized like the footer buttons, not the login screen's full-width call to action. The logo
