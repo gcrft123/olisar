@@ -531,12 +531,12 @@ The setup card changes height on every step and whenever something arrives insid
 check's answer, the intents warning, the redirect URLs ticking off, an error. Three rules keep
 that from reading as the card jumping around.
 
-**It hangs from a fixed line; it doesn't centre.** A centred card moves its top by half of
-every change, so the title and progress bar jumped as much as 110px between steps, and the bot
-token field slid 63px while it was being typed into, the moment the intents warning appeared.
-`.setup` puts the card's top where a typical card (`--card-rest`, 560px) would sit centred. A
-shorter step leaves the room below it; a taller one scrolls as before. The server control panel
-shares `.setup`, so a deploy that lands on it keeps the logo where the wizard had it.
+**It's centred, and it glides.** `.setup` centres the card the way `.login` does. A centred card
+moves its top by half of every change in its height, so the height tween below is what keeps a
+step change or an arriving warning from reading as a jump: the card slides to its new centre
+over the same ~300ms. A card taller than the window scrolls. The server control panel shares
+`.setup`, so it's centred the same way. (Hanging it from a fixed line kept the top still, but
+sat short steps high and tall ones low.)
 
 **The height tweens, and the footer rides the edge.** `useHeightTween` (setup.tsx) watches an
 inner wrapper that always sits at its content's height and animates `.box-body` from the height

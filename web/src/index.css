@@ -1465,15 +1465,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
 /* ── Setup wizard ───────────────────────────────────────────────────────── */
-/* The card hangs from a fixed line instead of centring. Centred, every change in its height
-   moved its top by half as much, so the title and progress bar jumped between steps and a
-   field slid while it was being typed into. The line is where a typical step's card would
-   sit centred; shorter steps leave the room below, taller ones scroll as before. */
-.setup {
-  --card-rest: 560px;
-  min-height: var(--vh); display: grid; justify-items: center; align-items: start;
-  padding: max(24px, calc((var(--vh) - var(--card-rest)) / 2)) 24px 24px;
-}
+/* Centred, like the login card. Its top moves by half of every change in its height, but
+   the body's height tweens (useHeightTween), so the card glides to its new centre rather
+   than jumping. A card taller than the window scrolls. */
+.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
 .setup .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);

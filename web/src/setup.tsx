@@ -146,11 +146,11 @@ function stepsFor(mode: Mode): StepId[] {
 const BAR_SLOTS = Math.max(...MODES.map((m) => stepsFor(m.id).length))
 
 // The setup card's height follows its content, which changes on every step and whenever a
-// check, a warning or an error arrives. It used to snap, and since the card was centred its
-// top moved by half of every change: the title jumped up to 110px between steps, and the
-// token field slid 63px while the operator was typing into it. The card now hangs from a
-// fixed line (see `.setup`) and `body` tweens from the height it had to the one its content
-// now needs, clipped along the bottom so the footer rides the moving edge.
+// check, a warning or an error arrives. It used to snap, and since the card is centred its
+// top jumped by half of every change: the title up to 110px between steps, and the token
+// field 63px while the operator was typing into it. `body` now tweens from the height it had
+// to the one its content needs, so the card glides to its new centre instead, clipped along
+// the bottom so the footer rides the moving edge.
 //
 // `flow` is measured, not `body`: it always sits at its content's height, while `body`'s is
 // the one being animated. A width change (window drag, interface size) snaps, since a card
