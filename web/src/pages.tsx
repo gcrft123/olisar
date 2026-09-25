@@ -767,10 +767,21 @@ export function Channels() {
   const configured = rows.filter((c) => c.mode !== 'off').length
   const term = q.trim().toLowerCase()
   const shown = term ? rows.filter((c) => (c.name || c.channel_id).toLowerCase().includes(term)) : rows
+  // Every channel starts off, so a server Olisar just joined ignores everyone who talks to it
+  // until one is set to speak. Read from what's saved: that's what the bot is doing now.
+  const speaks = (ed.baseline() ?? []).some((c: any) => c.mode === 'respond' || c.mode === 'both')
 
   return (
     <>
       <PageHead icon="channels" title="Channels" doc="channels" sub="Customize how Olisar treats each of your channels." />
+      {rows.length > 0 && !speaks && (
+        <div className="callout warning">
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
+            Olisar doesn’t reply in any channel yet. Set at least one to <b>respond</b> or <b>both</b>, then save.
+          </div>
+        </div>
+      )}
       <Section stacked title="What the modes mean">
         <div className="mode-legend">
           <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
@@ -1775,6 +1786,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   const perms: string[] = e.permissions ?? []
   const requested: string[] = e.requested_permissions ?? []
   const ungranted = requested.filter((p) => !perms.includes(p))
+  const secretKeys = perms.filter((p) => p.startsWith('secret:')).map((p) => p.slice(7)).filter((k) => k in EXTENSION_KEYS)
   const marketplace = e.origin === 'marketplace'
   const imported = e.origin === 'imported'
   const fromElsewhere = marketplace || imported
@@ -2016,6 +2028,8 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       </div>
 
       {e.settings_schema?.fields?.length > 0 && <SettingsForm key={e.key} extKey={e.key} schema={e.settings_schema} />}
+      {/* The keys are the operator's, like the API keys page they'd otherwise be on. */}
+      {props.isOperator && secretKeys.length > 0 && <ExtensionKeys key={e.key} fields={secretKeys} />}
     </>
   )
 }
@@ -3194,6 +3208,8 @@ function KeyField(props: {
   example?: string
   onChange: (v: string) => void
   onClear: () => void
+  /** Whether the key works, under its status (see useKeyCheck). */
+  check?: ReactNode
 }) {
   const s = props.status
   // The placeholder is an example, never the status: a placeholder disappears the moment
@@ -3226,8 +3242,57 @@ function KeyField(props: {
         )}
         {state && <span className="key-state">{state}</span>}
       </div>
+      {props.check}
     </Field>
   )
+}
+
+// Checks a key once typing pauses: the typed value, or the saved one when nothing is typed,
+// so the page says whether the key in use actually works rather than only that one is set.
+// `dep` is what was typed; only the answer for the latest value lands.
+function useKeyCheck<T>(dep: string, run: () => Promise<T>): { checking: boolean; result: T | null } {
+  const [st, setSt] = useState<{ checking: boolean; result: T | null }>({ checking: true, result: null })
+  const seq = useRef(0)
+  const runRef = useRef(run)
+  runRef.current = run
+  useEffect(() => {
+    const n = ++seq.current
+    setSt((prev) => ({ ...prev, checking: true }))
+    const t = setTimeout(() => {
+      runRef.current()
+        .then((r) => { if (n === seq.current) setSt({ checking: false, result: r }) })
+        .catch(() => { if (n === seq.current) setSt({ checking: false, result: null }) })
+    }, 450)
+    return () => clearTimeout(t)
+  }, [dep])
+  return st
+}
+
+// A key check's result under its field. `bad` null means there's nothing to say: no key, or
+// the service couldn't be reached to ask.
+function KeyCheckLine(props: { checking: boolean; ok: boolean | null; bad: string; next?: string }) {
+  if (props.checking) return <div className="check-line" role="status"><span className="spinner" /> Checking…</div>
+  if (props.ok) return <div className="check-line ok" role="status"><Icon.check size={14} weight="Bold" /> Works</div>
+  // A step still to take, not a mistake: said plainly rather than in red.
+  if (props.ok === false && props.next) return <div className="check-line" role="status">{props.next}</div>
+  if (props.ok === false && props.bad) return <div className="check-line err" role="alert">{props.bad}</div>
+  return null
+}
+
+// Removing a saved key is the only unrecoverable action where keys are edited — the keys
+// page says outright that a key is never shown again — so it always asks first.
+async function removeKey(field: string, label: string): Promise<boolean> {
+  const ok = await confirmDialog({
+    title: `Remove the saved ${label}?`,
+    message: 'The stored value is erased and cannot be shown or recovered from the console. You’ll need to paste the key again to restore it.',
+    confirmLabel: 'Remove key',
+    cancelLabel: 'Keep it',
+    tone: 'danger',
+  })
+  if (ok !== true) return false
+  await api.clearKey(field)
+  toast(`${label} removed.`, 'neutral')
+  return true
 }
 
 export function ApiKeys() {
@@ -3241,37 +3306,37 @@ export function ApiKeys() {
     setEdits({})
     reload()
   })
-  // Both of these must run before the loading return: a hook called only on the render
-  // where data has arrived is a different hook count than the render before it, which is
-  // a hard React crash rather than a degraded page. `edits` exists from the first render,
-  // so there is nothing to wait for.
+  // These must run before the loading return: a hook called only on the render where data
+  // has arrived is a different hook count than the render before it, which is a hard React
+  // crash rather than a degraded page. `edits` exists from the first render, so there is
+  // nothing to wait for.
   const dirty = Object.values(edits).some((v) => v.trim() !== '')
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
+  const typed = (k: string) => (edits[k] ?? '').trim()
+  const gemini = useKeyCheck(typed('gemini_api_key'), () => api.checkGeminiKey(typed('gemini_api_key')))
+  const cf = useKeyCheck(
+    typed('cloudflare_api_token') + '|' + typed('cloudflare_account_id'),
+    () => api.checkCloudflareKey(typed('cloudflare_api_token'), typed('cloudflare_account_id')),
+  )
+  // A token that can read its own account answers with the ID, so it's filled in rather than
+  // asked for. Cloudflare's Workers AI token can't, which is why the field is still here.
+  const found = (cf.result as any)?.account_id
+  useEffect(() => {
+    if (found && !typed('cloudflare_account_id')) setEdits((e) => ({ ...e, cloudflare_account_id: found }))
+  }, [found])  // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading || !data) return <Loading of={keys} what="the key status" />
   const set = (k: string, v: string) => setEdits({ ...edits, [k]: v })
   // Autofilled from the environment (local-only) unless the operator has edited the field.
   const val = (k: string) => edits[k] ?? (data[k]?.value ?? '')
-  // Removing a saved key is the only unrecoverable action on this page — the header says
-  // outright that a key is never shown again — and it was the one destructive control in the
-  // console with no guard at all. One stray click on the Gemini row took the bot mute with
-  // nothing to undo. Removing a knowledge source, which is re-addable in a minute, has always
-  // had a full confirm.
-  const clear = async (k: string, label: string) => {
-    const ok = await confirmDialog({
-      title: `Remove the saved ${label}?`,
-      message: 'The stored value is erased and cannot be shown or recovered from the console. You’ll need to paste the key again to restore it.',
-      confirmLabel: 'Remove key',
-      cancelLabel: 'Keep it',
-      tone: 'danger',
-    })
-    if (ok !== true) return
-    await api.clearKey(k)
-    reload()
-    toast(`${label} removed.`, 'neutral')
-  }
+  // Removing a saved key used to be the one destructive control in the console with no
+  // guard: one stray click on the Gemini row took the bot mute with nothing to undo.
+  const clear = async (k: string, label: string) => { if (await removeKey(k, label)) reload() }
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
+  const g = gemini.result as any
+  const c = cf.result as any
+  const cfBad = (field: 'token' | 'account') => (c?.set && c.ok === false && c.problem === field)
 
   return (
     <>
@@ -3281,8 +3346,8 @@ export function ApiKeys() {
         sub="One set of keys powers every server on this install. Once saved, a key is never shown again."
       />
 
-      {/* Required first, then the optional keys by how many installs want them: image
-          generation is a general feature, UEX serves one extension. */}
+      {/* Required first, then the optional one. The UEX key lives on the Star Citizen
+          extension's page, since nobody without the extension needs it. */}
       <Section title="Google Gemini" hint="Required. Powers everything Olisar says. The free tier is enough to run the bot.">
         <KeyField
           fieldKey="gemini_api_key"
@@ -3293,45 +3358,96 @@ export function ApiKeys() {
           example="AIza…"
           onChange={(v) => set('gemini_api_key', v)}
           onClear={() => clear('gemini_api_key', 'Gemini API key')}
+          check={g?.set !== false && (
+            <KeyCheckLine
+              checking={gemini.checking}
+              ok={g?.ok ?? null}
+              bad={typed('gemini_api_key') ? 'Google didn’t accept that key.' : 'Google no longer accepts the saved key.'}
+            />
+          )}
         />
       </Section>
       <Section title="Cloudflare Workers AI" hint="Optional. Turns on image generation. Without it, Olisar says it can't make images.">
         <KeyField
-          fieldKey="cloudflare_account_id"
-          label="Account ID"
-          desc={<>Find it in the {A('https://dash.cloudflare.com/', 'Cloudflare dashboard')} → any domain's Overview, or on the Workers &amp; Pages page (right sidebar).</>}
-          status={st('cloudflare_account_id')}
-          value={val('cloudflare_account_id')}
-          example="cloudflare account id"
-          onChange={(v) => set('cloudflare_account_id', v)}
-          onClear={() => clear('cloudflare_account_id', 'Cloudflare account ID')}
-        />
-        <KeyField
           fieldKey="cloudflare_api_token"
           label="API token"
-          desc={<>Create one at {A('https://dash.cloudflare.com/profile/api-tokens', 'My Profile → API Tokens → Create Token')} with the <strong>Workers AI</strong> permission (Read is enough).</>}
+          desc={<>On Cloudflare’s {A('https://dash.cloudflare.com/?to=/:account/ai/workers-ai', 'Workers AI page')}, choose <strong>Use REST API</strong>, then <strong>Create a Workers AI API Token</strong>.</>}
           status={st('cloudflare_api_token')}
           value={val('cloudflare_api_token')}
           example="cloudflare api token"
           onChange={(v) => set('cloudflare_api_token', v)}
           onClear={() => clear('cloudflare_api_token', 'Cloudflare API token')}
+          check={!cf.checking && cfBad('token') && <KeyCheckLine checking={false} ok={false} bad="Cloudflare didn’t accept that token." />}
         />
-      </Section>
-      <Section title="UEX (Star Citizen)" hint="Optional. Only used by the Star Citizen extension, and only to raise its rate limits.">
         <KeyField
-          fieldKey="uex_api_key"
-          label="UEX API token"
-          desc={<>Register an app at {A('https://uexcorp.uk/api', 'uexcorp.uk → API')} to get a token. Leave blank to use UEX's public access.</>}
-          status={st('uex_api_key')}
-          value={val('uex_api_key')}
-          example="uex token"
-          onChange={(v) => set('uex_api_key', v)}
-          onClear={() => clear('uex_api_key', 'UEX API key')}
+          fieldKey="cloudflare_account_id"
+          label="Account ID"
+          desc="Shown on the same page, beside the token."
+          status={st('cloudflare_account_id')}
+          value={val('cloudflare_account_id')}
+          example="cloudflare account id"
+          onChange={(v) => set('cloudflare_account_id', v)}
+          onClear={() => clear('cloudflare_account_id', 'Cloudflare account ID')}
+          check={c?.set !== false && !cfBad('token') && (
+            <KeyCheckLine
+              checking={cf.checking}
+              ok={c?.ok ?? null}
+              bad="That token can’t use this account."
+              next={val('cloudflare_account_id') || st('cloudflare_account_id').dashboard || st('cloudflare_account_id').env
+                ? undefined
+                : 'Paste the account ID too.'}
+            />
+          )}
         />
       </Section>
 
       <SaveDock dirty={dirty} saver={saver} onReset={() => setEdits({})} label="Save keys" />
     </>
+  )
+}
+
+// Install-wide keys an extension reads through `host.secret`, shown on that extension's page
+// rather than the API keys page, since nobody without the extension needs them. Stored with
+// the other keys (one per install, never shown again), not in the extension's own settings:
+// those are per server, returned as typed, and written to the audit log.
+const EXTENSION_KEYS: Record<string, { label: string; desc: ReactNode; example: string }> = {
+  uex_api_key: {
+    label: 'UEX API token',
+    desc: <>Optional. Raises UEX’s rate limits. Register an app at <a href="https://uexcorp.uk/api" target="_blank" rel="noreferrer">uexcorp.uk → API</a> to get one.</>,
+    example: 'uex token',
+  },
+}
+
+function ExtensionKeys(props: { fields: string[] }) {
+  const keys = useAsync<Record<string, KeyStatus>>(api.getKeys)
+  const [edits, setEdits] = useState<Record<string, string>>({})
+  const saver = useSaver(async () => {
+    const body: Record<string, string> = {}
+    for (const [k, v] of Object.entries(edits)) if (v.trim()) body[k] = v.trim()
+    await api.putKeys(body)
+    setEdits({})
+    keys.reload()
+  })
+  useDirtyGuard(() => Object.values(edits).some((v) => v.trim() !== ''))
+  if (keys.loading || keys.error || !keys.data) return <Section title="Keys"><Loading of={keys} what="the key status" /></Section>
+  const data = keys.data
+  return (
+    <Section title="Keys">
+      {props.fields.map((f) => (
+        <KeyField
+          key={f}
+          fieldKey={f}
+          label={EXTENSION_KEYS[f].label}
+          desc={EXTENSION_KEYS[f].desc}
+          status={data[f] ?? { dashboard: false, env: false }}
+          value={edits[f] ?? (data[f]?.value ?? '')}
+          example={EXTENSION_KEYS[f].example}
+          onChange={(v) => setEdits((e) => ({ ...e, [f]: v }))}
+          onClear={async () => { if (await removeKey(f, EXTENSION_KEYS[f].label)) keys.reload() }}
+        />
+      ))}
+      <SaveBar saver={saver} label="Save key" variant="secondary" />
+    </Section>
   )
 }
 

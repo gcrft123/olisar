@@ -143,6 +143,15 @@ async def require_admin(
     return admin
 
 
+async def require_operator(admin: AdminUser = Depends(require_admin)) -> AdminUser:
+    """An admin who is also the operator: allowlisted, or an owner of the bot's Discord app.
+    For what's install-wide rather than per server, like the API keys, which Manage Server
+    on any one server the bot is in shouldn't reach."""
+    if not admin.is_allowlisted:
+        raise HTTPException(status_code=403, detail="only the bot's operator can do that")
+    return admin
+
+
 async def require_admin_or_local(
     request: Request,
     olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),

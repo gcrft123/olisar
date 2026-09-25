@@ -65,7 +65,7 @@ async function uexGet(path, params) {
   var r;
   try { r = await host.fetch(UEX_BASE + path + qs, { headers: headers }); }
   catch (e) { return [null, "Couldn't reach UEX right now."]; }
-  if (r.status === 401) return [null, "That UEX endpoint needs a token — set the UEX API key in the dashboard."];
+  if (r.status === 401) return [null, "That UEX endpoint needs a token — add a UEX API token on the Star Citizen extension's page in the console."];
   var body;
   try { body = await r.json(); } catch (e) { return [null, "UEX returned an unexpected response."]; }
   if (body.status !== "ok") return [null, "UEX error: " + body.status];

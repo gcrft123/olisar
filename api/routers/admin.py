@@ -12,19 +12,21 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
-from api.auth.deps import GuildContext, require_admin, require_guild_admin
+from api.auth.deps import GuildContext, require_admin, require_guild_admin, require_operator
 from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
     ChannelModeIn,
+    CloudflareCheckIn,
     ConfigIn,
     ExtensionToggleIn,
     FactIn,
+    GeminiCheckIn,
     PersonaIn,
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import runtime_config, runtime_keys, toolpin
+from olisar import discord_app, key_checks, runtime_config, runtime_keys, toolpin
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -85,6 +87,18 @@ async def get_guilds(admin: AdminUser = Depends(require_admin)):
         for g in rows
         if admin.is_allowlisted or str(g.id) in managed
     ]
+
+
+@router.get("/invite")
+async def invite(admin: AdminUser = Depends(require_admin)):
+    """The link that adds Olisar to a server. Only the owner can add a private bot, so
+    for anyone else it's unavailable unless the bot is public."""
+    app = await discord_app.application()
+    client_id = (app or {}).get("id") or await runtime_config.discord_client_id()
+    if not client_id:
+        return {"url": "", "available": False}
+    public = bool((app or {}).get("bot_public", True))
+    return {"url": discord_app.invite_url(client_id), "available": public or admin.is_allowlisted}
 
 
 @router.get("/models")
@@ -287,7 +301,7 @@ _KEY_FIELDS = (
 
 
 @router.get("/keys")
-async def get_keys(request: Request, admin: AdminUser = Depends(require_admin)):
+async def get_keys(request: Request, admin: AdminUser = Depends(require_operator)):
     """Per-key status, plus a ``value`` that autofills the field from the operator's
     environment — but ONLY on a local (loopback) request, the same gate the setup
     wizard uses, so secrets are never sent to a remote (tunnel) browser."""
@@ -305,7 +319,7 @@ async def get_keys(request: Request, admin: AdminUser = Depends(require_admin)):
 
 
 @router.put("/keys")
-async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_admin)):
+async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_operator)):
     """Store any non-empty submitted keys (blank fields are left unchanged)."""
     data = body.model_dump(exclude_unset=True)
     updates = {
@@ -329,8 +343,39 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_admin)):
     return {"ok": True}
 
 
+@router.post("/keys/check/gemini")
+async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(require_operator)):
+    """Whether the Gemini key works: the one typed, or the saved one when nothing is.
+    ``ok`` is null when Google couldn't be reached, and ``set`` false when there's no key."""
+    key = body.key.strip() or await runtime_keys.gemini_api_key()
+    if not key:
+        return {"set": False, "ok": False}
+    try:
+        return {"set": True, "ok": await key_checks.gemini(key)}
+    except key_checks.Unreachable:
+        return {"set": True, "ok": None}
+
+
+@router.post("/keys/check/cloudflare")
+async def check_cloudflare_key(body: CloudflareCheckIn, admin: AdminUser = Depends(require_operator)):
+    """Whether the Cloudflare token can run Workers AI on the account, each typed value
+    standing in for the saved one. With no account ID anywhere, it's looked up from the
+    token; ``account_id`` comes back only then, so a saved one is never shown again."""
+    token = body.token.strip() or await runtime_keys.cloudflare_api_token()
+    if not token:
+        return {"set": False, "ok": False, "problem": ""}
+    account = body.account_id.strip() or await runtime_keys.cloudflare_account_id()
+    try:
+        result = await key_checks.cloudflare(token, account)
+    except key_checks.Unreachable:
+        return {"set": True, "ok": None, "problem": ""}
+    if account:
+        result.pop("account_id", None)
+    return {"set": True, **result}
+
+
 @router.delete("/keys/{field}")
-async def clear_key(field: str, admin: AdminUser = Depends(require_admin)):
+async def clear_key(field: str, admin: AdminUser = Depends(require_operator)):
     """Clear one stored key so it falls back to .env (or off)."""
     if field not in _KEY_FIELDS:
         raise HTTPException(status_code=404, detail="unknown key")

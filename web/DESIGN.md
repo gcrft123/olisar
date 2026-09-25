@@ -336,7 +336,11 @@ making a word look technical. "Community", "Games" and "Custom" are labels; they
 
 Common semantic names: `user-circle` (persona), `tuning-2` (behavior), `hashtag` (channels), `shield-keyhole` (access), `book-bookmark` (knowledge), `plug-circle` (extensions), `settings`, `power`, `magnifer` (search), `copy`, `trash-bin-minimalistic`, `check-circle`, `danger-triangle`, `info-circle`.
 
-**One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The one exception is `<CloseX>`, which stays at 2: a two-stroke × carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
+**One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The exceptions are `<CloseX>` and `<CheckMark>`, which stay at 2: a two-stroke × or ✓ carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
+
+**Never nest a circled glyph in a circle.** Solar's `check-circle` already draws its own ring; set inside a filled disc it reads as a circle within a circle. Where a mark sits in a ring of its own (the Get started list), use the bare `<CheckMark>`.
+
+**The one brand mark:** Discord's logo (`<DiscordLogo>`), filled in `currentColor`, and only on a Discord-blue `.btn-discord` that hands off to Discord, such as adding the bot to a server. Nowhere else, and never as a stand-in for a Solar glyph.
 
 **Logo:** a rounded-square shield with a centered star (slate blue, navy star). Place it on `--bg`, `--bg-inset`, or `--accent-soft` tiles; don't recolor it.
 
@@ -486,6 +490,23 @@ its own `aria-label` — otherwise it announces as "switch, on" with no subject.
 
 Inside a **Section** the same three siblings lay out as a settings row, label and description on the left and the control on the right. See Section.
 
+A value the backend can check (a token, a secret, an API key) is checked as it's pasted, not by a
+**Test** button beside it. The result is a **check line** under the input: a spinner while it
+runs, then the success in `--ok` or the failure in `--danger`, with a **Try again** link only
+when the check itself failed (an outage, not a wrong value). Anything that gates the next step
+says what to do in the footer error, not in the check line.
+
+On the API keys page the same line checks the saved key when nothing is typed, so it says
+whether the key in use works, not only that one is set.
+
+```css
+.check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.check-line.ok { color: var(--ok); }
+.check-line.err { color: var(--danger); }
+.setup .check-line { margin: -9px 0 16px; }       /* tucked up under a wizard field */
+.key-status + .check-line { margin-top: 8px; }   /* under a key's Saved / Not set row */
+```
+
 ### Choice groups (mode cards, segmented pickers)
 
 A group of mutually exclusive cards is a **radiogroup**, not a row of clickable divs: `role="radiogroup"`
@@ -493,6 +514,49 @@ on the container with an `aria-label`, `role="radio"` + `aria-checked` on each c
 (`0` on the selected one, `-1` on the rest), arrow keys to move, Space/Enter to pick. The same roving
 pattern covers a `role="tablist"`, whose panel takes `role="tabpanel"` + `aria-labelledby`. Styling is
 unchanged — `.mode-card.sel` and `.dev-tab.active` still carry the visual state.
+
+### Setup card (the first-run wizard)
+
+The setup card changes height on every step and whenever something arrives inside one: a
+check's answer, the intents warning, the redirect URLs ticking off, an error. Three rules keep
+that from reading as the card jumping around.
+
+**It hangs from a fixed line; it doesn't centre.** A centred card moves its top by half of
+every change, so the title and progress bar jumped as much as 110px between steps, and the bot
+token field slid 63px while it was being typed into, the moment the intents warning appeared.
+`.setup` puts the card's top where a typical card (`--card-rest`, 560px) would sit centred. A
+shorter step leaves the room below it; a taller one scrolls as before. The server control panel
+shares `.setup`, so a deploy that lands on it keeps the logo where the wizard had it.
+
+**The height tweens, and the footer rides the edge.** `useHeightTween` (setup.tsx) watches an
+inner wrapper that always sits at its content's height and animates `.box-body` from the height
+it had to the one it now needs, clipped along the bottom only. The footer is outside that body,
+so Back and Continue travel with the edge instead of being uncovered by it. This is the one
+place the console animates `height`, and it is deliberate: the `0fr → 1fr` track trick only
+collapses and expands, it can't interpolate between two content heights. It was measured, not
+assumed. At 6× CPU throttling a step change costs about 1ms of layout per frame, because only
+the body resizes and nothing inside it is laid out again. Duration grows with distance (a
+20px check line in ~190ms, a whole step in ~300ms, capped at 340ms); a mid-tween change starts
+from wherever the edge is; a width change snaps, because a card trailing a window drag reads as
+lag; reduced motion snaps.
+
+**Only what changed plays, and nothing plays on first paint.**
+
+| | |
+|---|---|
+| Step | arrives from the side it was travelled to: 10px and a fade over `--dur-slow`, in the time the card takes to resize around it |
+| Screen | the wizard ↔ "Connect to an existing server" moves the same way, and focus lands on the new screen's IP field, or back on the button that opened it |
+| Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end, and two choices with as many steps leave it still. A segment fills from the left going forward and empties back toward it going back |
+| Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it, since a screen reader announces a change inside a live region and can miss one that turns up already filled. A refused Continue replays its reason, so a second press visibly did something |
+| Confirmations | `.wiz-pop` for what Discord or Tailscale just confirmed ("Added", "Live at …") |
+
+**One footer, one primary button.** The first step used to render its own Continue inside the
+hover-reveal group, so moving past it swapped the element and dropped keyboard focus to the
+page. Every step and both screens now share one footer and one primary button whose label and
+action change, so Enter walks the whole wizard.
+
+Under `prefers-reduced-motion` nothing travels: the height snaps, entrances only fade, and the
+bar fills by colour rather than by sweep.
 
 ### Skip link
 
@@ -1064,7 +1128,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
 - **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
 - **Do** write the tokens: `var(--dur-fast|mid|slow)` and `var(--ease-out)`, not `.12s` and a bare `ease`. Bespoke durations are fine for bespoke moves (a .5s progress fill, a 1.4s press-and-hold) — it's the three canonical values drifting into literals that turns one motion system into twenty-eight.
-- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other.
+- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other. The setup card's height tween is the one measured exception (see **Setup card**).
 - **Don't** let a press scale go past `.96`. Below that it reads as a bounce rather than a press.
 - **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
 - **Don't** use emoji, bluish-purple gradients, drop shadows on anything that doesn't float, or Title Case headings.

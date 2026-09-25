@@ -30,6 +30,26 @@ log = logging.getLogger("olisar.runtime")
 WORKER_PORT_MARKER = "OLISAR_WORKER_PORT="
 
 
+async def _describe_failure(exc: Exception, token: str) -> dict:
+    """What the console should say about a bot that stopped with ``exc``: ``{"kind":
+    "intents", "missing", "app_id"}``, ``{"kind": "token"}`` or ``{"kind": "other",
+    "message"}``. Discord refuses a connection over intents without naming them, so they're
+    read back from the app's settings (see ``discord_app.inspect``)."""
+    import discord
+
+    from olisar import discord_app
+
+    if isinstance(exc, discord.PrivilegedIntentsRequired):
+        try:
+            app = await discord_app.inspect(token)
+        except Exception:  # noqa: BLE001 (Discord unreachable: name every intent it asks for)
+            return {"kind": "intents", "missing": discord_app.required_intents(), "app_id": ""}
+        return {"kind": "intents", "missing": app["intents_missing"], "app_id": app["id"]}
+    if isinstance(exc, discord.LoginFailure):
+        return {"kind": "token"}
+    return {"kind": "other", "message": str(exc)[:300] or type(exc).__name__}
+
+
 class BotSupervisor:
     """The discord.py bot as a lazily-started, restartable background task. One per process:
     ``profile_id`` names the bot profile this process was started for."""
@@ -38,10 +58,20 @@ class BotSupervisor:
         self.profile_id = profile_id
         self._task: asyncio.Task | None = None
         self._bot = None
+        self._error: dict | None = None
 
     @property
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
+
+    @property
+    def error(self) -> dict | None:
+        """Why the bot last stopped on its own, until a later attempt gets through (see
+        ``_describe_failure``). A crash used to be a log line and nothing else: every status
+        surface then called the bot "offline", the same as one the operator switched off."""
+        if self._error is not None and self._bot is not None and self._bot.is_ready():
+            self._error = None
+        return self._error
 
     @property
     def bot(self):
@@ -72,15 +102,47 @@ class BotSupervisor:
         from bot.client import OlisarBot
 
         bot = self._bot = OlisarBot()
+        watch = asyncio.create_task(self._watch_connect(bot, token), name="olisar-bot-watch")
         try:
             async with bot:
                 await bot.start(token)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             log.exception("bot task crashed")
+            self._error = await _describe_failure(exc, token)
         finally:
+            watch.cancel()
             self._bot = None
+
+    # How long a bot gets to become ready before the watchdog asks Discord why it hasn't.
+    connect_grace = 20.0
+
+    async def _watch_connect(self, bot, token: str) -> None:
+        """Stop a bot Discord won't let in over an intent, and say why.
+
+        discord.py raises on the 4014 close Discord's docs describe for a disallowed
+        intent, but Discord answers with an invalid session instead (seen 2026-09-24), and
+        discord.py takes that as a cue to identify again. The bot then retries every few
+        seconds forever: never ready, never failing, and spending the token's daily budget of
+        1000 identifies, past which Discord resets the token. So if it isn't ready in time,
+        the app's intents are read back, and a bot missing one is stopped rather than left
+        to loop."""
+        from olisar import discord_app
+
+        await asyncio.sleep(self.connect_grace)
+        if bot.is_ready() or bot.is_closed():
+            return
+        try:
+            app = await discord_app.inspect(token)
+        except Exception:  # noqa: BLE001 (can't tell why; leave it to keep trying)
+            return
+        if not app["intents_missing"]:
+            return  # a slow start, not a refusal
+        log.warning("bot not ready after %.0fs and its app is missing intents %s; stopping it",
+                    self.connect_grace, ", ".join(app["intents_missing"]))
+        self._error = {"kind": "intents", "missing": app["intents_missing"], "app_id": app["id"]}
+        await bot.close()
 
     async def stop(self) -> None:
         task, bot = self._task, self._bot

@@ -9,7 +9,8 @@
     "design-lint": "node scripts/design-lint.mjs",
     "build": "node scripts/design-lint.mjs && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "docs:site": "node scripts/build-docs-site.mjs"
+    "docs:site": "node scripts/build-docs-site.mjs",
+    "demo": "VITE_DEMO=1 vite build --outDir dist-demo --emptyOutDir && printf '/*\\n  X-Robots-Tag: noindex\\n' > dist-demo/_headers"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

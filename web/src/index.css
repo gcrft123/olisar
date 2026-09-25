@@ -305,6 +305,58 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .weblink-row a:hover { text-decoration: underline; }
 .weblink-row button { flex: none; }
 .weblink.off { gap: 4px; }
+/* Get started (under the server switcher): what this server still needs. The web link's
+   inset card, so the rail has one card language; rows are buttons into the page that
+   finishes them. The fold wrapper and each row are one-track grids, so going away folds the
+   track from 1fr to 0fr (the cta-reveal technique) rather than animating a height. */
+.getstarted-fold { display: grid; grid-template-rows: 1fr; margin-top: -4px; }
+.getstarted-clip { min-height: 0; overflow: hidden; }
+.getstarted {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 5px 5px 6px 10px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 2px;
+}
+.getstarted-head { display: flex; align-items: center; justify-content: space-between; }
+.getstarted ul { list-style: none; margin: 0; padding: 0; }
+.getstarted-row { display: grid; grid-template-rows: 1fr; }
+.getstarted-item {
+  width: 100%; height: 28px; padding: 0 5px 0 0; justify-content: flex-start; gap: 8px;
+  background: transparent; border: 0; font-size: 12.5px; font-weight: 500; color: var(--text);
+}
+.getstarted-item:hover { background: transparent; color: var(--accent); }
+.getstarted-label { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* An open step is an empty ring; a done one is a bare check where the ring was. */
+.getstarted-mark {
+  width: 15px; height: 15px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  border: 1.5px solid var(--border-strong); color: var(--ok);
+}
+.getstarted-item.done .getstarted-mark { border-color: transparent; }
+.getstarted-mark path { stroke-dasharray: 1; }
+.getstarted-opt { margin-left: auto; font-size: 11px; font-weight: 450; color: var(--text-3); }
+
+/* A step finished on screen: the ring goes and the check draws in, a line strikes the label
+   through, the label grays, then the row folds away. STEP_LEAVE_MS in App.tsx is this
+   sequence's length. */
+.getstarted-label::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+  background: currentColor; transform: scaleX(0); transform-origin: left center;
+}
+.getstarted-row.leaving .getstarted-mark { animation: gs-ring-out .2s var(--ease-out) both; }
+.getstarted-row.leaving .getstarted-mark path { animation: gs-draw .25s var(--ease-out) .05s both; }
+.getstarted-row.leaving .getstarted-label::after { animation: gs-strike .3s var(--ease-out) .3s both; }
+.getstarted-row.leaving .getstarted-item { animation: gs-gray .3s var(--ease-out) .6s both; }
+.getstarted-row.leaving, .getstarted-fold.closing { animation: gs-fold .3s var(--ease-out) 1.35s both; }
+@keyframes gs-ring-out { from { border-color: var(--border-strong); } to { border-color: transparent; } }
+@keyframes gs-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes gs-strike { to { transform: scaleX(1); } }
+@keyframes gs-gray { from { color: var(--text); } to { color: var(--text-3); } }
+@keyframes gs-fold { to { grid-template-rows: 0fr; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  /* The check and the gray still say it's done; nothing travels. */
+  .getstarted-row.leaving .getstarted-mark path, .getstarted-row.leaving .getstarted-label::after,
+  .getstarted-row.leaving, .getstarted-fold.closing { animation: none; }
+  .getstarted-row.leaving .getstarted-label::after { transform: scaleX(1); }
+}
+
 .weblink.off .weblink-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
 
 /* ── Bot power (operator-only, sidebar footer) ──────────────────────────────── */
@@ -353,6 +405,10 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
 .botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+/* Stopped on its own: Discord refused it or it crashed. Red, because it won't come back
+   without the operator, unlike a bot switched off on purpose. */
+.botpower.refused .power-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border-strong)); }
+.botpower.refused .bp-status { color: var(--danger); }
 
 @keyframes bp-spin { to { transform: rotate(360deg); } }
 @keyframes bp-shutdown { 0% { box-shadow: 0 0 0 3px var(--danger-soft); } 45% { box-shadow: 0 0 0 9px var(--danger-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
@@ -1344,7 +1400,15 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
 /* ── Setup wizard ───────────────────────────────────────────────────────── */
-.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
+/* The card hangs from a fixed line instead of centring. Centred, every change in its height
+   moved its top by half as much, so the title and progress bar jumped between steps and a
+   field slid while it was being typed into. The line is where a typical step's card would
+   sit centred; shorter steps leave the room below, taller ones scroll as before. */
+.setup {
+  --card-rest: 560px;
+  min-height: var(--vh); display: grid; justify-items: center; align-items: start;
+  padding: max(24px, calc((var(--vh) - var(--card-rest)) / 2)) 24px 24px;
+}
 .setup .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);
@@ -1355,9 +1419,25 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 }
 .setup h1 { font-size: 20px; margin: 0 0 4px; }
 .setup .step-sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 18px; }
-.setup .steps { display: flex; gap: 6px; margin-bottom: 24px; }
-.setup .steps i { height: 3px; flex: 1; border-radius: 2px; background: var(--border); transition: background 0.15s var(--ease-out); }
-.setup .steps i.on { background: var(--accent); }
+/* One grid track per step of the longest hosting choice (setup.tsx writes the columns); the
+   tracks past this choice's last step are 0fr, so the bar grows or shrinks at its end when
+   the choice changes rather than redrawing — the cta-reveal technique, not a width. The 6px gap is drawn
+   inside each track (3px a side, taken back by the row's own -3px) because a grid gap would
+   stay behind when its track folds. A segment fills from the left going forward and empties
+   back toward it going back. */
+.setup .steps {
+  display: grid; height: 3px; margin: 0 -3px 24px;
+  transition: grid-template-columns var(--dur-slow) var(--ease-out);
+}
+.setup .steps i { position: relative; min-width: 0; overflow: hidden; }
+.setup .steps i::before, .setup .steps i::after {
+  content: ''; position: absolute; inset: 0 3px; border-radius: 2px; background: var(--border);
+}
+.setup .steps i::after {
+  background: var(--accent); transform: scaleX(0); transform-origin: left center;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.setup .steps i.on::after { transform: none; }
 .setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 .setup .wiz-foot .grow { flex: 1; }
 .setup .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
@@ -1379,6 +1459,29 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   display: flex; align-items: center; gap: 10px; justify-content: space-between;
 }
 .setup .mode-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
+/* A live-checked field's result (bot token, client secret, Gemini key), tucked up under its
+   input the way a description sits under its label. It replaced a Test button beside it. */
+.check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.check-line.ok { color: var(--ok); }
+.check-line.err { color: var(--danger); }
+.check-line b { font-weight: 600; }
+/* What a check line says, replaced as a unit when the answer changes (setup.tsx ArrivingLine). */
+.check-line-in { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.setup .check-line { margin: -9px 0 16px; }
+/* Under a key's Saved / Not set row on the API keys page. */
+.key-status + .check-line { margin-top: 8px; }
+.setup .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
+.setup .redirect-list { display: grid; gap: 8px; }
+/* The URL takes what's left and breaks anywhere; its Copy / Added never shrinks or breaks.
+   `break-all` on the box reached into the pill, so a long URL split "Added" over two lines. */
+.setup .redirect-box > span:first-child { flex: 1; min-width: 0; }
+.setup .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+/* The ghost Copy link carries its own 14px of invisible padding, so the row adds little. */
+.setup .invite-row { display: flex; align-items: center; gap: 4px; }
+/* Sized like the footer buttons, not the login screen's full-width call to action. The logo
+   side is 2px tighter: a filled mark carries more ink than text, so even padding reads as a
+   wider gap on its side. */
+.setup .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
 .setup .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .setup .srv-head h1 { margin: 0; }
 .setup .srv-head .badge { margin-left: auto; }
@@ -1427,7 +1530,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 @media (prefers-reduced-motion: reduce) { .setup .cta-reveal { transition: none; } }
 .setup .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
-  background: var(--bg-inset); transition: border-color var(--dur-fast) var(--ease-out);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .setup .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .setup .mode-card b { font-size: 13.5px; }
@@ -1442,6 +1546,32 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .tunnel-help strong { color: var(--text); font-weight: 600; }
 .setup .tunnel-help code {
   font-family: var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
+}
+
+/* Setup motion. The card's height is tweened in setup.tsx (useHeightTween); these are the
+   entrances that play inside it. A step arrives from the side it was travelled to, 10px and
+   a fade, in the time the card takes to resize around it; switching to "Connect to an
+   existing server" and back moves the whole screen the same way. Only what changed plays:
+   nothing animates on first paint. */
+.setup .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
+.setup .enter.back { animation-name: wiz-in-back; }
+@keyframes wiz-in { from { opacity: 0; transform: translateX(10px); } }
+@keyframes wiz-in-back { from { opacity: 0; transform: translateX(-10px); } }
+@keyframes wiz-fade { from { opacity: 0; } }
+/* Something arriving within a step: a check's answer, a warning, an error, the deploy
+   notice. Each is keyed to replay, so a refused Continue shows its reason arriving again. */
+.setup .wiz-appear { animation: wiz-appear .2s var(--ease-out) both; }
+@keyframes wiz-appear { from { opacity: 0; transform: translateY(3px); } }
+/* A thing Discord or Tailscale just confirmed ("Added", "Live at …"). */
+.setup .wiz-pop { animation: wiz-pop .24s var(--ease-out) both; }
+@keyframes wiz-pop { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) {
+  /* The height snaps (see useHeightTween) and nothing travels. What arrived still fades in,
+     and the bar still fills, by colour rather than by sweep. */
+  .setup .enter, .setup .enter.back, .setup .wiz-appear, .setup .wiz-pop { animation-name: wiz-fade; }
+  .setup .steps { transition: none; }
+  .setup .steps i::after { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+  .setup .steps i.on::after { opacity: 1; }
 }
 
 .muted { color: var(--text-2); }

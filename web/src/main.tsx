@@ -8,11 +8,15 @@ import './index.css'
 
 applyScale()  // restore the saved interface size before first paint
 
-createRoot(document.getElementById('root')!).render(
+// A demo build answers the API in the browser (see demo.ts), and has to be ready before
+// the first request. Anywhere else this is resolved already and the import never loads.
+const ready = import.meta.env.VITE_DEMO ? import('./demo').then((d) => d.installDemo()) : Promise.resolve()
+
+ready.then(() => createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <SolarProvider value={{ weight: 'Linear', size: 19 }}>
       <App />
       <Overlays />
     </SolarProvider>
   </React.StrictMode>,
-)
+))

@@ -96,8 +96,9 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
             : (j.detail?.message || JSON.stringify(j.detail))
       }
     } catch { /* not JSON — use the raw body */ }
-    const err = new Error(msg) as Error & { detail?: any }
+    const err = new Error(msg) as Error & { detail?: any; status?: number }
     err.detail = detail  // structured payloads (e.g. a risk-blocked publish) ride here
+    err.status = res.status  // so a caller can tell "you got it wrong" (4xx) from an outage
     throw err
   }
   if (res.status === 204) return null
@@ -114,6 +115,9 @@ export const api = {
 
   me: () => req('/api/me'),
   guilds: () => req('/api/guilds'),
+  // The link that adds the bot to a server: { url, available }. Unavailable to anyone but the
+  // operator when the bot is private, since Discord only lets its owner add it.
+  invite: () => req('/api/invite'),
   models: () => req('/api/models'),
 
   getPersona: () => req('/api/persona'),
@@ -252,11 +256,29 @@ export const api = {
   getKeys: () => req('/api/keys'),
   putKeys: (b: any) => req('/api/keys', { method: 'PUT', body: JSON.stringify(b) }),
   clearKey: (field: string) => req(`/api/keys/${field}`, { method: 'DELETE' }),
+  // Whether a key works: the typed value, or the saved one when it's blank. Gemini answers
+  // { set, ok } and Cloudflare { set, ok, problem: 'token' | 'account' | '', account_id? },
+  // with `ok` null when the service couldn't be reached.
+  checkGeminiKey: (key: string) =>
+    req('/api/keys/check/gemini', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 20000 }),
+  checkCloudflareKey: (token: string, accountId: string) =>
+    req('/api/keys/check/cloudflare', { method: 'POST', body: JSON.stringify({ token, account_id: accountId }), timeoutMs: 20000 }),
 
   // First-run setup (loopback-only, pre-OAuth).
   setupStatus: () => req('/api/setup/status'),
-  validateSetupToken: (token: string) =>
-    req('/api/setup/validate-token', { method: 'POST', body: JSON.stringify({ token }) }),
+  // Checks a pasted bot token and gets its Discord application ready (intents, default
+  // install). Answers the application's id, bot name and avatar, what's still missing, its
+  // registered redirect URLs and the invite link.
+  setupBot: (token: string) =>
+    req('/api/setup/bot', { method: 'POST', body: JSON.stringify({ token }), timeoutMs: 25000 }),
+  // The same, read-only, plus the servers the bot is in: polled while the operator works in
+  // the Developer Portal or invites the bot.
+  setupDiscordStatus: (token: string) =>
+    req('/api/setup/discord-status', { method: 'POST', body: JSON.stringify({ token }), timeoutMs: 25000 }),
+  checkSetupSecret: (clientId: string, clientSecret: string) =>
+    req('/api/setup/secret', { method: 'POST', body: JSON.stringify({ client_id: clientId, client_secret: clientSecret }), timeoutMs: 15000 }),
+  checkSetupGemini: (key: string) =>
+    req('/api/setup/gemini', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 15000 }),
   saveSetupKeys: (b: any) => req('/api/setup/keys', { method: 'POST', body: JSON.stringify(b) }),
   saveSetup: (b: any) => req('/api/setup/save', { method: 'POST', body: JSON.stringify(b) }),
   // Server hosting: the app drives the operator's cloud VM over SSH (no local bot). The
@@ -282,6 +304,11 @@ export const api = {
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
   serverStatus: () => req('/api/server/status', { timeoutMs: 75000 }),
+  // What Discord says about the server's bot: { ok, app_id, redirect, added, intents_missing }
+  // (or { ok: false, error }). The first call reads the bot token off the VM over SSH.
+  serverDiscord: (url: string) => req(`/api/server/discord?url=${encodeURIComponent(url)}`, { timeoutMs: 40000 }),
+  // Turn the server bot's missing intents on and restart it: { ok, intents_missing, app_id? }.
+  serverReconnect: () => req('/api/server/reconnect', { method: 'POST', timeoutMs: 120000 }),
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 
@@ -317,6 +344,9 @@ export const api = {
   // Remote-access status (loopback-readable): { available, running, helper, hostname, public_url }.
   tunnelStatus: () => req('/api/tunnel/status'),
 
+  // Turn on the intents the bot is missing (where Discord lets the app) and start it again.
+  // Answers the bot's state plus any `intents_missing` left for the Developer Portal.
+  botReconnect: () => req('/api/bot/reconnect', { method: 'POST', timeoutMs: 30000 }),
   // Bot power (operator only): { available, running, ready, can_power }.
   botStatus: () => req('/api/bot/status'),
   botPower: (on: boolean) => req('/api/bot/power', { method: 'POST', body: JSON.stringify({ on }) }),
