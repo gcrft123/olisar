@@ -665,11 +665,18 @@ ring being perfectly centered doesn't save it: the badge reads as one whose icon
 Optical offsets that make a mark look centered are fine: `play-circle`'s triangle sits half a unit
 right, and `danger-circle`'s "!" and `info-circle`'s "i" are balanced by their dots.
 
+**The one exception is the marketplace's verified mark,** which uses Solar's `verified-check`, the
+badge check, because a check in a seal is what "verified" looks like everywhere else. Its outline
+is a scalloped seal, not the r=10 circle, so the round disc would poke out between the scallops.
+It's tinted with its own outline filled instead: a copy of the glyph nested under it with the check
+hidden (`SEAL_TINT` in `icons.tsx`). Nothing else gets a non-circle glyph.
+
 The same glyph means the same thing everywhere:
 
 | Glyph | Meaning |
 |---|---|
-| `check-circle` | Done, on, or verified |
+| `check-circle` | Done or on |
+| `verified-check` | A publisher Discord has verified (the one non-circle glyph; see below) |
 | `close-circle` | Failed or refused |
 | `danger-circle` | Needs attention |
 | `minus-circle` | Absent or off: Not set, Not set up, Disabled |

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Icon, CopyGlyph, BadgeIcon, SpinnerRing, type BadgeIconName } from './icons'
+import { Icon, CopyGlyph, BadgeIcon, SEAL_TINT, SpinnerRing, type BadgeIconName } from './icons'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
@@ -619,10 +619,13 @@ export function Badge(props: BadgeGlyph & { tone?: BadgeTone; children: React.Re
   // offsets Chrome would round separately from the pill. The disc and the spinner's track are
   // drawn inside the same SVG (Solar renders children under its glyph), so they can't drift
   // off the ring either.
+  const seal = !props.busy && SEAL_TINT.has(props.icon)
   return (
     <span className={'badge ' + (props.tone ?? 'neutral')}>
       <Glyph className={'badge-ic' + (props.busy ? ' ring-arc' : '')} viewBox="-10 -10 44 44" aria-hidden>
-        <circle className="badge-disc" cx="12" cy="12" r="10" />
+        {seal
+          ? <Glyph className="badge-disc badge-seal" size={24} aria-hidden />
+          : <circle className="badge-disc" cx="12" cy="12" r="10" />}
         {props.busy && <circle className="ring-track" cx="12" cy="12" r="10" />}
       </Glyph>
       {props.children}

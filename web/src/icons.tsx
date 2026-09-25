@@ -71,6 +71,7 @@ import {
   MenuDotsCircle,
   TextCircle,
   BookmarkCircle,
+  VerifiedCheck,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -129,8 +130,13 @@ export type IconName = keyof typeof Icon
 // listed icons aren't: pen-new-round's pen sits 1.8 units high and to the right,
 // smile-circle's face 1.4 low, history-2's and clock-circle's hands up and right. In a 12px
 // badge that is most of a pixel, and it reads as a badge whose icon is out of line.
+//
+// One exception: `verified-check`, the badge check, marks a publisher Discord has verified.
+// Its outline is a scalloped seal rather than the circle, so the round disc would poke out
+// between the scallops; its tint is the seal's own outline filled instead (SEAL_TINT).
 export const BadgeIcon = {
   'check-circle': CheckCircle,
+  'verified-check': VerifiedCheck,
   'close-circle': CloseCircle,
   'danger-circle': DangerCircle,
   'minus-circle': MinusCircle,
@@ -158,6 +164,10 @@ export const BadgeIcon = {
 } as const
 
 export type BadgeIconName = keyof typeof BadgeIcon
+
+// Glyphs tinted by filling their own outline (the first path Solar draws) instead of the r=10
+// disc, because that outline isn't the circle.
+export const SEAL_TINT: ReadonlySet<BadgeIconName> = new Set(['verified-check'])
 
 // The badge's loading state is Solar's `record`: the bare ring every badge glyph is drawn
 // on, so a spinner made from it has the glyphs' size and 1.5 stroke without redrawing either.
