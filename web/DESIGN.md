@@ -262,6 +262,14 @@ is scaled, so at 1.1 the content sees `width / 1.1`. The breakpoints are content
 well clear of common desktop widths, so this shifts *where* the collapse happens, never whether
 it works — but pick new breakpoints against the effective width, not the raw one.
 
+**Zoom puts edges between device pixels, and Chrome rounds each box on its own.** At 110% a 22px
+box is 48.4 device pixels on a 2x screen and its 1px border is 2.2. Chrome rounds the box, each
+thing inside it and every inline SVG to the pixel grid separately, and not always the same way,
+so a child can land a device pixel higher in one box than in the next. Most of the console never
+shows it. Anything that has to sit dead-center in a small outline does, and the **Badge** is sized
+in whole device pixels for exactly that reason (`--dpr` on the root, kept current by
+`watchPixelRatio()` in `theme.ts`).
+
 ---
 
 ## Base layer
@@ -675,17 +683,37 @@ The same glyph means the same thing everywhere:
 | `hashtag-circle` | A category |
 | `user-circle` | A person made it, or a person's role |
 
-**The spinner is Solar's `record`,** the bare ring every badge glyph is drawn on: a faint copy as the
-track, and a quarter of it turning over the top. It has the glyphs' size and 1.5 stroke because it
-is their ring. `RingSpinner` in `icons.tsx`.
+**The spinner is Solar's `record`,** the bare ring every badge glyph is drawn on: a quarter of the
+ring turning over a faint full copy of it. It has the glyphs' size and 1.5 stroke because it is
+their ring. `SpinnerRing` in `icons.tsx`.
+
+**Centered to the device pixel.** Measured on the rendered pixels, the ring used to sit up to a
+device pixel above or below the pill's center at 110% (1.9 on a 3x screen), and the label as much
+again, depending only on where on the page the badge landed. Three things put both back:
+
+- The height is rounded to an even number of device pixels and the edge to a whole one, so every
+  distance inside the pill is whole and rounds the same way as the pill's own edges.
+- The glyph's SVG *is* the pill's round end: as tall as the badge, pulled out over the edge, with
+  the 24-unit icon in the middle of a 44-unit view. The ring is centered by the SVG's geometry, so
+  there is no layout offset of its own for Chrome to round. The disc and the spinner's track are
+  drawn inside the same SVG.
+- The badge has its own layer (`will-change: transform`), so the label rounds from the badge's
+  corner rather than from wherever the page left it.
+
+The ring is now exactly centered at 100%, 110% and 125%, on 1x, 2x and 3x screens, in Chrome and
+in the desktop app's Electron 31 (Chromium 126). The one exception is 125% on a 3x screen, where
+it's off by a constant half pixel. Don't give a badge a height, a border or an icon box of its
+own: the rounding only holds while all three come from `--badge-h` and `--badge-bw`.
 
 ```css
 .badge {
   --ink: var(--text-2);
   --badge-fill: color-mix(in srgb, var(--ink) 14%, var(--bg-inset));
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-  box-sizing: border-box; height: 22px; padding: 0 7px 0 4px;
-  border: 1px solid transparent; border-radius: var(--radius-pill);
+  --badge-h: 22px;
+  --badge-bw: 1px;
+  display: inline-flex; align-items: center; flex: none;
+  box-sizing: border-box; height: var(--badge-h); padding: 0 7px 0 0;
+  border: var(--badge-bw) solid transparent; border-radius: var(--radius-pill);
   /* The edge is lit from above: brightest along the top, dimmest along the bottom. The fill
      has to be opaque, or the edge gradient under the padding box shows through it. */
   background:
@@ -698,22 +726,41 @@ is their ring. `RingSpinner` in `icons.tsx`.
   color: var(--ink);
   font-family: var(--font-sans); font-size: 12px; font-weight: 500; line-height: 1;
   vertical-align: middle; white-space: nowrap;
+  will-change: transform;   /* its own layer: the label rounds from the badge's corner */
+}
+/* Whole device pixels: an even number for the height, a whole one for the edge. */
+@supports (height: round(nearest, 1px, 1px)) {
+  .badge {
+    --dpx: calc(1px / (var(--ui-scale) * var(--dpr, 1)));
+    --badge-h: round(nearest, 22px, calc(2 * var(--dpx)));
+    --badge-bw: max(var(--dpx), round(down, 1px, var(--dpx)));
+  }
 }
 .badge.info    { --ink: var(--info); }
 .badge.success { --ink: var(--ok); }
 .badge.warning { --ink: var(--warn); }
 .badge.danger  { --ink: var(--danger); }
 
-/* 4px of padding on the left, the same as the space above and below the glyph, so its ring
-   sits concentric in the pill's round end. */
-.badge-ic { position: relative; flex: none; width: 12px; height: 12px; }
-.badge-ic svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
-.badge-ic::before { content: ""; position: absolute; inset: 8.333%; border-radius: 50%;
-  background: currentColor; opacity: 0.2; }
+/* The glyph's SVG is the pill's round end: badge-tall, pulled out over the edge, the 24-unit icon
+   in a 44-unit view. That's 12px in a 22px badge with 4px clear on every side, and the negative
+   right margin puts the label where a 12px icon and a 4px gap would. */
+.badge-ic { flex: none; display: block;
+  width: var(--badge-h); height: var(--badge-h); margin: calc(-1 * var(--badge-bw)); }
+.badge-disc { fill: currentColor; opacity: 0.2; }
 
-.ring-track { opacity: 0.3; }
-.ring-arc { stroke-dasharray: 15.71 47.12; stroke-linecap: round; animation: spin 0.8s linear infinite; }
+.ring-track { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.3; }
+.ring-arc { animation: spin 0.8s linear infinite; }
+.ring-arc > circle:last-child { stroke-dasharray: 15.71 47.12; stroke-linecap: round; }
 @media (prefers-reduced-motion: reduce) { .ring-arc { animation-duration: 1.6s; } }
+```
+```jsx
+// Badge renders this; the disc (and the spinner's track) go in as children, under Solar's glyph.
+<span className="badge danger">
+  <ForbiddenCircle className="badge-ic" viewBox="-10 -10 44 44" aria-hidden>
+    <circle className="badge-disc" cx="12" cy="12" r="10" />
+  </ForbiddenCircle>
+  Banned
+</span>
 ```
 ```jsx
 <Badge tone="success" icon="check-circle">Saved</Badge>

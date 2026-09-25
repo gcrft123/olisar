@@ -35,6 +35,21 @@ export function applyScale(value?: number): number {
   return v
 }
 
+// Device pixels per CSS pixel, as `--dpr` on the root. With the interface zoomed, a 1px line
+// or a 22px badge lands on fractions of a device pixel, and Chrome rounds each box to the
+// pixel grid on its own: a badge's icon and its outline round different ways, and the icon
+// sits a pixel off-center in some badges and not in others. The badge sizes itself in whole
+// device pixels from this (see `.badge` in index.css). It changes when the window moves to
+// another screen or the browser zooms, so it is re-read whenever the resolution changes.
+export function watchPixelRatio(): void {
+  const apply = () => {
+    const dpr = window.devicePixelRatio || 1
+    document.documentElement.style.setProperty('--dpr', String(dpr))
+    window.matchMedia(`(resolution: ${dpr}dppx)`).addEventListener('change', apply, { once: true })
+  }
+  apply()
+}
+
 export function setScale(value: number): number {
   const v = applyScale(value)
   try { localStorage.setItem(SCALE_KEY, String(v)) } catch { /* private mode — session only */ }
