@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './api'
+import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
 import { Modal, confirmDialog, promptDialog, toast } from './overlays'
@@ -57,15 +58,15 @@ export function Persona() {
   const set = (k: string, v: any) => setData({ ...data, [k]: v })
   return (
     <>
-      <PageHead icon="persona" title="Persona" doc="persona" sub="Who Olisar is and how it behaves in your server." />
+      <PageHead icon="persona" title="Persona" doc="persona" sub={`Who ${botName()} is and how it behaves in your server.`} />
       <Section title="Identity">
         <Field label="Name"><Text value={data.name} onChange={(v) => set('name', v)} /></Field>
-        <Field wide label="System prompt" desc="Olisar's core character, lore, and rules. Safety guardrails are appended automatically.">
+        <Field wide label="System prompt" desc={`${botName()}'s core character, lore, and rules. Safety guardrails are appended automatically.`}>
           <Area value={data.system_prompt} onChange={(v) => set('system_prompt', v)} rows={9} />
         </Field>
       </Section>
-      <Section title="The room" hint="What kind of community this is, which sets how casual or formal Olisar sounds.">
-        <Field label="Server type" desc="Sets the register Olisar writes in.">
+      <Section title="The room" hint={`What kind of community this is, which sets how casual or formal ${botName()} sounds.`}>
+        <Field label="Server type" desc={`Sets the register ${botName()} writes in.`}>
           <Select
             value={data.server_type || ''}
             onChange={(v) => set('server_type', v)}
@@ -79,7 +80,7 @@ export function Persona() {
             ]}
           />
         </Field>
-        <Field plain label="Slang" desc="How thickly Olisar lays on the community's own dialect.">
+        <Field plain label="Slang" desc={`How thickly ${botName()} lays on the community's own dialect.`}>
           <Segmented
             className="useg"
             ariaLabel="Slang density"
@@ -90,13 +91,13 @@ export function Persona() {
         </Field>
       </Section>
       <Section title="Style & bio">
-        <Field wide label="Style notes" desc="Olisar's voice, tone, and formatting.">
+        <Field wide label="Style notes" desc={`${botName()}'s voice, tone, and formatting.`}>
           <Area value={data.tone_notes} onChange={(v) => set('tone_notes', v)} rows={6} />
         </Field>
         <Field
           wide
           label="About me"
-          desc={<>Olisar's public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.</>}
+          desc={<>{botName()}'s public Discord bio. It's the same across every server, and a short attribution line is added below whatever you write. {(data.desired_bio || '').length}/300.</>}
         >
           <Area value={data.desired_bio} onChange={(v) => set('desired_bio', v)} rows={6} maxLength={300} />
         </Field>
@@ -149,13 +150,13 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
       <div className="sandbox-log" ref={logRef}>
         {messages.length === 0 && !busy && (
           <div className="sandbox-empty">
-            Try out Olisar's persona. Nothing here is saved.
+            Try out {botName()}'s persona. Nothing here is saved.
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={'sb-msg ' + m.role}>
             <div className="sb-who">
-              {m.role === 'user' ? 'You' : 'Olisar'}
+              {m.role === 'user' ? 'You' : botName()}
               {/* The console's version of the "Report this" button Olisar puts on a blank
                   reply in Discord: this is where an operator first sees a reply go wrong. */}
               {m.role === 'assistant' && (
@@ -176,7 +177,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
         ))}
         {busy && (
           <div className="sb-msg assistant">
-            <div className="sb-who">Olisar</div>
+            <div className="sb-who">{botName()}</div>
             <div className="sb-bubble sb-typing"><span /><span /><span /></div>
           </div>
         )}
@@ -195,8 +196,8 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
-          placeholder="Message Olisar…"
-          aria-label="Message Olisar"
+          placeholder={`Message ${botName()}…`}
+          aria-label={`Message ${botName()}`}
           rows={1}
           disabled={busy}
         />
@@ -380,9 +381,9 @@ export function Behavior() {
 
   return (
     <>
-      <PageHead icon="behavior" title="Behavior" doc="behavior" sub="How and when Olisar joins in." />
-      <Section title="Engagement" hint="When and where Olisar joins the conversation.">
-        <Field label="Name triggers" desc="Comma-separated and not case sensitive. Including one of these in a message addresses Olisar.">
+      <PageHead icon="behavior" title="Behavior" doc="behavior" sub={`How and when ${botName()} joins in.`} />
+      <Section title="Engagement" hint={`When and where ${botName()} joins the conversation.`}>
+        <Field label="Name triggers" desc={`Comma-separated and not case sensitive. Including one of these in a message addresses ${botName()}.`}>
           <Text
             value={triggers}
             onChange={(v) => { setTriggerText(v); set('name_triggers', v.split(',').map((t) => t.trim()).filter(Boolean)) }}
@@ -391,17 +392,17 @@ export function Behavior() {
         </Field>
         {/* A row's label names its switch, so the switches carry no text of their own — "Reply
             in DMs" beside "Answer direct messages" was one setting captioned twice. */}
-        <Field label="Only when addressed" desc="Detects and only responds when talking directly to Olisar, even when a name trigger is mentioned.">
+        <Field label="Only when addressed" desc={`Detects and only responds when talking directly to ${botName()}, even when a name trigger is mentioned.`}>
           <Toggle value={data.name_requires_address} onChange={(v) => set('name_requires_address', v)} />
         </Field>
         <Field label="Reply in DMs"><Toggle value={data.reply_in_dms} onChange={(v) => set('reply_in_dms', v)} /></Field>
-        <Field label="See other bots" desc="Let other bots' messages into Olisar's context, so it can follow what they post. It never replies to them. Chatty bots will crowd the context window.">
+        <Field label="See other bots" desc={`Let other bots' messages into ${botName()}'s context, so it can follow what they post. It never replies to them. Chatty bots will crowd the context window.`}>
           <Toggle value={data.see_other_bots} onChange={(v) => set('see_other_bots', v)} />
         </Field>
         {/* `plain`: the body is a row of chips, not one control, so a <label for> here would
             point at nothing — which is exactly what it was doing. `.flabel` is the same
             treatment without the false promise. */}
-        <Field plain label="Don't let Olisar ping">
+        <Field plain label={`Don't let ${botName()} ping`}>
           <div className="choice-row">
             {MENTION_OPTS.map((o) => {
               const on = (data.blocked_mentions || []).includes(o.value)
@@ -423,7 +424,7 @@ export function Behavior() {
           </div>
         </Field>
       </Section>
-      <Section title="Proactivity" hint="When and how often Olisar chimes in unprompted.">
+      <Section title="Proactivity" hint={`When and how often ${botName()} chimes in unprompted.`}>
         {/* Not "Enabled": with the switch's own text gone, the row label is its whole name,
             and two switches called "Enabled" on one page can't be told apart by ear. */}
         {/* Eagerness no longer offers "off" (the switch is the off), but a server that saved
@@ -466,7 +467,7 @@ export function Behavior() {
           </Field>
         )}
       </Section>
-      <Section title="Passive reactions" hint="When a reply would be overkill, Olisar can add an emoji reaction instead.">
+      <Section title="Passive reactions" hint={`When a reply would be overkill, ${botName()} can add an emoji reaction instead.`}>
         {/* Named for reactions, not repeated from the section above. "Confidence threshold",
             "Channel cooldown (s)" and "Max per hour" appeared identically in both groups, so
             six distinct settings had three accessible names between them — and a section
@@ -486,25 +487,25 @@ export function Behavior() {
             // nothing saying the model list had failed to load — the operator was left to
             // recall what the alternatives were.
             ? <>Couldn’t load the model list ({modelsQ.error}) — only the current setting is shown. <button className="linklike" onClick={() => modelsQ.reload()}>Try again</button></>
-            : 'If this model is rate limited, Olisar falls back to the next best one.'}
+            : `If this model is rate limited, ${botName()} falls back to the next best one.`}
         >
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
-        <Field label="Web search" desc="Let Olisar look things up on the web. Google's free search quota is small, so searches can stop for the rest of the day.">
+        <Field label="Web search" desc={`Let ${botName()} look things up on the web. Google's free search quota is small, so searches can stop for the rest of the day.`}>
           <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} />
         </Field>
-        <Field label="Web searches per day" desc="The most lookups Olisar will run in a day.">
+        <Field label="Web searches per day" desc={`The most lookups ${botName()} will run in a day.`}>
           <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
         </Field>
-        <Field label="Status & voice awareness" desc="Let Olisar check a member's live status/activity and who's in voice. Requires the Presence Intent permission in the Discord Developer Portal.">
+        <Field label="Status & voice awareness" desc={`Let ${botName()} check a member's live status/activity and who's in voice. Requires the Presence Intent permission in the Discord Developer Portal.`}>
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} />
         </Field>
-        <Field label="Silent acknowledgments" desc="Let Olisar react to a message instead of replying.">
+        <Field label="Silent acknowledgments" desc={`Let ${botName()} react to a message instead of replying.`}>
           <Toggle value={data.silent_acks_enabled} onChange={(v) => set('silent_acks_enabled', v)} />
         </Field>
       </Section>
       <Section title="Memory & summaries">
-        <Field label="Context window (messages)" desc="How many recent messages Olisar keeps in view when replying. Higher follows longer conversations but costs more tokens.">
+        <Field label="Context window (messages)" desc={`How many recent messages ${botName()} keeps in view when replying. Higher follows longer conversations but costs more tokens.`}>
           <Num value={data.context_message_limit} onChange={(v) => set('context_message_limit', v)} min={3} max={100} unit="messages" def={12} />
         </Field>
         {/* Three thresholds that are quota trade-offs, not everyday settings — the sane
@@ -576,7 +577,7 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
         </div>
         <div className="dcp-body">
           <div className="dcp-row">
-            <span className="dcp-name">{name || 'Olisar'}</span>
+            <span className="dcp-name">{name || botName()}</span>
             <span className="dcp-tag">APP</span>
             <span className="dcp-time">Today at 9:14 PM</span>
           </div>
@@ -591,7 +592,7 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
                   if (/^`[^`\n]+`$/.test(seg)) return <code className="dcp-code" key={i}>{seg.slice(1, -1)}</code>
                   return <span key={i}>{seg}</span>
                 })
-              : <span className="dcp-empty">Olisar stays quiet.</span>}
+              : <span className="dcp-empty">{botName()} stays quiet.</span>}
           </div>
         </div>
       </div>
@@ -655,7 +656,7 @@ export function Messages() {
           {/* The effective message — your override if you've written one, otherwise the
               default that would actually be sent. Updates as you type. */}
           <DiscordPreview
-            name={persona?.name || 'Olisar'}
+            name={botName()}
             avatar={persona?.bot_avatar}
             text={(edits[key] ?? '').trim() || fallback}
           />
@@ -666,7 +667,7 @@ export function Messages() {
 
   return (
     <>
-      <PageHead icon="messages" title="Command replies" doc="replies" sub="Rewrite what Olisar says for each command. Leave blank to use the default message." />
+      <PageHead icon="messages" title="Command replies" doc="replies" sub={`Rewrite what ${botName()} says for each command. Leave blank to use the default message.`} />
       <Section title="Slash commands">{keys.filter(isCommand).map(replyRow)}</Section>
       <Section title="Automatic replies">{keys.filter((k) => !isCommand(k)).map(replyRow)}</Section>
       <SaveDock
@@ -773,12 +774,12 @@ export function Channels() {
 
   return (
     <>
-      <PageHead icon="channels" title="Channels" doc="channels" sub="Customize how Olisar treats each of your channels." />
+      <PageHead icon="channels" title="Channels" doc="channels" sub={`Customize how ${botName()} treats each of your channels.`} />
       {rows.length > 0 && !speaks && (
         <div className="callout warning">
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
-            Olisar doesn’t reply in any channel yet. Set at least one to <b>respond</b> or <b>both</b>, then save.
+            {botName()} doesn’t reply in any channel yet. Set at least one to <b>respond</b> or <b>both</b>, then save.
           </div>
         </div>
       )}
@@ -787,7 +788,7 @@ export function Channels() {
           <div><span className="tag">memory</span> reads &amp; remembers; doesn't speak </div>
           <div><span className="tag">respond</span> speaks; doesn't read or remember</div>
           <div><span className="tag">both</span> reads, remembers &amp; speaks</div>
-          <div><span className="tag">resource</span> durable reference content Olisar always carries (e.g. #rules, #roles-list)</div>
+          <div><span className="tag">resource</span> durable reference content {botName()} always carries (e.g. #rules, #roles-list)</div>
           <div><span className="tag">feed</span> remembers just the last 3 messages without summaries; doesn't speak (e.g. #announcements, #game-news)</div>
           <div><span className="tag">off</span> ignored entirely</div>
         </div>
@@ -981,19 +982,19 @@ export function Access() {
   const namesOf = (ids: string[]) =>
     ids.map((id) => rows.find((r: any) => String(r.role_id) === String(id))?.name).filter(Boolean).join(', ')
   const summary = allowed.length
-    ? `Restricted — only ${namesOf(allowed) || `${allowed.length} role(s)`} and server admins can use Olisar. Everyone else is locked out.`
+    ? `Restricted — only ${namesOf(allowed) || `${allowed.length} role(s)`} and server admins can use ${botName()}. Everyone else is locked out.`
     : blocked.length
-      ? `Open except ${namesOf(blocked) || `${blocked.length} blocked role(s)`} — everyone else can use Olisar.`
+      ? `Open except ${namesOf(blocked) || `${blocked.length} blocked role(s)`} — everyone else can use ${botName()}.`
       : 'Open to everyone. No role restrictions are set.'
   const restrictive = allowed.length > 0
 
   return (
     <>
-      <PageHead icon="access" title="Access" doc="access" sub="Which roles can use Olisar. Server admins always can, and /privacy and /forget-me stay open to everyone." />
+      <PageHead icon="access" title="Access" doc="access" sub={`Which roles can use ${botName()}. Server admins always can, and /privacy and /forget-me stay open to everyone.`} />
       <Section title="How access works">
         <div className="mode-legend">
-          <div><span className="tag">allowed</span> if any role is marked allowed, only those roles (and admins) can use Olisar</div>
-          <div><span className="tag">blocked</span> these roles can never use Olisar even if they also have an allowed role</div>
+          <div><span className="tag">allowed</span> if any role is marked allowed, only those roles (and admins) can use {botName()}</div>
+          <div><span className="tag">blocked</span> these roles can never use {botName()} even if they also have an allowed role</div>
           <div><span className="tag">open</span> unset — this role adds no restriction</div>
         </div>
         <div className={'access-summary' + (restrictive ? ' restrictive' : '')} role="status">
@@ -1047,8 +1048,8 @@ export function Access() {
 // What this server holds behind the tool PIN. The PIN is install-wide (Settings → Security);
 // which actions ask for it is decided per server, next to who may use Olisar at all. Keys
 // are olisar.toolpin.ACTIONS, and the API refuses one it doesn't know.
-const PIN_ACTIONS = [
-  { key: 'self_edit', label: 'For Olisar to change its own settings' },
+const pinActions = () => [
+  { key: 'self_edit', label: `For ${botName()} to change its own settings` },
 ]
 
 // Saves on toggle, like the portal switches below and for the same reason: turning the PIN
@@ -1069,8 +1070,8 @@ function PinActionsCard({ initial }: { initial: string[] }) {
 
   const write = async (key: string, v: boolean) => {
     if (!v && !(await confirmDialog({
-      title: 'Let Olisar change its settings without the PIN?',
-      message: 'Anyone who can use Olisar on this server could rewrite its persona, behavior and knowledge from Discord.',
+      title: `Let ${botName()} change its settings without the PIN?`,
+      message: `Anyone who can use ${botName()} on this server could rewrite its persona, behavior and knowledge from Discord.`,
       confirmLabel: 'Turn off',
       tone: 'danger',
     }))) return
@@ -1087,7 +1088,7 @@ function PinActionsCard({ initial }: { initial: string[] }) {
         <div className="callout warning">
           <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
           <div className="callout-body">
-            No PIN is set, so Olisar refuses these until one is.{' '}
+            No PIN is set, so {botName()} refuses these until one is.{' '}
             <button
               className="linklike"
               onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-settings', { detail: 'security' }))}
@@ -1095,7 +1096,7 @@ function PinActionsCard({ initial }: { initial: string[] }) {
           </div>
         </div>
       )}
-      {PIN_ACTIONS.map((a) => (
+      {pinActions().map((a) => (
         <Field key={a.key} label={a.label}>
           <Toggle value={on.includes(a.key)} disabled={busy} onChange={(v) => write(a.key, v)} />
         </Field>
@@ -1124,7 +1125,7 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
   return (
     <Section
       title="Member portal"
-      hint="A page where any member of this server can see, correct, export and delete what Olisar has stored about them. They see only their own data."
+      hint={`A page where any member of this server can see, correct, export and delete what ${botName()} has stored about them. They see only their own data.`}
     >
       {!remote && (
         <div className="callout warning">
@@ -1146,14 +1147,14 @@ function MemberPortalCard({ config, reload }: { config: any; reload: () => void 
       </Field>
       <Field
         label="Show each member their impression"
-        desc="The characterization Olisar writes about someone from their messages. It can be unflattering or wrong."
+        desc={`The characterization ${botName()} writes about someone from their messages. It can be unflattering or wrong.`}
       >
         <Toggle
           value={!!config.member_portal_show_persona} disabled={busy || !on}
           ariaLabel="Show each member their impression"
           onChange={(v) => write(
             { member_portal_show_persona: v },
-            v ? 'Let members read the impression Olisar wrote about them?' : undefined,
+            v ? `Let members read the impression ${botName()} wrote about them?` : undefined,
           )}
         />
       </Field>
@@ -1197,7 +1198,7 @@ function SearchIndexCard() {
     (a: any, b: any) => (rank[a.status] - rank[b.status]) || (b.indexed - a.indexed)
   )
   return (
-    <Section title="Message search index" hint="Lets Olisar search back through your server's history.">
+    <Section title="Message search index" hint={`Lets ${botName()} search back through your server's history.`}>
       {!data ? (poll.stale
         ? <div className="callout warning"><span className="ic"><Icon.warn size={17} weight="Bold" /></span>
             <div className="callout-body">Can't reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
@@ -1285,10 +1286,10 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
   const clearMemory = async () => {
     const ok = await confirmDialog({
       tone: 'danger',
-      title: serverName ? `Clear Olisar's memory of ${serverName}?` : 'Clear memory',
+      title: serverName ? `Clear ${botName()}'s memory of ${serverName}?` : 'Clear memory',
       message: (
         <>
-          This erases everything Olisar has learned about this server: conversation memory, summaries, the
+          This erases everything {botName()} has learned about this server: conversation memory, summaries, the
           search index, remembered facts, the glossary, usage stats, its read on each member, and the
           knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
           <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
@@ -1322,7 +1323,7 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
       <Field
         plain
         label="Clear memory"
-        desc="Erases everything on this page and everything Olisar remembers about this server — the glossary, the search index, and its read on each member. Persona, behavior, channel modes and command replies are kept. This can't be undone."
+        desc={`Erases everything on this page and everything ${botName()} remembers about this server — the glossary, the search index, and its read on each member. Persona, behavior, channel modes and command replies are kept. This can't be undone.`}
       >
         <button className="danger" onClick={clearMemory} disabled={busy}>
           {busy ? <><span className="spinner" /> Clearing…</> : 'Clear memory'}
@@ -1431,7 +1432,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const readNow = async (s: any) => {
     try {
       await api.refreshSource(s.id)
-      toast('Queued — Olisar is reading it again.', 'success')
+      toast(`Queued — ${botName()} is reading it again.`, 'success')
       reload()
     } catch (e: any) {
       toast(e?.message || 'Couldn’t queue the read', 'danger')
@@ -1471,12 +1472,12 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
   const factRows = facts ?? []
   return (
     <>
-      <PageHead icon="knowledge" title="Knowledge" doc="knowledge" sub="What you've taught Olisar. The knowledge base holds pages and documents it can look things up in and the glossary holds short facts about your server." />
+      <PageHead icon="knowledge" title="Knowledge" doc="knowledge" sub={`What you've taught ${botName()}. The knowledge base holds pages and documents it can look things up in and the glossary holds short facts about your server.`} />
       {/* Full width, above the split: this is a fact about the whole server, not a sibling
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
       <SearchIndexCard />
-      <Section title="Knowledge base" hint="A webpage or a crawled site Olisar can reference. Upload documents via /olisar learn-doc in Discord.">
+      <Section title="Knowledge base" hint={`A webpage or a crawled site ${botName()} can reference. Upload documents via /olisar learn-doc in Discord.`}>
         {/* A compose form, not a list of settings: type and URL are one entry, so they keep
             their labels above and sit side by side. */}
         <Stack>
@@ -1546,7 +1547,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
               // re-crawling and re-reading against the free quota, so this is not a cheap undo.
               if (!(await confirmDialog({
                 title: `Remove ${s.title || s.uri}?`,
-                message: <>Olisar forgets {s.chunks ? <><strong>{s.chunks}</strong> passages</> : 'everything'} it read from this source. Re-adding it means reading the whole thing again.</>,
+                message: <>{botName()} forgets {s.chunks ? <><strong>{s.chunks}</strong> passages</> : 'everything'} it read from this source. Re-adding it means reading the whole thing again.</>,
                 confirmLabel: 'Remove source',
                 tone: 'danger',
               }))) return
@@ -1557,7 +1558,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           </div>
         ))}</ScrollFade>}
       </Section>
-      <Section title="Glossary" hint="Short facts Olisar carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.">
+      <Section title="Glossary" hint={`Short facts ${botName()} carries into every reply: your abbreviations, in-jokes, and who's who. It also picks these up on its own as channels stay active.`}>
         <Stack>
         <div className="compose">
         <div className="row">
@@ -1582,7 +1583,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
         {factsQ.error ? (
           <Loading of={factsQ} what="the glossary" />
         ) : factRows.length === 0 ? (
-          <div className="empty">Nothing learned yet. Olisar fills this in as it summarizes active channels, or add the first fact above.</div>
+          <div className="empty">Nothing learned yet. {botName()} fills this in as it summarizes active channels, or add the first fact above.</div>
         ) : null}
         {factRows.length > 0 && <ScrollFade rows={8} className="fact-list">{factRows.map((f) => (
           <div className="list-row" key={f.id}>
@@ -1596,7 +1597,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
             <button className="danger" aria-label={`Delete the fact “${(f.subject || f.fact).slice(0, 40)}”`} onClick={async () => {
               if (!(await confirmDialog({
                 title: `Delete “${(f.subject || f.fact).slice(0, 48)}”?`,
-                message: <>“{f.fact}” — Olisar stops carrying this into replies. It may mine it again later if it comes up in conversation.</>,
+                message: <>“{f.fact}” — {botName()} stops carrying this into replies. It may mine it again later if it comes up in conversation.</>,
                 confirmLabel: 'Delete fact',
                 tone: 'danger',
               }))) return
@@ -3096,13 +3097,13 @@ export function Members() {
         icon="members"
         title="Members"
         doc="members"
-        sub="The private impression Olisar forms of each member. Anyone can wipe theirs with /forget-me."
+        sub={`The private impression ${botName()} forms of each member. Anyone can wipe theirs with /forget-me.`}
       />
       <Section stacked title="Profiles" hint={`${rows.length} known · ${learned} with an impression`}>
         {rows.length > 0 && (
           <Text value={q} onChange={setQ} placeholder="Filter by name, role, or impression…" ariaLabel="Filter members by name, role, or impression" />
         )}
-        {rows.length === 0 && <div className="empty">No member profiles yet. Olisar builds them as people talk in channels it remembers.</div>}
+        {rows.length === 0 && <div className="empty">No member profiles yet. {botName()} builds them as people talk in channels it remembers.</div>}
         {rows.length > 0 && shown.length === 0 && <div className="empty">No members match “{q}”.</div>}
         {/* A list, not a grid of cards. Three cards across left each one as tall as its
             wordiest neighbour, and a member with nothing learned yet was mostly empty box. */}
@@ -3361,7 +3362,7 @@ export function ApiKeys() {
 
       {/* Required first, then the optional one. The UEX key lives on the Star Citizen
           extension's page, since nobody without the extension needs it. */}
-      <Section title="Google Gemini" hint="Required. Powers everything Olisar says. The free tier is enough to run the bot.">
+      <Section title="Google Gemini" hint={`Required. Powers everything ${botName()} says. The free tier is enough to run the bot.`}>
         <KeyField
           fieldKey="gemini_api_key"
           label="Gemini API key"
@@ -3380,7 +3381,7 @@ export function ApiKeys() {
           )}
         />
       </Section>
-      <Section title="Cloudflare Workers AI" hint="Optional. Turns on image generation. Without it, Olisar says it can't make images.">
+      <Section title="Cloudflare Workers AI" hint={`Optional. Turns on image generation. Without it, ${botName()} says it can't make images.`}>
         <KeyField
           fieldKey="cloudflare_api_token"
           label="API token"
@@ -3483,7 +3484,7 @@ const U_SOURCE_LABEL: Record<string, string> = {
 // Plain-language explanations for the more technical process labels — shown as a hover
 // tooltip on that legend row (data-tip). Add entries here to explain more of them.
 const U_SOURCE_TIP: Record<string, string> = {
-  embed: 'Lets Olisar search its memory and knowledge base by meaning, not just exact words.',
+  embed: 'Search memory and the knowledge base by meaning, not just exact words.',
 }
 const uShort = (m: string) => m.replace('gemini-', '').replace(/-latest$/, '').replace(/-0*(\d)/, '-$1')
 const uTok = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n))
@@ -3870,7 +3871,7 @@ export function Usage() {
         </Section>
       </div>
 
-      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, Olisar rests it for two minutes and falls back to the next one in its chain.</div></div>
+      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, {botName()} rests it for two minutes and falls back to the next one in its chain.</div></div>
     </>
   )
 }

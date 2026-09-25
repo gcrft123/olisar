@@ -158,7 +158,7 @@ keys. That's separate from Access, which controls who can use Olisar **within** 
 ### Talking to Olisar (for members)
 
 Members can reach Olisar a few ways:
-- **Say its name** — start a message with a name trigger (default `olisar`) in a channel it can talk in.
+- **Say its name** — start a message with a name trigger (by default, the bot's own name) in a channel it can talk in.
 - **@mention or reply** to one of its messages.
 - **DM it** — direct messages work if DMs are enabled.
 - `/ask` — a slash command that works anywhere, like a one-off question.

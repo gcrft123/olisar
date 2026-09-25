@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setMemberCsrf } from './api'
+import { botName } from './botname'
 import { CloseX, Icon } from './icons'
 import { confirmDialog, promptDialog, toast } from './overlays'
 import { SettingsModal, clearPendingReport, pendingReport } from './settings'
@@ -287,7 +288,7 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
         <div className="box wide">
           <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
           <h1>Nothing to show</h1>
-          <p>None of the servers you share with Olisar have opened this page.</p>
+          <p>None of the servers you share with {botName()} have opened this page.</p>
           <div className="login-actions">
             <button className="ghost" onClick={onSignOut}><Icon.logout size={16} /> Log out</button>
           </div>
@@ -342,12 +343,12 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
     // The phrase proves intent; naming the server in the title is what makes it prove the
     // *right* intent, since the switcher is elsewhere on screen.
     const ok = await confirmDialog({
-      title: `Erase everything Olisar knows about you in ${server.name}`,
+      title: `Erase everything ${botName()} knows about you in ${server.name}`,
       message: (
         <>
           {uReq(overview?.counts.messages ?? 0)} messages, {uReq(overview?.counts.indexed ?? 0)} index entries,{' '}
           {uReq(overview?.counts.facts ?? 0)} remembered things and {uReq(reminders?.length ?? 0)} reminders.
-          Your Discord messages stay; Olisar's copy doesn't.
+          Your Discord messages stay; {botName()}'s copy doesn't.
         </>
       ),
       confirmLabel: 'Erase everything',
@@ -368,7 +369,7 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
     if (!text) return
     try {
       await api.memberCorrection(text)
-      toast('Noted — Olisar will take that into account.', 'success')
+      toast(`Noted — ${botName()} will take that into account.`, 'success')
     } catch (e: any) { toast(e?.message || 'Could not save that.', 'danger') }
   }
 
@@ -415,7 +416,7 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
       </header>
 
       <section className="mp-open">
-        <h1>What Olisar has of yours</h1>
+        <h1>What {botName()} has of yours</h1>
         {error ? <p className="mp-lead">{error}</p> : !overview ? <Spinner label="Loading your data…" /> : (
           <p className="mp-lead">
             In {server.name} it has kept{' '}
@@ -424,7 +425,7 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
             {' '}of your messages and made{' '}
             <StatChip value={uReq(c!.indexed)} items={b.indexed || []} unit="indexed"
               caption="Where your searchable messages came from"
-              note="The index reaches every channel, including ones Olisar never speaks in." />
+              note={`The index reaches every channel, including ones ${botName()} never speaks in.`} />
             {' '}findable by anyone who asks. From those it has written down{' '}
             <StatChip value={uReq(c!.facts)} items={b.facts || []} unit="things"
               caption="What kind of thing it wrote down" />
@@ -579,7 +580,7 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
                             <div className="meta">
                               {/* event_fact is the one people don't remember agreeing to. */}
                               <span className={'kind' + (r.source === 'event_fact' ? ' ev' : '')}>
-                                {r.source === 'event_fact' ? 'Olisar noticed' : 'You asked'}
+                                {r.source === 'event_fact' ? `${botName()} noticed` : 'You asked'}
                               </span>
                               <span>{r.target === 'dm' ? 'Sent by DM' : 'Posted in the channel'}</span>
                             </div>

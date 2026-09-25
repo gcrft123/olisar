@@ -32,6 +32,8 @@ Setting Olisar up took eight fields and three trips to the Discord Developer Por
 
 Finishing setup didn't mean Olisar worked. Every channel starts off, so a server it had just joined heard nothing from it and nothing said why. A bot Discord refused over an intent looked the same as one switched off, and landed its operator on a screen saying it wasn't in any server. A saved key showed as set whether or not it was right. The console now says what's left and what's wrong, and where it can, fixes it.
 
+Operators bring their own Discord bot and name it, but Olisar kept calling it Olisar. A bot called Everest introduced itself as Olisar in every new server, didn't answer to "everest", and sat above slash commands that said "Ask Olisar something." The console said Olisar on nearly every page. A new server now starts from the bot's own name, and the console and the command list use that name wherever they mean the bot. Olisar is still the name of the app, the console and the team, and servers that already exist keep their persona as it is.
+
 The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
 
 ### New
@@ -236,6 +238,20 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 [4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
 
+[8388322] — A server the bot joins starts with its persona named after the bot, a system prompt that introduces it by that name, and that name as its name trigger.
+
+[8388322] — Slash command descriptions call the bot by its Discord name. The command group is still `/olisar`.
+
+[e07b897] — The console and the member portal call the bot by its Discord name wherever they mean the bot.
+
+[8388322] — The default `/privacy` reply and tool PIN prompt speak as the bot in the first person, like the other command replies, instead of calling it Olisar.
+
+[8388322] — Images the bot generates are uploaded as `image.png` instead of `olisar.png`.
+
+[e07b897] — The Get started step for channels reads "Choose reply channels", so a long bot name no longer cuts it short in the sidebar.
+
+[978634b] — On the No servers screen, the button that adds the bot to a server takes its own row, with Log out beneath it.
+
 [3fb1326] — Every status chip in the console has the same shape and an icon, or a spinner while something is in progress.
 
 [3fb1326] — Something in progress is blue everywhere, including a knowledge source being read or indexed, which was amber.
@@ -311,6 +327,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 [4b78a70] — The setup card no longer jumps up and down between steps, and the bot token field stays put while you type, instead of sliding when Discord's answer arrives.
 
 [4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
+
+[8388322] — Transcripts, channel summaries, catch-ups and the prompts that decide whether the bot chimes in or reacts call it by its persona's name, so a bot whose persona has another name no longer reads its own messages as someone called Olisar.
 
 ## [1.5.0] — 2026-09-21
 

@@ -169,7 +169,7 @@ async def build_persona_now(
         )
     )
     if profile is None:
-        return {"ok": False, "error": "Olisar has no profile for that member yet."}
+        return {"ok": False, "error": "There's no profile for that member yet."}
     if profile.memory_opt_out:
         return {"ok": False, "error": "That member has opted out of being remembered."}
 
