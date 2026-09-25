@@ -272,6 +272,7 @@ body {
   margin: 0; background: var(--bg); color: var(--text);
   font-family: var(--font-sans); font-size: 13.5px; line-height: 1.55;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;  /* a word too long for its line breaks instead of spilling */
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -900,7 +901,7 @@ everywhere — a token block with a comment is the honest version.
 .dcp-av { width: 40px; height: 40px; border-radius: 50%; flex: none; overflow: hidden;
   background: var(--dc-brand); display: grid; place-items: center; color: #fff; font-weight: 600; }
 .dcp-row { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; flex-wrap: wrap; }
-.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); }
+.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); min-width: 0; overflow-wrap: anywhere; }
 /* The APP badge is what makes this read as Discord rather than as a generic chat. */
 .dcp-tag { background: var(--dc-brand); color: #fff; font-size: 10px; font-weight: 600;
   padding: 2px 4px; border-radius: 4px; position: relative; top: -1px; }
@@ -1134,6 +1135,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Don't** use emoji, bluish-purple gradients, drop shadows on anything that doesn't float, or Title Case headings.
 - **Don't** introduce new hues — use the accent or a semantic state.
 - **Don't** let a control be named by `title` alone — the tooltip host strips it on focus. See **Button & IconButton**.
+- **Do** expect the bot's name to be long and unbreakable. The console calls the bot by its Discord name (`botName()`, up to 32 characters, often no spaces), so it lands in headings, labels, hints and buttons. The body's `break-word` covers text in a box of fixed width. A flex or grid item, or anything centered at its content's width, sizes to its longest word, so it needs `overflow-wrap: anywhere` on that element (see `.dcp-name`, `.mode-legend`, `.login h1`). Keep the name out of single-line rows that truncate, like the Get started steps. Test with `"W".repeat(32)` at 390px.
 
 ### Verify before shipping
 
