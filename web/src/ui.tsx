@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Icon, CopyGlyph } from './icons'
+import { Icon, CopyGlyph, BadgeIcon, SEAL_TINT, SpinnerRing, type BadgeIconName } from './icons'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
@@ -600,6 +600,36 @@ export function Spinner({ label = 'Loading…' }: { label?: string }) {
       <span className="spinner" />
       <span>{label}</span>
     </div>
+  )
+}
+
+/**
+ * The status chip. Five tones, and each means one thing: `success` done or healthy, `info`
+ * working on it or something new, `warning` needs a look, `danger` failed or blocked,
+ * `neutral` a plain fact. Every badge carries a glyph, or the ring spinner while `busy`, so
+ * the tone is never the only signal.
+ */
+export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+export type BadgeGlyph = { icon: BadgeIconName; busy?: never } | { busy: true; icon?: never }
+
+export function Badge(props: BadgeGlyph & { tone?: BadgeTone; children: React.ReactNode }) {
+  const Glyph = props.busy ? SpinnerRing : BadgeIcon[props.icon]
+  // The glyph's SVG covers the pill's whole round end, and the 24-unit icon sits in the middle
+  // of a 44-unit view of it. So the ring is centered by the SVG's own geometry, not by layout
+  // offsets Chrome would round separately from the pill. The disc and the spinner's track are
+  // drawn inside the same SVG (Solar renders children under its glyph), so they can't drift
+  // off the ring either.
+  const seal = !props.busy && SEAL_TINT.has(props.icon)
+  return (
+    <span className={'badge ' + (props.tone ?? 'neutral')}>
+      <Glyph className={'badge-ic' + (props.busy ? ' ring-arc' : '')} viewBox="-10 -10 44 44" aria-hidden>
+        {seal
+          ? <Glyph className="badge-disc badge-seal" size={24} aria-hidden />
+          : <circle className="badge-disc" cx="12" cy="12" r="10" />}
+        {props.busy && <circle className="ring-track" cx="12" cy="12" r="10" />}
+      </Glyph>
+      {props.children}
+    </span>
   )
 }
 

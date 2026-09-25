@@ -40,7 +40,6 @@ import {
   AltArrowRight,
   AltArrowDown,
   InfoCircle,
-  ShieldCheck,
   Copy,
   DownloadMinimalistic,
   UploadMinimalistic,
@@ -51,6 +50,28 @@ import {
   HamburgerMenu,
   Eye,
   EyeClosed,
+  CloseCircle,
+  DangerCircle,
+  MinusCircle,
+  StopCircle,
+  PlayCircle,
+  SlashCircle,
+  RoundArrowRightUp,
+  RoundArrowUp,
+  RoundArrowDown,
+  CodeCircle,
+  StarCircle,
+  Global,
+  HashtagCircle,
+  MentionCircle,
+  BoltCircle,
+  RecordAudioCircle,
+  SoundwaveCircle,
+  Record,
+  MenuDotsCircle,
+  TextCircle,
+  BookmarkCircle,
+  VerifiedCheck,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -88,7 +109,6 @@ export const Icon = {
   arrowRight: AltArrowRight,
   chevron: AltArrowDown,
   info: InfoCircle,
-  verified: ShieldCheck,
   copy: Copy,
   download: DownloadMinimalistic,
   upload: UploadMinimalistic,
@@ -102,6 +122,56 @@ export const Icon = {
 } as const
 
 export type IconName = keyof typeof Icon
+
+// Badge glyphs, keyed by their Solar name. A badge draws a tinted disc inside its icon's
+// ring, so only an icon whose outline is the r=10 circle on the 24 box can go here — the
+// full list is design/status-chips/circle-icons.html. Check a new entry against that page.
+// The mark inside the ring has to be centered too, within half a unit of 24. Some of the
+// listed icons aren't: pen-new-round's pen sits 1.8 units high and to the right,
+// smile-circle's face 1.4 low, history-2's and clock-circle's hands up and right. In a 12px
+// badge that is most of a pixel, and it reads as a badge whose icon is out of line.
+//
+// One exception: `verified-check`, the badge check, marks a publisher Discord has verified.
+// Its outline is a scalloped seal rather than the circle, so the round disc would poke out
+// between the scallops; its tint is the seal's own outline filled instead (SEAL_TINT).
+export const BadgeIcon = {
+  'check-circle': CheckCircle,
+  'verified-check': VerifiedCheck,
+  'close-circle': CloseCircle,
+  'danger-circle': DangerCircle,
+  'minus-circle': MinusCircle,
+  'stop-circle': StopCircle,
+  'play-circle': PlayCircle,
+  'menu-dots-circle': MenuDotsCircle,
+  'forbidden-circle': ForbiddenCircle,
+  'slash-circle': SlashCircle,
+  'round-arrow-right-up': RoundArrowRightUp,
+  'round-arrow-up': RoundArrowUp,
+  'round-arrow-down': RoundArrowDown,
+  'code-circle': CodeCircle,
+  'text-circle': TextCircle,
+  'user-circle': UserCircle,
+  'star-circle': StarCircle,
+  'bookmark-circle': BookmarkCircle,
+  'global': Global,
+  'hashtag-circle': HashtagCircle,
+  'chat-round-line': ChatRoundLine,
+  'mention-circle': MentionCircle,
+  'info-circle': InfoCircle,
+  'bolt-circle': BoltCircle,
+  'record-audio-circle': RecordAudioCircle,
+  'soundwave-circle': SoundwaveCircle,
+} as const
+
+export type BadgeIconName = keyof typeof BadgeIcon
+
+// Glyphs tinted by filling their own outline (the first path Solar draws) instead of the r=10
+// disc, because that outline isn't the circle.
+export const SEAL_TINT: ReadonlySet<BadgeIconName> = new Set(['verified-check'])
+
+// The badge's loading state is Solar's `record`: the bare ring every badge glyph is drawn
+// on, so a spinner made from it has the glyphs' size and 1.5 stroke without redrawing either.
+export const SpinnerRing = Record
 
 // The copy → copied swap, shared by every copy affordance in the console.
 //

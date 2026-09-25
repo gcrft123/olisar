@@ -8,7 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { api } from './api'
 import { Icon, CloseX } from './icons'
 import { Modal, toast, confirmDialog } from './overlays'
-import { Spinner, useDirtyGuard } from './ui'
+import { Badge, Spinner, useDirtyGuard } from './ui'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -26,6 +26,14 @@ function riskCls(score: number): string {
   if (score >= 70) return 'danger'
   if (score >= 31) return 'warn'
   return 'ok'
+}
+// A registry listing's status. `banned` is the publisher's ban reaching their extensions,
+// the same fact the Moderation tab shows, so it wears the same chip.
+function ListingBadge({ status }: { status: string }) {
+  if (status === 'published') return <Badge tone="info" icon="round-arrow-right-up">Published</Badge>
+  if (status === 'yanked') return <Badge tone="danger" icon="slash-circle">Yanked</Badge>
+  if (status === 'banned') return <Badge tone="danger" icon="forbidden-circle">Banned</Badge>
+  return <Badge icon="minus-circle">{status}</Badge>
 }
 function fmtDate(s?: string): string {
   if (!s) return '—'
@@ -203,7 +211,7 @@ function DevExtensions() {
                 <td>{r.version}</td>
                 <td className="num">{r.installs}</td>
                 <td className="num">{r.risk_score == null ? '—' : <span className={'risk-pill ' + riskCls(r.risk_score)}>{r.risk_score}</span>}</td>
-                <td><span className={'badge ' + (r.status === 'published' ? 'success' : r.status === 'yanked' ? 'error' : 'pending')}>{r.status}</span></td>
+                <td><ListingBadge status={r.status} /></td>
                 <td className="muted">{fmtDate(r.published_at)}</td>
                 <td className="dev-perms">{(r.permissions || []).map((p: string) => <span key={p} className="tag">{p}</span>)}</td>
                 <td className="dev-row-actions">
@@ -273,7 +281,7 @@ function DevReports() {
             <div className="dev-report-meta">
               <span>publisher <code>{r.publisher_discord_id || 'unknown'}</code></span>
               <span>reporter <code>{r.reporter_discord_id || 'unknown'}</code></span>
-              {r.logs_r2_key && <span className="badge">logs + attachments emailed</span>}
+              {r.logs_r2_key && <Badge icon="mention-circle">Logs and attachments emailed</Badge>}
             </div>
             <div className="dev-report-actions">
               <button className="caution" disabled={!r.publisher_discord_id} onClick={() => moderate(r.publisher_discord_id, 'warn')}>Warn publisher</button>
@@ -365,7 +373,9 @@ function DevModeration() {
         <div className="dev-mod-list">
           {entries.map((m) => (
             <div key={m.discord_id} className="list-row">
-              <span className={'badge' + (m.status === 'banned' ? ' error' : ' pending')}>{m.status}</span>
+              {m.status === 'banned'
+                ? <Badge tone="danger" icon="forbidden-circle">Banned</Badge>
+                : <Badge tone="warning" icon="danger-circle">Warned</Badge>}
               <code className="grow">{m.discord_id}</code>
               {m.message && <span className="settings-muted">{m.message}</span>}
               <span className="settings-muted">{fmtDate(m.updated_at)}</span>

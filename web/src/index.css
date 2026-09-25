@@ -4,6 +4,8 @@
 
 :root {
   color-scheme: dark;
+  /* Device pixels per CSS pixel; theme.ts keeps it current. */
+  --dpr: 1;
 
   /* ── Interface size ──────────────────────────────────────────────────────
      Everything here is sized in px — 34px controls, a 244px rail, chart geometry — so there
@@ -52,8 +54,8 @@
   --accent: #5b9cf6;
   --accent-soft: rgba(91, 156, 246, 0.16);
 
-  /* Chart series palette (.us0–.us5) and the marketplace publisher chip. Distinct hues
-     for categorical data — never UI state, which is what the semantic tokens below are. */
+  /* Chart series palette (.us0–.us5). Distinct hues for categorical data — never UI
+     state, which is what the semantic tokens below are. */
   --accent-violet: #8a8af2; --accent-blue: #5b9cf6;
   --accent-teal: #2dd4bf;   --accent-green: #43cf8e; --accent-amber: #e0a458;
   --accent-rose: #f2728a;
@@ -820,31 +822,80 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 
 /* ── Badges & lists ─────────────────────────────────────────────────────── */
-/* No `text-transform: capitalize` here. It manufactured Title Case for every multi-word
+/* The status chip from design/status-chips, set on the console's dark ground. One color
+   drives the whole chip: `--ink` is the text and the glyph, and the fill, the edge and the
+   disc inside the glyph's ring are all mixed from it, so a tone is one line.
+   The edge is lit from above, as in the reference: brightest along the top, dimmest along
+   the bottom. That needs an opaque fill, or the edge gradient painted under the padding box
+   shows through it, so the fill is mixed into --bg-inset (the chip well) rather than into
+   transparent.
+   No `text-transform: capitalize` here. It manufactured Title Case for every multi-word
    badge — "Set In Dashboard", "Not Set", "Built-In" — against DESIGN.md's sentence-case
    rule, from CSS, where no amount of copy review could see it. Badge text is written in
    the case it should render. */
 .badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 2px 9px; border-radius: var(--radius-pill); font-size: 11px; font-weight: 600;
-  background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2);
+  --ink: var(--text-2);
+  --badge-fill: color-mix(in srgb, var(--ink) 14%, var(--bg-inset));
+  --badge-h: 22px;
+  --badge-bw: 1px;
+  display: inline-flex; align-items: center; flex: none;
+  box-sizing: border-box; height: var(--badge-h); padding: 0 7px 0 0;
+  border: var(--badge-bw) solid transparent; border-radius: var(--radius-pill);
+  background:
+    linear-gradient(var(--badge-fill), var(--badge-fill)) padding-box,
+    linear-gradient(
+      color-mix(in srgb, var(--ink) 52%, var(--bg-inset)),
+      color-mix(in srgb, var(--ink) 34%, var(--bg-inset)) 50%,
+      color-mix(in srgb, var(--ink) 22%, var(--bg-inset))
+    ) border-box;
+  color: var(--ink);
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500; line-height: 1;
+  vertical-align: middle;
   /* A pill that wraps is a broken pill: "Preference" rendered 60x40 beside 23px siblings,
      split mid-word as "Prefere / nce". */
   white-space: nowrap;
+  /* Its own layer, so everything inside is rounded to the pixel grid from the badge's corner.
+     Without it Chrome rounds the text against the page instead, and at 110% it sat a device
+     pixel above center in one badge and below in the next. */
+  will-change: transform;
 }
-.badge.ready, .badge.success, .badge.done { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
-.badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
-.badge.pending, .badge.crawling, .badge.chunking, .badge.missing, .badge.warning { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
-.badge.info { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
-/* Not the accent: it carries links, focus and the toggle "on" track, and this is one of
-   three neutral taxonomy labels sitting beside each other. */
-.badge.preference { color: var(--info); background: var(--info-soft); border-color: var(--info-border); }
-/* Marketplace publisher chip — the violet accent, regardless of the active theme accent. */
-.badge.publisher {
-  color: var(--accent-violet);
-  background: color-mix(in srgb, var(--accent-violet) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent-violet) 34%, transparent);
+/* Whole device pixels. At 110% a 22px badge is 48.4 device pixels on a 2x screen and its 1px
+   edge is 2.2, and Chrome rounds the outline and the icon to the pixel grid separately — so
+   the icon sat a pixel high in one badge and a pixel low in the next. Rounding the height to
+   an even number of device pixels, and the edge to a whole one, leaves nothing to round.
+   `--dpr` comes from theme.ts. */
+@supports (height: round(nearest, 1px, 1px)) {
+  .badge {
+    --dpx: calc(1px / (var(--ui-scale) * var(--dpr, 1)));
+    --badge-h: round(nearest, 22px, calc(2 * var(--dpx)));
+    --badge-bw: max(var(--dpx), round(down, 1px, var(--dpx)));
+  }
 }
+.badge.info    { --ink: var(--info); }
+.badge.success { --ink: var(--ok); }
+.badge.warning { --ink: var(--warn); }
+.badge.danger  { --ink: var(--danger); }
+
+/* The glyph's SVG is the pill's round end: as tall as the badge, pulled out over the edge so
+   it covers the outline too, with the 24-unit icon centered in a 44-unit view (so 12px in a
+   22px badge, 4px clear of the edge on every side). The same negative margin on the right
+   puts the label where a 12px icon and a 4px gap would. */
+.badge-ic {
+  flex: none; display: block;
+  width: var(--badge-h); height: var(--badge-h); margin: calc(-1 * var(--badge-bw));
+}
+/* The disc inside the ring, at 20% ink. The badge check's tint is its own seal outline filled
+   (a copy of the glyph nested under it, with the check hidden), since the circle doesn't fit. */
+.badge-disc { fill: currentColor; opacity: 0.2; }
+.badge-seal path:first-child { fill: currentColor; stroke: none; }
+.badge-seal path:not(:first-child) { display: none; }
+/* The spinner: Solar's bare `record` ring as the arc, a quarter of its 62.83 circumference,
+   turning over a faint full copy of itself. The ring is Solar's own circle, drawn after the
+   children. */
+.ring-track { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.3; }
+.ring-arc { animation: spin 0.8s linear infinite; }
+.ring-arc > circle:last-child { stroke-dasharray: 15.71 47.12; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .ring-arc { animation-duration: 1.6s; } }
 
 /* Members: one row per person. Who they are on the left, what Olisar has made of them in
    the middle, the one action on the right. */
@@ -902,7 +953,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 .mem { font-size: 12px; color: var(--text-2); display: flex; align-items: baseline; gap: 6px; }
 /* One width for the three memory kinds, so the content beside them starts at the same x
    down the card instead of stepping in and out with the label length. */
-.mem > .badge { flex: none; min-width: 52px; justify-content: center; }
+.mem > .badge { min-width: 62px; }
 .member-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .member-actions .err.sm { font-size: 11px; }
 .member-meta { color: var(--text-3); font-size: 11.5px; margin-top: 1px; }
@@ -1360,7 +1411,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .bot-menu-sub { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
 .bot-menu-sub.success { color: var(--ok); }
 .bot-menu-sub.warning { color: var(--warn); }
-.bot-menu-sub.error { color: var(--danger); }
+.bot-menu-sub.danger { color: var(--danger); }
 .bot-menu-rule { height: 1px; margin: 4px 2px; background: var(--border); flex: none; }
 .bot-menu-action { color: var(--text-2); }
 .bot-menu-action:hover { color: var(--text); }
@@ -2357,7 +2408,6 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .userrow { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .userrow:last-child { border-bottom: none; }
 .uname { font-weight: 550; color: var(--text); min-width: 120px; }
-.ubadge { font-size: 11px; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: var(--radius-pill); }
 .umeta { color: var(--text-3); font-size: 12px; margin-left: auto; }
 .userrow .umeta + .umeta { margin-left: 16px; }
 
@@ -2390,14 +2440,13 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 @keyframes rx-indef { 0% { transform: translateX(-108%); } 100% { transform: translateX(286%); } }
 @media (prefers-reduced-motion: reduce) { .progress.indeterminate .progress-bar { animation-duration: 3s; } }
 .reindex-list { display: flex; flex-direction: column; gap: 2px; margin-top: 16px; max-height: 560px; overflow-y: auto; }
-.reindex-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+.reindex-row { display: grid; grid-template-columns: minmax(0, 1fr) auto 96px; align-items: center; gap: 14px; padding: 7px 2px; border-bottom: 1px solid var(--border); }
+/* Each row is its own grid, so the fixed last track is what lines the chips up down the
+   list; the chip keeps its own width inside it. */
+.reindex-row > .badge { justify-self: start; }
 .reindex-row:last-child { border-bottom: none; }
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
-.rx-chip { font-size: 11px; font-weight: 500; padding: 2px 9px; border-radius: var(--radius-pill); display: inline-flex; align-items: center; gap: 5px; min-width: 74px; justify-content: center; }
-.rx-chip.done { color: var(--ok); background: var(--ok-soft); }
-.rx-chip.indexing { color: var(--accent); background: var(--accent-soft); }
-.rx-chip.queued { color: var(--text-3); background: var(--bg-inset); }
 
 /* ── Toast (bottom-right status) ─────────────────────────────────────────── */
 /* Same tinting as the callout, fixed bottom-right, slides in from the right.
@@ -2608,11 +2657,6 @@ h2.u-eyebrow {
 .us0 { color: var(--accent-blue); } .us1 { color: var(--accent-teal); } .us2 { color: var(--accent-violet); }
 .us3 { color: var(--accent-amber); } .us4 { color: var(--accent-green); } .us5 { color: var(--accent-rose); }
 .us-mut { color: var(--neutral); }
-.u-livehead { display: flex; align-items: center; gap: 7px; }
-.u-livedot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
-/* Amber, not green, once the poll stops landing — a green dot over numbers that have
-   stopped moving is the most misleading thing this page could show. */
-.u-livedot.stale { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
 .u-meter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .u-meter:last-child { margin-bottom: 2px; }
 .u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; min-width: 74px; }
