@@ -1400,7 +1400,15 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
 /* ── Setup wizard ───────────────────────────────────────────────────────── */
-.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
+/* The card hangs from a fixed line instead of centring. Centred, every change in its height
+   moved its top by half as much, so the title and progress bar jumped between steps and a
+   field slid while it was being typed into. The line is where a typical step's card would
+   sit centred; shorter steps leave the room below, taller ones scroll as before. */
+.setup {
+  --card-rest: 560px;
+  min-height: var(--vh); display: grid; justify-items: center; align-items: start;
+  padding: max(24px, calc((var(--vh) - var(--card-rest)) / 2)) 24px 24px;
+}
 .setup .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);
@@ -1411,9 +1419,25 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 }
 .setup h1 { font-size: 20px; margin: 0 0 4px; }
 .setup .step-sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 18px; }
-.setup .steps { display: flex; gap: 6px; margin-bottom: 24px; }
-.setup .steps i { height: 3px; flex: 1; border-radius: 2px; background: var(--border); transition: background 0.15s var(--ease-out); }
-.setup .steps i.on { background: var(--accent); }
+/* Every possible step is drawn, one grid track each (setup.tsx writes the columns); a step
+   this hosting choice skips is a 0fr track, so the bar regrows when the choice changes
+   rather than redrawing — the cta-reveal technique, not a width. The 6px gap is drawn
+   inside each track (3px a side, taken back by the row's own -3px) because a grid gap would
+   stay behind when its track folds. A segment fills from the left going forward and empties
+   back toward it going back. */
+.setup .steps {
+  display: grid; height: 3px; margin: 0 -3px 24px;
+  transition: grid-template-columns var(--dur-slow) var(--ease-out);
+}
+.setup .steps i { position: relative; min-width: 0; overflow: hidden; }
+.setup .steps i::before, .setup .steps i::after {
+  content: ''; position: absolute; inset: 0 3px; border-radius: 2px; background: var(--border);
+}
+.setup .steps i::after {
+  background: var(--accent); transform: scaleX(0); transform-origin: left center;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+.setup .steps i.on::after { transform: none; }
 .setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
 .setup .wiz-foot .grow { flex: 1; }
 .setup .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
@@ -1441,6 +1465,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .check-line.ok { color: var(--ok); }
 .check-line.err { color: var(--danger); }
 .check-line b { font-weight: 600; }
+/* What a check line says, replaced as a unit when the answer changes (setup.tsx ArrivingLine). */
+.check-line-in { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .setup .check-line { margin: -9px 0 16px; }
 /* Under a key's Saved / Not set row on the API keys page. */
 .key-status + .check-line { margin-top: 8px; }
@@ -1504,7 +1530,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 @media (prefers-reduced-motion: reduce) { .setup .cta-reveal { transition: none; } }
 .setup .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
-  background: var(--bg-inset); transition: border-color var(--dur-fast) var(--ease-out);
+  background: var(--bg-inset);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 .setup .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .setup .mode-card b { font-size: 13.5px; }
@@ -1519,6 +1546,32 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .tunnel-help strong { color: var(--text); font-weight: 600; }
 .setup .tunnel-help code {
   font-family: var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
+}
+
+/* Setup motion. The card's height is tweened in setup.tsx (useHeightTween); these are the
+   entrances that play inside it. A step arrives from the side it was travelled to, 10px and
+   a fade, in the time the card takes to resize around it; switching to "Connect to an
+   existing server" and back moves the whole screen the same way. Only what changed plays:
+   nothing animates on first paint. */
+.setup .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
+.setup .enter.back { animation-name: wiz-in-back; }
+@keyframes wiz-in { from { opacity: 0; transform: translateX(10px); } }
+@keyframes wiz-in-back { from { opacity: 0; transform: translateX(-10px); } }
+@keyframes wiz-fade { from { opacity: 0; } }
+/* Something arriving within a step: a check's answer, a warning, an error, the deploy
+   notice. Each is keyed to replay, so a refused Continue shows its reason arriving again. */
+.setup .wiz-appear { animation: wiz-appear .2s var(--ease-out) both; }
+@keyframes wiz-appear { from { opacity: 0; transform: translateY(3px); } }
+/* A thing Discord or Tailscale just confirmed ("Added", "Live at …"). */
+.setup .wiz-pop { animation: wiz-pop .24s var(--ease-out) both; }
+@keyframes wiz-pop { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) {
+  /* The height snaps (see useHeightTween) and nothing travels. What arrived still fades in,
+     and the bar still fills, by colour rather than by sweep. */
+  .setup .enter, .setup .enter.back, .setup .wiz-appear, .setup .wiz-pop { animation-name: wiz-fade; }
+  .setup .steps { transition: none; }
+  .setup .steps i::after { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+  .setup .steps i.on::after { opacity: 1; }
 }
 
 .muted { color: var(--text-2); }
