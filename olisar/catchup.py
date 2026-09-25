@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
-from olisar.context import name_map, speaker_name
+from olisar.context import name_map, persona_name, speaker_name
 from olisar.db.models import ChannelSummary, Message
 from olisar.gemini.client import get_gemini
 from olisar.gemini.rate_limiter import RateLimitExceeded
@@ -90,6 +90,7 @@ async def generate_catchup(
         return "You're all caught up — nothing notable here since you last stopped by."
 
     names = await name_map(session, {m.author_id for m in msgs if not m.author_is_bot})
+    own = await persona_name(session, guild_id)
     lines: list[str] = []
     if summaries:
         lines.append("Earlier notes:")
@@ -97,7 +98,7 @@ async def generate_catchup(
     if msgs:
         lines.append("\nRecent messages:")
         for m in msgs:
-            lines.append(f"{speaker_name(m, names)}: {m.content}")
+            lines.append(f"{speaker_name(m, names, own=own)}: {m.content}")
 
     try:
         result = await get_gemini().generate(

@@ -14,7 +14,7 @@ defineExtension({
   version: "2.0.0",
   category: "Automation",
   description:
-    "Greet new members in a channel you pick — in Olisar's voice, shaped by a " +
+    "Greet new members in a channel you pick — in your bot's voice, shaped by a " +
     "custom prompt you write (use {user} for the new member). Set the channel and " +
     "prompt on the Welcome panel.",
   // model.generate + discord.send are first-party-only capabilities (built-in/local).

@@ -31,9 +31,15 @@ class Guilds(commands.Cog):
         self._initialized = False  # provision + command-sync once per process
 
     async def _provision(self, guild: discord.Guild) -> None:
+        # What members see the bot called there: its nickname in that server, else its name.
+        me = guild.me or self.bot.user
         async with session_scope() as session:
             await ensure_guild_defaults(
-                session, guild.id, name=guild.name, icon=_icon_url(guild)
+                session,
+                guild.id,
+                name=guild.name,
+                icon=_icon_url(guild),
+                bot_name=me.display_name if me else "",
             )
 
     async def _sync_commands(self, guild: discord.Guild) -> None:

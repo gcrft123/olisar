@@ -46,11 +46,11 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
     # happened is in Olisar's own reply rather than in a second system message. `{seconds}`
     # is the wait, for an operator who wants to put the deadline in their own wording.
     "tool_pin_prompt": (
-        "A PIN is required for Olisar to run **{tool}**. See Settings > Security in the "
+        "I need a PIN before I can run **{tool}**. See Settings > Security in the "
         "console or ask an admin if you don't have access."
     ),
     "privacy": (
-        "**How Olisar handles your data**\n"
+        "**How I handle your data**\n"
         "In channels an admin has enabled, I store messages so I can follow a conversation "
         "and remember the community, and I build a short profile of you from them so I can "
         "chat more naturally. This server's admins have also turned on server-wide message "

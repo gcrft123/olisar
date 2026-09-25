@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 
 from api.auth.deps import GuildContext, require_admin, require_guild_admin, require_operator
+from api.botinfo import bot_name
 from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
@@ -63,11 +64,12 @@ def _apply(obj, data: dict) -> None:
 
 
 @router.get("/me")
-async def me(admin: AdminUser = Depends(require_admin)):
+async def me(request: Request, admin: AdminUser = Depends(require_admin)):
     return {
         "id": str(admin.discord_user_id),
         "username": admin.username,
         "granted_via": admin.granted_via.value,
+        "bot_name": bot_name(request),
     }
 
 
