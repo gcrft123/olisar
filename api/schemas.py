@@ -142,8 +142,26 @@ class DevYankIn(BaseModel):
     version: str | None = None
 
 
+class GeminiCheckIn(BaseModel):
+    key: str = ""  # blank checks the saved key
+
+
+class CloudflareCheckIn(BaseModel):
+    token: str = ""  # blank fields check the saved values
+    account_id: str = ""
+
+
 class SetupTokenIn(BaseModel):
     token: str
+
+
+class SetupSecretIn(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+class SetupKeyIn(BaseModel):
+    key: str
 
 
 class SetupSaveIn(BaseModel):

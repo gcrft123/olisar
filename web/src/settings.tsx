@@ -4,7 +4,7 @@ import { Icon, CloseX, type IconName } from './icons'
 import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
-import { BotsPane, useBots } from './bots'
+import { BotMenu, BotsPane, useBots } from './bots'
 import { SCALES, getScale, setScale } from './theme'
 import { openFeedback, registerFeedbackHost, type FeedbackPrefill } from './feedback'
 import { isBeta } from './version'
@@ -134,6 +134,26 @@ export function SettingsModal(
           {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
         </div>
     </Modal>
+  )
+}
+
+// The top corners of every screen outside the console: which bot this is on the left, and
+// Settings on the right. Setup and sign-in had them; the screens that stop you getting in (no
+// servers, access denied, a bot that won't start) didn't, so Feedback, Logs and the bot list
+// were out of reach exactly when something was wrong.
+export const PRE_CONSOLE_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']
+
+export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: SectionId[] }) {
+  const [open, setOpen] = useState(false)
+  const [pane, setPane] = useState<SectionId | undefined>(undefined)
+  return (
+    <>
+      <BotMenu variant="chip" onManage={() => { setPane('bots'); setOpen(true) }} />
+      <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setPane(undefined); setOpen(true) }}>
+        <Icon.settings size={16} />
+      </button>
+      {open && <SettingsModal sections={sections} initialSection={pane} onClose={() => setOpen(false)} />}
+    </>
   )
 }
 

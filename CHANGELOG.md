@@ -28,6 +28,10 @@ Updating could leave the console on the version before it. The page was kept by 
 
 Olisar could answer the same message twice. A question asked by name that took more than about 15 seconds to answer still looked unanswered to the part of Olisar that joins conversations on its own, so a second reply could land under the first. That same part never counted its replies toward the hourly limit, and never checked whether the person was someone Olisar is set to ignore.
 
+Setting Olisar up took eight fields and three trips to the Discord Developer Portal, and the wizard never mentioned one of them: inviting the bot. You'd finish setup, sign in, and be told Olisar wasn't in any server, with no link to fix that. Most of what the portal was visited for can be read from the bot token, so setup now takes the client ID from it, turns the intents on through it, and builds the invite link from it. What's left to paste is the token, the client secret and a Gemini key, and each step ticks itself off once it's done.
+
+Finishing setup didn't mean Olisar worked. Every channel starts off, so a server it had just joined heard nothing from it and nothing said why. A bot Discord refused over an intent looked the same as one switched off, and landed its operator on a screen saying it wasn't in any server. A saved key showed as set whether or not it was right. The console now says what's left and what's wrong, and where it can, fixes it.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -99,6 +103,38 @@ Olisar could answer the same message twice. A question asked by name that took m
 [6804316] — Knowledge's source, glossary and activity lists stop after a few rows and scroll, with a fade at whichever edge has more past it.
 
 [6804316] — The member portal's remote-access warning links straight to Settings → Remote access.
+
+[22bbe45] — Setup turns on the Message Content and Server Members intents itself, which Discord allows for any bot in fewer than 100 servers.
+
+[fd49f6d] — When Discord won't let setup turn an intent on, setup links to the switch on the Bot page and waits until it's on.
+
+[22bbe45] — Setup makes the Add App button on the bot's Discord profile add the bot, when it's still on Discord's default of adding only the bot's commands.
+
+[fd49f6d] — Setup has an Add to Discord step with the bot's invite link, which asks for only the seven permissions Olisar uses, and moves on once the bot has joined a server.
+
+[fd49f6d] — The client secret and Gemini key are checked as they're pasted.
+
+[fd49f6d] — Setup ticks off each redirect URL once it's registered in the Developer Portal, and links straight to that app's OAuth2 page.
+
+[d21c6b4] — The server switcher can add Olisar to another server, or copy the invite link for whoever manages it.
+
+[d21c6b4] — "No servers yet" has a button that adds Olisar to a server, and opens the console once the bot joins.
+
+[d26bc50] — A Get started list under the server switcher shows what a server still needs, a channel to reply in and the Gemini key, and ticks each off once it's done.
+
+[d26bc50] — The Channels page warns while Olisar replies in no channel.
+
+[63ffd71] — When Discord refuses the bot, the console names the intents that are off instead of calling the bot offline.
+
+[63ffd71] — Turn on and reconnect, on that screen or the sidebar's bot card, switches the intents on where Discord allows and restarts the bot.
+
+[021e6ae] — A server-hosted bot's control panel shows the redirect URL its console needs, and ticks it off once it's registered.
+
+[021e6ae] — The control panel says when Discord refuses the server's bot over an intent, and can turn it on and restart the bot.
+
+[31d8676] — The API keys page checks each key with its service and says whether it works, whether it's the one you typed or the saved one.
+
+[31d8676] — A Cloudflare token that can see its own account fills in the account ID.
 
 ### Changed
 
@@ -174,6 +210,30 @@ Olisar could answer the same message twice. A question asked by name that took m
 
 [9da31c7] — The server control panel only mentions its version when an update is available.
 
+[fd49f6d] — Setup asks where Olisar runs first, since that decides which steps follow.
+
+[fd49f6d] — Setup no longer asks for the client ID or the main server's ID: the ID comes from the bot token, and the main server is the one the bot joins.
+
+[fd49f6d] — The bot token is checked as it's pasted, instead of with a Test token button.
+
+[fd49f6d] — The Cloudflare and UEX keys are added from the console's API keys page instead of during setup.
+
+[fd49f6d] — Server hosting's deploy step no longer asks for an admin username; the owner of the bot's Discord app is already its operator.
+
+[31d8676] — The Cloudflare token help links to Cloudflare's Workers AI page, which creates a correctly scoped token and shows the account ID beside it.
+
+[31d8676] — The UEX token is set on the Star Citizen extension's page instead of the API keys page.
+
+[63ffd71] — The bot switcher says Can't connect for a bot Discord refused, instead of Offline.
+
+[4a7f8ff] — The API keys page, and the UEX token on the Star Citizen page, are the operator's alone; before, any server's admin could replace or remove keys every server shares.
+
+[2cd9741] — The screens that stop you getting in (No servers yet, Access denied, Account suspended, a bot that couldn't start) have the Settings gear in the corner, like setup and sign-in.
+
+[4b78a70] — The setup card resizes smoothly to fit each step, and each step slides in from the direction you're moving. The progress bar gains or loses a step when you change the hosting choice, and fills in as you go.
+
+[4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -225,6 +285,18 @@ Olisar could answer the same message twice. A question asked by name that took m
 [60bd29c] — The hourly limit on how often Olisar joins in unprompted now works; before, it never counted a reply.
 
 [6eeab43] — Olisar no longer replies or reacts unprompted to people in a blocked role or on the global ban list.
+
+[fd49f6d] — Deploying to a server with a Discord username in the admin field no longer leaves the server unable to start.
+
+[fd49f6d] — Turning on remote access during setup and then picking a different kind of hosting turns remote access back off.
+
+[568cc79] — The remote-access docs no longer say Olisar shows a per-device Funnel link or registers the tunnel's sign-in URL with Discord; it does neither.
+
+[9388392] — A bot missing an intent no longer retries connecting every few seconds until Discord resets its token for too many attempts; it stops within 20 seconds and says which intent is off.
+
+[4b78a70] — The setup card no longer jumps up and down between steps, and the bot token field stays put while you type, instead of sliding when Discord's answer arrives.
+
+[4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
 ## [1.5.0] — 2026-09-21
 

@@ -483,6 +483,76 @@ async def _name_installs(installs: list[dict]) -> list[dict]:
 _PUBKEY_RE = re.compile(r"^ssh-(ed25519|rsa) [A-Za-z0-9+/=]{16,}( [A-Za-z0-9@._-]{0,64})?$")
 
 
+# The VM's bot token, read once from its .env and kept for this process: the app hands the
+# token to the VM when it deploys and keeps no copy, and checking the VM's sign-in address
+# against the Discord app needs it. Keyed by host and install, so a reconnect elsewhere
+# reads again.
+_vm_tokens: dict[str, str] = {}
+
+
+async def _vm_token(cfg: AppConfig) -> str:
+    key = f"{cfg.server_host}/{app_dir_of(cfg)}"
+    if key not in _vm_tokens:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+        try:
+            env = parse_env(await _run(conn, f"cat ~/{app_dir_of(cfg)}/.env 2>/dev/null || true", timeout=30))
+        finally:
+            conn.close()
+        if env.get("DISCORD_TOKEN"):
+            _vm_tokens[key] = env["DISCORD_TOKEN"]
+    return _vm_tokens.get(key, "")
+
+
+async def discord_check(public_url: str = "") -> dict:
+    """What Discord says about the server's bot, which nothing on the VM reports: whether
+    its console's sign-in address is registered, and whether its intents are on.
+
+    Discord login there redirects to ``<public_url>/auth/callback`` and is refused unless the
+    app lists it; nothing registers it for the operator (the API ignores ``redirect_uris``).
+    A bot whose intents are off is refused by Discord outright, while the container still
+    reads as running and healthy."""
+    from olisar import discord_app
+
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "This bot isn't running on a server."}
+    url = (public_url or "").rstrip("/")
+    redirect = f"{url}/auth/callback" if url.startswith("https://") else ""
+    try:
+        token = await _vm_token(cfg)
+        if not token:
+            return {"ok": False, "error": "Couldn't read the bot token on the server."}
+        app = await discord_app.inspect(token)
+    except Exception as exc:  # noqa: BLE001 (SSH or Discord; either way the panel just can't tell)
+        return {"ok": False, "error": str(exc) or type(exc).__name__}
+    return {
+        "ok": True,
+        "app_id": app["id"],
+        "redirect": redirect,
+        "added": bool(redirect) and redirect in app["redirect_uris"],
+        "intents_missing": app["intents_missing"],
+    }
+
+
+async def reconnect() -> dict:
+    """Turn the server bot's missing intents on, where Discord lets the app do that itself,
+    and restart its container so the bot connects with them. Any intents left over come
+    back in ``intents_missing``, for the operator to switch on in the Developer Portal."""
+    from olisar import discord_app
+
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
+    try:
+        token = await _vm_token(cfg)
+        app = await discord_app.prepare(token)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc) or type(exc).__name__}
+    if app["intents_missing"]:
+        return {"ok": False, "intents_missing": app["intents_missing"], "app_id": app["id"]}
+    return {**(await power("restart")), "intents_missing": []}
+
+
 async def share_info() -> dict:
     """What another bot needs to deploy onto this bot's VM."""
     cfg = await _load()
@@ -957,7 +1027,7 @@ async def _reconcile() -> dict:
 
 
 async def power(action: str) -> dict:
-    """Start (`up`) or stop (`stop`) the container on the stored VM.
+    """Start (`up`), stop (`stop`) or `restart` the container on the stored VM.
 
     ``up`` boots whatever digest the compose file is pinned to — it deliberately does NOT
     pull. Start used to pull first, which meant an operator who stopped their bot for a
@@ -974,13 +1044,15 @@ async def power(action: str) -> dict:
     try:
         if action == "up":
             await _run(conn, f"cd ~/{app_dir} && sudo docker compose up -d", timeout=180)
+        elif action == "restart":
+            await _run(conn, f"cd ~/{app_dir} && sudo docker compose restart", timeout=180)
         else:
             await _run(conn, f"cd ~/{app_dir} && sudo docker compose stop", timeout=120)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc)}
     conn.close()
-    return {"ok": True, "running": action == "up"}
+    return {"ok": True, "running": action != "stop"}
 
 
 async def logs(which: str = "bot", tail: int = 200) -> dict:

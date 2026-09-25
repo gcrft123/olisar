@@ -477,6 +477,8 @@ export function useSaver(save: () => Promise<void>) {
     try {
       await latest.current()
       setSaved(true)
+      // For whatever reads what was just saved without owning the page (the Get started list).
+      window.dispatchEvent(new Event('olisar:saved'))
       // Long enough to actually use the Undo beside it — 2.5s was sized for a
       // confirmation nobody had to act on.
       setTimeout(() => setSaved(false), 7000)

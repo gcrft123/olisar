@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
-import { Icon, CopyGlyph, type IconName } from './icons'
+import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
@@ -9,8 +9,8 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { BotFailed, BotMenu, useBots } from './bots'
-import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
+import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
+import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
@@ -46,13 +46,15 @@ const PAGE_KEYWORDS: Record<string, string> = {
   access: 'roles allowed blocked open restrict lock out permissions pin self edit own settings',
   knowledge: 'knowledge base sources crawl glossary facts mine search index reindex clear memory danger zone activity',
   members: 'profiles impressions remembered facts roles avatars',
-  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator',
-  keys: 'gemini cloudflare uex api key token secret credentials',
+  extensions: 'marketplace import olx publish permissions welcome star citizen dice calculator uex token',
+  keys: 'gemini cloudflare workers ai images api key token secret credentials account id',
   usage: 'quota rate limits requests tokens rpm tpm by model by process free tier',
   docs: 'documentation help guide reference',
 }
 
 type Guild = { id: string; name: string; icon: string }
+// From /api/invite. `available` is false when the bot is private and this isn't its operator.
+type Invite = { url: string; available: boolean }
 type TunnelInfo = { available: boolean; running: boolean; helper: boolean; hostname: string; public_url: string }
 const GUILD_KEY = 'olisar_guild'
 // Every bot's console is the same origin, so each remembers its server under its own key
@@ -123,6 +125,7 @@ export default function App() {
   const [tab, setTab] = useState('persona')
   const [guilds, setGuilds] = useState<Guild[] | null>(null)
   const [guild, setGuildState] = useState<string | null>(null)
+  const [invite, setInvite] = useState<Invite | null>(null)
   const [tunnel, setTunnel] = useState<TunnelInfo | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
@@ -300,6 +303,16 @@ export default function App() {
 
   const isTab = React.useCallback((id: string) => TAB_IDS.has(id) || (isDev && id === 'developer'), [isDev])
 
+  // The operator: allowlisted, or an owner of the bot's Discord app. Authoring extension code
+  // is theirs alone (everyone else just sees the toggles), and so are the API keys, which are
+  // install-wide: Manage Server on one server shouldn't reach the keys every server runs on.
+  const isOperator = me?.granted_via === 'allowlist'
+  // `#/keys` stays a route, so an operator's bookmark survives the first paint, before who's
+  // signed in is known. Anyone else who lands there is moved on once it is.
+  useEffect(() => {
+    if (me && !isOperator && tab === 'keys') setTab('persona')
+  }, [me, isOperator, tab])
+
 
   // Declared here, above every early return: `useTabRouting` is a hook, and a hook called
   // only on the renders that get past the loading gates is a different hook count than the
@@ -341,20 +354,26 @@ export default function App() {
   usePoll(() => { api.devStanding().then(setStanding).catch(() => {}) }, 20000, auth === 'in')
 
   // Waits for the bot list too: the saved server is remembered per bot (see guildKey).
+  const adoptGuilds = (gs: Guild[]) => {
+    setGuilds(gs)
+    if (gs.length) {
+      const saved = localStorage.getItem(guildKey(bots.activeId))
+      const sel = gs.find((g) => g.id === saved)?.id ?? gs[0].id
+      apiSetGuild(sel)
+      setGuildState(sel)
+    }
+  }
   useEffect(() => {
     if (auth !== 'in' || bots.loading) return
-    api.guilds()
-      .then((gs: Guild[]) => {
-        setGuilds(gs)
-        if (gs.length) {
-          const saved = localStorage.getItem(guildKey(bots.activeId))
-          const sel = gs.find((g) => g.id === saved)?.id ?? gs[0].id
-          apiSetGuild(sel)
-          setGuildState(sel)
-        }
-      })
-      .catch(() => setGuilds([]))
-  }, [auth, bots.loading, bots.activeId])
+    api.guilds().then(adoptGuilds).catch(() => setGuilds([]))
+  }, [auth, bots.loading, bots.activeId])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The link that adds the bot to another server, offered from the switcher and from the
+  // "No servers yet" screen. Only asked for once signed in: it needs a console session.
+  useEffect(() => {
+    if (auth !== 'in') { setInvite(null); return }
+    api.invite().then(setInvite).catch(() => setInvite(null))
+  }, [auth, bots.activeId])
 
   // Bounced here by the OAuth callback because the Discord account isn't an admin of
   // any server Olisar is in. Takes precedence over the normal auth flow.
@@ -386,7 +405,7 @@ export default function App() {
   }
   if (auth === 'out') return <Login />
   if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
-  if (guilds.length === 0) return <NoServers username={me?.username} onLogout={async () => { await api.logout(); setAuth('out') }} />
+  if (guilds.length === 0) return <NoServers username={me?.username} invite={invite} onFound={adoptGuilds} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
   // Both `tab` and `guild` key a remount below, which throws away whatever the page was
   // holding. Ask first. Gated here rather than on the nav item because Docs reaches
@@ -404,10 +423,6 @@ export default function App() {
 
 
 
-  // Authoring extension code is operator-only; the merged Extensions tab shows the
-  // editor drill-in only to operators (everyone else just sees the toggles).
-  const isOperator = me?.granted_via === 'allowlist'
-
   const pages: Record<string, JSX.Element> = {
     persona: <Persona />,
     behavior: <Behavior />,
@@ -417,7 +432,7 @@ export default function App() {
     knowledge: <Knowledge serverName={current.name} />,
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
-    keys: <ApiKeys />,
+    ...(isOperator ? { keys: <ApiKeys /> } : {}),
     usage: <Usage />,
     docs: <Docs onNavigate={goTab} />,
     // Gated here, not only in the rail: the rail hides the item for non-developers, but the
@@ -431,9 +446,10 @@ export default function App() {
   // rather than named groups — eleven items don't need taxonomy, but the two items that
   // aren't configuration shouldn't sit in the same run as the nine that are.
   const docsNav = { id: 'docs', label: 'Docs', ic: 'docs' as IconName, rule: true }
+  const rail = isOperator ? NAV : NAV.filter((n) => n.id !== 'keys')
   const nav = isDev
-    ? [...NAV, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
-    : [...NAV, docsNav]
+    ? [...rail, { id: 'developer', label: 'Developer', ic: 'developer' as IconName, rule: true }, docsNav]
+    : [...rail, docsNav]
 
   // Everything the rail can reach, plus the server switcher, plus whatever the page in
   // front of the operator is currently offering. A palette that can only do what the
@@ -526,7 +542,8 @@ export default function App() {
           </div>
         )}
 
-        <ServerMenu guilds={guilds} current={current} onPick={changeGuild} />
+        <ServerMenu guilds={guilds} current={current} onPick={changeGuild} invite={invite} />
+        <GetStarted guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -698,19 +715,57 @@ function Login() {
   )
 }
 
-function NoServers(props: { username?: string; onLogout: () => void }) {
+function NoServers(props: { username?: string; invite: Invite | null; onFound: (gs: Guild[]) => void; onLogout: () => void }) {
+  // Watched rather than left to a Reload button: the console opens the moment the bot joins.
+  usePoll(() => api.guilds().then((gs: Guild[]) => { if (gs.length) props.onFound(gs) }), 4000)
+  // A bot that never got into Discord never recorded its servers either, so this screen is
+  // where a refused connection lands the operator, and "no servers" was the wrong reason.
+  const [botErr, setBotErr] = useState<BotError | null>(null)
+  // After a reconnect this screen stays, its button still working, until the bot is in and
+  // its servers load. Letting go of it straight away flashed "No servers yet" and an Add to
+  // Discord button for the few seconds that takes. `held` is the error it was showing.
+  const [held, setHeld] = useState<BotError | null>(null)
+  usePoll(() => api.botStatus().then((s: any) => {
+    const refused = !s?.running && s?.error ? s.error : null
+    setBotErr(refused)
+    // Refused again: say so, with the button live. Connected: its servers come in on the next
+    // guild poll, which opens the console; only if none do is "no servers" the real reason.
+    if (refused) setHeld(null)
+    else if (s?.ready) setTimeout(() => setHeld(null), 6000)
+  }), 5000)
+  const canAdd = !!props.invite?.available
+  const shown = botErr ?? held
+  if (shown) {
+    return (
+      <div className="login">
+        <div className="box">
+          <ScreenCorners />
+          <div className="mark warn"><Icon.warn size={26} weight="Bold" /></div>
+          <h1>Olisar can’t connect to Discord</h1>
+          <BotProblem error={shown} pending={!botErr} onReconnected={() => { setHeld(shown); setBotErr(null) }} />
+          <p className="login-foot">
+            <button className="linklike" onClick={props.onLogout}>Log out</button>
+          </p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="login">
       <div className="box">
-        <BotMenu variant="chip" />
+        <ScreenCorners />
         <div className="mark info"><Icon.add size={26} weight="Bold" /></div>
         <h1>No servers yet</h1>
         <p>
           You're signed in as <b>{props.username}</b>, but Olisar isn't in any server where you have
-          Manage Server. Add the bot to one, then reload.
+          Manage Server. {canAdd ? 'Add it to one and this page opens the console.' : 'Ask its operator to add it to one.'}
         </p>
         <div className="login-actions">
-          <button className="primary" onClick={() => window.location.reload()}>Reload</button>
+          {canAdd && (
+            <a className="btn-discord" href={props.invite!.url} target="_blank" rel="noreferrer">
+              <DiscordLogo size={20} /> Add Olisar to a server
+            </a>
+          )}
           <button className="ghost" onClick={props.onLogout}>
             <Icon.logout size={16} /> Log out
           </button>
@@ -733,7 +788,7 @@ function AccessDenied() {
   return (
     <div className="login">
       <div className="box wide">
-        <BotMenu variant="chip" />
+        <ScreenCorners />
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>
@@ -768,6 +823,7 @@ function Banned(props: { message?: string; onLogout: () => void }) {
   return (
     <div className="login">
       <div className="box wide">
+        <ScreenCorners />
         <div className="mark warn"><Icon.ban size={26} weight="Bold" /></div>
         <h1>Account suspended</h1>
         <p>{props.message || 'This account has been banned from Olisar. If you think that’s a mistake, contact the Olisar team.'}</p>
@@ -802,7 +858,7 @@ function WarnModal(props: { message?: string; onClose: () => void }) {
 
 // Server picker: a popup menu that always opens (even with a single server), instead of
 // a native select that disables itself when there's only one option.
-function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Guild; onPick: (id: string) => void }) {
+function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; current: Guild; onPick: (id: string) => void; invite: Invite | null }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -813,6 +869,12 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
     document.addEventListener('keydown', onKey)
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey) }
   }, [open])
+  // Adding the bot somewhere else starts where the servers it's in are listed: open the
+  // invite, or copy it for whoever manages the other server.
+  const actions = invite?.available ? [
+    { key: 'add', label: 'Add to a server', ic: Icon.add, run: () => { window.open(invite.url, '_blank', 'noopener'); setOpen(false) } },
+    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: () => { navigator.clipboard?.writeText(invite.url); toast('Invite link copied', 'success'); setOpen(false) } },
+  ] : []
   // Roving focus starts on the server you're already on, so the list opens where you are.
   const optRefs = useRef<(HTMLButtonElement | null)[]>([])
   const [active, setActive] = useState(0)
@@ -829,21 +891,22 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
   return (
     <div className={'server-switch' + (open ? ' open' : '')} ref={ref}>
       {icon(current)}
-      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+      <button className="server-select-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open}>
         <span className="server-name">{current.name}</span>
         <Icon.chevron size={14} className="server-chev" />
       </button>
       {open && (
-        // A listbox whose options are each independently tabbable is not the pattern: the
-        // arrow keys did nothing and Tab walked through every server one at a time. Same
-        // roving tabindex `Segmented` already implements — one stop for the whole list,
-        // arrows to move within it.
+        // A list whose items are each independently tabbable is not the pattern: the arrow
+        // keys did nothing and Tab walked through every server one at a time. Same roving
+        // tabindex `Segmented` already implements — one stop for the whole list, arrows to
+        // move within it. A menu rather than a listbox since it gained actions, the way the
+        // bot switcher (BotMenu) holds its bots and then "Add a bot".
         <div
           className="server-menu"
-          role="listbox"
+          role="menu"
           aria-label="Switch server"
           onKeyDown={(e) => {
-            const last = guilds.length - 1
+            const last = guilds.length + actions.length - 1
             let next = active
             if (e.key === 'ArrowDown') next = active >= last ? 0 : active + 1
             else if (e.key === 'ArrowUp') next = active <= 0 ? last : active - 1
@@ -859,8 +922,8 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
             <button
               key={g.id}
               ref={(el) => { optRefs.current[i] = el }}
-              role="option"
-              aria-selected={g.id === current.id}
+              role="menuitemradio"
+              aria-checked={g.id === current.id}
               tabIndex={i === active ? 0 : -1}
               className={'server-menu-item' + (g.id === current.id ? ' on' : '')}
               onFocus={() => setActive(i)}
@@ -871,13 +934,32 @@ function ServerMenu({ guilds, current, onPick }: { guilds: Guild[]; current: Gui
               {g.id === current.id && <Icon.check size={14} weight="Bold" className="server-menu-check" />}
             </button>
           ))}
+          {actions.length > 0 && <div className="bot-menu-rule" role="separator" />}
+          {actions.map((a, j) => {
+            const i = guilds.length + j
+            const Glyph = a.ic
+            return (
+              <button
+                key={a.key}
+                ref={(el) => { optRefs.current[i] = el }}
+                role="menuitem"
+                tabIndex={i === active ? 0 : -1}
+                className="server-menu-item bot-menu-action"
+                onFocus={() => setActive(i)}
+                onClick={a.run}
+              >
+                <span className="bot-menu-ic"><Glyph size={15} /></span>
+                <span className="server-menu-name">{a.label}</span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean }
+type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean; error?: BotError | null }
 const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
 
 // Operator-only control to take the Discord bot offline (and back). Powering down is a
@@ -947,7 +1029,21 @@ function BotPower() {
   }
   async function powerUp() {
     setPhase('starting')
-    try { setSt(await api.botPower(true)) } catch { toast('Couldn’t start the bot', 'danger') }
+    // A bot Discord refused comes back through reconnect, which turns missing intents on
+    // first; a plain power-on would just be refused again.
+    if (st?.error) {
+      try {
+        const r = await api.botReconnect()
+        setSt(r)
+        if (r?.intents_missing?.length) {
+          toast(`Turn on ${intentList(r.intents_missing)} in the Discord Developer Portal, then tap again.`, 'warning')
+          setPhase('idle')
+          return
+        }
+      } catch (e: any) { toast(e?.message || 'Couldn’t reconnect the bot', 'danger') }
+    } else {
+      try { setSt(await api.botPower(true)) } catch { toast('Couldn’t start the bot', 'danger') }
+    }
     // poll until the gateway connection is actually ready
     for (let i = 0; i < 25; i++) {
       await new Promise((r) => setTimeout(r, 700))
@@ -973,21 +1069,25 @@ function BotPower() {
   const limited = online && exhausted
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
     : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
+  // Stopped on its own, not switched off: Discord refused it (intents, token) or it crashed.
+  const refused = offline && !!st.error
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
     : starting ? 'Starting up…'
     : limited ? 'Offline: rate-limited'
-    : online ? 'Bot online' : 'Bot offline'
+    : online ? 'Bot online'
+    : refused ? 'Can’t connect' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
     : limited ? 'hold to power down'
     : online ? 'hold to power down'
+    : refused ? (st.error?.kind === 'intents' ? 'intents off, tap to fix' : 'tap to try again')
     : offline ? 'tap to power on' : ' '
 
   return (
-    <div className={'botpower ' + cls}>
+    <div className={'botpower ' + cls + (refused ? ' refused' : '')}>
       <button
         className="power-btn"
-        aria-label={online ? 'Power the bot down (press and hold)' : offline ? 'Power the bot on' : label}
+        aria-label={online ? 'Power the bot down (press and hold)' : refused ? 'Reconnect the bot' : offline ? 'Power the bot on' : label}
         disabled={busy}
         onPointerDown={onPointerDown}
         onPointerUp={endHold}
@@ -1011,6 +1111,113 @@ function BotPower() {
 // The public web address to reach this dashboard, surfaced in the sidebar. Only a
 // real `https://…` (Tailscale Funnel) origin counts as a shareable web link; a plain
 // loopback origin means remote access is off, so we show how to turn it on instead.
+// What this server still needs before Olisar is any use in it, ticked off from what's saved
+// and gone once the required steps are done. Setup can't do these: every channel starts off,
+// so a server Olisar just joined ignores everyone until one is set to reply, and the Gemini
+// key can be skipped during setup.
+// How long a step finished on screen takes to play out and fold away (see .getstarted-row.leaving).
+const STEP_LEAVE_MS = 1700
+
+function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string; onGo: (id: string) => void; storeKey: string }) {
+  const [speaks, setSpeaks] = useState<boolean | null>(null)
+  const [keys, setKeys] = useState<Record<string, { dashboard: boolean; env: boolean }> | null>(null)
+  const [hidden, setHidden] = useState(() => localStorage.getItem(storeKey) === '1')
+  useEffect(() => { setHidden(localStorage.getItem(storeKey) === '1') }, [storeKey])
+  // A step finished while the list is on screen plays out (ticked, struck through, grayed,
+  // folded away) before it goes; one already done when the list loaded never shows at all.
+  const [leaving, setLeaving] = useState<Set<string>>(new Set())
+  const [gone, setGone] = useState<Set<string>>(new Set())
+  const seen = useRef<Record<string, boolean> | null>(null)  // each step's done-ness, last read
+  // Re-read on every page change and after every save: either can finish a step. Only on the
+  // page change used to mean a save on Channels didn't register until you left Channels.
+  const [saves, setSaves] = useState(0)
+  useEffect(() => {
+    const bump = () => setSaves((n) => n + 1)
+    window.addEventListener('olisar:saved', bump)
+    return () => window.removeEventListener('olisar:saved', bump)
+  }, [])
+  // Another server is another list: nothing it shows was finished on screen.
+  useEffect(() => {
+    seen.current = null
+    setSpeaks(null); setGone(new Set()); setLeaving(new Set())
+  }, [guild])
+  useEffect(() => {
+    let alive = true
+    api.getChannels()
+      .then((cs: any[]) => { if (alive) setSpeaks(cs.some((c) => c.mode === 'respond' || c.mode === 'both')) })
+      .catch(() => {})
+    api.getKeys().then((k: any) => { if (alive) setKeys(k) }).catch(() => {})
+    return () => { alive = false }
+  }, [guild, tab, saves])
+
+  const has = (f: string) => !!(keys?.[f]?.dashboard || keys?.[f]?.env)
+  const items = speaks === null ? [] : [
+    { key: 'channels', tab: 'channels', label: 'Choose where Olisar replies', done: speaks, required: true },
+    ...(keys ? [
+      { key: 'gemini', tab: 'keys', label: 'Add a Gemini key', done: has('gemini_api_key'), required: true },
+      { key: 'images', tab: 'keys', label: 'Turn on images', done: has('cloudflare_account_id') && has('cloudflare_api_token'), required: false },
+    ] : []),
+  ]
+  const doneState = items.map((i) => `${i.key}:${i.done ? 1 : 0}`).join(',')
+  useEffect(() => {
+    if (speaks === null) return
+    const now: Record<string, boolean> = Object.fromEntries(items.map((i) => [i.key, i.done]))
+    const before = seen.current
+    seen.current = now
+    // Open before and done now: finished on screen. Done the first time it's seen: done already.
+    const finished = Object.keys(now).filter((k) => now[k] && before?.[k] === false)
+    setGone((g) => {
+      const next = new Set(g)
+      for (const [k, done] of Object.entries(now)) {
+        if (!done) next.delete(k)  // undone again, so back on the list
+        else if (before?.[k] === undefined) next.add(k)
+      }
+      return next
+    })
+    if (!finished.length) return
+    setLeaving((l) => new Set([...l, ...finished]))
+    // Not cleared on re-render: the step has to finish going once it has started.
+    setTimeout(() => {
+      setGone((g) => new Set([...g, ...finished]))
+      setLeaving((l) => new Set([...l].filter((k) => !finished.includes(k))))
+    }, STEP_LEAVE_MS)
+  }, [doneState])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = items.filter((i) => !gone.has(i.key))
+  const required = shown.filter((i) => i.required)
+  if (hidden || !required.length) return null
+  // The last required step is on its way out, so the whole list goes with it.
+  const closing = required.every((i) => leaving.has(i.key))
+  const hide = () => { localStorage.setItem(storeKey, '1'); setHidden(true) }
+  return (
+    <div className={'getstarted-fold' + (closing ? ' closing' : '')}>
+      <div className="getstarted-clip">
+        <div className="getstarted" role="region" aria-label="Get started">
+          <div className="getstarted-head">
+            <span className="weblink-label">Get started</span>
+            <button className="ghost icon-btn sm" data-tip="Hide" aria-label="Hide the get started list" onClick={hide}>
+              <CloseX size={14} />
+            </button>
+          </div>
+          <ul>
+            {shown.map((it) => (
+              <li key={it.key} className={'getstarted-row' + (leaving.has(it.key) ? ' leaving' : '')}>
+                <div className="getstarted-clip">
+                  <button className={'getstarted-item' + (it.done ? ' done' : '')} onClick={() => onGo(it.tab)}>
+                    <span className="getstarted-mark">{it.done && <CheckMark size={14} />}</span>
+                    <span className="getstarted-label">{it.label}</span>
+                    {!it.required && !it.done && <span className="getstarted-opt">Optional</span>}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
   const [copied, setCopied] = useState(false)
   if (!tunnel) return null
