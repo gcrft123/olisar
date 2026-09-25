@@ -721,16 +721,28 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
   // A bot that never got into Discord never recorded its servers either, so this screen is
   // where a refused connection lands the operator, and "no servers" was the wrong reason.
   const [botErr, setBotErr] = useState<BotError | null>(null)
-  usePoll(() => api.botStatus().then((s: any) => setBotErr(!s?.running && s?.error ? s.error : null)), 5000)
+  // After a reconnect this screen stays, its button still working, until the bot is in and
+  // its servers load. Letting go of it straight away flashed "No servers yet" and an Add to
+  // Discord button for the few seconds that takes. `held` is the error it was showing.
+  const [held, setHeld] = useState<BotError | null>(null)
+  usePoll(() => api.botStatus().then((s: any) => {
+    const refused = !s?.running && s?.error ? s.error : null
+    setBotErr(refused)
+    // Refused again: say so, with the button live. Connected: its servers come in on the next
+    // guild poll, which opens the console; only if none do is "no servers" the real reason.
+    if (refused) setHeld(null)
+    else if (s?.ready) setTimeout(() => setHeld(null), 6000)
+  }), 5000)
   const canAdd = !!props.invite?.available
-  if (botErr) {
+  const shown = botErr ?? held
+  if (shown) {
     return (
       <div className="login">
         <div className="box">
-          <BotMenu variant="chip" />
+          <ScreenCorners />
           <div className="mark warn"><Icon.warn size={26} weight="Bold" /></div>
           <h1>Olisar can’t connect to Discord</h1>
-          <BotProblem error={botErr} onReconnected={() => setBotErr(null)} />
+          <BotProblem error={shown} pending={!botErr} onReconnected={() => { setHeld(shown); setBotErr(null) }} />
           <p className="login-foot">
             <button className="linklike" onClick={props.onLogout}>Log out</button>
           </p>
