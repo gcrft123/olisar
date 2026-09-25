@@ -55,23 +55,22 @@ import {
   MinusCircle,
   StopCircle,
   PlayCircle,
-  ClockCircle,
   SlashCircle,
   RoundArrowRightUp,
   RoundArrowUp,
   RoundArrowDown,
-  PenNewRound,
   CodeCircle,
   StarCircle,
   Global,
   HashtagCircle,
   MentionCircle,
-  SmileCircle,
-  History2,
   BoltCircle,
   RecordAudioCircle,
   SoundwaveCircle,
   Record,
+  MenuDotsCircle,
+  TextCircle,
+  BookmarkCircle,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -126,6 +125,10 @@ export type IconName = keyof typeof Icon
 // Badge glyphs, keyed by their Solar name. A badge draws a tinted disc inside its icon's
 // ring, so only an icon whose outline is the r=10 circle on the 24 box can go here — the
 // full list is design/status-chips/circle-icons.html. Check a new entry against that page.
+// The mark inside the ring has to be centered too, within half a unit of 24. Some of the
+// listed icons aren't: pen-new-round's pen sits 1.8 units high and to the right,
+// smile-circle's face 1.4 low, history-2's and clock-circle's hands up and right. In a 12px
+// badge that is most of a pixel, and it reads as a badge whose icon is out of line.
 export const BadgeIcon = {
   'check-circle': CheckCircle,
   'close-circle': CloseCircle,
@@ -133,23 +136,22 @@ export const BadgeIcon = {
   'minus-circle': MinusCircle,
   'stop-circle': StopCircle,
   'play-circle': PlayCircle,
-  'clock-circle': ClockCircle,
+  'menu-dots-circle': MenuDotsCircle,
   'forbidden-circle': ForbiddenCircle,
   'slash-circle': SlashCircle,
   'round-arrow-right-up': RoundArrowRightUp,
   'round-arrow-up': RoundArrowUp,
   'round-arrow-down': RoundArrowDown,
-  'pen-new-round': PenNewRound,
   'code-circle': CodeCircle,
+  'text-circle': TextCircle,
   'user-circle': UserCircle,
   'star-circle': StarCircle,
+  'bookmark-circle': BookmarkCircle,
   'global': Global,
   'hashtag-circle': HashtagCircle,
   'chat-round-line': ChatRoundLine,
   'mention-circle': MentionCircle,
   'info-circle': InfoCircle,
-  'smile-circle': SmileCircle,
-  'history-2': History2,
   'bolt-circle': BoltCircle,
   'record-audio-circle': RecordAudioCircle,
   'soundwave-circle': SoundwaveCircle,

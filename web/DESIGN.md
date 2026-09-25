@@ -649,6 +649,14 @@ disc. `design/status-chips/circle-icons.html` lists every one that qualifies. Th
 glyph in a circle (see **Iconography**): the disc sits inside the glyph's own ring, so there is one
 ring.
 
+**The mark inside the ring has to be centered too.** Keep it within half a unit of the 24-unit
+box's center, measured on the mark's bounding box. Several icons on that list fail: `pen-new-round`
+draws its pen 1.8 units high and to the right, `smile-circle` puts the face 1.4 low, and the hands in
+`history-2` and `clock-circle` pull up and right. In a 12px badge that is most of a pixel, and the
+ring being perfectly centered doesn't save it: the badge reads as one whose icon is out of line.
+Optical offsets that make a mark look centered are fine: `play-circle`'s triangle sits half a unit
+right, and `danger-circle`'s "!" and `info-circle`'s "i" are balanced by their dots.
+
 The same glyph means the same thing everywhere:
 
 | Glyph | Meaning |
@@ -658,11 +666,12 @@ The same glyph means the same thing everywhere:
 | `danger-circle` | Needs attention |
 | `minus-circle` | Absent or off: Not set, Not set up, Disabled |
 | `play-circle`, `stop-circle` | Running, stopped |
-| `clock-circle` | Waiting in a queue |
+| `menu-dots-circle` | Waiting in a queue |
 | `slash-circle` | Withdrawn from the marketplace |
 | `forbidden-circle` | Banned |
-| `round-arrow-right-up`, `round-arrow-up`, `round-arrow-down` | Published, update available, imported |
-| `pen-new-round` | Rewritten or edited by you |
+| `round-arrow-right-up`, `round-arrow-up` | Published, update available |
+| `round-arrow-down` | Brought in from outside: Imported, From environment |
+| `code-circle`, `text-circle` | Changed by you: an edited extension, a rewritten reply |
 | `hashtag-circle` | A category |
 | `user-circle` | A person made it, or a person's role |
 

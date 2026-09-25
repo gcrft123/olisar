@@ -749,7 +749,7 @@ function Remote() {
               <div className="userrow" key={u.username + (u.last_login || '')}>
                 <span className="uname">{u.username}</span>
                 {u.is_allowlisted
-                  ? <Badge icon="bolt-circle">Operator</Badge>
+                  ? <Badge icon="user-circle">Operator</Badge>
                   : <Badge icon="user-circle">Admin</Badge>}
                 <span className="umeta">{u.guild_count} server{u.guild_count === 1 ? '' : 's'}</span>
                 <span className="umeta">{u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</span>
