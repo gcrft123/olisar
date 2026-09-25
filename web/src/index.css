@@ -135,6 +135,10 @@ body {
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* A word too long for its line breaks rather than spilling out of its box. The bot's name
+     is the operator's (up to 32 characters, often with no spaces), and it now sits inside
+     sentences all over the console. Text that already fits is laid out exactly as before. */
+  overflow-wrap: break-word;
 }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -974,7 +978,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
    a preference — the difference between "some roles are set" and "everyone else is out". */
 .access-summary {
   display: flex; align-items: flex-start; gap: 9px; margin-top: 15px;
-  color: var(--text-2); font-size: 12.5px; line-height: 1.5;
+  color: var(--text-2); font-size: 12.5px; line-height: 1.5; overflow-wrap: anywhere;
 }
 .access-summary.restrictive {
   color: color-mix(in srgb, var(--warn) 24%, var(--text));
@@ -1218,8 +1222,9 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .chan-group .list-row .meta { white-space: normal; }
 
 .mode-legend { display: grid; gap: 8px; font-size: 12.5px; color: var(--text-2); }
-.mode-legend > div { display: flex; align-items: center; gap: 9px; }
-.mode-legend .tag { color: var(--text); min-width: 72px; text-align: center; }
+/* The description is a flex item, so a long bot name in it wraps only with `anywhere`. */
+.mode-legend > div { display: flex; align-items: center; gap: 9px; overflow-wrap: anywhere; }
+.mode-legend .tag { color: var(--text); min-width: 72px; text-align: center; flex: none; overflow-wrap: normal; }
 /* Keep the control near the thing it governs. A fixed 220px column against a flexible name
    put 627px of empty row between a role chip and its select at 1440 — the eye has to travel
    the whole width to connect two halves of one decision. */
@@ -1316,15 +1321,20 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   width: 52px; height: 52px; border-radius: var(--radius); margin: 0 auto 20px;
   background: var(--primary-bg); color: var(--primary-fg); display: grid; place-items: center;
 }
-.login h1 { font-size: 21px; }
-.login p { color: var(--text-2); margin: 9px 0 26px; font-size: 13.5px; }
+/* `anywhere`, not the body's break-word: the card is centred at its content's width, and
+   only this lets a long bot name shrink that width instead of pushing the card off-screen. */
+.login h1 { font-size: 21px; overflow-wrap: anywhere; }
+.login p { color: var(--text-2); margin: 9px 0 26px; font-size: 13.5px; overflow-wrap: anywhere; }
 .btn-discord {
   display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
   background: #5865f2; color: #fff; padding: 11px 20px; border-radius: var(--radius-sm);
   font-weight: 600; font-size: 14px; transition: background var(--dur-fast) var(--ease-out);
   border: 0; cursor: pointer; font-family: inherit; appearance: none;
+  /* "Add <bot name> to a server": a long name wraps onto a second line inside the button. */
+  text-align: center; overflow-wrap: anywhere;
 }
 .btn-discord:hover { background: #4752e0; text-decoration: none; }
+.btn-discord svg { flex: none; }
 
 /* Access / no-server gates: variants of the login card. */
 .login .box.wide { max-width: 432px; }
@@ -1343,7 +1353,11 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   border-radius: 50%; background: var(--accent);
 }
 .login .hint-list b { color: var(--text); font-weight: 600; }
-.login-actions { display: flex; gap: 10px; justify-content: center; }
+/* Wraps rather than overflowing a phone-width card. "Add <bot name> to a server" takes a row
+   of its own with Log out beneath it: the card is ~300px wide, and beside Log out the button
+   only held "Olisar" on one line, so most bot names wrapped it onto two. */
+.login-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.login-actions .btn-discord { flex: 1 0 100%; }
 .login-actions button { flex: 1; max-width: 160px; justify-content: center; }
 /* "Contact the Olisar team" is the suspended screen's real action and doesn't fit 160px. */
 .login-actions .login-contact { flex: 1.5; max-width: none; }
@@ -1889,7 +1903,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .dcp-av img { width: 100%; height: 100%; object-fit: cover; }
 .dcp-body { min-width: 0; flex: 1; }
 .dcp-row { display: flex; align-items: baseline; gap: 9px; margin-bottom: 4px; flex-wrap: wrap; }
-.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); }
+/* The bot's own name, so a long one wraps inside the preview instead of past it. */
+.dcp-name { font-weight: 600; font-size: 15px; color: var(--dc-head); min-width: 0; overflow-wrap: anywhere; }
 /* The APP badge is what makes this read as Discord rather than as a generic chat. */
 .dcp-tag {
   background: var(--dc-brand); color: #fff; font-size: 10px; font-weight: 600;
@@ -1922,14 +1937,14 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 }
 .sandbox-empty {
   margin: auto; max-width: 30rem; text-align: center;
-  color: var(--text-3); font-size: 13.5px; line-height: 1.6;
+  color: var(--text-3); font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere;
 }
 .sb-msg { display: flex; flex-direction: column; gap: 5px; max-width: 86%; }
 .sb-msg.user { align-self: flex-end; align-items: flex-end; }
 .sb-msg.assistant { align-self: flex-start; align-items: flex-start; }
 .sb-who {
   font-size: 11px; font-weight: 600; letter-spacing: 0.03em;
-  text-transform: uppercase; color: var(--text-3); padding: 0 4px;
+  text-transform: uppercase; color: var(--text-3); padding: 0 4px; overflow-wrap: anywhere;
   /* Baseline, not centre: the uppercase label and the mixed-case Report are different
      heights, and centring the two boxes left Report's text sitting visibly below it. */
   display: flex; align-items: baseline; gap: 6px; min-height: 24px;

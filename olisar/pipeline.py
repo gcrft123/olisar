@@ -616,6 +616,7 @@ async def generate_reply(
         current_images=images,
         reply_to=reply_to,
         recent_window=(config.context_message_limit if config else None),
+        own_name=(persona.name if persona else "") or DEFAULT_PERSONA_NAME,
     )
 
     # A people directory (name -> id) so Olisar can DM participants by id.

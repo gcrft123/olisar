@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
 from api.auth.deps import MemberContext, MemberGuildContext, require_member, require_member_guild
+from api.botinfo import bot_name
 from api.schemas import MemberFactCorrectionIn, MemberForgetIn, MemberSettingsIn
 from olisar.audit import record_audit
 from olisar.db.engine import session_scope
@@ -215,7 +216,7 @@ async def _count_for(session, model, user_column: str, guild_id: int, user_id: i
 
 
 @router.get("/session")
-async def member_session(ctx: MemberContext = Depends(require_member)) -> dict:
+async def member_session(request: Request, ctx: MemberContext = Depends(require_member)) -> dict:
     """Who you are, the CSRF token for your mutating calls, and the servers where you can
     actually use the portal — the intersection of your membership with the servers whose
     operator has opened it. A server you're in that hasn't opened the portal is simply
@@ -244,6 +245,7 @@ async def member_session(ctx: MemberContext = Depends(require_member)) -> dict:
         "avatar": member.avatar,
         "csrf": ctx.csrf,
         "servers": servers,
+        "bot_name": bot_name(request),
     }
 
 
