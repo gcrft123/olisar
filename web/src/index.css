@@ -880,8 +880,11 @@ button.icon-btn.sm { width: 28px; height: 28px; }
   flex: none; display: block;
   width: var(--badge-h); height: var(--badge-h); margin: calc(-1 * var(--badge-bw));
 }
-/* The disc inside the ring, at 20% ink. */
+/* The disc inside the ring, at 20% ink. The badge check's tint is its own seal outline filled
+   (a copy of the glyph nested under it, with the check hidden), since the circle doesn't fit. */
 .badge-disc { fill: currentColor; opacity: 0.2; }
+.badge-seal path:first-child { fill: currentColor; stroke: none; }
+.badge-seal path:not(:first-child) { display: none; }
 /* The spinner: Solar's bare `record` ring as the arc, a quarter of its 62.83 circumference,
    turning over a faint full copy of itself. The ring is Solar's own circle, drawn after the
    children. */
