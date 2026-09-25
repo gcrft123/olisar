@@ -546,7 +546,7 @@ lag; reduced motion snaps.
 |---|---|
 | Step | arrives from the side it was travelled to: 10px and a fade over `--dur-slow`, in the time the card takes to resize around it |
 | Screen | the wizard ↔ "Connect to an existing server" moves the same way, and focus lands on the new screen's IP field, or back on the button that opened it |
-| Progress bar | all seven possible steps are drawn, one grid track each; a step the hosting choice skips is `0fr`, so picking a choice regrows the bar. A segment fills from the left going forward and empties back toward it going back |
+| Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end, and two choices with as many steps leave it still. A segment fills from the left going forward and empties back toward it going back |
 | Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it, since a screen reader announces a change inside a live region and can miss one that turns up already filled. A refused Continue replays its reason, so a second press visibly did something |
 | Confirmations | `.wiz-pop` for what Discord or Tailscale just confirmed ("Added", "Live at …") |
 

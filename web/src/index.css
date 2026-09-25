@@ -1419,9 +1419,9 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 }
 .setup h1 { font-size: 20px; margin: 0 0 4px; }
 .setup .step-sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 18px; }
-/* Every possible step is drawn, one grid track each (setup.tsx writes the columns); a step
-   this hosting choice skips is a 0fr track, so the bar regrows when the choice changes
-   rather than redrawing — the cta-reveal technique, not a width. The 6px gap is drawn
+/* One grid track per step of the longest hosting choice (setup.tsx writes the columns); the
+   tracks past this choice's last step are 0fr, so the bar grows or shrinks at its end when
+   the choice changes rather than redrawing — the cta-reveal technique, not a width. The 6px gap is drawn
    inside each track (3px a side, taken back by the row's own -3px) because a grid gap would
    stay behind when its track folds. A segment fills from the left going forward and empties
    back toward it going back. */
