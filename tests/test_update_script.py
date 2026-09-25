@@ -3,10 +3,9 @@
 Run:  uv run python -m unittest tests.test_update_script -v
 
 This script is the only thing that puts a version onto a server-mode VM, and every trigger
-runs it — the app's automatic reconcile at launch, the control panel's "Update now", and a
-hand-run on the VM — so a bug here is a bug everywhere. It's also the hardest thing in the
-tree to test by hand — it needs a VM, a release, and a deliberately broken image to see the
-interesting path.
+runs it — the app's automatic reconcile at launch and a hand-run on the VM — so a bug here
+is a bug everywhere. It's also the hardest thing in the tree to test by hand — it needs a
+VM, a release, and a deliberately broken image to see the interesting path.
 
 So we stub ``docker``/``curl``/``sudo`` on PATH and drive the real script. What matters:
 the deployed image is pinned to an immutable digest (not a mutable tag), a release that

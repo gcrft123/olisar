@@ -294,12 +294,8 @@ export const api = {
   serverPower: (action: 'up' | 'stop') =>
     // Boots the pinned digest — no pull, so this is quick now.
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 120000 }),
-  // Runs the VM's update script: resolve the newest release, pin it, apply it health-gated,
-  // roll back on failure. On demand — the backend runs the same script by itself whenever it
-  // comes up ahead of the VM, which `serverStatus().auto_updating` reports while it's going.
-  serverUpdate: () =>
-    req('/api/server/update', { method: 'POST', timeoutMs: 1260000 }),
-  // The VM's last update attempt, including one the app applied at launch without being asked.
+  // The VM's last update attempt. The backend applies one by itself whenever it comes up
+  // ahead of the VM, which `serverStatus().auto_updating` reports while it's going.
   serverLastUpdate: () => req('/api/server/last-update', { timeoutMs: 40000 }),
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
