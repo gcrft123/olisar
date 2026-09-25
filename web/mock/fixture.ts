@@ -217,8 +217,8 @@ function mockMessages() {
     ['rate_limit', "i'm a bit rate-limited right now — give me a minute and try again?", []],
     ['blank_fallback', '…my mind just went blank there. mind rephrasing?', []],
     ['access_denied', "sorry — you don't have access to me here.", []],
-    ['tool_pin_prompt', 'A PIN is required for Olisar to run **{tool}**. See Settings > Security in the console or ask an admin if you don\'t have access.', ['tool', 'seconds']],
-    ['privacy', '**How Olisar handles your data**\n…', []],
+    ['tool_pin_prompt', 'I need a PIN before I can run **{tool}**. See Settings > Security in the console or ask an admin if you don\'t have access.', ['tool', 'seconds']],
+    ['privacy', '**How I handle your data**\n…', []],
   ]
   const out: Record<string, unknown> = {}
   // One override, so the page renders both the "using the default" and "overridden" states.
@@ -579,8 +579,8 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   // doesn't get the API keys.
   if (url === '/api/me' || url.startsWith('/api/me?')) {
     return MOCK_ROLE === 'admin'
-      ? send({ id: '1089266822827737191', username: 'intmorg', granted_via: 'manage_guild' })
-      : send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist' })
+      ? send({ id: '1089266822827737191', username: 'intmorg', granted_via: 'manage_guild', bot_name: 'Olisar' })
+      : send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist', bot_name: 'Olisar' })
   }
   if (MOCK_ROLE === 'admin' && url.startsWith('/api/keys')) return send({ detail: "only the bot's operator can do that" }, 403)
   if (url.startsWith('/api/guilds')) return send(FRESH === 'refused' && !FRESH_STATE.reconnected ? [] : [
