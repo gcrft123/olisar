@@ -307,26 +307,52 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .weblink.off { gap: 4px; }
 /* Get started (under the server switcher): what this server still needs. The web link's
    inset card, so the rail has one card language; rows are buttons into the page that
-   finishes them. */
+   finishes them. The fold wrapper and each row are one-track grids, so going away folds the
+   track from 1fr to 0fr (the cta-reveal technique) rather than animating a height. */
+.getstarted-fold { display: grid; grid-template-rows: 1fr; margin-top: -4px; }
+.getstarted-clip { min-height: 0; overflow: hidden; }
 .getstarted {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 5px 5px 6px 10px; margin: -4px 0 14px; display: flex; flex-direction: column; gap: 2px;
+  padding: 5px 5px 6px 10px; margin-bottom: 14px; display: flex; flex-direction: column; gap: 2px;
 }
 .getstarted-head { display: flex; align-items: center; justify-content: space-between; }
 .getstarted ul { list-style: none; margin: 0; padding: 0; }
+.getstarted-row { display: grid; grid-template-rows: 1fr; }
 .getstarted-item {
   width: 100%; height: 28px; padding: 0 5px 0 0; justify-content: flex-start; gap: 8px;
   background: transparent; border: 0; font-size: 12.5px; font-weight: 500; color: var(--text);
 }
 .getstarted-item:hover { background: transparent; color: var(--accent); }
-.getstarted-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.getstarted-label { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .getstarted-mark {
   width: 15px; height: 15px; border-radius: 50%; flex: none; display: grid; place-items: center;
   border: 1.5px solid var(--border-strong); color: var(--bg);
 }
-.getstarted-item.done { color: var(--text-3); }
 .getstarted-item.done .getstarted-mark { background: var(--ok); border-color: var(--ok); }
 .getstarted-opt { margin-left: auto; font-size: 11px; font-weight: 450; color: var(--text-3); }
+
+/* A step finished on screen: the mark fills and ticks, a line strikes the label through, the
+   label grays, then the row folds away. STEP_LEAVE_MS in App.tsx is this sequence's length. */
+.getstarted-label::after {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+  background: currentColor; transform: scaleX(0); transform-origin: left center;
+}
+.getstarted-row.leaving .getstarted-mark { animation: gs-fill .2s var(--ease-out) both; }
+.getstarted-row.leaving .getstarted-mark svg { animation: gs-tick .2s var(--ease-out) .1s both; }
+.getstarted-row.leaving .getstarted-label::after { animation: gs-strike .3s var(--ease-out) .3s both; }
+.getstarted-row.leaving .getstarted-item { animation: gs-gray .3s var(--ease-out) .6s both; }
+.getstarted-row.leaving, .getstarted-fold.closing { animation: gs-fold .3s var(--ease-out) 1.35s both; }
+@keyframes gs-fill { from { background: transparent; border-color: var(--border-strong); } to { background: var(--ok); border-color: var(--ok); } }
+@keyframes gs-tick { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: none; } }
+@keyframes gs-strike { to { transform: scaleX(1); } }
+@keyframes gs-gray { from { color: var(--text); } to { color: var(--text-3); } }
+@keyframes gs-fold { to { grid-template-rows: 0fr; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  /* The tick and the gray still say it's done; nothing travels. */
+  .getstarted-row.leaving .getstarted-mark svg, .getstarted-row.leaving .getstarted-label::after,
+  .getstarted-row.leaving, .getstarted-fold.closing { animation: none; }
+  .getstarted-row.leaving .getstarted-label::after { transform: scaleX(1); }
+}
 
 .weblink.off .weblink-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
 
