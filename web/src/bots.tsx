@@ -273,7 +273,12 @@ export type BotError = { kind: 'intents' | 'token' | 'other'; missing?: string[]
 // and a bot marked "Offline", the same as one switched off on purpose. Reconnecting turns the
 // missing intents on where Discord lets the app do that itself; what's left is a switch in
 // the Developer Portal, linked.
-export function BotProblem({ error, onReconnected }: { error: BotError; onReconnected: () => void }) {
+export function BotProblem({ error, onReconnected, pending }: {
+  error: BotError
+  onReconnected: () => void
+  /** Reconnected, and the screen is waiting for the bot to come in: keep the button working. */
+  pending?: boolean
+}) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   // Intents Discord wouldn't let the app turn on itself, from the last reconnect.
@@ -308,7 +313,7 @@ export function BotProblem({ error, onReconnected }: { error: BotError; onReconn
       <p>{text}</p>
       {err && <p className="err">{err}</p>}
       <div className="login-actions">
-        <button className="primary" disabled={busy} onClick={reconnect}>{busy ? 'Reconnecting…' : action}</button>
+        <button className="primary" disabled={busy || pending} onClick={reconnect}>{busy || pending ? <><span className="spinner" /> Reconnecting…</> : action}</button>
       </div>
     </>
   )
