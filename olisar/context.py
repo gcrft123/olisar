@@ -13,7 +13,8 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar.db.models import Message, UserProfile
+from olisar.db.models import Message, Persona, UserProfile
+from olisar.persona import DEFAULT_PERSONA_NAME
 
 RECENT_WINDOW = 12  # messages of history to include
 
@@ -24,7 +25,7 @@ CONTEXT_NOTE = (
     "replies appear with no prefix. Reply naturally as yourself — do not prefix "
     "your reply with a name, and don't restate the transcript.\n\n"
     "If a line is marked as replying to an earlier message "
-    "(e.g. `Wumpus (replying to Olisar: \"…\"): …`), treat that quoted message as "
+    "(e.g. `Wumpus (replying to Nelly: \"…\"): …`), treat that quoted message as "
     "background only. Lean on it when the new message clearly depends on it, but if "
     "the new message stands on its own, just answer it — don't force a connection to "
     "the quoted message or steer back to it. Several conversations often run at once in "
@@ -77,15 +78,26 @@ def is_own_message(message: Message) -> bool:
     return bool(message.author_is_bot) and not message.author_name
 
 
-def speaker_name(message: Message, names: dict[int, str], *, own: str = "Olisar") -> str:
+def speaker_name(
+    message: Message, names: dict[int, str], *, own: str = DEFAULT_PERSONA_NAME
+) -> str:
     """Who a stored message is from, for a rendered transcript.
 
-    A nameless bot row is Olisar's — which is what every transcript needs to stop
-    labelling the server's other bots as itself. Humans prefer their current profile
-    name and fall back to the name they had when they wrote it."""
+    A nameless bot row is Olisar's, labelled ``own`` (see ``persona_name``) — which is
+    what every transcript needs to stop labelling the server's other bots as itself.
+    Humans prefer their current profile name and fall back to the name they had when
+    they wrote it."""
     if message.author_is_bot:
         return message.author_name or own
     return names.get(message.author_id) or message.author_name or str(message.author_id)
+
+
+async def persona_name(session: AsyncSession, guild_id: int) -> str:
+    """What the bot goes by in ``guild_id``: its persona's name, which a new server takes
+    from the bot's Discord name. Transcripts label the bot's own lines with it, so they
+    agree with the system prompt about who the bot is."""
+    persona = await session.get(Persona, guild_id)
+    return (persona.name if persona else "") or DEFAULT_PERSONA_NAME
 
 
 def _aware(dt: datetime) -> datetime:
@@ -164,7 +176,7 @@ def _reply_tag(reply_to: tuple[str, str] | None, limit: int = REPLY_SNIPPET_MAX)
 
 
 async def _reply_targets(
-    session: AsyncSession, rows: list[Message], names: dict[int, str]
+    session: AsyncSession, rows: list[Message], names: dict[int, str], own: str
 ) -> dict[int, tuple[str, str]]:
     """Map ``message_id -> (author, text)`` for everything the given rows reply to.
 
@@ -187,7 +199,7 @@ async def _reply_targets(
         names = {**extra_names, **names}
         known.update({m.message_id: m for m in older})
     return {
-        mid: (speaker_name(msg, names), msg.content)
+        mid: (speaker_name(msg, names, own=own), msg.content)
         for mid, msg in known.items()
         if mid in wanted
     }
@@ -213,6 +225,7 @@ async def build_contents(
     current_images: list[tuple[bytes, str, str]] | None = None,
     reply_to: tuple[str, str] | None = None,
     recent_window: int | None = None,
+    own_name: str = DEFAULT_PERSONA_NAME,
 ) -> tuple[list, set[int]]:
     """Return Gemini `contents` (recent history + new message) and the set of
     Discord message ids included, so semantic recall can skip duplicates.
@@ -227,6 +240,8 @@ async def build_contents(
     ``recent_window`` overrides how many recent messages to include (the per-guild
     ``context_message_limit``); ``None`` falls back to the default. Clamped to a sane
     range so a bad config value can't blow up (or empty) the context.
+
+    ``own_name`` is how a reply to one of the bot's own messages names it (``persona_name``).
 
     History lines carry the same ``(replying to …)`` marker as the new message, and a
     silence longer than ``GAP_SECONDS`` is marked ``— 3 hours later —``. Both are there
@@ -247,7 +262,7 @@ async def build_contents(
     rows = list(reversed(rows))
 
     names = await name_map(session, {m.author_id for m in rows if not m.author_is_bot})
-    targets = await _reply_targets(session, rows, names)
+    targets = await _reply_targets(session, rows, names, own_name)
 
     contents: list = []
     previous: datetime | None = None

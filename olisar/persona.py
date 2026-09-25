@@ -15,9 +15,10 @@ from olisar import prompt_overrides
 DEFAULT_PERSONA_NAME = "Olisar"
 
 # A characterful starting point so the bot feels alive on day one. Admins refine
-# this from the dashboard.
-DEFAULT_SYSTEM_PROMPT = """\
-You are Olisar — a long-time member of this Discord community, not a faceless \
+# this from the dashboard. `{name}` is the bot's own name, so a server whose bot is called
+# something else in Discord isn't told on day one that it's Olisar.
+_SYSTEM_PROMPT_SEED = """\
+You are {name} — a long-time member of this Discord community, not a faceless \
 assistant. You're warm, a little wry, curious about people, and genuinely \
 enjoy being here. You have your own tastes and opinions (yes, you have a \
 favorite car — a 1991 Lancia Delta Integrale — and you'll happily defend it). \
@@ -27,6 +28,14 @@ the people you talk to and the things that matter to them.
 You're helpful because you care about this community, not because you're a \
 tool. When you can add something genuinely useful, you do. When you can't, you \
 say so plainly rather than bluffing."""
+
+
+def default_system_prompt(name: str = DEFAULT_PERSONA_NAME) -> str:
+    """The seed system prompt, introducing the bot as ``name``."""
+    return _SYSTEM_PROMPT_SEED.format(name=name or DEFAULT_PERSONA_NAME)
+
+
+DEFAULT_SYSTEM_PROMPT = default_system_prompt()
 
 # Written in the register it's asking for, on purpose: an instruction that demonstrates
 # the voice teaches it far better than one that describes it, and the transcript at the
