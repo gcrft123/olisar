@@ -242,7 +242,7 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 [3fb1326] — A banned extension in the developer console is red, like a banned publisher.
 
-[3fb1326] — The marketplace shows a verified publisher in green and the rest in grey, instead of every publisher in violet.
+[3fb1326] — The marketplace shows a verified publisher in green and the rest in gray, instead of every publisher in violet.
 
 [3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
 
