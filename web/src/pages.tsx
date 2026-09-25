@@ -639,7 +639,7 @@ export function Messages() {
         // Which replies you have actually rewritten was carried only by whether the box
         // held grey placeholder text or real text — a distinction you have to read
         // fourteen boxes to make.
-        badge={overridden ? <Badge icon="pen-new-round">Custom</Badge> : undefined}
+        badge={overridden ? <Badge icon="text-circle">Custom</Badge> : undefined}
         desc={placeholders.length > 0
           ? <>Placeholders: {placeholders.map((p) => <code key={p} className="ph">{`{${p}}`}</code>)}</>
           : undefined}
@@ -1265,7 +1265,7 @@ function SearchIndexCard() {
                     ? <Badge tone="success" icon="check-circle">Indexed</Badge>
                     : c.status === 'indexing'
                       ? <Badge tone="info" busy>Indexing…</Badge>
-                      : <Badge icon="clock-circle">Queued</Badge>}
+                      : <Badge icon="menu-dots-circle">Queued</Badge>}
                 </div>
               ))}
             </div>
@@ -1616,7 +1616,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
 // Badge text is written in the case it renders (the stylesheet no longer capitalizes),
 // and these two come off the API as lowercase enum values.
 const SOURCE_STATUS: Record<string, BadgeGlyph & { label: string; tone: BadgeTone }> = {
-  pending: { label: 'Queued', tone: 'neutral', icon: 'clock-circle' },
+  pending: { label: 'Queued', tone: 'neutral', icon: 'menu-dots-circle' },
   crawling: { label: 'Reading', tone: 'info', busy: true },
   chunking: { label: 'Indexing', tone: 'info', busy: true },
   error: { label: 'Error', tone: 'danger', icon: 'close-circle' },
@@ -1692,8 +1692,8 @@ function sourceMeta(s: any): string {
 // rendered 60x40 beside 23px siblings and broke mid-word into "Prefere / nce".
 const MEMORY_KIND: Record<string, { label: string; icon: BadgeIconName }> = {
   fact: { label: 'Fact', icon: 'info-circle' },
-  preference: { label: 'Pref.', icon: 'smile-circle' },
-  event: { label: 'Event', icon: 'history-2' },
+  preference: { label: 'Pref.', icon: 'bookmark-circle' },
+  event: { label: 'Event', icon: 'bolt-circle' },
 }
 
 // ── Extensions ───────────────────────────────────────────────────────────────
@@ -1931,7 +1931,7 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
                   : e.editable
                     ? <Badge icon="user-circle">Custom</Badge>
                     : <Badge icon="star-circle">Built-in</Badge>}
-              {e.user_modified && <Badge icon="pen-new-round">Edited</Badge>}
+              {e.user_modified && <Badge icon="code-circle">Edited</Badge>}
               {isPublished && <Badge tone="info" icon="round-arrow-right-up">Published</Badge>}
               {isPublished && pub.has_changes && <Badge tone="warning" icon="danger-circle">Unpublished changes</Badge>}
               {mkt?.update_available && <Badge tone="info" icon="round-arrow-up">Update available</Badge>}
@@ -3249,7 +3249,7 @@ function KeyField(props: {
             </button>
           </>
         ) : s.env ? (
-          <Badge icon="code-circle">From environment</Badge>
+          <Badge icon="round-arrow-down">From environment</Badge>
         ) : (
           <Badge icon="minus-circle">Not set</Badge>
         )}
