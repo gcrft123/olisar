@@ -1115,12 +1115,32 @@ function BotPower() {
 // and gone once the required steps are done. Setup can't do these: every channel starts off,
 // so a server Olisar just joined ignores everyone until one is set to reply, and the Gemini
 // key can be skipped during setup.
+// How long a step finished on screen takes to play out and fold away (see .getstarted-row.leaving).
+const STEP_LEAVE_MS = 1700
+
 function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string; onGo: (id: string) => void; storeKey: string }) {
   const [speaks, setSpeaks] = useState<boolean | null>(null)
   const [keys, setKeys] = useState<Record<string, { dashboard: boolean; env: boolean }> | null>(null)
   const [hidden, setHidden] = useState(() => localStorage.getItem(storeKey) === '1')
   useEffect(() => { setHidden(localStorage.getItem(storeKey) === '1') }, [storeKey])
-  // Re-read on every page change: leaving a page is when a save on it may have finished a step.
+  // A step finished while the list is on screen plays out (ticked, struck through, grayed,
+  // folded away) before it goes; one already done when the list loaded never shows at all.
+  const [leaving, setLeaving] = useState<Set<string>>(new Set())
+  const [gone, setGone] = useState<Set<string>>(new Set())
+  const seen = useRef<Record<string, boolean> | null>(null)  // each step's done-ness, last read
+  // Re-read on every page change and after every save: either can finish a step. Only on the
+  // page change used to mean a save on Channels didn't register until you left Channels.
+  const [saves, setSaves] = useState(0)
+  useEffect(() => {
+    const bump = () => setSaves((n) => n + 1)
+    window.addEventListener('olisar:saved', bump)
+    return () => window.removeEventListener('olisar:saved', bump)
+  }, [])
+  // Another server is another list: nothing it shows was finished on screen.
+  useEffect(() => {
+    seen.current = null
+    setSpeaks(null); setGone(new Set()); setLeaving(new Set())
+  }, [guild])
   useEffect(() => {
     let alive = true
     api.getChannels()
@@ -1128,37 +1148,72 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
       .catch(() => {})
     api.getKeys().then((k: any) => { if (alive) setKeys(k) }).catch(() => {})
     return () => { alive = false }
-  }, [guild, tab])
-  if (hidden || speaks === null) return null
+  }, [guild, tab, saves])
+
   const has = (f: string) => !!(keys?.[f]?.dashboard || keys?.[f]?.env)
-  const items = [
+  const items = speaks === null ? [] : [
     { key: 'channels', tab: 'channels', label: 'Choose where Olisar replies', done: speaks, required: true },
     ...(keys ? [
       { key: 'gemini', tab: 'keys', label: 'Add a Gemini key', done: has('gemini_api_key'), required: true },
       { key: 'images', tab: 'keys', label: 'Turn on images', done: has('cloudflare_account_id') && has('cloudflare_api_token'), required: false },
     ] : []),
   ]
-  if (items.every((i) => i.done || !i.required)) return null
+  const doneState = items.map((i) => `${i.key}:${i.done ? 1 : 0}`).join(',')
+  useEffect(() => {
+    if (speaks === null) return
+    const now: Record<string, boolean> = Object.fromEntries(items.map((i) => [i.key, i.done]))
+    const before = seen.current
+    seen.current = now
+    // Open before and done now: finished on screen. Done the first time it's seen: done already.
+    const finished = Object.keys(now).filter((k) => now[k] && before?.[k] === false)
+    setGone((g) => {
+      const next = new Set(g)
+      for (const [k, done] of Object.entries(now)) {
+        if (!done) next.delete(k)  // undone again, so back on the list
+        else if (before?.[k] === undefined) next.add(k)
+      }
+      return next
+    })
+    if (!finished.length) return
+    setLeaving((l) => new Set([...l, ...finished]))
+    // Not cleared on re-render: the step has to finish going once it has started.
+    setTimeout(() => {
+      setGone((g) => new Set([...g, ...finished]))
+      setLeaving((l) => new Set([...l].filter((k) => !finished.includes(k))))
+    }, STEP_LEAVE_MS)
+  }, [doneState])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const shown = items.filter((i) => !gone.has(i.key))
+  const required = shown.filter((i) => i.required)
+  if (hidden || !required.length) return null
+  // The last required step is on its way out, so the whole list goes with it.
+  const closing = required.every((i) => leaving.has(i.key))
   const hide = () => { localStorage.setItem(storeKey, '1'); setHidden(true) }
   return (
-    <div className="getstarted" role="region" aria-label="Get started">
-      <div className="getstarted-head">
-        <span className="weblink-label">Get started</span>
-        <button className="ghost icon-btn sm" data-tip="Hide" aria-label="Hide the get started list" onClick={hide}>
-          <CloseX size={14} />
-        </button>
-      </div>
-      <ul>
-        {items.map((it) => (
-          <li key={it.key}>
-            <button className={'getstarted-item' + (it.done ? ' done' : '')} onClick={() => onGo(it.tab)}>
-              <span className="getstarted-mark">{it.done && <Icon.check size={11} weight="Bold" />}</span>
-              <span className="getstarted-label">{it.label}</span>
-              {!it.required && !it.done && <span className="getstarted-opt">Optional</span>}
+    <div className={'getstarted-fold' + (closing ? ' closing' : '')}>
+      <div className="getstarted-clip">
+        <div className="getstarted" role="region" aria-label="Get started">
+          <div className="getstarted-head">
+            <span className="weblink-label">Get started</span>
+            <button className="ghost icon-btn sm" data-tip="Hide" aria-label="Hide the get started list" onClick={hide}>
+              <CloseX size={14} />
             </button>
-          </li>
-        ))}
-      </ul>
+          </div>
+          <ul>
+            {shown.map((it) => (
+              <li key={it.key} className={'getstarted-row' + (leaving.has(it.key) ? ' leaving' : '')}>
+                <div className="getstarted-clip">
+                  <button className={'getstarted-item' + (it.done ? ' done' : '')} onClick={() => onGo(it.tab)}>
+                    <span className="getstarted-mark">{it.done && <Icon.check size={11} weight="Bold" />}</span>
+                    <span className="getstarted-label">{it.label}</span>
+                    {!it.required && !it.done && <span className="getstarted-opt">Optional</span>}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   )
 }

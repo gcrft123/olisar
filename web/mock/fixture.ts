@@ -19,6 +19,24 @@ export function configureMock(env: MockEnv): void {
   SETUP = env.setup || ''
   FRESH = env.fresh || ''
   MOCK_ROLE = env.role || ''
+  // A fresh install starts with every channel off and no keys saved.
+  channels = MOCK_CHANNELS.map((c) => ({ ...c, mode: FRESH ? 'off' : c.mode }))
+  keys = Object.fromEntries(Object.entries(MOCK_KEYS).map(([k, v]) => [k, { ...v, dashboard: FRESH ? false : v.dashboard }]))
+}
+
+// What a write changes, read back by the next GET: channel modes and saved keys, the two
+// things the Get started list watches. Every other write is accepted and forgotten.
+let channels: any[] = []
+let keys: Record<string, { dashboard: boolean; env: boolean; value: string }> = {}
+
+function readBody(req: any, then: (b: any) => void): void {
+  let raw = ''
+  req.on('data', (c: any) => { raw += c })
+  req.on('end', () => {
+    let b: any = {}
+    try { b = JSON.parse(raw || '{}') } catch { /* an unreadable body changes nothing */ }
+    then(b)
+  })
 }
 
 export type MockSend = (obj: unknown, status?: number) => void
@@ -661,26 +679,41 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   // matchers, where /api/knowledge/1/schedule matched the /api/knowledge prefix and
   // came back 200 with the whole sources array — a write that "succeeded" by being
   // answered as a read, which is exactly the drift this fixture is supposed to expose.
-  // A value starting with "bad" fails its check. With no account ID typed or saved, the
-  // token can't find its own, like the Workers AI template's.
+  // A value starting with "bad" fails its check, and a blank one checks the saved key. With no
+  // account ID typed or saved, the token can't find its own, like the Workers AI template's.
   if (url.startsWith('/api/keys/check/')) {
-    let raw = ''
-    req.on('data', (c: any) => { raw += c })
-    req.on('end', () => {
-      const b = JSON.parse(raw || '{}')
+    readBody(req, (b) => setTimeout(() => {
       const bad = (v: string) => String(v || '').trim().toLowerCase().startsWith('bad')
-      setTimeout(() => {
-        if (url.includes('gemini')) {
-          const saved = !FRESH
-          return send(!b.key && !saved ? { set: false, ok: false } : { set: true, ok: !bad(b.key) })
-        }
-        if (bad(b.token)) return send({ set: true, ok: false, problem: 'token' })
-        if (FRESH && !b.token) return send({ set: false, ok: false, problem: '' })
-        if (FRESH && !b.account_id) return send({ set: true, ok: false, account_id: '', problem: 'account' })
-        send(bad(b.account_id) ? { set: true, ok: false, problem: 'account' } : { set: true, ok: true, problem: '' })
-      }, 600)
-    })
+      const saved = (f: string) => !!keys[f]?.dashboard
+      if (url.includes('gemini')) {
+        if (!b.key && !saved('gemini_api_key')) return send({ set: false, ok: false })
+        return send({ set: true, ok: !bad(b.key) })
+      }
+      if (!b.token && !saved('cloudflare_api_token')) return send({ set: false, ok: false, problem: '' })
+      if (bad(b.token)) return send({ set: true, ok: false, problem: 'token' })
+      if (!b.account_id && !saved('cloudflare_account_id')) return send({ set: true, ok: false, account_id: '', problem: 'account' })
+      send(bad(b.account_id) ? { set: true, ok: false, problem: 'account' } : { set: true, ok: true, problem: '' })
+    }, 600))
     return
+  }
+  if (url.startsWith('/api/channels') && req.method === 'PUT') {
+    return readBody(req, (b) => {
+      const c = channels.find((x) => String(x.channel_id) === String(b.channel_id))
+      if (c && b.mode) c.mode = b.mode
+      if (c && typeof b.indexed === 'boolean') c.indexed = b.indexed
+      send({ ok: true })
+    })
+  }
+  if (url === '/api/keys' && req.method === 'PUT') {
+    return readBody(req, (b) => {
+      for (const [k, v] of Object.entries(b)) if (keys[k] && String(v || '').trim()) keys[k].dashboard = true
+      send({ ok: true })
+    })
+  }
+  if (url.startsWith('/api/keys/') && req.method === 'DELETE') {
+    const k = url.slice('/api/keys/'.length)
+    if (keys[k]) keys[k].dashboard = false
+    return send({ ok: true })
   }
   if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
     if (url.startsWith('/api/')) return send({ ok: true })
@@ -695,14 +728,14 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)
   if (url.startsWith('/api/models')) return send(MOCK_MODELS)
   if (url.startsWith('/api/messages')) return send(mockMessages())
-  if (url.startsWith('/api/channels')) return send(FRESH ? MOCK_CHANNELS.map((c) => ({ ...c, mode: 'off' })) : MOCK_CHANNELS)
+  if (url.startsWith('/api/channels')) return send(channels)
   if (url.startsWith('/api/roles')) return send(MOCK_ROLES)
   if (url.startsWith('/api/profiles')) return send(MOCK_PROFILES)
   if (url.startsWith('/api/knowledge/reindex/status')) return send(MOCK_REINDEX)
   if (url.startsWith('/api/knowledge')) return send(MOCK_KNOWLEDGE)
   if (url.startsWith('/api/facts')) return send(MOCK_FACTS)
   if (url.startsWith('/api/extensions')) return send(MOCK_EXTENSIONS)
-  if (url.startsWith('/api/keys')) return send(FRESH ? { ...MOCK_KEYS, gemini_api_key: { dashboard: false, env: false, value: '' }, cloudflare_account_id: { dashboard: false, env: false, value: '' }, cloudflare_api_token: { dashboard: false, env: false, value: '' } } : MOCK_KEYS)
+  if (url.startsWith('/api/keys')) return send(keys)
   if (url.startsWith('/api/audit')) return send(MOCK_AUDIT)
   if (url.startsWith('/api/stats')) return send({ today: { requests: 4120, grounding: 38 }, by_model: {} })
   if (url.startsWith('/api/settings/remote')) return send({ running: false, public_url: '', sessions: [] })
