@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Icon, CopyGlyph } from './icons'
+import { Icon, CopyGlyph, BadgeIcon, RingSpinner, type BadgeIconName } from './icons'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
@@ -600,6 +600,27 @@ export function Spinner({ label = 'Loading…' }: { label?: string }) {
       <span className="spinner" />
       <span>{label}</span>
     </div>
+  )
+}
+
+/**
+ * The status chip. Five tones, and each means one thing: `success` done or healthy, `info`
+ * working on it or something new, `warning` needs a look, `danger` failed or blocked,
+ * `neutral` a plain fact. Every badge carries a glyph, or the ring spinner while `busy`, so
+ * the tone is never the only signal.
+ */
+export type BadgeTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+export type BadgeGlyph = { icon: BadgeIconName; busy?: never } | { busy: true; icon?: never }
+
+export function Badge(props: BadgeGlyph & { tone?: BadgeTone; children: React.ReactNode }) {
+  const Glyph = props.busy ? null : BadgeIcon[props.icon]
+  return (
+    <span className={'badge ' + (props.tone ?? 'neutral')}>
+      <span className={'badge-ic' + (Glyph ? '' : ' busy')} aria-hidden="true">
+        {Glyph ? <Glyph aria-hidden /> : <RingSpinner />}
+      </span>
+      {props.children}
+    </span>
   )
 }
 
