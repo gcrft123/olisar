@@ -126,10 +126,24 @@ function ModeChoice({ mode, onPick }: { mode: Mode; onPick: (m: Mode) => void })
 }
 
 type StepId = 'where' | 'bot' | 'remote' | 'signin' | 'server' | 'keys' | 'deploy'
-// Every step any hosting choice can have, in order. The progress bar draws all of them and
-// folds away the ones this choice skips, so picking a hosting option grows or shrinks the
-// bar rather than redrawing it.
-const ALL_STEPS: StepId[] = ['where', 'bot', 'remote', 'signin', 'server', 'keys', 'deploy']
+
+// Each hosting choice gets the steps it needs. Shared hosting's Tailscale step comes before
+// sign-in, so sign-in can show both redirect URLs at once.
+function stepsFor(mode: Mode): StepId[] {
+  return [
+    'where', 'bot',
+    ...(mode === 'tunnel' ? ['remote' as const] : []),
+    'signin', 'server', 'keys',
+    ...(mode === 'server' ? ['deploy' as const] : []),
+  ]
+}
+
+// The progress bar has a slot for each step of the longest choice and opens as many as this
+// choice has, from the left, so picking a choice grows or shrinks the bar at its end rather
+// than redrawing it. Slots used to belong to steps by name, which slid the middle of the bar
+// across between the two shared choices: six steps each, but one's extra step is third and
+// the other's is last.
+const BAR_SLOTS = Math.max(...MODES.map((m) => stepsFor(m.id).length))
 
 // The setup card's height follows its content, which changes on every step and whenever a
 // check, a warning or an error arrives. It used to snap, and since the card was centred its
@@ -396,14 +410,7 @@ export function SetupWizard(
   const geminiCheck = useLiveCheck(gemini, (k) => api.checkSetupGemini(k))
   const [saving, setSaving] = useState(false)
 
-  // Each hosting choice gets the steps it needs. Shared hosting's Tailscale step comes before
-  // sign-in, so sign-in can show both redirect URLs at once.
-  const steps: StepId[] = [
-    'where', 'bot',
-    ...(mode === 'tunnel' ? ['remote' as const] : []),
-    'signin', 'server', 'keys',
-    ...(mode === 'server' ? ['deploy' as const] : []),
-  ]
+  const steps = stepsFor(mode)
   const last = steps.length - 1
   const cur = steps[Math.min(step, last)]
 
@@ -715,11 +722,8 @@ export function SetupWizard(
         <p className="step-sub">
           A one-time setup to connect Olisar to your Discord server.
         </p>
-        <div className="steps" style={{ gridTemplateColumns: ALL_STEPS.map((id) => (steps.includes(id) ? '1fr' : '0fr')).join(' ') }}>
-          {ALL_STEPS.map((id) => {
-            const i = steps.indexOf(id)
-            return <i key={id} className={i >= 0 && i <= step ? 'on' : ''} />
-          })}
+        <div className="steps" style={{ gridTemplateColumns: Array.from({ length: BAR_SLOTS }, (_, i) => (i < steps.length ? '1fr' : '0fr')).join(' ') }}>
+          {Array.from({ length: BAR_SLOTS }, (_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
         </div>
 
         <div key={cur} className={'wiz-step' + enter('step')}>
