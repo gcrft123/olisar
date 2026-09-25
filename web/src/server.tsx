@@ -6,7 +6,7 @@ import { toast, type Tone } from './overlays'
 import { PubkeyBox, RedirectRow, usePubkey } from './setup'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
-import { Field, Select, Text, usePoll } from './ui'
+import { Badge, Field, Select, Text, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
 import { displayVersion, isNewer } from './version'
 
 type Status = {
@@ -270,26 +270,20 @@ export function ServerControlPanel() {
   // launch. It outranks every other reading: mid-update the container is *meant* to be
   // recreated, so "Stopped" or "Unreachable" would be alarming and wrong.
   const busyUpdating = updating || !!st?.auto_updating
-  const stateLabel = busyUpdating
-    ? 'Updating…'
+  const state: BadgeGlyph & { label: string; tone: BadgeTone } = busyUpdating
+    ? { label: 'Updating…', tone: 'info', busy: true }
     : loading
-      ? 'Checking…'
+      ? { label: 'Checking…', tone: 'info', busy: true }
       : !reachable
-        ? 'Unreachable'
+        ? { label: 'Unreachable', tone: 'danger', icon: 'close-circle' }
         : !running
-          ? 'Stopped'
+          ? { label: 'Stopped', tone: 'warning', icon: 'stop-circle' }
           : unhealthy
-            ? 'Unhealthy'
+            ? { label: 'Unhealthy', tone: 'danger', icon: 'danger-circle' }
             : starting
-              ? 'Starting…'
-              : 'Running'
-  const stateTone = busyUpdating || loading || starting
-    ? 'info'
-    : !reachable || unhealthy
-      ? 'error'
-      : running
-        ? 'success'
-        : 'warning'
+              ? { label: 'Starting…', tone: 'info', busy: true }
+              : { label: 'Running', tone: 'success', icon: 'play-circle' }
+  const { label: stateLabel, ...stateChip } = state
   const actionsLocked = busy || busyUpdating
   const modal = settingsOpen && (
     <SettingsModal
@@ -364,7 +358,7 @@ export function ServerControlPanel() {
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
         <div className="srv-head">
           <h1>Your Olisar server</h1>
-          <span className={'badge ' + stateTone}>{stateLabel}</span>
+          <Badge {...stateChip}>{stateLabel}</Badge>
         </div>
         <p className="step-sub">
           Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here.

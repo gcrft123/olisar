@@ -40,7 +40,6 @@ import {
   AltArrowRight,
   AltArrowDown,
   InfoCircle,
-  ShieldCheck,
   Copy,
   DownloadMinimalistic,
   UploadMinimalistic,
@@ -51,6 +50,28 @@ import {
   HamburgerMenu,
   Eye,
   EyeClosed,
+  CloseCircle,
+  DangerCircle,
+  MinusCircle,
+  StopCircle,
+  PlayCircle,
+  ClockCircle,
+  SlashCircle,
+  RoundArrowRightUp,
+  RoundArrowUp,
+  RoundArrowDown,
+  PenNewRound,
+  CodeCircle,
+  StarCircle,
+  Global,
+  HashtagCircle,
+  MentionCircle,
+  SmileCircle,
+  History2,
+  BoltCircle,
+  RecordAudioCircle,
+  SoundwaveCircle,
+  Record,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -88,7 +109,6 @@ export const Icon = {
   arrowRight: AltArrowRight,
   chevron: AltArrowDown,
   info: InfoCircle,
-  verified: ShieldCheck,
   copy: Copy,
   download: DownloadMinimalistic,
   upload: UploadMinimalistic,
@@ -102,6 +122,52 @@ export const Icon = {
 } as const
 
 export type IconName = keyof typeof Icon
+
+// Badge glyphs, keyed by their Solar name. A badge draws a tinted disc inside its icon's
+// ring, so only an icon whose outline is the r=10 circle on the 24 box can go here — the
+// full list is design/status-chips/circle-icons.html. Check a new entry against that page.
+export const BadgeIcon = {
+  'check-circle': CheckCircle,
+  'close-circle': CloseCircle,
+  'danger-circle': DangerCircle,
+  'minus-circle': MinusCircle,
+  'stop-circle': StopCircle,
+  'play-circle': PlayCircle,
+  'clock-circle': ClockCircle,
+  'forbidden-circle': ForbiddenCircle,
+  'slash-circle': SlashCircle,
+  'round-arrow-right-up': RoundArrowRightUp,
+  'round-arrow-up': RoundArrowUp,
+  'round-arrow-down': RoundArrowDown,
+  'pen-new-round': PenNewRound,
+  'code-circle': CodeCircle,
+  'user-circle': UserCircle,
+  'star-circle': StarCircle,
+  'global': Global,
+  'hashtag-circle': HashtagCircle,
+  'chat-round-line': ChatRoundLine,
+  'mention-circle': MentionCircle,
+  'info-circle': InfoCircle,
+  'smile-circle': SmileCircle,
+  'history-2': History2,
+  'bolt-circle': BoltCircle,
+  'record-audio-circle': RecordAudioCircle,
+  'soundwave-circle': SoundwaveCircle,
+} as const
+
+export type BadgeIconName = keyof typeof BadgeIcon
+
+// The badge's loading state. Solar's `record` is the bare ring every badge glyph is drawn
+// on, so the spinner is that ring twice: a faint track, and a quarter of it that turns. It
+// keeps the glyphs' size and 1.5 stroke without redrawing either.
+export function RingSpinner() {
+  return (
+    <>
+      <Record className="ring-track" aria-hidden />
+      <Record className="ring-arc" aria-hidden />
+    </>
+  )
+}
 
 // The copy → copied swap, shared by every copy affordance in the console.
 //

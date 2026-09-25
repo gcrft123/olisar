@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
+import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { BotMenu, BotsPane, useBots } from './bots'
@@ -748,7 +748,9 @@ function Remote() {
             {(data.users || []).map((u: any) => (
               <div className="userrow" key={u.username + (u.last_login || '')}>
                 <span className="uname">{u.username}</span>
-                <span className="ubadge">{u.is_allowlisted ? 'Operator' : 'Admin'}</span>
+                {u.is_allowlisted
+                  ? <Badge icon="bolt-circle">Operator</Badge>
+                  : <Badge icon="user-circle">Admin</Badge>}
                 <span className="umeta">{u.guild_count} server{u.guild_count === 1 ? '' : 's'}</span>
                 <span className="umeta">{u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</span>
               </div>
