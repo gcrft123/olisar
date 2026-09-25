@@ -816,7 +816,7 @@ button.icon-btn.sm { width: 28px; height: 28px; }
 }
 
 /* ── Badges & lists ─────────────────────────────────────────────────────── */
-/* The status chip from design/status-chips, set on the console's dark ground. One colour
+/* The status chip from design/status-chips, set on the console's dark ground. One color
    drives the whole chip: `--ink` is the text and the glyph, and the fill, the edge and the
    disc inside the glyph's ring are all mixed from it, so a tone is one line.
    The edge is lit from above, as in the reference: brightest along the top, dimmest along
