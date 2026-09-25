@@ -230,6 +230,10 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 
 [2cd9741] — The screens that stop you getting in (No servers yet, Access denied, Account suspended, a bot that couldn't start) have the Settings gear in the corner, like setup and sign-in.
 
+[4b78a70] — The setup card resizes smoothly to fit each step, and each step slides in from the direction you're moving. The progress bar gains or loses a step when you change the hosting choice, and fills in as you go.
+
+[4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -289,6 +293,10 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 [568cc79] — The remote-access docs no longer say Olisar shows a per-device Funnel link or registers the tunnel's sign-in URL with Discord; it does neither.
 
 [9388392] — A bot missing an intent no longer retries connecting every few seconds until Discord resets its token for too many attempts; it stops within 20 seconds and says which intent is off.
+
+[4b78a70] — The setup card no longer jumps up and down between steps, and the bot token field stays put while you type, instead of sliding when Discord's answer arrives.
+
+[4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
 ## [1.5.0] — 2026-09-21
 
