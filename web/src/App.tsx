@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { Modal, confirmDialog, toast } from './overlays'
-import { Icon, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
+import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
 } from './pages'
@@ -1204,7 +1204,7 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
               <li key={it.key} className={'getstarted-row' + (leaving.has(it.key) ? ' leaving' : '')}>
                 <div className="getstarted-clip">
                   <button className={'getstarted-item' + (it.done ? ' done' : '')} onClick={() => onGo(it.tab)}>
-                    <span className="getstarted-mark">{it.done && <Icon.check size={11} weight="Bold" />}</span>
+                    <span className="getstarted-mark">{it.done && <CheckMark size={14} />}</span>
                     <span className="getstarted-label">{it.label}</span>
                     {!it.required && !it.done && <span className="getstarted-opt">Optional</span>}
                   </button>

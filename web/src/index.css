@@ -324,32 +324,35 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 }
 .getstarted-item:hover { background: transparent; color: var(--accent); }
 .getstarted-label { position: relative; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* An open step is an empty ring; a done one is a bare check where the ring was. */
 .getstarted-mark {
   width: 15px; height: 15px; border-radius: 50%; flex: none; display: grid; place-items: center;
-  border: 1.5px solid var(--border-strong); color: var(--bg);
+  border: 1.5px solid var(--border-strong); color: var(--ok);
 }
-.getstarted-item.done .getstarted-mark { background: var(--ok); border-color: var(--ok); }
+.getstarted-item.done .getstarted-mark { border-color: transparent; }
+.getstarted-mark path { stroke-dasharray: 1; }
 .getstarted-opt { margin-left: auto; font-size: 11px; font-weight: 450; color: var(--text-3); }
 
-/* A step finished on screen: the mark fills and ticks, a line strikes the label through, the
-   label grays, then the row folds away. STEP_LEAVE_MS in App.tsx is this sequence's length. */
+/* A step finished on screen: the ring goes and the check draws in, a line strikes the label
+   through, the label grays, then the row folds away. STEP_LEAVE_MS in App.tsx is this
+   sequence's length. */
 .getstarted-label::after {
   content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
   background: currentColor; transform: scaleX(0); transform-origin: left center;
 }
-.getstarted-row.leaving .getstarted-mark { animation: gs-fill .2s var(--ease-out) both; }
-.getstarted-row.leaving .getstarted-mark svg { animation: gs-tick .2s var(--ease-out) .1s both; }
+.getstarted-row.leaving .getstarted-mark { animation: gs-ring-out .2s var(--ease-out) both; }
+.getstarted-row.leaving .getstarted-mark path { animation: gs-draw .25s var(--ease-out) .05s both; }
 .getstarted-row.leaving .getstarted-label::after { animation: gs-strike .3s var(--ease-out) .3s both; }
 .getstarted-row.leaving .getstarted-item { animation: gs-gray .3s var(--ease-out) .6s both; }
 .getstarted-row.leaving, .getstarted-fold.closing { animation: gs-fold .3s var(--ease-out) 1.35s both; }
-@keyframes gs-fill { from { background: transparent; border-color: var(--border-strong); } to { background: var(--ok); border-color: var(--ok); } }
-@keyframes gs-tick { from { opacity: 0; transform: scale(.5); } to { opacity: 1; transform: none; } }
+@keyframes gs-ring-out { from { border-color: var(--border-strong); } to { border-color: transparent; } }
+@keyframes gs-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
 @keyframes gs-strike { to { transform: scaleX(1); } }
 @keyframes gs-gray { from { color: var(--text); } to { color: var(--text-3); } }
 @keyframes gs-fold { to { grid-template-rows: 0fr; opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  /* The tick and the gray still say it's done; nothing travels. */
-  .getstarted-row.leaving .getstarted-mark svg, .getstarted-row.leaving .getstarted-label::after,
+  /* The check and the gray still say it's done; nothing travels. */
+  .getstarted-row.leaving .getstarted-mark path, .getstarted-row.leaving .getstarted-label::after,
   .getstarted-row.leaving, .getstarted-fold.closing { animation: none; }
   .getstarted-row.leaving .getstarted-label::after { transform: scaleX(1); }
 }

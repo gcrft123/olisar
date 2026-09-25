@@ -336,7 +336,9 @@ making a word look technical. "Community", "Games" and "Custom" are labels; they
 
 Common semantic names: `user-circle` (persona), `tuning-2` (behavior), `hashtag` (channels), `shield-keyhole` (access), `book-bookmark` (knowledge), `plug-circle` (extensions), `settings`, `power`, `magnifer` (search), `copy`, `trash-bin-minimalistic`, `check-circle`, `danger-triangle`, `info-circle`.
 
-**One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The one exception is `<CloseX>`, which stays at 2: a two-stroke × carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
+**One stroke weight per set.** Solar's `-linear` glyphs render at `stroke-width: 1.5`. A hand-rolled SVG at 2 sits beside them looking bolder for no reason — the `<select>` chevron did, in the same forms as the disclosure arrow. Match 1.5. The exceptions are `<CloseX>` and `<CheckMark>`, which stay at 2: a two-stroke × or ✓ carries a fraction of a full glyph's ink, so matching the number would make it optically lighter, not equal.
+
+**Never nest a circled glyph in a circle.** Solar's `check-circle` already draws its own ring; set inside a filled disc it reads as a circle within a circle. Where a mark sits in a ring of its own (the Get started list), use the bare `<CheckMark>`.
 
 **The one brand mark:** Discord's logo (`<DiscordLogo>`), filled in `currentColor`, and only on a Discord-blue `.btn-discord` that hands off to Discord, such as adding the bot to a server. Nowhere else, and never as a stand-in for a Solar glyph.
 

@@ -128,6 +128,18 @@ export function DiscordLogo({ size = 18 }: { size?: number }) {
   )
 }
 
+// A plain line-stroke check, for a Get started step that's done. Two strokes, so it stays at
+// 2 for the same reason as CloseX below. `pathLength` makes the path 1 long, so CSS can draw
+// it in with a dash offset.
+export function CheckMark({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12.5l4.5 4.5L19 7" pathLength={1} />
+    </svg>
+  )
+}
+
 // A plain line-stroke "×" for modal/menu close affordances — lighter than the
 // circled Solar CloseCircle, which reads too heavy at small sizes. Deliberately 2 where
 // the Solar Linear set is 1.5: a two-stroke × carries a fraction of a full glyph's ink,
