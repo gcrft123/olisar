@@ -32,6 +32,8 @@ Setting Olisar up took eight fields and three trips to the Discord Developer Por
 
 Finishing setup didn't mean Olisar worked. Every channel starts off, so a server it had just joined heard nothing from it and nothing said why. A bot Discord refused over an intent looked the same as one switched off, and landed its operator on a screen saying it wasn't in any server. A saved key showed as set whether or not it was right. The console now says what's left and what's wrong, and where it can, fixes it.
 
+The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -233,6 +235,18 @@ Finishing setup didn't mean Olisar worked. Every channel starts off, so a server
 [4b78a70] — The setup card resizes smoothly to fit each step, and each step slides in from the direction you're moving. The progress bar gains or loses a step when you change the hosting choice, and fills in as you go.
 
 [4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
+
+[3fb1326] — Every status chip in the console has the same shape and an icon, or a spinner while something is in progress.
+
+[3fb1326] — Something in progress is blue everywhere, including a knowledge source being read or indexed, which was amber.
+
+[3fb1326] — A banned extension in the developer console is red, like a banned publisher.
+
+[3fb1326] — The marketplace shows a verified publisher in green and the rest in grey, instead of every publisher in violet.
+
+[3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
+
+[3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
 
 ### Fixed
 
