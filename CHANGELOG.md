@@ -260,6 +260,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 [3fb1326] — The marketplace shows a verified publisher in green and the rest in gray, instead of every publisher in violet.
 
+[ecbc513] — A verified publisher's chip is marked with a check in a seal.
+
 [3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
 
 [3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
