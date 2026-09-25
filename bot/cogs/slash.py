@@ -41,7 +41,7 @@ from olisar.memory.purge import active_memory_guild_ids, forget_user
 from olisar.memory.vectors import delete_embedding
 from olisar.memory.writer import clear_search_index
 from olisar.messages import get_command_messages, render_message
-from olisar.persona import split_messages
+from olisar.persona import DEFAULT_PERSONA_NAME, split_messages
 from olisar.pipeline import generate_reply
 from olisar.runtime.paths import kb_uploads_dir
 from olisar.tools import DEFAULT_ACK_EMOJI
@@ -56,6 +56,9 @@ DM_GUILD_ID = 0
 class Slash(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    async def cog_load(self) -> None:
+        name_commands(self, self.bot.user.display_name if self.bot.user else "")
 
     async def _msg(self, key: str, **kwargs) -> str:
         """Render an admin-customizable command reply (falls back to defaults)."""
@@ -523,6 +526,19 @@ class Slash(commands.Cog):
             f"is halted; new posts are still indexed live, and `/olisar reindex` rebuilds history.",
             ephemeral=True,
         )
+
+
+def name_commands(cog: commands.Cog, name: str) -> None:
+    """Put the bot's own name into the descriptions written with "Olisar" in them.
+
+    Discord's command picker shows each description right under the bot's name, and that
+    name is whatever the operator called their bot. The `/olisar` group keeps its name;
+    only the wording changes. Runs before the first sync (the bot has logged in by the
+    time cogs load), so Discord only ever sees the renamed text."""
+    if not name or name == DEFAULT_PERSONA_NAME:
+        return
+    for command in cog.walk_app_commands():
+        command.description = command.description.replace(DEFAULT_PERSONA_NAME, name)
 
 
 async def setup(bot: commands.Bot) -> None:

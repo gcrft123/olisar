@@ -26,7 +26,7 @@ from bot.replies import (
     send_paced,
 )
 from olisar import prompt_overrides
-from olisar.context import is_own_message, name_map, speaker_name
+from olisar.context import is_own_message, name_map, persona_name, speaker_name
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,
@@ -177,6 +177,7 @@ class Proactive(commands.Cog):
                 return False
 
             gconf = await session.get(GuildConfig, guild_id)
+            name = await persona_name(session, guild_id)
             conf_threshold = pconf.confidence_threshold
             threshold = level_threshold(pconf.level)
             for cid in await self._candidate_channels(session, guild_id, pconf):
@@ -226,8 +227,10 @@ class Proactive(commands.Cog):
         # Olisar is judged as "should I carry this on", against a lowered bar: the
         # operator's threshold is set for interrupting other people's conversations, and
         # this isn't one. `relaxed_threshold` keeps a floor, so it's eased, not waived.
-        transcript = await self._transcript(cid)
-        should, confidence, reason = await classify(transcript, follow_up=follow_up > 0)
+        transcript = await self._transcript(cid, own=name)
+        should, confidence, reason = await classify(
+            transcript, follow_up=follow_up > 0, name=name
+        )
         bar = relaxed_threshold(conf_threshold, follow_up)
         if not should or confidence < bar:
             log.info(
@@ -268,6 +271,7 @@ class Proactive(commands.Cog):
             if len(recent) >= pconf.reaction_max_per_hour:
                 return False
             gconf = await session.get(GuildConfig, guild_id)
+            name = await persona_name(session, guild_id)
             threshold = pconf.reaction_threshold
             for cid in await self._candidate_channels(session, guild_id, pconf):
                 if now - self._react_cooldown.get(cid, 0.0) < pconf.reaction_cooldown_sec:
@@ -302,7 +306,7 @@ class Proactive(commands.Cog):
             return False
         cid, msg_id = candidate
 
-        emoji = await pick_reaction_emoji(await self._transcript(cid))
+        emoji = await pick_reaction_emoji(await self._transcript(cid, own=name), name=name)
         if not emoji:
             return False
         channel = self.bot.get_channel(cid)
@@ -320,7 +324,7 @@ class Proactive(commands.Cog):
         log.info("reacted %s guild=%s ch=%s", emoji, guild_id, cid)
         return True
 
-    async def _transcript(self, channel_id: int) -> str:
+    async def _transcript(self, channel_id: int, *, own: str) -> str:
         async with session_scope() as session:
             rows = list(
                 reversed(
@@ -335,7 +339,7 @@ class Proactive(commands.Cog):
                 )
             )
             names = await name_map(session, {m.author_id for m in rows if not m.author_is_bot})
-        return "\n".join(f"{speaker_name(m, names)}: {m.content}" for m in rows)
+        return "\n".join(f"{speaker_name(m, names, own=own)}: {m.content}" for m in rows)
 
     async def _still_latest(self, channel_id: int, msg_id: int) -> bool:
         async with session_scope() as session:

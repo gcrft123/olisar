@@ -162,6 +162,13 @@ async def owner_ids() -> set[int]:
     return _extract_owner_ids(app) if app else set()
 
 
+def cached_application() -> dict | None:
+    """The last application object ``application`` fetched, however old, without asking
+    Discord. For callers that can't wait on the network and only need something stable
+    about the bot, like its name."""
+    return _cache
+
+
 def invalidate() -> None:
     """Drop the cached application (e.g. after the bot token changes)."""
     global _cache

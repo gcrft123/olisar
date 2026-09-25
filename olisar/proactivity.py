@@ -22,6 +22,7 @@ from olisar.addressing import SECOND_PERSON
 from olisar.config import settings
 from olisar.db.models import ProactivityLevel
 from olisar.gemini.client import get_gemini
+from olisar.persona import DEFAULT_PERSONA_NAME
 
 log = logging.getLogger("olisar.proactivity")
 
@@ -60,8 +61,10 @@ FOLLOW_UP_REPLY_NOTE = (
     f"with exactly {SKIP_SENTINEL} and nothing else."
 )
 
+# `{name}` in the prompts below is the bot's name in that server (``context.persona_name``),
+# the same name its own lines carry in the transcript they're judging.
 _CLASSIFY_SYSTEM = (
-    "You decide whether 'Olisar', a friendly community member bot, should jump "
+    "You decide whether '{name}', a friendly community member bot, should jump "
     "into this Discord conversation UNPROMPTED right now. Say yes ONLY if it "
     "would clearly add genuine value — answer an open question, correct a clear "
     "factual error, or share uniquely useful info. Say no for small talk, banter, "
@@ -76,9 +79,9 @@ _CLASSIFY_SYSTEM = (
 # answering, pushing back on, or asking about what you just said is talking to you, and
 # walking away mid-exchange is a worse failure than one reply too many.
 _FOLLOW_UP_NOTE = (
-    "\nIMPORTANT: the last message came immediately after one of Olisar's own and reads "
+    "\nIMPORTANT: the last message came immediately after one of {name}'s own and reads "
     "as a response to it — an answer, a challenge, a follow-up question, or a reaction to "
-    "what Olisar just said. This is a conversation Olisar is ALREADY in, not one it would "
+    "what {name} just said. This is a conversation {name} is ALREADY in, not one it would "
     "be interrupting, and the 'don't butt into an active back-and-forth' rule does not "
     "apply to an exchange it is a participant in. Lean towards yes unless the message is "
     "plainly closing the conversation off ('thanks', 'ok cool'), is addressed to somebody "
@@ -176,14 +179,23 @@ def _parse_json(text: str) -> dict:
         return {}
 
 
-async def classify(transcript: str, *, follow_up: bool = False) -> tuple[bool, float, str]:
+def _named(prompt: str, name: str) -> str:
+    return prompt.replace("{name}", name or DEFAULT_PERSONA_NAME)
+
+
+async def classify(
+    transcript: str, *, follow_up: bool = False, name: str = DEFAULT_PERSONA_NAME
+) -> tuple[bool, float, str]:
     """Stage 2: a tiny Flash-Lite call -> (should_respond, confidence, reason).
 
     ``follow_up`` tells the classifier that the last message answers one of Olisar's, so
-    it judges "should I continue this" instead of "should I interrupt this"."""
+    it judges "should I continue this" instead of "should I interrupt this". ``name`` is
+    who the bot is in that server."""
     result = await get_gemini().generate(
         contents=[transcript],
-        system_instruction=_CLASSIFY_SYSTEM + (_FOLLOW_UP_NOTE if follow_up else ""),
+        system_instruction=_named(
+            _CLASSIFY_SYSTEM + (_FOLLOW_UP_NOTE if follow_up else ""), name
+        ),
         model=settings.gemini_lite_model,
         temperature=0.1,
         max_output_tokens=120,
@@ -245,7 +257,7 @@ def reaction_score(text: str) -> float:
 
 
 _REACT_SYSTEM = (
-    "You are Olisar, a member of this Discord server skimming the latest message. "
+    "You are {name}, a member of this Discord server skimming the latest message. "
     "Decide whether to add a quick emoji reaction to it — the way a person reacts "
     "without replying. React ONLY if a single emoji fits naturally and adds a light, "
     "friendly touch: agreement, amusement, celebration, sympathy, or simple "
@@ -282,12 +294,12 @@ def first_emoji(s: str) -> str | None:
     return "".join(out) or None
 
 
-async def pick_reaction_emoji(transcript: str) -> str | None:
+async def pick_reaction_emoji(transcript: str, *, name: str = DEFAULT_PERSONA_NAME) -> str | None:
     """A tiny Flash-Lite call that returns one emoji to react with, or None if no
     reaction fits. Used by the passive-reaction path (no reply is generated)."""
     result = await get_gemini().generate(
         contents=[transcript],
-        system_instruction=_REACT_SYSTEM,
+        system_instruction=_named(_REACT_SYSTEM, name),
         model=settings.gemini_lite_model,
         temperature=0.4,
         max_output_tokens=12,

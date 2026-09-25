@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
+import { botName, setBotName } from './botname'
 import { Modal, confirmDialog, toast } from './overlays'
 import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
@@ -265,9 +266,9 @@ export default function App() {
   useEffect(() => {
     if (setup !== 'done') return
     api.me()
-      .then((m) => { setMe(m); setAuth('in') })
+      .then((m) => { setBotName(m.bot_name); setMe(m); setAuth('in') })
       .catch(() => api.memberSession()
-        .then((s) => { setMemberSession(s); setAuth('member') })
+        .then((s) => { setBotName(s.bot_name); setMemberSession(s); setAuth('member') })
         .catch(() => setAuth('out')))
   }, [setup])
 
@@ -741,7 +742,7 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
         <div className="box">
           <ScreenCorners />
           <div className="mark warn"><Icon.warn size={26} weight="Bold" /></div>
-          <h1>Olisar can’t connect to Discord</h1>
+          <h1>{botName()} can’t connect to Discord</h1>
           <BotProblem error={shown} pending={!botErr} onReconnected={() => { setHeld(shown); setBotErr(null) }} />
           <p className="login-foot">
             <button className="linklike" onClick={props.onLogout}>Log out</button>
@@ -757,13 +758,13 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
         <div className="mark info"><Icon.add size={26} weight="Bold" /></div>
         <h1>No servers yet</h1>
         <p>
-          You're signed in as <b>{props.username}</b>, but Olisar isn't in any server where you have
+          You're signed in as <b>{props.username}</b>, but {botName()} isn't in any server where you have
           Manage Server. {canAdd ? 'Add it to one and this page opens the console.' : 'Ask its operator to add it to one.'}
         </p>
         <div className="login-actions">
           {canAdd && (
             <a className="btn-discord" href={props.invite!.url} target="_blank" rel="noreferrer">
-              <DiscordLogo size={20} /> Add Olisar to a server
+              <DiscordLogo size={20} /> Add {botName()} to a server
             </a>
           )}
           <button className="ghost" onClick={props.onLogout}>
@@ -774,7 +775,7 @@ function NoServers(props: { username?: string; invite: Invite | null; onFound: (
           Still stuck?{' '}
           <FeedbackButton className="linklike" prefill={{
             category: 'Question',
-            message: 'I\'m signed in to the Olisar console, but it says Olisar isn\'t in any server where I have Manage Server.\n\nWhat I expected:\n',
+            message: 'I\'m signed in to the Olisar console, but it says my bot isn\'t in any server where I have Manage Server.\n\nWhat I expected:\n',
           }}>Tell us</FeedbackButton>
         </p>
       </div>
@@ -792,7 +793,7 @@ function AccessDenied() {
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>
-          The console is only for members with <b>Manage Server</b> on a server Olisar is in.
+          The console is only for members with <b>Manage Server</b> on a server the bot is in.
         </p>
         <ul className="hint-list">
           <li>Ask a server admin to give you <b>Manage Server</b>, then sign in again.</li>
@@ -1152,7 +1153,7 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
 
   const has = (f: string) => !!(keys?.[f]?.dashboard || keys?.[f]?.env)
   const items = speaks === null ? [] : [
-    { key: 'channels', tab: 'channels', label: 'Choose where Olisar replies', done: speaks, required: true },
+    { key: 'channels', tab: 'channels', label: 'Choose reply channels', done: speaks, required: true },
     ...(keys ? [
       { key: 'gemini', tab: 'keys', label: 'Add a Gemini key', done: has('gemini_api_key'), required: true },
       { key: 'images', tab: 'keys', label: 'Turn on images', done: has('cloudflare_account_id') && has('cloudflare_api_token'), required: false },
