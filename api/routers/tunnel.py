@@ -78,8 +78,9 @@ async def enable(body: TunnelEnableIn, request: Request) -> dict:
         tunnel_node=node,
         tunnel_hostname=_host_from_url(public_url),
     )
-    # Republish state.json — boot may have written it before the tunnel existed.
-    state.write(public_url=public_url)
+    # Republish state.json — boot may have written it before the tunnel existed, or with
+    # the reason it couldn't bring one up.
+    state.write(public_url=public_url, tunnel_error="")
     return {
         "ok": True,
         "public_url": public_url,

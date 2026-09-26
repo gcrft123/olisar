@@ -1465,15 +1465,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
 /* ── Setup wizard ───────────────────────────────────────────────────────── */
-/* The card hangs from a fixed line instead of centring. Centred, every change in its height
-   moved its top by half as much, so the title and progress bar jumped between steps and a
-   field slid while it was being typed into. The line is where a typical step's card would
-   sit centred; shorter steps leave the room below, taller ones scroll as before. */
-.setup {
-  --card-rest: 560px;
-  min-height: var(--vh); display: grid; justify-items: center; align-items: start;
-  padding: max(24px, calc((var(--vh) - var(--card-rest)) / 2)) 24px 24px;
-}
+/* Centred, like the login card. Its top moves by half of every change in its height, but
+   the body's height tweens (useHeightTween), so the card glides to its new centre rather
+   than jumping. A card taller than the window scrolls. */
+.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
 .setup .box {
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);
@@ -1549,12 +1544,20 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
 .setup .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .setup .srv-head h1 { margin: 0; }
-.setup .srv-head .badge { margin-left: auto; }
+/* The status chip's wrapper, keyed so a new reading replays its pop (server.tsx). */
+.setup .srv-head .srv-state { margin-left: auto; display: inline-flex; }
 .setup .srv-hint { color: var(--text-2); font-size: 12.5px; margin-top: 12px; line-height: 1.5; }
+/* The hints under the server panel's footer tween as their own body. `flow-root` keeps the
+   first hint's margin inside what's measured, or the card would grow by it before tweening. */
+.setup .box-tail { display: flow-root; }
 /* The last update needing attention, in the tone its toast used. */
 .setup .srv-hint.warning { color: var(--warn); }
 .setup .srv-hint.danger { color: var(--danger); }
 .setup .srv-hint.warning .linklike, .setup .srv-hint.danger .linklike { color: inherit; }
+/* A key and the button that applies it, on one line: the panel's Tailscale key swap. */
+.setup .key-swap { display: flex; align-items: center; gap: 8px; }
+.setup .key-swap input { flex: 1; min-width: 0; }
+.setup .key-swap button { flex: none; }
 .setup .srv-logs {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 14px; margin-top: 14px; font-family: var(--mono); font-size: 11.5px;
@@ -1616,7 +1619,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* Setup motion. The card's height is tweened in setup.tsx (useHeightTween); these are the
    entrances that play inside it. A step arrives from the side it was travelled to, 10px and
    a fade, in the time the card takes to resize around it; switching to "Connect to an
-   existing server" and back moves the whole screen the same way. Only what changed plays:
+   existing server" and back moves the whole screen the same way, as do the server panel's
+   Reconnect screen and the panel itself when a deploy lands on it. Only what changed plays:
    nothing animates on first paint. */
 .setup .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
 .setup .enter.back { animation-name: wiz-in-back; }
