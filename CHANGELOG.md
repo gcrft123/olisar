@@ -42,6 +42,8 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 
 Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
 
+After the app started, Settings → Bots listed every bot but the one on screen as starting, and kept saying so until you opened one of them. The window opens as soon as the bot you're looking at is up, a moment before the others are, and the console read the list of bots once, then kept it. The list is now read again every couple of seconds while any bot is still starting, and every time Settings → Bots opens.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -365,6 +367,8 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 [b30006b] — Resetting a bot's configuration turns its remote access off right away; before, it stayed on until the app restarted.
 
 [b30006b] — The reset dialog for a server-hosted bot says its server keeps running, instead of saying the reset takes it offline.
+
+[6f2f54c] — Settings → Bots and the bot switcher show each bot's status once it has started, instead of "Starting…" until a bot is opened.
 
 ## [1.5.0] — 2026-09-21
 
