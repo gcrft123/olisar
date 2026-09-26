@@ -685,8 +685,8 @@ def _bots_router(pool: Pool) -> APIRouter:
     @router.post("/{profile_id}/reset")
     async def reset_bot(profile_id: str) -> dict:
         """Clear a bot's Discord credentials, API keys and hosting setup (keeps its learned
-        data + SSH key). Returns ``{active, hosting_mode}`` so the console can route a reset
-        server bot to Reconnect and a local one to the setup wizard."""
+        data + SSH key). Returns ``{active, hosting_mode}``, the hosting it had; the console
+        reloads into the setup wizard when the reset bot is the one on screen."""
         r = await internal(need(profile_id), "POST", "/api/instance/reset", timeout=60.0)
         return {"ok": True, "active": profile_id == profiles.active_id(), "hosting_mode": r.get("hosting_mode") or "local"}
 

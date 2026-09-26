@@ -382,7 +382,7 @@ export default function App() {
   // The bot on screen couldn't start. Everything below would just fail to reach it.
   if (bots.current?.state === 'failed') return <BotFailed bot={bots.current} />
   if (setup === 'checking' || bots.loading) return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
-  if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} initialConnectMode={setupInfo.hosting_mode === 'server'} onDone={async () => {
+  if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} onDone={async () => {
     // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
     // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
     // status still says local and we'd fall through to the local Discord login — which has no
