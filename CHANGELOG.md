@@ -40,6 +40,8 @@ The server panel had an Update button that moved the VM onto the newest release 
 
 A bot added to a server another bot already ran on borrowed that bot's Tailscale key. That key had already been used once, and was often single-use or expired by then, so the new bot never got a web address. Setup finished as if it had, and "Open console" opened `http://127.0.0.1:8000`, an address that only means something inside the server. Each bot now brings its own key, a deploy that doesn't get an address says so, and the server panel takes a new key without anyone editing files on the server.
 
+Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -355,6 +357,14 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 [9fca613] — "Open console" no longer opens `http://127.0.0.1:8000` when a server bot couldn't connect to Tailscale. The panel says why the console can't be reached instead.
 
 [9fca613] — Deploying a bot whose Tailscale key is refused says so instead of finishing as if it worked.
+
+[b30006b] — Resetting a bot's configuration opens setup from the first step, instead of the connect-to-a-server screen for a bot that was on a server.
+
+[b30006b] — Setting a bot up on this computer after it was on a server starts it here, instead of ending on a server panel with no server.
+
+[b30006b] — Resetting a bot's configuration turns its remote access off right away; before, it stayed on until the app restarted.
+
+[b30006b] — The reset dialog for a server-hosted bot says its server keeps running, instead of saying the reset takes it offline.
 
 ## [1.5.0] — 2026-09-21
 

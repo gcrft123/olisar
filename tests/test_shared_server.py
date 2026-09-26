@@ -272,7 +272,7 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         await self.as_bot("beta")
         self.authorize(await remote.public_key())
         await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
-        await runtime_config.save(server_host="", configured=False)  # what a reset leaves
+        await runtime_config.save(hosting_mode="local", server_host="", configured=False)  # what a reset leaves
         back = await remote.connect("127.0.0.1", "tester")
         self.assertTrue(back["ok"], back)
         self.assertEqual(back["app_dir"], "olisar-beta")

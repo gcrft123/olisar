@@ -324,8 +324,8 @@ export const api = {
   setDefaultBot: (id: string) => req('/api/bots/default', { method: 'POST', body: JSON.stringify({ id }) }),
   // Start a bot's process again now (a bot that couldn't start, or one that's misbehaving).
   restartBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/restart`, { method: 'POST' }),
-  // Reset a bot's deployment config (Discord creds, server, API keys) — keeps its learned
-  // data + SSH key. Returns { ok, active, hosting_mode } so the caller can route.
+  // Reset a bot's deployment config (Discord creds, hosting, API keys) — keeps its learned
+  // data + SSH key. Returns { ok, active, hosting_mode }; an active bot reloads into setup.
   resetBot: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
   // Move a bot between hosts (local ↔ cloud VM), carrying its data + keeping the old copy as a
   // backup. Long-running (SSH deploy + data transfer), so no client timeout. Any bot.
