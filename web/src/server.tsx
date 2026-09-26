@@ -862,7 +862,7 @@ function MemoryOpen({ m, isOpen, arrived, now, brain, bot }: {
       </button>
       <div className="mo-in">
         <div className="mo-head">{head}</div>
-        <OpenBody m={m} now={now} bot={bot} />
+        <div className="mo-body"><OpenBody m={m} now={now} bot={bot} /></div>
       </div>
     </section>
   )
