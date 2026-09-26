@@ -177,12 +177,17 @@ async def save(body: SetupSaveIn, request: Request) -> dict:
     raw_guild = (body.target_guild_id or "").strip()
     guild_id = int(raw_guild) if raw_guild.isdigit() else 0
 
-    # Tunnel config is set separately by /api/tunnel/enable, so we don't touch it here.
+    # Tunnel config is set separately by /api/tunnel/enable, so we don't touch it here. Only
+    # the local hosting choices save here (a server deploys or connects instead), so this bot
+    # runs on this machine now, whatever it did before: left at 'server', the bot wouldn't
+    # start and the console would open the server panel for a VM that isn't there.
     await runtime_config.save(
         discord_token=token,
         discord_client_id=client_id,
         discord_client_secret=client_secret,
         target_guild_id=guild_id,
+        hosting_mode="local",
+        server_host="",
         configured=True,
     )
     # Make sure a stable signing secret exists now that we're configured.

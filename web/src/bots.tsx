@@ -404,9 +404,10 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
       title: `Reset ${b.name}'s configuration?`,
       message: (
         <>
-          Clears <b>{b.name}</b>’s Discord credentials, API keys, and hosting setup, and takes it
-          offline. It <b>keeps</b> its persona, memory, knowledge, and settings, and you’ll set it
-          up again.{' '}
+          Clears <b>{b.name}</b>’s Discord credentials, API keys, and hosting setup
+          {b.hosting_mode === 'server' ? '' : ', and takes it offline'}. It <b>keeps</b> its
+          persona, memory, knowledge, and settings, and you’ll set it up again.
+          {b.hosting_mode === 'server' && <> Its server keeps running until you stop it there.</>}{' '}
           <strong style={{ color: 'var(--danger)' }}>This can’t be undone.</strong>
         </>
       ),
@@ -416,7 +417,7 @@ export function BotsPane({ Head }: { Head: (p: { title: string; sub?: string }) 
     if (!ok) return
     try {
       const r = await api.resetBot(b.id)
-      if (r?.active) window.location.reload()  // App re-routes to reconnect / setup
+      if (r?.active) window.location.reload()  // App re-routes to setup
       else { toast(`Reset ${b.name}`, 'neutral'); void reload() }
     } catch (e: any) { toast(e?.message || 'Couldn’t reset the bot', 'danger') }
   }
