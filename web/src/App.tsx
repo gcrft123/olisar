@@ -10,12 +10,19 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
+import { Onboarding, Pane, useArrived, useForm, useShell } from './onboarding'
+import { SHAPE } from './form'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
+
+// Settings as the first-run frame offers it: setup and sign-in, then the server panel, which
+// also reads the VM's logs.
+const FIRST_RUN_SECTIONS: SectionId[] = ['general', 'bots', 'updates', 'desktop', 'feedback']
+const SERVER_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
@@ -121,6 +128,8 @@ export default function App() {
   // 'member' is a non-admin signed in to the member portal — a different session family
   // entirely (own table, own cookie), not a lesser console user.
   const [auth, setAuth] = useState<'loading' | 'in' | 'member' | 'out'>('loading')
+  // Whether this session just finished setup, so sign-in arrives in the same frame.
+  const fromSetup = useRef(false)
   const [me, setMe] = useState<any>(null)
   const [memberSession, setMemberSession] = useState<any>(null)
   const [tab, setTab] = useState('persona')
@@ -382,18 +391,27 @@ export default function App() {
   // The bot on screen couldn't start. Everything below would just fail to reach it.
   if (bots.current?.state === 'failed') return <BotFailed bot={bots.current} />
   if (setup === 'checking' || bots.loading) return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
-  if (setup === 'needed' && setupInfo) return <SetupWizard status={setupInfo} onDone={async () => {
+  // Setup, the server panel and sign-in share the first-run frame (onboarding.tsx). Each is
+  // returned as the same element at the same place, so the frame and its form stay mounted
+  // from one to the next.
+  if (setup === 'needed' && setupInfo) return <Onboarding sections={FIRST_RUN_SECTIONS}><SetupWizard status={setupInfo} onDone={async () => {
+    fromSetup.current = true
     // Re-read status so routing sees the just-saved config. A server-hosting setup (deploy /
     // reconnect) changes hosting_mode to 'server'; without this refresh, the stale mount-time
     // status still says local and we'd fall through to the local Discord login — which has no
     // client id in server mode and dead-ends at Discord's "Invalid form body".
     try { setSetupInfo(await api.setupStatus()) } catch { /* keep prior status */ }
     setSetup('done')
-  }} />
+  }} /></Onboarding>
   // Server hosting: the bot lives on the operator's VM. This local install is the loopback
   // control panel (start/stop over SSH) — no Discord login, no local console.
-  if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <ServerControlPanel />
-  if (auth === 'loading') return <div className="loading" role="status"><span className="spinner" /> Loading…</div>
+  if (setup === 'done' && setupInfo?.hosting_mode === 'server') return <Onboarding sections={SERVER_SECTIONS}><ServerControlPanel /></Onboarding>
+  // Straight after a local setup, the frame waits for sign-in with it rather than blanking.
+  if (auth === 'loading') {
+    return fromSetup.current
+      ? <Onboarding sections={FIRST_RUN_SECTIONS}><Pane>{null}</Pane></Onboarding>
+      : <div className="loading" role="status"><span className="spinner" /> Loading…</div>
+  }
   // Ahead of Login and of the guild loading below: a member has no `api.guilds()` and would
   // otherwise sit on "Loading your servers…" forever.
   if (auth === 'member' && memberSession) {
@@ -404,7 +422,7 @@ export default function App() {
       />
     )
   }
-  if (auth === 'out') return <Login />
+  if (auth === 'out') return <Onboarding sections={FIRST_RUN_SECTIONS}><Login /></Onboarding>
   if (guilds === null) return <div className="loading" role="status"><span className="spinner" /> Loading your servers…</div>
   if (guilds.length === 0) return <NoServers username={me?.username} invite={invite} onFound={adoptGuilds} onLogout={async () => { await api.logout(); setAuth('out') }} />
 
@@ -639,8 +657,10 @@ export default function App() {
 }
 
 function Login() {
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
+  const form = useForm()
+  const { openSettings } = useShell()
+  // Straight from setup, sign-in slides in as the next screen.
+  const arrived = useArrived()
   const [waiting, setWaiting] = useState(false)
   const pollRef = useRef<number | null>(null)
   // In the desktop app, OAuth must run in the system browser — a chromeless app window can
@@ -648,6 +668,8 @@ function Login() {
   const isDesktop = !!(window as any).olisar?.desktop
 
   useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current) }, [])
+  // One whole body: set up, and waiting to be signed into.
+  useEffect(() => { form?.set(SHAPE.whole); form?.energy(waiting ? 0.5 : 0); form?.mood({}) }, [form, waiting])
 
   const startDesktopSignIn = () => {
     if (pollRef.current) clearTimeout(pollRef.current)
@@ -674,45 +696,36 @@ function Login() {
   }
 
   return (
-    <div className="login">
-      <div className="box">
-        <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
-        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
-          <Icon.settings size={16} />
-        </button>
-        <img className="brand-logo" src="/logo.png" alt="Olisar" />
+    <Pane>
+      <BotMenu variant="chip" onManage={() => openSettings('bots')} />
+      <div className={'wiz-screen' + (arrived ? ' enter' : '')}>
         <h1>Olisar Secure Console</h1>
         {waiting ? (
           <>
-            <p>Continue signing in with Discord in your browser, then come back here.</p>
-            <div className="login-actions">
+            <p className="step-sub">Continue signing in with Discord in your browser, then come back here.</p>
+            <div className="onb-actions">
               <button className="primary" onClick={startDesktopSignIn}>Reopen browser</button>
               <button className="ghost" onClick={cancel}>Cancel</button>
             </div>
           </>
         ) : (
           <>
-            <p>Sign in with Discord. Only server admins can reach this console.</p>
-            {isDesktop ? (
-              <button className="btn-discord" onClick={startDesktopSignIn}>
-                <Icon.login size={18} weight="Bold" /> Continue with Discord
-              </button>
-            ) : (
-              <a className="btn-discord" href={api.loginUrl()}>
-                <Icon.login size={18} weight="Bold" /> Continue with Discord
-              </a>
-            )}
+            <p className="step-sub">Sign in with Discord. Only server admins can reach this console.</p>
+            <div className="onb-actions">
+              {isDesktop ? (
+                <button className="btn-discord cta" onClick={startDesktopSignIn}>
+                  <Icon.login size={18} weight="Bold" /> Continue with Discord
+                </button>
+              ) : (
+                <a className="btn-discord cta" href={api.loginUrl()}>
+                  <Icon.login size={18} weight="Bold" /> Continue with Discord
+                </a>
+              )}
+            </div>
           </>
         )}
       </div>
-      {settingsOpen && (
-        <SettingsModal
-          sections={['general', 'bots', 'updates', 'desktop', 'feedback']}
-          initialSection={settingsPane}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-    </div>
+    </Pane>
   )
 }
 
