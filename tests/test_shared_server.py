@@ -301,7 +301,9 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
         script = self.home / "olisar" / remote.UPDATE_SCRIPT
         script.write_text("#!/usr/bin/env bash\n# an old script\nexit 0\n")
-        await remote.update_image()
+        # The app relaunching onto a newer build than the one that deployed the VM.
+        with mock.patch.object(remote, "current_version", lambda: "99.0.0"):
+            await remote.autoupdate()
         self.assertEqual(script.read_text(), remote._asset(remote.UPDATE_SCRIPT))
 
     async def test_a_refused_tailscale_key_is_reported_and_can_be_replaced(self) -> None:

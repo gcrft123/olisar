@@ -36,6 +36,8 @@ Operators bring their own Discord bot and name it, but Olisar kept calling it Ol
 
 The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
 
+The server panel had an Update button that moved the VM onto the newest release by hand. Since 2.0 the app does that itself whenever it starts up on a newer version than the VM, which is every launch after it updates, so the button only repeated it. The server now moves when the app does.
+
 A bot added to a server another bot already ran on borrowed that bot's Tailscale key. That key had already been used once, and was often single-use or expired by then, so the new bot never got a web address. Setup finished as if it had, and "Open console" opened `http://127.0.0.1:8000`, an address that only means something inside the server. Each bot now brings its own key, a deploy that doesn't get an address says so, and the server panel takes a new key without anyone editing files on the server.
 
 ### New
@@ -269,6 +271,10 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 [3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
 
 [3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
+
+[3f0eb36] — The server panel no longer has an Update button, or a line saying a newer release is available.
+
+[3f0eb36] — `POST /api/server/update` is gone; running `olisar-update.sh` on the VM still updates it by hand.
 
 [9fca613] — Adding a bot to a server another bot already runs on asks for its own Tailscale auth key instead of copying the other bot's.
 
