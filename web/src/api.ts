@@ -309,6 +309,10 @@ export const api = {
   // error }. Waits out the container's first healthcheck, so it can take a few minutes.
   serverTunnelKey: (key: string) =>
     req('/api/server/tunnel-key', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 420000 }),
+  // What the server's bot has been doing, for the final server screen's memories: replies,
+  // joins, impressions, memories, glossary facts, its status, knowledge, reminders, images.
+  // { ok, supported, items, members, health } (see activity.ts). Never a DM.
+  serverActivity: () => req('/api/server/activity', { timeoutMs: 40000 }),
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 

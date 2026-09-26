@@ -313,9 +313,18 @@ async def send_paced(
 
 
 async def record_bot_messages(
-    messages: list[discord.Message], *, guild_id: int, channel_id: int, bot_user_id: int
+    messages: list[discord.Message],
+    *,
+    guild_id: int,
+    channel_id: int,
+    bot_user_id: int,
+    trigger: str | None = None,
+    answering: int | None = None,
 ) -> None:
-    """Store Olisar's own replies so they appear in future context windows."""
+    """Store Olisar's own replies so they appear in future context windows.
+
+    ``trigger`` is how Olisar was reached and ``answering`` the id of the message it
+    answered; both go on every message of the reply (``Message.trigger``)."""
     if not messages:
         return
     async with session_scope() as session:
@@ -328,8 +337,10 @@ async def record_bot_messages(
                 author_id=bot_user_id,
                 author_is_bot=True,
                 content=m.content or "",
+                reply_to=answering,
                 # Deliberately nameless: a stored bot message with no author_name is
                 # Olisar's own, which is what lets a transcript render it as "me" rather
                 # than as one more bot in the channel (olisar/db/models.py, Message).
                 display_name="",
+                trigger=trigger,
             )

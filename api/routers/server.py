@@ -97,6 +97,14 @@ async def status() -> dict:
     return await remote.status()
 
 
+@router.get("/activity")
+async def activity() -> dict:
+    """What the server bot has been doing, for the final screen's memories: ``{ok, supported,
+    items, members, health}`` (see olisar/activity.py), ``{ok, supported: False, items: []}``
+    for an image from before the feed, or ``{ok: False, error}``."""
+    return await remote.activity()
+
+
 @router.get("/logs")
 async def logs(which: str = "bot", tail: int = 200) -> dict:
     """Recent VM logs (``which`` = 'bot' or 'funnel') over SSH, for the control panel's Logs view."""

@@ -42,6 +42,12 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 
 Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
 
+First run happened in a small card in the middle of an empty window: the setup wizard, then the server panel or sign-in after it. They now share one screen, with the wizard on the left, the docs a click away beside it, and on the right a slowly turning form that changes with each step and reacts to what setup is waiting on.
+
+A server running healthy was a list of status lines, and the bot kept no record of most of what it did there. It now keeps one. Once Discord lists the server's sign-in address, the panel moves into the corner and the window shows what the bot has been up to: who it answered and how, who joined, what it learned about people and about the server, and what it read.
+
+Toasts piled up in the bottom-right corner, over the save bar and the Test chat button, which each needed rules to lift them out of the way. Several at once grew into a column up the screen, and a confirmation's timer ran down whether or not you were reading it. They now stack in the top-right corner the way Base UI's toasts do: the newest on top with the older ones tucked behind it, spreading out and holding still while you point at them.
+
 After the app started, Settings → Bots listed every bot but the one on screen as starting, and kept saying so until you opened one of them. The window opens as soon as the bot you're looking at is up, a moment before the others are, and the console read the list of bots once, then kept it. The list is now read again every couple of seconds while any bot is still starting, and every time Settings → Bots opens.
 
 ### New
@@ -149,6 +155,20 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 [31d8676] — A Cloudflare token that can see its own account fills in the account ID.
 
 [9fca613] — The server control panel takes a new Tailscale auth key when its console has no address, and restarts the bot on it.
+
+[2fb6045] — Setup, the server panel and sign-in share one screen: the steps on the left, and on the right a 3D form that changes with each step.
+
+[2fb6045] — The docs open in a drawer beside setup, from a rail that also holds Settings.
+
+[2fb6045] — A server running healthy, with its sign-in address listed, shows what its bot has been doing around the form: who it answered and how it was called, who joined, impressions, saved facts, glossary entries, its status, knowledge sources, reminders, images and the health check.
+
+[2fb6045] — Clicking one of those opens it in full, such as the message a reply answered along with the whole reply.
+
+[2fb6045] — The server panel shows how long the server has been up.
+
+[47c72b5] — The bot records how each of its replies was called and which message it answered, when members joined, how many members the last roster sync found, and the statuses it sets and images it draws.
+
+[47c72b5] — The desktop app reads a server bot's recent activity over SSH, never including a DM or anyone who opted out of being remembered.
 
 ### Changed
 
@@ -290,6 +310,30 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 
 [9fca613] — Adding a bot to a server another bot already runs on asks for its own Tailscale auth key instead of copying the other bot's.
 
+[2fb6045] — The Deploy step links to the docs for creating a VM instead of listing the Oracle Cloud steps itself.
+
+[2fb6045] — The docs' Host on a server page has the steps for creating a VM on Oracle Cloud, or on any other Linux host, for the desktop app to deploy to.
+
+[2fb6045] — A token, secret or key that Discord or Google turns down shakes its field and stays marked until it's edited.
+
+[2fb6045] — Connect to existing server sits beside Continue on setup's first step instead of appearing on hover.
+
+[2fb6045] — The server panel checks the server every 4 seconds while it's starting, instead of every 15.
+
+[47c72b5] — A fact Olisar saves in a server links back to the message it came from in the member portal.
+
+[addf2d8] — Setup's Added and Live confirmations are status badges, like every other status in the console.
+
+[5123186] — Toasts appear in the top-right corner, and the newest three stack with the older ones tucked behind the newest.
+
+[5123186] — A fourth toast hides the oldest until a newer one closes.
+
+[5123186] — Pointing at the toasts or tabbing into them spreads them out and pauses their timers, and so does switching to another window.
+
+[5123186] — A toast can be swiped away up or right, Escape closes the one with focus, and F6 moves focus to the toasts from anywhere, an open dialog included.
+
+[5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -367,6 +411,10 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 [b30006b] — Resetting a bot's configuration turns its remote access off right away; before, it stayed on until the app restarted.
 
 [b30006b] — The reset dialog for a server-hosted bot says its server keeps running, instead of saying the reset takes it offline.
+
+[2fb6045] — Numbered steps in the docs and in test chat show as a numbered list in the console instead of running together as one paragraph.
+
+[2fb6045] — Fields meant to be monospaced, like tokens, keys and addresses, are.
 
 [6f2f54c] — Settings → Bots and the bot switcher show each bot's status once it has started, instead of "Starting…" until a bot is opened.
 

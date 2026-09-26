@@ -167,7 +167,13 @@ export function Field(
   )
 }
 
-export function Text(props: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean; ariaLabel?: string }) {
+export function Text(props: {
+  value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean; ariaLabel?: string
+  /** A value that was turned down: the field takes the danger colour until it's edited. */
+  invalid?: boolean
+  /** A handle for code that needs this input by name (the setup wizard's shake). */
+  field?: string
+}) {
   const f = useFieldIds()
   return (
     <input
@@ -176,6 +182,8 @@ export function Text(props: { value: string; onChange: (v: string) => void; plac
       className={props.mono ? 'mono' : ''}
       value={props.value ?? ''}
       placeholder={props.placeholder}
+      aria-invalid={props.invalid || undefined}
+      data-field={props.field}
       onChange={(e) => props.onChange(e.target.value)}
     />
   )
@@ -876,11 +884,14 @@ function isTableSep(line: string): boolean {
 function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void): React.ReactNode[] {
   const out: React.ReactNode[] = []
   let list: string[] = []
+  // Whether the list being gathered is numbered ("1. …"), as the docs site renders it. The
+  // console used to join a numbered list into one paragraph.
+  let ordered = false
   let para: string[] = []
   const flushList = (k: string) => {
     if (list.length) {
-      const items = list
-      out.push(<ul key={'ul' + k}>{items.map((li, j) => <li key={j}>{inline(li, 'li' + k + j, onLink)}</li>)}</ul>)
+      const items = list.map((li, j) => <li key={j}>{inline(li, 'li' + k + j, onLink)}</li>)
+      out.push(ordered ? <ol key={'ol' + k}>{items}</ol> : <ul key={'ul' + k}>{items}</ul>)
       list = []
     }
   }
@@ -956,7 +967,13 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       out.push(<h2 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h2>)
       i++; continue
     }
-    if (line.startsWith('- ')) { flushPara(k); list.push(line.slice(2)); i++; continue }
+    const num = /^\d+\.\s+(.*)$/.exec(line)
+    if (num || line.startsWith('- ')) {
+      flushPara(k)
+      if (list.length && ordered !== !!num) flushList(k)
+      ordered = !!num
+      list.push(num ? num[1] : line.slice(2)); i++; continue
+    }
     if (list.length) { list[list.length - 1] += ' ' + line; i++; continue } // wrapped bullet
     para.push(line); i++ // paragraph line (joined across wraps)
   }
