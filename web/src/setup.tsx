@@ -146,26 +146,38 @@ function stepsFor(mode: Mode): StepId[] {
 const BAR_SLOTS = Math.max(...MODES.map((m) => stepsFor(m.id).length))
 
 // The setup card's height follows its content, which changes on every step and whenever a
-// check, a warning or an error arrives. It used to snap, and since the card was centred its
-// top moved by half of every change: the title jumped up to 110px between steps, and the
-// token field slid 63px while the operator was typing into it. The card now hangs from a
-// fixed line (see `.setup`) and `body` tweens from the height it had to the one its content
-// now needs, clipped along the bottom so the footer rides the moving edge.
+// check, a warning or an error arrives. It used to snap, and since the card is centred its
+// top jumped by half of every change: the title up to 110px between steps, and the token
+// field 63px while the operator was typing into it. `body` now tweens from the height it had
+// to the one its content needs, so the card glides to its new centre instead, clipped along
+// the bottom so the footer rides the moving edge.
 //
 // `flow` is measured, not `body`: it always sits at its content's height, while `body`'s is
 // the one being animated. A width change (window drag, interface size) snaps, since a card
 // trailing the window by a few hundred ms reads as lag rather than motion.
-function useHeightTween() {
+//
+// A deploy or a connect swaps the wizard for the server panel, a different card. `handOff`
+// leaves this body's height for the next card that mounts with `arrive`, whose first reading
+// tweens from it instead of snapping, so the swap resizes the card like a step change does.
+// It's read while the new card renders, when the old one is still on screen, and dropped
+// when the old one unmounts, so a later mount can't pick up a stale height.
+let handedOff: (() => number) | null = null
+
+export function useHeightTween({ arrive = false } = {}) {
   const body = useRef<HTMLDivElement>(null)
   const flow = useRef<HTMLDivElement>(null)
+  const height = useRef<() => number>(() => 0)
+  const [arrivedFrom] = useState(() => (arrive && handedOff ? handedOff() : null))
   useLayoutEffect(() => {
     const b = body.current, f = flow.current
     if (!b || !f || typeof ResizeObserver === 'undefined') return
     let last: { w: number; h: number } | null = null
     let anim: Animation | null = null
+    const read = () => (anim?.playState === 'running' ? parseFloat(getComputedStyle(b).height) : last?.h ?? 0)
+    height.current = read
     const ro = new ResizeObserver(([e]) => {
       const { width: w, height: h } = e.contentRect
-      const prev = last
+      const prev = last ?? (arrivedFrom === null ? null : { w, h: arrivedFrom })
       last = { w, h }
       if (!prev) return
       // Mid-tween, start from where the edge is now rather than where it was headed.
@@ -185,9 +197,13 @@ function useHeightTween() {
       )
     })
     ro.observe(f)
-    return () => { ro.disconnect(); anim?.cancel() }
-  }, [])
-  return { body, flow }
+    return () => {
+      ro.disconnect(); anim?.cancel()
+      if (handedOff === read) handedOff = null
+    }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  const handOff = () => { handedOff = height.current }
+  return { body, flow, handOff, arrived: arrivedFrom !== null }
 }
 
 // What /api/setup/bot and /api/setup/discord-status say about the bot's Discord application.
@@ -335,7 +351,7 @@ export function SetupWizard(
   const [moved, setMoved] = useState<{ what: 'step' | 'screen'; back: boolean } | null>(null)
   const enter = (what: 'step' | 'screen') =>
     moved?.what === what ? ' enter' + (moved.back ? ' back' : '') : ''
-  const { body, flow } = useHeightTween()
+  const { body, flow, handOff } = useHeightTween()
 
   // Where it runs
   const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
@@ -584,7 +600,7 @@ export function SetupWizard(
     try {
       const r = await api.serverDeploy({ host, user, env: envFile })
       if (r?.ok && r.console_error) setConsoleErr(r.console_error)
-      else if (r?.ok) { onDone() }
+      else if (r?.ok) { handOff(); onDone() }
       else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
@@ -606,7 +622,7 @@ export function SetupWizard(
       const r = await api.serverConnect({
         host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', app_dir: installDir || undefined,
       })
-      if (r?.ok) { onDone() }
+      if (r?.ok) { handOff(); onDone() }
       else if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
       else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {

@@ -244,6 +244,14 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 
 [4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
 
+[7233f62] — The setup card and the server control panel are centered on the screen whatever their height, and glide to their new center when it changes.
+
+[f14c197] — The server control panel resizes smoothly as warnings, the redirect URL and update notes come and go, and switching to Reconnect and back slides between the two screens.
+
+[f14c197] — Finishing a server deploy, or connecting to an existing server, resizes the setup card into the control panel instead of swapping one card for the other.
+
+[f14c197] — The server's status chip pops in when it changes, from Checking… to Running or Stopped.
+
 [8388322] — A server the bot joins starts with its persona named after the bot, a system prompt that introduces it by that name, and that name as its name trigger.
 
 [8388322] — Slash command descriptions call the bot by its Discord name. The command group is still `/olisar`.
@@ -338,7 +346,7 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 
 [9388392] — A bot missing an intent no longer retries connecting every few seconds until Discord resets its token for too many attempts; it stops within 20 seconds and says which intent is off.
 
-[4b78a70] — The setup card no longer jumps up and down between steps, and the bot token field stays put while you type, instead of sliding when Discord's answer arrives.
+[4b78a70] — The setup card no longer jumps up and down between steps, or while you type in the bot token field when Discord's answer arrives.
 
 [4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
