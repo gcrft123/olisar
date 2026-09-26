@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { SolarProvider } from '@solar-icons/react'
 import App from './App'
 import { Overlays } from './overlays'
+import { UpdateScreen } from './updating'
 import { applyScale, watchPixelRatio } from './theme'
 import './index.css'
 
@@ -18,6 +19,7 @@ ready.then(() => createRoot(document.getElementById('root')!).render(
     <SolarProvider value={{ weight: 'Linear', size: 19 }}>
       <App />
       <Overlays />
+      <UpdateScreen />
     </SolarProvider>
   </React.StrictMode>,
 ))
