@@ -48,6 +48,8 @@ A server running healthy was a list of status lines, and the bot kept no record 
 
 Toasts piled up in the bottom-right corner, over the save bar and the Test chat button, which each needed rules to lift them out of the way. Several at once grew into a column up the screen, and a confirmation's timer ran down whether or not you were reading it. They now stack in the top-right corner the way Base UI's toasts do: the newest on top with the older ones tucked behind it, spreading out and holding still while you point at them.
 
+After the app started, Settings → Bots listed every bot but the one on screen as starting, and kept saying so until you opened one of them. The window opens as soon as the bot you're looking at is up, a moment before the others are, and the console read the list of bots once, then kept it. The list is now read again every couple of seconds while any bot is still starting, and every time Settings → Bots opens.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -413,6 +415,8 @@ Toasts piled up in the bottom-right corner, over the save bar and the Test chat 
 [2fb6045] — Numbered steps in the docs and in test chat show as a numbered list in the console instead of running together as one paragraph.
 
 [2fb6045] — Fields meant to be monospaced, like tokens, keys and addresses, are.
+
+[6f2f54c] — Settings → Bots and the bot switcher show each bot's status once it has started, instead of "Starting…" until a bot is opened.
 
 ## [1.5.0] — 2026-09-21
 
