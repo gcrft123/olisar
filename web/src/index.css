@@ -1544,8 +1544,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
 .setup .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .setup .srv-head h1 { margin: 0; }
-.setup .srv-head .badge { margin-left: auto; }
+/* The status chip's wrapper, keyed so a new reading replays its pop (server.tsx). */
+.setup .srv-head .srv-state { margin-left: auto; display: inline-flex; }
 .setup .srv-hint { color: var(--text-2); font-size: 12.5px; margin-top: 12px; line-height: 1.5; }
+/* The hints under the server panel's footer tween as their own body. `flow-root` keeps the
+   first hint's margin inside what's measured, or the card would grow by it before tweening. */
+.setup .box-tail { display: flow-root; }
 /* The last update needing attention, in the tone its toast used. */
 .setup .srv-hint.warning { color: var(--warn); }
 .setup .srv-hint.danger { color: var(--danger); }
@@ -1611,7 +1615,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* Setup motion. The card's height is tweened in setup.tsx (useHeightTween); these are the
    entrances that play inside it. A step arrives from the side it was travelled to, 10px and
    a fade, in the time the card takes to resize around it; switching to "Connect to an
-   existing server" and back moves the whole screen the same way. Only what changed plays:
+   existing server" and back moves the whole screen the same way, as do the server panel's
+   Reconnect screen and the panel itself when a deploy lands on it. Only what changed plays:
    nothing animates on first paint. */
 .setup .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
 .setup .enter.back { animation-name: wiz-in-back; }
