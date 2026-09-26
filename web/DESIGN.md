@@ -546,14 +546,14 @@ the next, so finishing setup doesn't restart the form: App returns each screen i
 `<Onboarding>` element at the same place in the tree.
 
 ```
-┌────┬──────────────────────────┬──────────────────────────┐
-│logo│  ▬▬▬ ▬▬▬ ▬▬▬ ▬▬▬ ▬▬▬        │                   .·:·.  │
-│ ⚙  │  Set up Olisar             │               .·'      ':│
-│ ▤  │  A one-time setup to …     │              :   form    │
-│    │  [ the step ]              │               '·.      .·│
-│    │  [Continue]  Back          │                   '·:·'  │
-└────┴──────────────────────────┴──────────────────────────┘
- rail   .onb-pane (scrolls)        .onb-stage (measured only)
++------+----------------------------+----------------------------+
+| logo |  ---- ---- ---- ---- ----  |                    .-''-.  |
+|  *   |  Set up Olisar             |                  .'      '.|
+|  =   |  A one-time setup to ...   |                 :   form   |
+|      |  [ the step ]              |                  '.      .'|
+|      |  [Continue]  Back          |                    '-..-'  |
++------+----------------------------+----------------------------+
+  rail    .onb-pane (scrolls)          .onb-stage (measured only)
 ```
 
 **The rail** holds the logo, then Settings, then the docs, each an IconButton whose tooltip opens

@@ -622,6 +622,14 @@ export function SetupWizard(
   // screen asks for, and on the way back on the button that opened it.
   const screen = useRef<HTMLDivElement>(null)
   const revealBtn = useRef<HTMLButtonElement>(null)
+  const primaryBtn = useRef<HTMLButtonElement>(null)
+  // Back to the first step takes the Back button away; focus goes to Continue rather than
+  // the page.
+  useEffect(() => {
+    if (moved?.what === 'step' && moved.back && (!document.activeElement || document.activeElement === document.body)) {
+      primaryBtn.current?.focus()
+    }
+  }, [step])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (moved?.what !== 'screen') return
     if (connectMode) screen.current?.querySelector<HTMLInputElement>('input')?.focus()
@@ -819,7 +827,7 @@ export function SetupWizard(
             <Field label="Device name (optional)" desc="Becomes the first part of your dashboard's web address.">
               <Text value={tunnelNode} onChange={(v) => { setTunnelNode(v); setTunnelDone(false) }} placeholder="olisar" mono />
             </Field>
-            <div className="act-row">
+            <div className="onb-act-row">
               <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
                 {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
               </button>
@@ -1028,12 +1036,14 @@ export function SetupWizard(
             Enter walks the whole wizard. Beside it is the one other way out: Back, or on the
             first step, connecting to a server that already runs Olisar. */}
         <div className="onb-actions">
-          <button className="primary" disabled={primary.off} onClick={primary.run}>{primary.label}</button>
+          <button className="primary" ref={primaryBtn} disabled={primary.off} onClick={primary.run}>{primary.label}</button>
+          {/* Keyed, so each is its own button: reused, a Back pressed on the second step became
+              Connect to existing server under the keyboard's focus. */}
           {connectMode
-            ? <button className="ghost" disabled={deploying || done} onClick={() => showConnect(false)}>Back</button>
+            ? <button key="leave-connect" className="ghost" disabled={deploying || done} onClick={() => showConnect(false)}>Back</button>
             : step === 0
-              ? <button className="ghost" ref={revealBtn} onClick={() => showConnect(true)}>Connect to existing server</button>
-              : <button className="ghost" disabled={saving || deploying || done} onClick={back}>Back</button>}
+              ? <button key="connect" className="ghost" ref={revealBtn} onClick={() => showConnect(true)}>Connect to existing server</button>
+              : <button key="back" className="ghost" disabled={saving || deploying || done} onClick={back}>Back</button>}
         </div>
       </div>
     </Pane>

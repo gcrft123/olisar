@@ -21,9 +21,10 @@ type Shell = {
   over: HTMLElement | null
   openSettings: (section?: SectionId, prefill?: FeedbackPrefill) => void
   openDocs: (section: string) => void
+  closeDocs: () => void
 }
 
-const Ctx = createContext<Shell>({ form: null, root: null, over: null, openSettings: () => {}, openDocs: () => {} })
+const Ctx = createContext<Shell>({ form: null, root: null, over: null, openSettings: () => {}, openDocs: () => {}, closeDocs: () => {} })
 export const useShell = () => useContext(Ctx)
 export const useForm = () => useContext(Ctx).form
 
@@ -65,7 +66,16 @@ export function Onboarding({ sections, children }: { sections: SectionId[]; chil
   useFeedbackHost((prefill) => setSettings({ section: 'feedback', prefill }))
 
   const [docs, setDocs] = useState<string | null>(null)   // the section showing, or null when closed
-  const shell: Shell = { form, root: mounted?.root ?? null, over: mounted?.over ?? null, openSettings, openDocs: (s) => setDocs(s) }
+  // Closing the drawer with focus inside it (Escape, or the final screen taking over) would
+  // drop focus to the page: it goes back to the button that opens the docs.
+  const closeDocs = () => {
+    const drawer = document.getElementById('onb-docs')
+    if (drawer?.contains(document.activeElement)) root.current?.querySelector<HTMLElement>('[aria-controls="onb-docs"]')?.focus()
+    setDocs(null)
+  }
+  const shell: Shell = {
+    form, root: mounted?.root ?? null, over: mounted?.over ?? null, openSettings, openDocs: (s) => setDocs(s), closeDocs,
+  }
 
   return (
     <Ctx.Provider value={shell}>
@@ -80,8 +90,8 @@ export function Onboarding({ sections, children }: { sections: SectionId[]; chil
           Skip to content
         </a>
         {/* The rail's button reopens the docs where they were left; a link names a page. */}
-        <Rail docsOpen={!!docs} onDocs={() => setDocs((d) => (d ? null : 'where-left'))} onSettings={() => openSettings()} />
-        <DocsDrawer section={docs} onClose={() => setDocs(null)} />
+        <Rail docsOpen={!!docs} onDocs={() => (docs ? closeDocs() : setDocs('where-left'))} onSettings={() => openSettings()} />
+        <DocsDrawer section={docs} onClose={closeDocs} />
         {children}
         <div className="onb-stage" aria-hidden="true" />
         <div className="orb-layer" aria-hidden="true"><canvas ref={canvas} /></div>
