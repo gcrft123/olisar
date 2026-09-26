@@ -51,7 +51,7 @@ class DenoiseTests(unittest.TestCase):
     def test_failed_requests_are_kept(self):
         for code in ("400", "401", "404", "500", "502"):
             with self.subTest(code=code):
-                line = f'127.0.0.1:54610 - "POST /api/server/update HTTP/1.1" {code}'
+                line = f'127.0.0.1:54610 - "POST /api/server/power HTTP/1.1" {code}'
                 self.assertTrue(self.keeps(_record("uvicorn.access", line)))
 
     def test_ssh_problems_are_kept(self):
