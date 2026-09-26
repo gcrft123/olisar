@@ -1,20 +1,25 @@
-// Imperative overlay primitives: a bottom-right Toast stack and a centered
+// Imperative overlay primitives: a top-right Toast stack and a centered
 // ConfirmDialog, both mounted once via <Overlays/> in main.tsx and driven from
 // anywhere by the exported toast() / confirmDialog() / promptDialog() helpers.
 // These replace the native alert/confirm/prompt, which break the calm aesthetic.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Toast, type ToastManagerAddOptions, type ToastObject } from '@base-ui/react/toast'
 import { Icon, CloseX, type IconName } from './icons'
 import { rectScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
+// Base UI's Toast owns the behaviour: the newest three stack in the corner with the older
+// ones peeking out behind, hovering or focusing the stack fans it out and pauses every
+// timer (so does the window losing focus), a toast swipes away up or right, Escape closes
+// the focused one and F6 jumps into the stack from anywhere. This file keeps the
+// imperative toast() on top of it, and the tone rules below.
 export type Tone = 'success' | 'danger' | 'warning' | 'info' | 'neutral'
 type ToastAction = { label: string; onClick: () => void }
-type ToastItem = {
-  id: number; message: string; tone: Tone
-  sticky?: boolean; busy?: boolean; action?: ToastAction; durationMs?: number
-}
+type ToastData = { busy?: boolean; action?: ToastAction; sticky: boolean }
+type ToastItem = ToastObject<ToastData>
+type ToastAdd = ToastManagerAddOptions<ToastData>
 
 export type ToastOpts = {
   /** Override the tone's default expiry (see STICKY) — for work that outlives a timer. */
@@ -29,30 +34,13 @@ export type ToastOpts = {
 /** Handle for a toast the caller has to take back down itself (progress toasts). */
 export type ToastControl = { dismiss: () => void }
 
-let toastPush: ((t: ToastItem) => void) | null = null
-let toastRemove: ((id: number) => void) | null = null
+let toastAdd: ((t: ToastAdd) => void) | null = null
+let toastClose: ((id: string) => void) | null = null
 let nextId = 1
-const pending: ToastItem[] = []  // calls made before the host mounts are queued
+const pending: ToastAdd[] = []  // calls made before the host mounts are queued
 
 const TOAST_ICON: Record<Tone, IconName> = {
   success: 'check', danger: 'warn', warning: 'warn', info: 'info', neutral: 'info',
-}
-
-export function toast(message: string, tone: Tone = 'neutral', opts?: ToastOpts): ToastControl {
-  const id = nextId++
-  const item: ToastItem = { id, message, tone, ...opts }
-  if (toastPush) toastPush(item)
-  else pending.push(item)
-  return {
-    dismiss: () => {
-      if (toastRemove) { toastRemove(id); return }
-      // Dismissed before the host mounted. Drop it from the queue instead — otherwise a
-      // sticky progress toast whose work already finished appears after the fact, with
-      // nothing left to take it down again.
-      const i = pending.findIndex((p) => p.id === id)
-      if (i >= 0) pending.splice(i, 1)
-    },
-  }
 }
 
 // Success is a confirmation and can expire. A failure is information the operator may need
@@ -63,65 +51,91 @@ const STICKY: Record<Tone, boolean> = {
   success: false, neutral: false, info: false, danger: true, warning: true,
 }
 
-function ToastView({ item, onDone }: { item: ToastItem; onDone: (id: number) => void }) {
-  const [show, setShow] = useState(false)
+export function toast(message: string, tone: Tone = 'neutral', opts?: ToastOpts): ToastControl {
+  const id = `toast-${nextId++}`
   // Tone sets the default; a caller can still pin a toast open for work that outlives a timer.
-  const sticky = item.sticky ?? STICKY[item.tone]
-  useEffect(() => {
-    const a = requestAnimationFrame(() => setShow(true))
-    if (sticky) return () => cancelAnimationFrame(a)
-    const hold = item.durationMs ?? 3600
-    const hide = setTimeout(() => setShow(false), hold)
-    const done = setTimeout(() => onDone(item.id), hold + 320)
-    return () => { cancelAnimationFrame(a); clearTimeout(hide); clearTimeout(done) }
-  }, [item.id, item.durationMs, onDone, sticky])
-  const dismiss = () => { setShow(false); setTimeout(() => onDone(item.id), 320) }
-  const Glyph = Icon[TOAST_ICON[item.tone]]
-  const action = item.action
+  const sticky = opts?.sticky ?? STICKY[tone]
+  const item: ToastAdd = {
+    id, description: message, type: tone,
+    // 0 never expires. Leaving it undefined takes the provider's default.
+    timeout: sticky ? 0 : opts?.durationMs,
+    // High priority is announced as an alert, the rest politely. Keyed off the tone default,
+    // so a progress toast (pinned open but not an error) doesn't interrupt.
+    priority: STICKY[tone] ? 'high' : 'low',
+    data: { busy: opts?.busy, action: opts?.action, sticky },
+  }
+  if (toastAdd) toastAdd(item)
+  else pending.push(item)
+  return {
+    dismiss: () => {
+      if (toastClose) { toastClose(id); return }
+      // Dismissed before the host mounted. Drop it from the queue instead — otherwise a
+      // sticky progress toast whose work already finished appears after the fact, with
+      // nothing left to take it down again.
+      const i = pending.findIndex((p) => p.id === id)
+      if (i >= 0) pending.splice(i, 1)
+    },
+  }
+}
+
+function ToastView({ item, close }: { item: ToastItem; close: (id: string) => void }) {
+  const tone = item.type as Tone
+  const { busy, action, sticky } = item.data!
+  const Glyph = Icon[TOAST_ICON[tone]]
+  const selectable = sticky && !busy
   return (
-    // alert, not status: a failure should interrupt rather than queue behind whatever is
-    // currently being read. Keyed off the tone default, so a progress toast — pinned open
-    // but not an error — announces politely.
-    <div className={'toast ' + item.tone + (show ? ' show' : '') + (sticky ? ' sticky' : '')
-      + (item.busy ? ' busy' : '')}
-      role={STICKY[item.tone] ? 'alert' : 'status'}>
-      <span className="ic">
-        {item.busy ? <span className="spinner" aria-hidden /> : <Glyph size={20} weight="Bold" />}
-      </span>
-      <span className="toast-msg">{item.message}</span>
-      {/* An action toast gets no close ×: the action IS the way out, and dismissing the only
-          handle on work still running would strand it. */}
-      {action ? (
-        <button className="ghost toast-action" onClick={() => { action.onClick(); dismiss() }}>
-          {action.label}
-        </button>
-      ) : sticky && (
-        <button className="ghost icon-btn sm toast-x" onClick={dismiss}
-          data-tip="Dismiss" aria-label="Dismiss">
-          <CloseX size={14} />
-        </button>
-      )}
-    </div>
+    // Swipes go toward the nearest edges. The other two directions still drag, damped, and
+    // spring back.
+    <Toast.Root toast={item} swipeDirection={['up', 'right']}
+      className={'toast ' + tone + (sticky ? ' sticky' : '') + (busy ? ' busy' : '')}>
+      <Toast.Content className="toast-content">
+        <span className="ic">
+          {busy ? <span className="spinner" aria-hidden /> : <Glyph size={20} weight="Bold" />}
+        </span>
+        {/* A drag across selectable text is a selection, not a swipe. */}
+        <Toast.Description className="toast-msg"
+          {...(selectable ? { 'data-base-ui-swipe-ignore': '' } : {})} />
+        {/* An action toast gets no close ×: the action IS the way out, and dismissing the only
+            handle on work still running would strand it. */}
+        {action ? (
+          <Toast.Action className="ghost toast-action"
+            onClick={() => { action.onClick(); close(item.id) }}>
+            {action.label}
+          </Toast.Action>
+        ) : sticky && (
+          <Toast.Close className="ghost icon-btn sm toast-x" data-tip="Dismiss" aria-label="Dismiss">
+            <CloseX size={14} />
+          </Toast.Close>
+        )}
+      </Toast.Content>
+    </Toast.Root>
   )
 }
 
-function ToastStack() {
-  const [items, setItems] = useState<ToastItem[]>([])
+function ToastList() {
+  const { toasts, add, close } = Toast.useToastManager<ToastData>()
   useEffect(() => {
-    toastPush = (t) => setItems((xs) => [...xs, t])
-    toastRemove = (id) => setItems((xs) => xs.filter((x) => x.id !== id))
-    if (pending.length) { setItems((xs) => [...xs, ...pending]); pending.length = 0 }
-    return () => { toastPush = null; toastRemove = null }
-  }, [])
-  const remove = useCallback((id: number) => setItems((xs) => xs.filter((x) => x.id !== id)), [])
-  if (!items.length) return null
-  // Portalled to <body> for the same reason the modal card is: `Overlays` renders inside
-  // #root, and an open dialog marks #root inert. A toast raised from inside Settings — every
-  // "Couldn't rename the bot" / "Couldn't send" path — painted but could not be clicked shut
-  // and was hidden from assistive tech until the dialog closed.
-  return createPortal(
-    <div className="toast-stack">{items.map((t) => <ToastView key={t.id} item={t} onDone={remove} />)}</div>,
-    document.body,
+    toastAdd = add
+    toastClose = close
+    pending.splice(0).forEach(add)
+    return () => { toastAdd = null; toastClose = null }
+  }, [add, close])
+  return <>{toasts.map((t) => <ToastView key={t.id} item={t} close={close} />)}</>
+}
+
+function ToastStack() {
+  // The portal lands on <body> for the same reason the modal card does: `Overlays` renders
+  // inside #root, and an open dialog marks #root inert. A toast raised from inside Settings
+  // (every "Couldn't rename the bot" / "Couldn't send" path) painted but could not be
+  // clicked shut and was hidden from assistive tech until the dialog closed.
+  return (
+    <Toast.Provider>
+      <Toast.Portal>
+        <Toast.Viewport className="toast-viewport">
+          <ToastList />
+        </Toast.Viewport>
+      </Toast.Portal>
+    </Toast.Provider>
   )
 }
 
@@ -248,6 +262,10 @@ export function Modal(props: {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // F6 moves focus into the toast stack, which lives outside the dialog. Keys pressed
+      // there are the stack's own: Escape closes the toast, Tab walks the toasts. Trapping
+      // them here closed the dialog underneath and yanked focus back out.
+      if ((e.target as Element | null)?.closest?.('.toast-viewport')) return
       if (e.key === 'Escape') {
         if (escStack[escStack.length - 1] !== idRef.current) return
         e.stopPropagation()
