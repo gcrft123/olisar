@@ -534,9 +534,8 @@ that from reading as the card jumping around.
 **It's centred, and it glides.** `.setup` centres the card the way `.login` does. A centred card
 moves its top by half of every change in its height, so the height tween below is what keeps a
 step change or an arriving warning from reading as a jump: the card slides to its new centre
-over the same ~300ms. A card taller than the window scrolls. The server control panel shares
-`.setup`, so it's centred the same way. (Hanging it from a fixed line kept the top still, but
-sat short steps high and tall ones low.)
+over the same ~300ms. A card taller than the window scrolls. (Hanging it from a fixed line kept
+the top still, but sat short steps high and tall ones low.)
 
 **The height tweens, and the footer rides the edge.** `useHeightTween` (setup.tsx) watches an
 inner wrapper that always sits at its content's height and animates `.box-body` from the height
@@ -559,6 +558,7 @@ lag; reduced motion snaps.
 | Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end, and two choices with as many steps leave it still. A segment fills from the left going forward and empties back toward it going back |
 | Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it, since a screen reader announces a change inside a live region and can miss one that turns up already filled. A refused Continue replays its reason, so a second press visibly did something |
 | Confirmations | `.wiz-pop` for what Discord or Tailscale just confirmed ("Added", "Live at …") |
+| Handoff | a deploy or a connect swaps the wizard for the server panel, a different card. The wizard calls `handOff()` first, and the panel's `useHeightTween({ arrive: true })` tweens from that height, so the card resizes around the panel and the panel slides in as the next screen |
 
 **One footer, one primary button.** The first step used to render its own Continue inside the
 hover-reveal group, so moving past it swapped the element and dropped keyboard focus to the
@@ -567,6 +567,14 @@ action change, so Enter walks the whole wizard.
 
 Under `prefers-reduced-motion` nothing travels: the height snaps, entrances only fade, and the
 bar fills by colour rather than by sweep.
+
+**The server panel moves the same way.** The control panel a VM deploy lands on (server.tsx)
+shares `.setup` and all of the above. Its hints sit under the footer, so they get a second
+tweened body (`.box-tail`, `flow-root` so the first hint's margin is measured with it) and grow
+down from the buttons while the footer rides the first body's edge. The panel ↔ Reconnect switch
+travels like the wizard's screens, with focus on the IP field going and on Reconnect coming
+back; each screen has its own buttons, so the footer travels with it. The status chip pops when
+the reading changes ("Checking…" to "Running"), keyed on its label so each new reading replays.
 
 ### Skip link
 

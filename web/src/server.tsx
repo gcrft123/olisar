@@ -3,7 +3,7 @@ import { api } from './api'
 import { BotMenu, intentList, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
-import { PubkeyBox, RedirectRow, usePubkey } from './setup'
+import { PubkeyBox, RedirectRow, useHeightTween, usePubkey } from './setup'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
 import { Badge, Field, Select, Text, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
@@ -87,6 +87,29 @@ export function ServerControlPanel() {
   // The app's SSH key is only a fallback here (a VM the app set up already trusts it), so
   // fetch it lazily when the operator expands the disclosure — never blocks the panel.
   const pk = usePubkey(reconnect && showKey)
+
+  // The card moves like the setup wizard's (DESIGN.md, Setup card). `body` is everything above
+  // the footer, which rides its edge, and `tail` the hints under the footer. A deploy or a
+  // connect that lands here takes over the wizard's card, and the panel slides in as the next
+  // screen. Otherwise only a switch to Reconnect and back plays, from the side it went.
+  const { body, flow, arrived } = useHeightTween({ arrive: true })
+  const tail = useHeightTween()
+  const [moved, setMoved] = useState<{ back: boolean } | null>(arrived ? { back: false } : null)
+  const enter = moved ? ' enter' + (moved.back ? ' back' : '') : ''
+  // Switching screens swaps the footer, so focus would drop to the page: land on the address
+  // Reconnect asks for, and on the way back on the button that opened it.
+  const switched = useRef(false)
+  const reconnectBtn = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!switched.current) return
+    if (reconnect) flow.current?.querySelector<HTMLInputElement>('input')?.focus()
+    else reconnectBtn.current?.focus()
+  }, [reconnect])  // eslint-disable-line react-hooks/exhaustive-deps
+  function showReconnect(on: boolean) {
+    switched.current = true
+    setMoved({ back: !on })
+    setReconnect(on)
+  }
 
   // What Discord says about the server's bot, which the VM can't: its console's sign-in
   // address has to be registered with the bot's Discord app (setup couldn't show it, since
@@ -237,8 +260,9 @@ export function ServerControlPanel() {
   }
 
   function openReconnect() {
-    setReconnect(true); setRcErr(''); setShowKey(false); setRcHost(st?.host || '')
+    setRcErr(''); setShowKey(false); setRcHost(st?.host || '')
     setRcInstalls([]); setRcDir('')
+    showReconnect(true)
   }
   async function doReconnect() {
     setRcErr('')
@@ -249,7 +273,7 @@ export function ServerControlPanel() {
       const via = sharedServers(bots.bots, bots.activeId).find((x) => x.host === rcHost.trim())
       if (via) await api.shareServer(via.from.id).catch(() => null)
       const r = await api.serverConnect({ host: rcHost.trim(), user: rcUser.trim() || 'ubuntu', app_dir: rcDir || undefined })
-      if (r?.ok) { setReconnect(false); await refresh() }
+      if (r?.ok) { showReconnect(false); await refresh() }
       else if (r?.choose?.length) { setRcInstalls(r.choose); setRcDir(r.choose[0].dir) }
       else setRcErr(r?.error || 'Couldn’t connect to that VM.')
     } catch (e: any) {
@@ -284,6 +308,11 @@ export function ServerControlPanel() {
               ? { label: 'Starting…', tone: 'info', busy: true }
               : { label: 'Running', tone: 'success', icon: 'play-circle' }
   const { label: stateLabel, ...stateChip } = state
+  // The chip pops each time the reading changes ("Checking…" to "Running"), but not on first
+  // paint, where nothing has changed yet.
+  const chipSeen = useRef(stateLabel)
+  const chipMoved = useRef(false)
+  if (stateLabel !== chipSeen.current) { chipSeen.current = stateLabel; chipMoved.current = true }
   const actionsLocked = busy || busyUpdating
   const modal = settingsOpen && (
     <SettingsModal
@@ -294,60 +323,6 @@ export function ServerControlPanel() {
     />
   )
 
-  if (reconnect) {
-    return (
-      <div className="setup">
-        <div className="box">
-          <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
-          <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
-            <Icon.settings size={16} />
-          </button>
-          <img className="brand-logo" src="/logo.png" alt="Olisar" />
-          <h1>Reconnect to your server</h1>
-          <p className="step-sub">
-            Enter the VM's IP and Olisar re-verifies it over SSH. Nothing is reinstalled.
-          </p>
-          <div className="callout tip" style={{ marginBottom: 16 }}>
-            <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-            <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
-          </div>
-          <Field label="VM public IP address" desc="The VM running Olisar.">
-            <Text value={rcHost} onChange={(v) => { setRcHost(v); setRcInstalls([]); setRcDir('') }} placeholder="e.g. 203.0.113.9" mono />
-          </Field>
-          {rcInstalls.length > 0 && (
-            <Field label="Which bot is this?" desc="This server runs more than one.">
-              <Select value={rcDir} onChange={setRcDir} options={rcInstalls.map((i) => ({ value: i.dir, label: i.name }))} />
-            </Field>
-          )}
-          <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
-            <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
-            <div className="desc" style={{ marginTop: 8 }}>
-              Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, then Reconnect. A VM this app already set up trusts it automatically.
-            </div>
-            <PubkeyBox state={pk} />
-            <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
-              <Text value={rcUser} onChange={setRcUser} placeholder="ubuntu" mono />
-            </Field>
-          </details>
-          {rcErr && (
-            <div className="err-block">
-              <div className="err">{rcErr}</div>
-              <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Reconnecting to my Olisar server failed.', rcErr) }}>
-                Report a problem
-              </FeedbackButton>
-            </div>
-          )}
-          <div className="wiz-foot">
-            <button disabled={rcBusy} onClick={() => setReconnect(false)}>Cancel</button>
-            <span className="grow" />
-            <button className="primary" disabled={rcBusy} onClick={doReconnect}>{rcBusy ? 'Reconnecting…' : 'Reconnect'}</button>
-          </div>
-        </div>
-        {modal}
-      </div>
-    )
-  }
-
   return (
     <div className="setup">
       <div className="box">
@@ -355,85 +330,155 @@ export function ServerControlPanel() {
         <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
           <Icon.settings size={16} />
         </button>
+        <div className="box-body" ref={body}>
+        <div ref={flow}>
         <img className="brand-logo" src="/logo.png" alt="Olisar" />
-        <div className="srv-head">
-          <h1>Your Olisar server</h1>
-          <Badge {...stateChip}>{stateLabel}</Badge>
-        </div>
-        <p className="step-sub">
-          Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here.
-        </p>
-
-        {dc && dc.intents_missing.length > 0 && (
-          <div className="callout warning">
-            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-            <div className="callout-body">
-              {fixLeft
-                ? <>Turn on <b>{intentList(dc.intents_missing)}</b> on <a href={`https://discord.com/developers/applications/${dc.app_id}/bot`} target="_blank" rel="noreferrer">the Bot page</a>, under Privileged Gateway Intents, then try again.</>
-                : <>Discord refuses the bot because <b>{intentList(dc.intents_missing)}</b> {dc.intents_missing.length > 1 ? 'are' : 'is'} off.</>}
-              <div style={{ marginTop: 10 }}>
-                <button disabled={fixing} onClick={fixIntents}>{fixing ? 'Working…' : fixLeft ? 'Try again' : 'Turn on and restart'}</button>
-              </div>
+        {reconnect ? (
+          <div key="reconnect" className={'wiz-screen' + enter}>
+            <h1>Reconnect to your server</h1>
+            <p className="step-sub">
+              Enter the VM's IP and Olisar re-verifies it over SSH. Nothing is reinstalled.
+            </p>
+            <div className="callout tip" style={{ marginBottom: 16 }}>
+              <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+              <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
             </div>
+            <Field label="VM public IP address" desc="The VM running Olisar.">
+              <Text value={rcHost} onChange={(v) => { setRcHost(v); setRcInstalls([]); setRcDir('') }} placeholder="e.g. 203.0.113.9" mono />
+            </Field>
+            {rcInstalls.length > 0 && (
+              <div className="wiz-appear">
+                <Field label="Which bot is this?" desc="This server runs more than one.">
+                  <Select value={rcDir} onChange={setRcDir} options={rcInstalls.map((i) => ({ value: i.dir, label: i.name }))} />
+                </Field>
+              </div>
+            )}
+            <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
+              <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
+              <div className="desc" style={{ marginTop: 8 }}>
+                Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, then Reconnect. A VM this app already set up trusts it automatically.
+              </div>
+              <PubkeyBox state={pk} />
+              <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
+                <Text value={rcUser} onChange={setRcUser} placeholder="ubuntu" mono />
+              </Field>
+            </details>
+            {rcErr && (
+              <div className="err-block wiz-appear">
+                <div className="err">{rcErr}</div>
+                <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Reconnecting to my Olisar server failed.', rcErr) }}>
+                  Report a problem
+                </FeedbackButton>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div key="panel" className={'wiz-screen' + enter}>
+            <div className="srv-head">
+              <h1>Your Olisar server</h1>
+              <span key={stateLabel} className={'srv-state' + (chipMoved.current ? ' wiz-pop' : '')}>
+                <Badge {...stateChip}>{stateLabel}</Badge>
+              </span>
+            </div>
+            <p className="step-sub">
+              Olisar runs on your cloud VM{st?.host ? <> at <code>{st.host}</code></> : ''}, always on. Start or stop it here.
+            </p>
+
+            {dc && dc.intents_missing.length > 0 && (
+              <div className="callout warning wiz-appear">
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  {fixLeft
+                    ? <>Turn on <b>{intentList(dc.intents_missing)}</b> on <a href={`https://discord.com/developers/applications/${dc.app_id}/bot`} target="_blank" rel="noreferrer">the Bot page</a>, under Privileged Gateway Intents, then try again.</>
+                    : <>Discord refuses the bot because <b>{intentList(dc.intents_missing)}</b> {dc.intents_missing.length > 1 ? 'are' : 'is'} off.</>}
+                  <div style={{ marginTop: 10 }}>
+                    <button disabled={fixing} onClick={fixIntents}>{fixing ? 'Working…' : fixLeft ? 'Try again' : 'Turn on and restart'}</button>
+                  </div>
+                </div>
+              </div>
+            )}
+            {dc?.redirect && signinMissing.current && (
+              <div className="wiz-appear">
+                <Field
+                  plain
+                  label="Redirect URL"
+                  desc={<>Signing in to your server’s console needs it. On <a href={`https://discord.com/developers/applications/${dc.app_id}/oauth2`} target="_blank" rel="noreferrer">the OAuth2 page</a>, under <strong>Redirects</strong>, add it and press <strong>Save Changes</strong>.</>}
+                >
+                  <RedirectRow url={dc.redirect} added={dc.added} />
+                </Field>
+              </div>
+            )}
           </div>
         )}
-        {dc?.redirect && signinMissing.current && (
-          <Field
-            plain
-            label="Redirect URL"
-            desc={<>Signing in to your server’s console needs it. On <a href={`https://discord.com/developers/applications/${dc.app_id}/oauth2`} target="_blank" rel="noreferrer">the OAuth2 page</a>, under <strong>Redirects</strong>, add it and press <strong>Save Changes</strong>.</>}
-          >
-            <RedirectRow url={dc.redirect} added={dc.added} />
-          </Field>
-        )}
-
-        <div className="wiz-foot">
-          <button className="ghost" disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>
-          <span className="grow" />
-          {available && (
-            <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
-              {busyUpdating ? 'Updating…' : `Update to v${displayVersion(available)}`}
-            </button>
-          )}
-          {running
-            ? <button className="caution" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
-            : <button disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
-          <button className="primary" disabled={!st?.url || busyUpdating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
+        </div>
         </div>
 
-        {/* Only when there's something to act on: "up to date" was a line of reassurance
-            under every healthy server. */}
-        {st?.version && available && (
-          <p className="srv-hint">
-            Server version <b>v{displayVersion(st.version)}</b>, and <b>v{displayVersion(available)}</b> is available.
-          </p>
+        {/* Outside the tweened body, so it rides the card's bottom edge. Each screen has its
+            own buttons, so the footer arrives with the screen. */}
+        {reconnect ? (
+          <div key="reconnect-foot" className={'wiz-foot' + enter}>
+            <button disabled={rcBusy} onClick={() => showReconnect(false)}>Cancel</button>
+            <span className="grow" />
+            <button className="primary" disabled={rcBusy} onClick={doReconnect}>{rcBusy ? 'Reconnecting…' : 'Reconnect'}</button>
+          </div>
+        ) : (
+          <div key="panel-foot" className={'wiz-foot' + enter}>
+            <button ref={reconnectBtn} className="ghost" disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>
+            <span className="grow" />
+            {available && (
+              <button disabled={actionsLocked || !reachable} onClick={runUpdate}>
+                {busyUpdating ? 'Updating…' : `Update to v${displayVersion(available)}`}
+              </button>
+            )}
+            {running
+              ? <button className="caution" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
+              : <button disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>}
+            <button className="primary" disabled={!st?.url || busyUpdating} onClick={() => st?.url && window.open(st.url, '_blank', 'noopener')}>Open console ↗</button>
+          </div>
         )}
-        {busyUpdating && (
-          <p className="srv-hint">
-            Updating the VM to match this app. If the new version doesn’t come up, the previous
-            one is restored automatically. This can take a few minutes…
-          </p>
+
+        {/* The hints under the footer tween too, growing down from it. */}
+        <div className="box-body" ref={tail.body}>
+        <div className="box-tail" ref={tail.flow}>
+        {!reconnect && (
+          <>
+            {/* Only when there's something to act on: "up to date" was a line of reassurance
+                under every healthy server. */}
+            {st?.version && available && (
+              <p className="srv-hint wiz-appear">
+                Server version <b>v{displayVersion(st.version)}</b>, and <b>v{displayVersion(available)}</b> is available.
+              </p>
+            )}
+            {busyUpdating && (
+              <p className="srv-hint wiz-appear">
+                Updating the VM to match this app. If the new version doesn’t come up, the previous
+                one is restored automatically. This can take a few minutes…
+              </p>
+            )}
+            {!loading && !busyUpdating && unhealthy && (
+              <p className="srv-hint wiz-appear">Olisar is running but failing its healthcheck. Check the logs under Settings.</p>
+            )}
+            {!loading && !busyUpdating && !reachable && (
+              <p className="srv-hint wiz-appear">Couldn’t reach your server{st?.error ? `: ${st.error}.` : '. Check that the VM is running.'} Still retrying, or use <b>Reconnect</b>.</p>
+            )}
+            {!busyUpdating && updateNote && (
+              <p className={'srv-hint wiz-appear ' + updateNote.tone}>
+                {updateNote.text}{' '}
+                <FeedbackButton className="linklike" prefill={{
+                  category: 'Bug report',
+                  logs: true,
+                  message: reportBody(
+                    'Updating my Olisar server failed.',
+                    `${updateNote.text}${st?.version ? `\nServer version now: v${displayVersion(st.version)}` : ''}`,
+                  ),
+                }}>Report it</FeedbackButton>
+              </p>
+            )}
+            {err && <div className="err wiz-appear">{err}</div>}
+          </>
         )}
-        {!loading && !busyUpdating && unhealthy && (
-          <p className="srv-hint">Olisar is running but failing its healthcheck. Check the logs under Settings.</p>
-        )}
-        {!loading && !busyUpdating && !reachable && (
-          <p className="srv-hint">Couldn’t reach your server{st?.error ? `: ${st.error}.` : '. Check that the VM is running.'} Still retrying, or use <b>Reconnect</b>.</p>
-        )}
-        {!busyUpdating && updateNote && (
-          <p className={'srv-hint ' + updateNote.tone}>
-            {updateNote.text}{' '}
-            <FeedbackButton className="linklike" prefill={{
-              category: 'Bug report',
-              logs: true,
-              message: reportBody(
-                'Updating my Olisar server failed.',
-                `${updateNote.text}${st?.version ? `\nServer version now: v${displayVersion(st.version)}` : ''}`,
-              ),
-            }}>Report it</FeedbackButton>
-          </p>
-        )}
-        {err && <div className="err">{err}</div>}
+        </div>
+        </div>
       </div>
       {modal}
     </div>
