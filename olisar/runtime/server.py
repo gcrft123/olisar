@@ -396,7 +396,11 @@ async def serve_instance(
     # Auto-start the Funnel when the operator enabled it, or in a headless server
     # deployment given a Tailscale auth key — so a cloud VM publishes its …ts.net URL
     # without the loopback-only /api/tunnel/enable call.
-    token = await runtime_config.tunnel_token()
+    # On a server the key lives in the VM's .env, which is where the control panel replaces
+    # a dead one. A copy in the database (a local→server move carries the local one over)
+    # would otherwise shadow it, and the new key would never be tried.
+    token = (settings.tunnel_token if settings.headless else "") or await runtime_config.tunnel_token()
+    tunnel_error = ""
     if await runtime_config.tunnel_enabled() or (settings.headless and token):
         ok, msg = await tunnel.start(
             token,
@@ -414,14 +418,18 @@ async def serve_instance(
             await runtime_config.save(tunnel_enabled=True, tunnel_hostname=funnel_host)
         elif not ok:
             log.warning("Funnel auto-start skipped: %s", msg)
+            tunnel_error = msg
 
     # Publish what only this process knows (public URL + self-check results) so an
     # out-of-band reader doesn't have to grep our logs for it. In a server deployment
-    # that reader is the desktop control panel, over `docker exec … cat`.
+    # that reader is the desktop control panel, over `docker exec … cat`. A failed funnel
+    # publishes its reason: the URL beside it is then the loopback one, or a stale …ts.net
+    # host from a boot where the funnel did come up, and neither reaches the console.
     from olisar.runtime import state
 
     state.write(
         public_url=await runtime_config.public_base_url(),
+        tunnel_error=tunnel_error,
         vec_ok=vec_ok,
         sandbox_ok=sandbox_ok,
         transpile_ok=transpile_ok,

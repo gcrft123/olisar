@@ -7,11 +7,11 @@ a 40s status timeout), and gave no way at all to learn which version was running
 
 So the backend writes ``state.json`` into ``OLISAR_DATA_DIR`` at boot and whenever the
 tunnel changes, and the client reads it with one ``docker exec … cat``. Only what the
-*running process* knows belongs here: the public URL and the startup self-checks. Version
-and health deliberately don't — the client reads those from the image's OCI labels and
-Docker's own healthcheck, which still resolve when the container is stopped. ``version``
-is written anyway as a cross-check, since a bind-mounted or copied data dir can outlive
-the image that made it.
+*running process* knows belongs here: the public URL (or why the tunnel didn't come up)
+and the startup self-checks. Version and health deliberately don't — the client reads those
+from the image's OCI labels and Docker's own healthcheck, which still resolve when the
+container is stopped. ``version`` is written anyway as a cross-check, since a bind-mounted
+or copied data dir can outlive the image that made it.
 
 Writes are atomic (tmp + ``os.replace``) so a reader never sees a half-written file, and
 every failure here is swallowed — publishing state must never be able to fail a boot.
