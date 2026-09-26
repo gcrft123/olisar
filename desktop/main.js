@@ -268,6 +268,10 @@ function createWindow() {
   win.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); win.hide() }  // stay alive in the tray
   })
+  // The console holds the window open over unsaved edits (a beforeunload guard). Electron
+  // honours that silently, and on a quit the backend was already on its way down, so the app
+  // was left running with no window, no tray and no backend. Once quitting, the page goes.
+  win.webContents.on('will-prevent-unload', (e) => { if (app.isQuitting) e.preventDefault() })
   win.on('closed', () => { win = null })
 }
 
