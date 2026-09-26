@@ -693,6 +693,7 @@ async def generate_reply(
         user_id=user_id,
         display_name=display_name,
         is_dm=guild_id == 0,
+        message_id=current_message_id,
         actions=actions,
         extension_tools=ext.handlers,
     )

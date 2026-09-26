@@ -456,6 +456,8 @@ and blur and keep the opacity cross-fade — the colour and the glyph still chan
 .textarea { padding: 8px 12px; min-height: 70px; line-height: 1.55; resize: vertical; }
 .input:focus, .select:focus, .textarea:focus { border-color: var(--accent); box-shadow: var(--ring); }
 ::placeholder { color: var(--text-3); }
+input.mono { font-family: var(--font-mono); font-size: 12.5px; }  /* tokens, keys, addresses */
+input.mono::placeholder { font-family: var(--font-sans); font-size: 13.5px; }  /* the prompt stays a sentence */
 ```
 
 ### Toggle (pill switch)
@@ -513,7 +515,7 @@ whether the key in use works, not only that one is set.
 .check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
 .check-line.ok { color: var(--ok); }
 .check-line.err { color: var(--danger); }
-.setup .check-line { margin: -9px 0 16px; }       /* tucked up under a wizard field */
+.onb .check-line { margin: -9px 0 16px; }         /* tucked up under a wizard field */
 .key-status + .check-line { margin-top: 8px; }   /* under a key's Saved / Not set row */
 ```
 
@@ -523,9 +525,9 @@ answer. The input takes the room and the button keeps its width. This isn't a Te
 press does the work, and what it found comes back as a toast.
 
 ```css
-.setup .key-swap { display: flex; align-items: center; gap: 8px; }
-.setup .key-swap input { flex: 1; min-width: 0; }
-.setup .key-swap button { flex: none; }
+.onb .key-swap { display: flex; align-items: center; gap: 8px; }
+.onb .key-swap input { flex: 1; min-width: 0; }
+.onb .key-swap button { flex: none; }
 ```
 
 ### Choice groups (mode cards, segmented pickers)
@@ -536,56 +538,112 @@ on the container with an `aria-label`, `role="radio"` + `aria-checked` on each c
 pattern covers a `role="tablist"`, whose panel takes `role="tabpanel"` + `aria-labelledby`. Styling is
 unchanged — `.mode-card.sel` and `.dev-tab.active` still carry the visual state.
 
-### Setup card (the first-run wizard)
+### First-run screens (setup, the server panel, sign-in)
 
-The setup card changes height on every step and whenever something arrives inside one: a
-check's answer, the intents warning, the redirect URLs ticking off, an error. Three rules keep
-that from reading as the card jumping around.
+Everything before the console shares one frame (`onboarding.tsx`): a 64px rail on the far left,
+the screen in the left half, and on the right a faded 3D form, set partly off the window's edge,
+that changes with what the screen is doing. The frame stays mounted from one of these screens to
+the next, so finishing setup doesn't restart the form: App returns each screen inside the same
+`<Onboarding>` element at the same place in the tree.
 
-**It's centred, and it glides.** `.setup` centres the card the way `.login` does. A centred card
-moves its top by half of every change in its height, so the height tween below is what keeps a
-step change or an arriving warning from reading as a jump: the card slides to its new centre
-over the same ~300ms. A card taller than the window scrolls. (Hanging it from a fixed line kept
-the top still, but sat short steps high and tall ones low.)
+```
++------+----------------------------+----------------------------+
+| logo |  ---- ---- ---- ---- ----  |                    .-''-.  |
+|  *   |  Set up Olisar             |                  .'      '.|
+|  =   |  A one-time setup to ...   |                 :   form   |
+|      |  [ the step ]              |                  '.      .'|
+|      |  [Continue]  Back          |                    '-..-'  |
++------+----------------------------+----------------------------+
+  rail    .onb-pane (scrolls)          .onb-stage (measured only)
+```
 
-**The height tweens, and the footer rides the edge.** `useHeightTween` (setup.tsx) watches an
-inner wrapper that always sits at its content's height and animates `.box-body` from the height
-it had to the one it now needs, clipped along the bottom only. The footer is outside that body,
-so Back and Continue travel with the edge instead of being uncovered by it. This is the one
-place the console animates `height`, and it is deliberate: the `0fr → 1fr` track trick only
-collapses and expands, it can't interpolate between two content heights. It was measured, not
-assumed. At 6× CPU throttling a step change costs about 1ms of layout per frame, because only
-the body resizes and nothing inside it is laid out again. Duration grows with distance (a
-20px check line in ~190ms, a whole step in ~300ms, capped at 340ms); a mid-tween change starts
-from wherever the edge is; a width change snaps, because a card trailing a window drag reads as
-lag; reduced motion snaps.
+**The rail** holds the logo, then Settings, then the docs, each an IconButton whose tooltip opens
+beside it (`data-tip-side="right"`), since above or below would cover its neighbor. The docs slide
+out from behind the rail over the screen as the console's own Docs page (`<Docs embedded>`, which
+leaves the address alone and prints `tab:` links as words, the way the docs site does). The docs
+button turns into a left chevron that closes them, and Escape does too. Closed, the drawer stays
+mounted and `inert`. On a phone the rail becomes a bar across the top.
+
+**The screen** hangs from a fixed line (`--top`, 17% of the window, clamped) rather than centering,
+so nothing above a field moves while the step under it grows. Past 760px of content the column
+stops growing. A long step scrolls the half as one page, and whatever arrives at the bottom of it
+(a refused Continue's reason, the deploy notice, a failure) is scrolled into view. The heading is
+26px, the docs title's size; with two or more bots, the bot chip sits above it.
+
+**The buttons sit straight under the step, primary first,** with the one other way out beside
+it: Back, or on the first step, Connect to existing server. They are 38px, a size up from the
+console's 34, as the sign-in screen's call to action is. On a phone the primary takes the width and
+the other button sits under it. One primary button serves every step and both wizard screens, so
+the button that was pressed is still there afterwards and Enter walks the whole wizard.
+
+**A wrong value shakes its field** (`shake()` in onboarding.tsx) and marks it in the danger color
+(`aria-invalid`) until it's edited: a token, secret or key that Discord or Google turns down, the
+moment the answer arrives, and whichever field a refused Continue is about when the value is at
+fault. A check that's still running, or couldn't reach Discord, isn't the value's fault and doesn't
+shake. Under reduced motion the field stays still and its fill flashes instead. A refused Continue's
+reason clears once it stops being the reason, so the next press says what's in the way now.
+
+**The form is an ornament with a track of its own,** the rule the marketing site sets: it never
+sits behind text. Its canvas is a fixed layer the size of the window, so the form can cross to the
+middle for the final server screen, and a mask keeps the dust off the screen's half. Below 1000px
+the layer is withheld (except on the final screen) and stops rendering, a hidden tab renders
+nothing, and a slow GPU gets a smaller canvas and fewer particles instead of a stutter. Without
+WebGL2 the screen takes the window. Each step has its form, and the form also follows what the
+screen is waiting on: livelier while a check runs, a pulse when Discord, Tailscale or Google
+confirms something, a shiver when a value is refused. On the server panel it's the server's state.
+Under reduced motion everything runs at a third of the speed rather than stopping.
+
+This is the one place the console draws moving decoration, and it earns it by being where nothing
+is being configured: a wizard someone passes through once, and a status screen. The ground under
+the console's own pages stays flat (see **Base layer**).
 
 **Only what changed plays, and nothing plays on first paint.**
 
 | | |
 |---|---|
-| Step | arrives from the side it was travelled to: 10px and a fade over `--dur-slow`, in the time the card takes to resize around it |
-| Screen | the wizard ↔ "Connect to an existing server" moves the same way, and focus lands on the new screen's IP field, or back on the button that opened it |
-| Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end, and two choices with as many steps leave it still. A segment fills from the left going forward and empties back toward it going back |
-| Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it, since a screen reader announces a change inside a live region and can miss one that turns up already filled. A refused Continue replays its reason, so a second press visibly did something |
-| Confirmations | `.wiz-pop` for what Discord or Tailscale just confirmed ("Added", "Live at …") |
-| Handoff | a deploy or a connect swaps the wizard for the server panel, a different card. The wizard calls `handOff()` first, and the panel's `useHeightTween({ arrive: true })` tweens from that height, so the card resizes around the panel and the panel slides in as the next screen |
+| Step | arrives from the side it was travelled to: 10px and a fade over `--dur-slow` |
+| Screen | the wizard ↔ "Connect to an existing server", and the server panel ↔ Reconnect, move the same way; focus lands on the new screen's IP field, or back on the button that opened it |
+| Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end. A segment fills from the left going forward and empties back toward it going back |
+| Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it. A refused Continue replays its reason |
+| Confirmations | what Discord or Tailscale just confirmed is a success Badge ("Added", "Live" beside the address), popped in with `.wiz-pop` |
+| Handoff | setup finishing hands the half to the next screen (the server panel, or sign-in), which slides in as the next screen: the wizard calls `handOff()`, the arriving screen reads `useArrived()` |
+| Gap | when something above the server panel's buttons goes (the redirect once it's listed, a hint), the buttons close the gap on a transform |
 
-**One footer, one primary button.** The first step used to render its own Continue inside the
-hover-reveal group, so moving past it swapped the element and dropped keyboard focus to the
-page. Every step and both screens now share one footer and one primary button whose label and
-action change, so Enter walks the whole wizard.
+Under `prefers-reduced-motion` nothing travels: entrances only fade, and the bar fills by color
+rather than by sweep.
 
-Under `prefers-reduced-motion` nothing travels: the height snaps, entrances only fade, and the
-bar fills by colour rather than by sweep.
+#### The server panel
 
-**The server panel moves the same way.** The control panel a VM deploy lands on (server.tsx)
-shares `.setup` and all of the above. Its hints sit under the footer, so they get a second
-tweened body (`.box-tail`, `flow-root` so the first hint's margin is measured with it) and grow
-down from the buttons while the footer rides the first body's edge. The panel ↔ Reconnect switch
-travels like the wizard's screens, with focus on the IP field going and on Reconnect coming
-back; each screen has its own buttons, so the footer travels with it. The status chip pops when
-the reading changes ("Checking…" to "Running"), keyed on its label so each new reading replays.
+The panel a VM deploy lands on (server.tsx) is the stats screen: the title with its status Badge
+beside it, then status rows ruled like a settings section (Console, Server, Version, Uptime), then
+whatever needs a look (a hint in the tone of its badge, the intents callout, the Tailscale key
+swap), then the redirect URL to register, and the buttons: Open console, Stop or Start, Reconnect.
+The redirect is only there until Discord lists it: it turns to Added, holds 1.35 seconds so that's
+seen, and goes. What the final screen keeps (the title, the badge, the two buttons) is marked
+`data-morph`; what it lets go of, `data-fade`.
+
+#### The final server screen
+
+When the server runs healthy, Discord lists its console's address, and nothing else needs a look,
+the stats screen folds away (brain.ts): the form moves to the middle of the window, the title,
+status and the two buttons shrink into the top-left corner (with the uptime, and a settings button
+whose dot means a new build of the app is waiting), and memories of what the bot has been doing
+sit on one ring around the form. Anything that needs a look brings the stats screen back at once.
+The change runs on one clock that can turn round partway; the corner's copies of the shared pieces
+start exactly over the stats screen's and travel. Keyboard focus follows to the same control on the
+other side, or to the heading when that one is disabled.
+
+Each memory is a small sphere of the form's dust with its words set inside it, out of focus until
+it's hovered or focused (which is also the keyboard cue, so memories draw no focus ring). They are
+spaced on an ellipse with the same straight-line gap between neighbors' edges, and leave out the
+stretch that would overlap the corner. Clicking one brings it to the middle with its context; a
+back button at the sphere's upper left, or Escape, sends it home and returns focus to it. The
+activity comes from the VM (`/api/server/activity`, activity.ts), never includes a DM, and falls
+back to Discord's default avatar for anyone without one. Without WebGL2 the memories get hairline
+rings.
+
+Memory text follows the type floor: the mono footer ("/ask · 5m") is 11.5px `--text-3`, the
+ActivityLedger's timestamp treatment, not a smaller size of its own.
 
 ### Skip link
 
@@ -872,16 +930,26 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
 .callout.tip     { --cc: var(--ok); }
 ```
 
-### Toast (bottom-right status)
+### Toast (top-right stack)
 
-Same tinting as the callout, fixed bottom-right, with a filled-circle icon in the state colour; slides in from the right. States: success / warning / danger / info / neutral.
+Same tinting as the callout, with a filled-circle icon in the state colour. States: success / warning / danger / info / neutral.
 
-**Failures do not expire.** `success`, `info` and `neutral` dismiss themselves on a timer — a
-confirmation the operator missed costs nothing. `danger` and `warning` wait to be dismissed, carry
-a close button, and set `user-select: text` so the message can be copied into a bug report. A
-timed error is an error the operator was told about and then had taken away, and the one thing they
-need from it — the exact wording — is the thing they were reading when it vanished. Tone also
-picks the live region: `role="alert"` for the two that persist, `role="status"` for the rest.
+The behaviour is Base UI's Toast (`@base-ui/react/toast`), mounted once by `<Overlays/>`; `toast()` feeds it. What that buys:
+
+- The newest three stack in the top-right corner. Older ones shrink behind the newest, 10px apart, with their text hidden; a fourth pushes the oldest out of view (still mounted and inert) until a newer one leaves.
+- Pointer over the stack, or keyboard focus in it, fans it out into a column and pauses every timer. So does the window losing focus, so nothing expires while the operator is in another app.
+- A toast swipes away up or right, toward the nearest edges. Dragging the other way is damped and springs back.
+- Escape closes the focused toast. F6 jumps into the stack from anywhere, including from inside an open dialog, and Tab walks the toasts. The Modal shell leaves keys pressed inside `.toast-viewport` alone for exactly that reason.
+- It enters from above and leaves the same way (or off whichever edge it was swiped toward). Under reduced motion nothing travels: toasts fade in place, and the stack snaps between collapsed and fanned out.
+
+**Failures do not expire.** `success`, `info` and `neutral` dismiss themselves after 5s of
+unpaused time — a confirmation the operator missed costs nothing. `danger` and `warning` wait to
+be dismissed, carry a close button, and set `user-select: text` (with `data-base-ui-swipe-ignore`
+on the message, so a drag selects instead of swiping) so the message can be copied into a bug
+report. A timed error is an error the operator was told about and then had taken away, and the one
+thing they need from it — the exact wording — is the thing they were reading when it vanished.
+Tone also picks the priority: the two that persist are `high` and announce as an alert, the rest
+are `low` and announce politely.
 
 **`toast(message, tone, opts?)` returns a `{ dismiss }` handle**, for work whose end the toast
 can't predict. Options override the tone default:
@@ -893,19 +961,39 @@ can't predict. Options override the tone default:
 - **`durationMs`** — auto-dismiss delay; ignored when sticky.
 
 An action toast shows no close ×; the action is the way out, and dismissing the only handle on
-work still running would strand it. `role` stays keyed to the *tone*, so a pinned progress toast
-announces as `status` rather than interrupting as an alert.
+work still running would strand it. Priority stays keyed to the *tone*, so a pinned progress toast
+announces politely rather than interrupting as an alert.
+
+Base UI writes `--toast-index` (0 = newest), `--toast-height`, `--toast-offset-y` and the live
+`--toast-swipe-movement-x/y` on each toast, and `--toast-frontmost-height` on the viewport. The
+toasts are absolutely positioned inside a fixed, zero-height viewport:
 
 ```css
-.toast { position: fixed; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 13px;
-  min-width: 300px; max-width: 430px; padding: 13px 15px; border-radius: var(--radius);
-  border: 1px solid var(--tc-border); background: color-mix(in srgb, var(--tc) 11%, var(--panel)); box-shadow: var(--shadow-pop);
-  transform: translateX(24px); opacity: 0; transition: transform .3s var(--ease-out), opacity .24s ease; }
-.toast.show { transform: translateX(0); opacity: 1; }
-.toast .ic { color: var(--tc); font-size: 22px; }      /* solar:check-circle-bold etc. */
-.toast .title { font-size: 13.5px; font-weight: 650; }
-.toast .toast-msg { flex: 1; min-width: 0; }           /* long text truncates, action stays put */
-.toast-action { flex: none; margin: -4px 0 -4px 4px; } /* trailing ghost button */
+.toast-viewport { position: fixed; top: 24px; right: 24px; z-index: 200; width: min(380px, calc(var(--vw) - 48px)); }
+.toast {
+  --gap: 10px; --peek: 10px;
+  --scale: calc(max(0, 1 - var(--toast-index) * 0.1)); --shrink: calc(1 - var(--scale));
+  --height: var(--toast-frontmost-height, var(--toast-height));
+  --offset-y: calc(var(--toast-offset-y) + var(--toast-index) * var(--gap) + var(--toast-swipe-movement-y));
+  --rest: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) + var(--toast-index) * var(--peek) + var(--shrink) * var(--height)))
+    scale(var(--scale));
+  position: absolute; top: 0; right: 0; width: 100%; height: var(--height); z-index: calc(1000 - var(--toast-index));
+  border-radius: var(--radius); border: 1px solid var(--tc-border);
+  background: color-mix(in srgb, var(--tc) 11%, var(--panel)); box-shadow: var(--shadow-pop);
+  transform-origin: top center; transform: var(--rest);
+  transition: transform .4s var(--ease-out), opacity var(--dur-slow) var(--ease-out), height var(--dur-mid) var(--ease-out); }
+.toast[data-expanded] { --rest: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y)); height: var(--toast-height); }
+.toast[data-starting-style], .toast[data-ending-style] { transform: translateY(-150%); }
+.toast[data-ending-style] { opacity: 0; }
+.toast[data-limited] { opacity: 0; }
+.toast::after { content: ''; position: absolute; bottom: 100%; left: 0; width: 100%; height: calc(var(--gap) + 1px); } /* keeps hover across the gaps */
+.toast-content { display: flex; align-items: center; gap: 12px; padding: 13px 15px; overflow: hidden; }
+.toast-content[data-behind] { opacity: 0; }
+.toast-content[data-expanded] { opacity: 1; }
+.toast .ic { color: var(--tc); }                        /* solar:check-circle-bold etc. */
+.toast .toast-msg { margin: 0; flex: 1; min-width: 0; } /* long text wraps, action stays put */
+.toast-action { flex: none; margin: -4px 0 -4px 4px; }  /* trailing ghost button */
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
@@ -1303,7 +1391,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
 - **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
 - **Do** write the tokens: `var(--dur-fast|mid|slow)` and `var(--ease-out)`, not `.12s` and a bare `ease`. Bespoke durations are fine for bespoke moves (a .5s progress fill, a 1.4s press-and-hold) — it's the three canonical values drifting into literals that turns one motion system into twenty-eight.
-- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other. The setup card's height tween is the one measured exception (see **Setup card**).
+- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack collapses and fans out on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other. The setup card's height tween was the one exception, and it went with the card. The toast's height clamp is the exception now: each toast is absolutely positioned, so its height change lays out nothing but itself.
 - **Don't** let a press scale go past `.96`. Below that it reads as a bounce rather than a press.
 - **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
 - **Don't** use emoji, bluish-purple gradients, drop shadows on anything that doesn't float, or Title Case headings.

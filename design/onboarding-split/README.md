@@ -1,6 +1,8 @@
 # Split onboarding
 
-A standalone prototype of first-run setup in two halves: the wizard on the left, and on the right a faded 3D form, set partly off the window's edge, that changes with each step. Once a server is running healthy, the form moves to the middle of the window and becomes the final screen. Nothing here is wired into `web/` or `DESIGN.md`.
+A standalone prototype of first-run setup in two halves: the wizard on the left, and on the right a faded 3D form, set partly off the window's edge, that changes with each step. Once a server is running healthy, the form moves to the middle of the window and becomes the final screen.
+
+It's now built into the app: `web/src/onboarding.tsx` (the frame, the rail and the docs drawer), `form.ts` (the form), `brain.ts` (the final screen's change and motion), `activity.ts` (the memories' feed, from `/api/server/activity`), `setup.tsx` and `server.tsx`, and `web/DESIGN.md` under "First-run screens". This folder stays as the reference it was built from, mock feed and Preview strip included.
 
 Open `index.html` in a browser, from disk or from any server. It's one file, and it only reaches the network for the IBM Plex Sans and JetBrains Mono webfonts. It's built from `src/` by `python3 design/onboarding-split/src/assemble.py`, which needs nothing but Python 3.
 

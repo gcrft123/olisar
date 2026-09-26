@@ -915,7 +915,7 @@ const ACCESS_OPTS = [
 
 // A Discord role chip: the role's own colour as a dot and a tinted border, the way it
 // reads in Discord's member list. `color` is "" for an uncoloured role.
-function RoleChip({ name, color }: { name: string; color?: string }) {
+export function RoleChip({ name, color }: { name: string; color?: string }) {
   const c = color || ''
   return (
     <span className={'rolechip' + (c ? '' : ' plain')} style={c ? { '--rc': c } as React.CSSProperties : undefined}>
@@ -2864,38 +2864,53 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
 // ── Docs (OpenClaw-style: left nav · content · on-this-page) ─────────────────
 
-export function Docs(props: { onNavigate?: (tab: string) => void }) {
+export function Docs(props: { onNavigate?: (tab: string) => void; embedded?: boolean; start?: string }) {
   // The open section lives in the URL (#/docs/<id>), so it can be bookmarked, shared and
   // survive a reload. It used to be component state only: every reload — and every click on
   // a "On this page" anchor, which overwrote the route with a bare #slug — landed the reader
   // back on "What Olisar is".
+  //
+  // `embedded` is the first-run screens' docs drawer (onboarding.tsx), which isn't a route:
+  // it opens at `start` and leaves the address alone, since the console's tab routing reads it
+  // and would open on the docs after setup.
+  const { embedded, start } = props
+  const known = (id?: string) => !!id && DOCS.some((d) => d.id === id)
   const docFromHash = () => {
     const seg = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0].split('/')[1]
-    return seg && DOCS.some((d) => d.id === seg) ? seg : DOCS[0].id
+    return seg && known(seg) ? seg : DOCS[0].id
   }
-  const [active, setActive] = useState(docFromHash)
+  const [active, setActive] = useState(() => (embedded ? (known(start) ? start! : DOCS[0].id) : docFromHash()))
+  useEffect(() => { if (embedded && known(start)) setActive(start!) }, [embedded, start])  // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
+    if (embedded) return
     const cur = decodeURIComponent(location.hash.replace(/^#\/?/, '')).split('?')[0]
     if (cur !== 'docs/' + active) history.replaceState(null, '', '#/docs/' + active)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active])
   useEffect(() => {
+    if (embedded) return
     const onPop = () => setActive(docFromHash())
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
-  }, [])
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   // The palette can name a section directly; jumping there is the whole point of indexing
   // the docs body rather than only its title.
   useEffect(() => {
+    if (embedded) return
     const go = (e: Event) => {
       const id = (e as CustomEvent).detail
       if (DOCS.some((d) => d.id === id)) setActive(id)
     }
     window.addEventListener('olisar:goto-doc', go)
     return () => window.removeEventListener('olisar:goto-doc', go)
-  }, [])
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
   const [q, setQ] = useState('')
-  useEffect(() => { window.scrollTo({ top: 0 }) }, [active])
+  const shellRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    // Embedded, the drawer around it is what scrolls.
+    if (embedded) shellRef.current?.parentElement?.scrollTo({ top: 0 })
+    else window.scrollTo({ top: 0 })
+  }, [active])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const section = DOCS.find((s) => s.id === active) ?? DOCS[0]
   // Linear order follows the grouped sidebar, not the raw DOCS array, so the
@@ -2921,7 +2936,7 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
   return (
     // Two panes: the section nav and the article. The "On this page" rail is gone; the
     // article takes its width instead.
-    <div className="docs-shell">
+    <div className="docs-shell" ref={shellRef}>
       <nav className="docs-nav" aria-label="Documentation">
         <input
           className="docs-search"
@@ -2962,7 +2977,9 @@ export function Docs(props: { onNavigate?: (tab: string) => void }) {
           and a nested second one leaves assistive tech two "main content" targets. */}
       <div className="docs-content">
         <h1 className="docs-title">{section.title}</h1>
-        <Markdown md={section.body} onDocLink={goLink} />
+        {/* Before setup there are no console pages to link to, so, as on the docs site, a
+            `tab:` link reads as its words. */}
+        <Markdown md={embedded ? section.body.replace(/\[([^\]]+)\]\(tab:[^)]+\)/g, '$1') : section.body} onDocLink={goLink} />
         <div className="docs-prevnext">
           {prev ? (
             <button className="ghost" onClick={() => setActive(prev.id)}><Icon.arrowLeft size={15} /> {prev.title}</button>

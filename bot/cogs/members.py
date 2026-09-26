@@ -5,6 +5,10 @@ just people who have spoken — synced on startup and kept fresh on join / role
 change. The synthesized per-user persona (built from message history) is a
 separate Phase 2 job; this cog only maintains the factual roster.
 
+Each profile also carries when that member joined the server, as Discord reports it, so a
+sync that sees everyone for the first time doesn't make them all look new. The guild row
+records when the last full sync finished and how many members it found.
+
 Requires the privileged ``members`` intent (enabled in client.py + the portal).
 """
 
@@ -16,6 +20,7 @@ import discord
 from discord.ext import commands
 
 from olisar.db.engine import session_scope
+from olisar.db.models import Guild, utcnow
 from olisar.memory.writer import extract_roles, upsert_profile
 from olisar.peers import is_member_author
 
@@ -26,9 +31,10 @@ class Members(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
 
-    async def _sync_member(self, member: discord.Member) -> None:
+    async def _sync_member(self, member: discord.Member) -> bool:
+        """Store one member's profile. False for a bot, which gets none."""
         if not is_member_author(member):
-            return
+            return False
         async with session_scope() as session:
             await upsert_profile(
                 session,
@@ -37,7 +43,19 @@ class Members(commands.Cog):
                 display_name=member.display_name,
                 avatar=str(member.display_avatar.url),
                 roles=extract_roles(member),
+                joined_at=member.joined_at,
             )
+        return True
+
+    async def _record_sync(self, guild_id: int, count: int) -> None:
+        """Note a finished roster sync on the guild's row. The guilds cog creates that row
+        on the same ``on_ready``; if it hasn't yet, this sync goes unrecorded and the next
+        one (every reconnect) is."""
+        async with session_scope() as session:
+            row = await session.get(Guild, guild_id)
+            if row is not None:
+                row.roster_synced_at = utcnow()
+                row.roster_count = count
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -48,11 +66,15 @@ class Members(commands.Cog):
             # streams the full list (requires the members intent).
             try:
                 async for member in guild.fetch_members(limit=None):
-                    await self._sync_member(member)
-                    count += 1
+                    if await self._sync_member(member):
+                        count += 1
             except Exception:
                 log.exception("member backfill failed for guild %s", guild.id)
                 continue
+            try:
+                await self._record_sync(guild.id, count)
+            except Exception:  # noqa: BLE001 — the roster itself is already stored
+                log.exception("couldn't record the roster sync for guild %s", guild.id)
             log.info("synced %d members for guild %s", count, guild.id)
 
     @commands.Cog.listener()

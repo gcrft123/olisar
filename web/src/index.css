@@ -227,7 +227,6 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .brand-logo { display: block; object-fit: cover; flex: none; }
 .brand .brand-logo { width: 30px; height: 30px; border-radius: var(--radius-sm); }
 .login .brand-logo { width: 56px; height: 56px; border-radius: var(--radius); margin: 0 auto 20px; }
-.setup .brand-logo { width: 46px; height: 46px; border-radius: var(--radius-sm); margin-bottom: 16px; }
 
 .server-switch {
   position: relative;
@@ -547,6 +546,11 @@ select { appearance: none; cursor: pointer;
   background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
 }
 .mono { font-family: var(--mono); font-size: 12.5px; }
+/* `input[type=text]` sets `font: inherit` at the same weight as `.mono`, and came later, so a
+   field asked to be monospaced (a token, a key, an address) never was. */
+input.mono { font-family: var(--mono); font-size: 12.5px; }
+/* What's typed is monospaced; the prompt before it is a sentence, so it stays in the UI face. */
+input.mono::placeholder { font-family: var(--font-sans); font-size: 13.5px; }
 /* A reply's {placeholders}, listed in its row's description. */
 .desc code.ph { color: var(--accent); font-family: var(--mono); font-size: 11.5px; margin-right: 6px; }
 /* Command replies: the reply you write beside the Discord message it becomes. */
@@ -1370,7 +1374,7 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .page-loading { display: flex; align-items: center; justify-content: center; gap: 11px; padding: 64px 20px; color: var(--text-2); font-size: 13.5px; }
 
 /* Settings gear on the pre-auth login / onboarding cards. */
-.login .box, .setup .box { position: relative; }
+.login .box { position: relative; }
 .box-gear { position: absolute; top: 14px; right: 14px; }
 
 /* Bot switcher. Every bot runs at once; the console shows one. With two or more, the top of
@@ -1396,7 +1400,6 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 /* The card's content starts below the corner controls once the chip is there: the setup
    card's logo sits top-left, right where the chip goes. */
 .login .box:has(> .bot-chip) { padding-top: 56px; }
-.setup .box:has(> .bot-chip) { padding-top: 56px; }
 .bot-chip-btn {
   height: 28px; padding: 0 8px 0 4px; gap: 7px; max-width: 200px;
   font-size: 12.5px; background: var(--bg-inset); border-color: var(--border);
@@ -1454,71 +1457,157 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   .bot-row .bot-badges, .bot-row .bot-actions { grid-column: 1 / -1; justify-content: flex-start; flex-wrap: wrap; }
 }
 
-/* Collapsible "add this key to the VM" fallback on the reconnect/connect screens. */
-.setup .disclosure { margin-bottom: 16px; }
-.setup .disclosure > summary { cursor: pointer; color: var(--text-2); font-size: 12.5px; font-weight: 550; padding: 6px 0; }
-.setup .disclosure > summary:hover { color: var(--text); }
-.pubkey-err { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-
 /* Logs viewer tabs (Settings ▸ Logs). */
 .log-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; }
 .log-tabs button.on { background: var(--bg-inset); color: var(--text); }
 
-/* ── Setup wizard ───────────────────────────────────────────────────────── */
-/* Centred, like the login card. Its top moves by half of every change in its height, but
-   the body's height tweens (useHeightTween), so the card glides to its new centre rather
-   than jumping. A card taller than the window scrolls. */
-.setup { min-height: var(--vh); display: grid; place-items: center; padding: 24px; }
-.setup .box {
-  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 30px 32px; width: 100%; max-width: 560px; box-shadow: var(--shadow-pop);
+/* ── First-run screens: setup, the server panel, sign-in ─────────────────────── */
+/* One frame for all three (onboarding.tsx): a thin rail on the far left, the screen in the
+   left half, and a stage on the right that the form (form.ts) is framed on. The form is
+   decoration, so it gets a track of its own and never sits behind text; below the width
+   where the screen needs the whole window it's withheld entirely and stops rendering.
+   Without WebGL2 the screen takes the window. */
+.onb { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: var(--dvh); }
+.onb.no-form { grid-template-columns: 64px minmax(0, 1fr); }
+.onb.no-form .onb-stage { display: none; }
+
+/* The screen takes its whole half: the step, then its buttons straight under it. The half
+   scrolls as one page when a step (Deploy) runs long. Past 760px of content the column stops
+   growing, so fields and cards never turn into hundred-character lines on a wide window. */
+.onb-pane {
+  --pad: clamp(24px, calc(var(--vw) * 0.055), 88px);
+  --col: calc(760px + 2 * var(--pad));
+  --top: clamp(32px, calc(var(--dvh) * 0.17), 170px);
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
 }
-.setup .mark {
-  width: 46px; height: 46px; border-radius: var(--radius-sm); margin-bottom: 16px;
-  background: var(--primary-bg); color: var(--primary-fg); display: grid; place-items: center;
+/* The screen hangs from a fixed line rather than centring, so nothing above a field moves
+   while the step under it grows. */
+.onb-body { container: onb / inline-size; max-width: var(--col); padding: var(--top) var(--pad) 56px; }
+.onb-body:focus { outline: none; }
+.onb-body h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 8px; overflow-wrap: anywhere; }
+.onb-body .step-sub { color: var(--text-2); font-size: 14px; margin: 0 0 28px; }
+.onb.no-form .onb-body { margin-inline: auto; width: 100%; }
+/* With two or more bots, the one being set up sits above the screen. */
+.onb-body > .bot-chip { position: relative; top: auto; left: auto; margin-bottom: 24px; }
+
+/* The screen's buttons: the primary first, the one other way out beside it. A size up from
+   the console's 34px, as the sign-in screen's call to action is. */
+.onb-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.onb-actions button { height: 38px; padding: 0 18px; font-size: 13.5px; }
+.onb-actions .btn-discord.cta { width: auto; height: 38px; padding: 0 18px 0 16px; font-size: 13.5px; }
+
+/* The stage. The form sits right of centre and runs off the window's edge. Its canvas is a
+   layer the size of the window, under everything, so the form can cross to the middle of it
+   on the final server screen; the track stays empty and is only measured. The mask the form
+   applies keeps the dust off the screen's half. */
+.onb-stage { position: relative; min-width: 0; }
+/* The final screen's corner and memories render here; all of it is fixed, so the slot takes
+   no room in the grid. */
+.onb-over { display: contents; }
+/* On the final screen the half it skips to is gone. */
+.onb.brain-on .skip-link { display: none; }
+.orb-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.orb-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.onb.no-form .orb-layer { display: none; }
+@media (max-width: 1000px) {
+  .onb { grid-template-columns: 64px minmax(0, 1fr); }
+  .onb-stage, .orb-layer { display: none; }
+  .onb.brain-on .orb-layer { display: block; }
 }
-.setup h1 { font-size: 20px; margin: 0 0 4px; }
-.setup .step-sub { color: var(--text-2); font-size: 13.5px; margin: 0 0 18px; }
+@media (max-width: 560px) {
+  .onb-body { padding-top: 24px; padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .onb-body h1 { font-size: 22px; }
+  /* A phone's column can't hold two buttons side by side: the primary takes the width and
+     the other way out sits under it. */
+  .onb-actions { flex-direction: column; align-items: stretch; gap: 6px; }
+  .onb-actions button, .onb-actions .btn-discord.cta { width: 100%; }
+}
+
+/* The rail: the logo, then settings, then the docs. It sits above the docs drawer, which
+   slides out from behind it. */
+.onb-rail {
+  position: relative; z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 20px 0; background: var(--bg-sidebar); border-right: 1px solid var(--border);
+}
+.onb-rail .brand-logo { width: 34px; height: 34px; margin-bottom: 30px; border-radius: var(--radius-sm); }
+.onb-rail .icon-btn { color: var(--text-2); }
+.onb-rail .icon-btn:hover, .onb-rail .icon-btn.on { color: var(--text); background: var(--bg-inset); }
+/* The docs glyph and the chevron that closes them share one cell and cross-fade, the way the
+   copy glyph does, so the button never reflows. */
+.swapglyph { position: relative; display: inline-grid; place-items: center; }
+.swapglyph > svg { grid-area: 1 / 1; transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon), filter var(--dur-mid) var(--ease-icon); }
+.swapglyph > svg:last-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.swapglyph.on > svg:first-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.swapglyph.on > svg:last-child { scale: 1; opacity: 1; filter: blur(0); }
+
+/* The docs: the console's own Docs page, sliding out over the screen from behind the rail. */
+.docs-panel {
+  position: fixed; z-index: 55; top: 0; bottom: 0; left: 64px; width: min(1000px, calc(var(--vw) - 112px));
+  overflow-y: auto; background: var(--panel); border-right: 1px solid var(--border-strong); box-shadow: var(--shadow-modal);
+  transform: translateX(-100%); visibility: hidden;
+  transition: transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.docs-panel.open { transform: none; visibility: visible; transition: transform var(--dur-slow) var(--ease-out), visibility 0s; }
+.docs-panel .docs-nav { max-height: var(--dvh); }
+@media (prefers-reduced-motion: reduce) {
+  .docs-panel { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow); }
+  .docs-panel.open { opacity: 1; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s; }
+  .swapglyph > svg { transition: opacity var(--dur-fast) var(--ease-out); }
+  .swapglyph.on > svg:first-child, .swapglyph > svg:last-child { scale: 1; filter: none; }
+}
+/* A phone: the rail becomes a bar across the top, and the docs take the width under it. */
+@media (max-width: 560px) {
+  .onb { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .onb.no-form { grid-template-columns: minmax(0, 1fr); }
+  .onb-rail { flex-direction: row; gap: 4px; padding: 10px 14px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .onb-rail .brand-logo { margin: 0 auto 0 0; }
+  .docs-panel { left: 0; top: 55px; width: 100%; border-right: 0; }
+}
+
+/* ── The wizard ── */
 /* One grid track per step of the longest hosting choice (setup.tsx writes the columns); the
    tracks past this choice's last step are 0fr, so the bar grows or shrinks at its end when
-   the choice changes rather than redrawing — the cta-reveal technique, not a width. The 6px gap is drawn
-   inside each track (3px a side, taken back by the row's own -3px) because a grid gap would
-   stay behind when its track folds. A segment fills from the left going forward and empties
-   back toward it going back. */
-.setup .steps {
-  display: grid; height: 3px; margin: 0 -3px 24px;
+   the choice changes rather than redrawing. The 6px gap is drawn inside each track (3px a
+   side, taken back by the row's own -3px) because a grid gap would stay behind when its
+   track folds. A segment fills from the left going forward and empties back toward it going
+   back. */
+.onb .steps {
+  display: grid; height: 3px; margin: 0 -3px 32px;
   transition: grid-template-columns var(--dur-slow) var(--ease-out);
 }
-.setup .steps i { position: relative; min-width: 0; overflow: hidden; }
-.setup .steps i::before, .setup .steps i::after {
+.onb .steps i { position: relative; min-width: 0; overflow: hidden; }
+.onb .steps i::before, .onb .steps i::after {
   content: ''; position: absolute; inset: 0 3px; border-radius: 2px; background: var(--border);
 }
-.setup .steps i::after {
+.onb .steps i::after {
   background: var(--accent); transform: scaleX(0); transform-origin: left center;
   transition: transform var(--dur-slow) var(--ease-out);
 }
-.setup .steps i.on::after { transform: none; }
-.setup .wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 22px; }
-.setup .wiz-foot .grow { flex: 1; }
-.setup .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
-/* A check's result sits in the footer beside the button that ran it, success or failure. */
-.setup .wiz-foot .err { margin-top: 0; }
-/* An in-step action row (Test token, Enable remote access) with a field after it: the row had
-   no space below, so the Remote access step's redirect URLs sat against its button. */
-.setup .wiz-foot + .field, .setup .err-help + .field { margin-top: 22px; }
-/* A failure with a way to report it: the error, then the secondary action under it, so the
-   footer's Back / primary pair stays the only thing on the footer line. */
-.setup .err-block { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
-.setup .err-block .err { margin-top: 0; flex: 1 1 240px; min-width: 0; }
-.setup .err-block > button { flex: none; }
-.setup .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
-.setup .ok-pill { color: var(--ok); font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
-.setup .redirect-box {
+.onb .steps i.on::after { transform: none; }
+.onb .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
+/* A failure with a way to report it: the error, then the secondary action beside it. */
+.onb .err-block { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
+.onb .err-block .err { margin-top: 0; flex: 1 1 240px; min-width: 0; }
+.onb .err-block > button { flex: none; }
+.onb .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
+/* Remote access came up: the Live badge, then the address it's live at. */
+.onb .live-at { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.onb .live-at .mono { overflow-wrap: anywhere; color: var(--text-2); }
+/* An in-step action row (Enable remote access) with its result beside it. */
+.onb .onb-act-row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+.onb .onb-act-row .grow { flex: 1; min-width: 0; }
+.onb .onb-act-row .err { margin-top: 0; }
+.onb .onb-act-row + .field, .onb .err-help + .field { margin-top: 22px; }
+.onb .redirect-box {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 9px 11px; font-family: var(--mono); font-size: 12px; word-break: break-all;
   display: flex; align-items: center; gap: 10px; justify-content: space-between;
 }
-.setup .mode-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
+/* The URL takes what's left and breaks anywhere; its Copy / Added never shrinks or breaks.
+   `break-all` on the box reached into the pill, so a long URL split "Added" over two lines. */
+.onb .redirect-box > span:first-child { flex: 1; min-width: 0; }
+.onb .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+.onb .redirect-list { display: grid; gap: 8px; }
 /* A live-checked field's result (bot token, client secret, Gemini key), tucked up under its
    input the way a description sits under its label. It replaced a Test button beside it. */
 .check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
@@ -1527,120 +1616,300 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .check-line b { font-weight: 600; }
 /* What a check line says, replaced as a unit when the answer changes (setup.tsx ArrivingLine). */
 .check-line-in { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-.setup .check-line { margin: -9px 0 16px; }
+.onb .check-line { margin: -9px 0 16px; }
 /* Under a key's Saved / Not set row on the API keys page. */
 .key-status + .check-line { margin-top: 8px; }
-.setup .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
-.setup .redirect-list { display: grid; gap: 8px; }
-/* The URL takes what's left and breaks anywhere; its Copy / Added never shrinks or breaks.
-   `break-all` on the box reached into the pill, so a long URL split "Added" over two lines. */
-.setup .redirect-box > span:first-child { flex: 1; min-width: 0; }
-.setup .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+.onb .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
 /* The ghost Copy link carries its own 14px of invisible padding, so the row adds little. */
-.setup .invite-row { display: flex; align-items: center; gap: 4px; }
-/* Sized like the footer buttons, not the login screen's full-width call to action. The logo
-   side is 2px tighter: a filled mark carries more ink than text, so even padding reads as a
-   wider gap on its side. */
-.setup .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
-.setup .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
-.setup .srv-head h1 { margin: 0; }
-/* The status chip's wrapper, keyed so a new reading replays its pop (server.tsx). */
-.setup .srv-head .srv-state { margin-left: auto; display: inline-flex; }
-.setup .srv-hint { color: var(--text-2); font-size: 12.5px; margin-top: 12px; line-height: 1.5; }
-/* The hints under the server panel's footer tween as their own body. `flow-root` keeps the
-   first hint's margin inside what's measured, or the card would grow by it before tweening. */
-.setup .box-tail { display: flow-root; }
-/* The last update needing attention, in the tone its toast used. */
-.setup .srv-hint.warning { color: var(--warn); }
-.setup .srv-hint.danger { color: var(--danger); }
-.setup .srv-hint.warning .linklike, .setup .srv-hint.danger .linklike { color: inherit; }
-/* A key and the button that applies it, on one line: the panel's Tailscale key swap. */
-.setup .key-swap { display: flex; align-items: center; gap: 8px; }
-.setup .key-swap input { flex: 1; min-width: 0; }
-.setup .key-swap button { flex: none; }
-.setup .srv-logs {
-  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 12px 14px; margin-top: 14px; font-family: var(--mono); font-size: 11.5px;
-  line-height: 1.6; color: var(--text-2); max-height: 240px; overflow: auto; white-space: pre-wrap;
-}
-.setup .deploy-seg {
-  display: inline-flex; gap: 4px; padding: 3px; margin-bottom: 14px;
+.onb .invite-row { display: flex; align-items: center; gap: 4px; }
+/* Sized like a console button, not the sign-in screen's call to action. The logo side is 2px
+   tighter: a filled mark carries more ink than text, so even padding reads as a wider gap on
+   its side. */
+.onb .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
+.onb .deploy-seg {
+  display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 14px;
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
 }
-.setup .deploy-seg button {
+.onb .deploy-seg button {
   height: 28px; padding: 0 12px; border: 0; background: transparent; color: var(--text-2);
-  font: inherit; font-size: 12.5px; font-weight: 550; border-radius: var(--radius-sm); cursor: pointer;
+  font: inherit; font-size: 12.5px; font-weight: 550; border-radius: var(--radius-xs); cursor: pointer;
 }
-.setup .deploy-seg button.on { background: var(--panel); color: var(--text); }
-/* Continue + a hover-revealed "Connect to existing" ghost. The whole group is the hover
-   hitbox (buttons + the gap between), so the cursor can cross from Continue to the ghost
-   without it collapsing mid-transfer. */
-/* An `0fr → 1fr` track rather than a max-width ceiling: the open width resolves to the
-   button's own, so a longer label can never be clipped, and the growing thing is a grid
-   track instead of the button's box — its text isn't re-laid-out on every frame. The 8px
-   separation lives in the button's right padding so it's inside the animated track. */
-/* `justify-content: end` pins the tracks to the right. Under the default, the auto track
-   stretched into the free space the animating fr track opened up, so Continue widened from
-   84px to 131px and back while it slid out: the button lurched left on every hover. */
-.setup .cta-reveal { display: inline-grid; grid-template-columns: 0fr auto; align-items: center;
-  justify-content: end; transition: grid-template-columns .22s var(--ease-out); }
-.setup .cta-reveal:hover, .setup .cta-reveal:focus-within { grid-template-columns: 1fr auto; }
-/* The slot is what clips — a grid item doesn't clip to its own track, so without this the
-   button's 28px of horizontal padding leaves a stub sticking out of the collapsed column. */
-.setup .cta-reveal .reveal-slot { display: flex; min-width: 0; overflow: hidden; }
-.setup .cta-reveal .reveal-btn {
-  flex: none; margin-right: 8px; opacity: 0;
-  white-space: nowrap; pointer-events: none;
-  transition: opacity .18s var(--ease-out);
-}
-.setup .cta-reveal:hover .reveal-btn,
-.setup .cta-reveal:focus-within .reveal-btn { opacity: 1; pointer-events: auto; }
-@media (prefers-reduced-motion: reduce) { .setup .cta-reveal { transition: none; } }
-.setup .mode-card {
+.onb .deploy-seg button.on { background: var(--panel); color: var(--text); }
+/* The three hosting choices side by side, equal height; stacked again once the column is too
+   narrow for three (a 1024px window, a phone). */
+.onb .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@container onb (max-width: 440px) { .onb .mode-grid { grid-template-columns: minmax(0, 1fr); } }
+.onb .mode-card {
   border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
   background: var(--bg-inset);
   transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
-.setup .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.setup .mode-card b { font-size: 13.5px; }
-.setup .mode-card p { color: var(--text-2); font-size: 12px; margin: 5px 0 0; line-height: 1.4; }
-.setup .tunnel-help {
+.onb .mode-card:hover { border-color: var(--border-strong); }
+.onb .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.onb .mode-card:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--accent) inset, var(--ring); }
+.onb .mode-card b { font-size: 13.5px; }
+.onb .mode-card p { color: var(--text-2); font-size: 12px; margin: 5px 0 0; line-height: 1.4; }
+.onb .tunnel-help {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; color: var(--text-2); line-height: 1.5;
 }
-.setup .tunnel-help b { display: block; color: var(--text); font-size: 13px; margin-bottom: 6px; }
-.setup .tunnel-help ol { margin: 0 0 6px; padding-left: 18px; }
-.setup .tunnel-help li { margin: 4px 0; }
-.setup .tunnel-help strong { color: var(--text); font-weight: 600; }
-.setup .tunnel-help code {
+.onb .tunnel-help b { display: block; color: var(--text); font-size: 13px; margin-bottom: 6px; }
+.onb .tunnel-help ol { margin: 0 0 6px; padding-left: 18px; }
+.onb .tunnel-help ol:last-child { margin-bottom: 0; }
+.onb .tunnel-help li { margin: 4px 0; }
+.onb .tunnel-help strong { color: var(--text); font-weight: 600; }
+.onb .tunnel-help code {
   font-family: var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
 }
+.onb .tunnel-help-note { margin-top: 8px; }
+/* Collapsible "add this key to the VM" fallback on the connect and reconnect screens. */
+.onb .disclosure { margin: 4px 0 16px; }
+.onb .disclosure > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--text-2); font-size: 12.5px; font-weight: 550; }
+.onb .disclosure-body .desc { color: var(--text-2); font-size: 12px; line-height: 1.5; margin: 0 0 12px; }
+.onb .callout-actions { margin-top: 10px; }
+.pubkey-err { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+/* A wrong value: the field takes the danger colour, focus ring included, until it's edited.
+   A refused Continue shakes it (onboarding.tsx shake). */
+input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--danger) 75%, var(--border-strong)); }
+input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--danger) 70%, transparent); }
 
-/* Setup motion. The card's height is tweened in setup.tsx (useHeightTween); these are the
-   entrances that play inside it. A step arrives from the side it was travelled to, 10px and
-   a fade, in the time the card takes to resize around it; switching to "Connect to an
-   existing server" and back moves the whole screen the same way, as do the server panel's
-   Reconnect screen and the panel itself when a deploy lands on it. Only what changed plays:
-   nothing animates on first paint. */
-.setup .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
-.setup .enter.back { animation-name: wiz-in-back; }
+/* ── The server panel (the stats screen) ── */
+.onb .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.onb .srv-head h1 { margin: 0; }
+/* The status chip's wrapper, keyed so a new reading replays its pop (server.tsx). */
+.onb .srv-state { display: inline-flex; }
+/* Status rows: the facts an operator checks, under hairlines. */
+.srv-rows { margin: 0 0 28px; border-top: 1px solid var(--border); }
+.srv-rows > div {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; column-gap: 16px;
+  min-height: 48px; padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.srv-rows dt { color: var(--text-2); font-size: 12.5px; }
+.srv-rows dd { margin: 0; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--text); }
+.srv-rows .mono, .srv-rows dd.mono { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.srv-rows a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.srv-rows a:hover { color: var(--accent); text-decoration-color: currentColor; }
+.srv-rows dd button { flex: none; height: 28px; padding: 0 10px; margin-right: -10px; font-size: 12.5px; }
+.srv-rows .srv-none { color: var(--text-3); }
+@media (max-width: 560px) {
+  .srv-rows > div { grid-template-columns: minmax(0, 1fr); row-gap: 2px; padding: 10px 0; }
+}
+/* A state that needs saying, under the rows, in the tone of its badge. */
+.srv-hint { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin: -14px 0 24px; }
+.srv-hint.warning { color: var(--warn); }
+.srv-hint.danger { color: var(--danger); }
+.srv-hint b { color: inherit; font-weight: 600; }
+.srv-hint.warning .linklike, .srv-hint.danger .linklike { color: inherit; }
+/* A key and the button that applies it, on one line: the panel's Tailscale key swap. */
+.onb .key-swap { display: flex; align-items: center; gap: 8px; }
+.onb .key-swap input { flex: 1; min-width: 0; }
+.onb .key-swap button { flex: none; }
+.srv-redirect.leaving { animation: srv-leave var(--dur-slow) var(--ease-out) forwards; }
+@keyframes srv-leave { to { opacity: 0; } }
+
+/* Motion: a step arrives from the side it was travelled to, 10px and a fade; switching to
+   "Connect to an existing server" and back moves the whole screen the same way, as do the
+   server panel's Reconnect screen, and the server panel or sign-in taking over when setup
+   finishes. Arrivals inside a step fade up 3px; what Discord or Tailscale confirms pops. Only
+   what changed plays: nothing animates on first paint. */
+.onb .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
+.onb .enter.back { animation-name: wiz-in-back; }
 @keyframes wiz-in { from { opacity: 0; transform: translateX(10px); } }
 @keyframes wiz-in-back { from { opacity: 0; transform: translateX(-10px); } }
 @keyframes wiz-fade { from { opacity: 0; } }
 /* Something arriving within a step: a check's answer, a warning, an error, the deploy
    notice. Each is keyed to replay, so a refused Continue shows its reason arriving again. */
-.setup .wiz-appear { animation: wiz-appear .2s var(--ease-out) both; }
+.onb .wiz-appear { animation: wiz-appear .2s var(--ease-out) both; }
 @keyframes wiz-appear { from { opacity: 0; transform: translateY(3px); } }
 /* A thing Discord or Tailscale just confirmed ("Added", "Live at …"). */
-.setup .wiz-pop { animation: wiz-pop .24s var(--ease-out) both; }
+.onb .wiz-pop { animation: wiz-pop .24s var(--ease-out) both; }
 @keyframes wiz-pop { from { opacity: 0; transform: scale(.92); } }
 @media (prefers-reduced-motion: reduce) {
-  /* The height snaps (see useHeightTween) and nothing travels. What arrived still fades in,
-     and the bar still fills, by colour rather than by sweep. */
-  .setup .enter, .setup .enter.back, .setup .wiz-appear, .setup .wiz-pop { animation-name: wiz-fade; }
-  .setup .steps { transition: none; }
-  .setup .steps i::after { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
-  .setup .steps i.on::after { opacity: 1; }
+  /* Nothing travels. What arrived still fades in, and the bar still fills, by colour rather
+     than by sweep. */
+  .onb .enter, .onb .enter.back, .onb .wiz-appear, .onb .wiz-pop { animation-name: wiz-fade; }
+  .onb .steps { transition: none; }
+  .onb .steps i::after { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+  .onb .steps i.on::after { opacity: 1; }
+}
+
+/* ── The final server screen ── */
+/* Running, healthy, and the console's redirect listed: the form in the middle of the window,
+   the panel's title, status and controls small in its top-left corner, and memories of what
+   the bot has been doing around the form. brain.ts moves all of it; these are the resting
+   styles. A heading focused from script shows no ring (it isn't a control). */
+.onb h1[tabindex="-1"]:focus { outline: none; }
+.brain-hud {
+  position: fixed; top: 22px; left: 22px; z-index: 50; display: grid; gap: 12px; justify-items: start;
+  max-width: calc(var(--vw) - 44px); visibility: hidden;
+}
+.brain-hud [data-morph] { transform-origin: 0 0; }
+/* brain.ts writes opacity and transform on these every frame; a transition of their own on
+   either would lag behind it (a button fading out from where it rests while it's meant to be
+   invisible over the panel). Hover colours still ease. */
+.brain-hud [data-morph], .brain-hud [data-extra], .onb-pane [data-morph], .onb-pane [data-fade], .onb-rail [data-morph] {
+  transition-property: background, border-color, box-shadow, color;
+}
+.hud-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.hud-head .brand-logo { width: 28px; height: 28px; border-radius: var(--radius-sm); }
+.hud-head h1 { font-size: 15px; line-height: 1.55; letter-spacing: -0.02em; overflow-wrap: anywhere; min-width: 0; }
+.hud-up { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.hud-actions { display: flex; align-items: center; gap: 8px; }
+.hud-actions button { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.hud-actions .icon-btn { width: 30px; padding: 0; color: var(--text-2); position: relative; }
+.hud-actions .icon-btn:hover { color: var(--text); }
+.hud-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+.hud-note { max-width: 320px; display: grid; gap: 6px; }
+.hud-note .srv-hint { margin: 0; }
+
+/* A memory: its sphere is drawn by the form; this is the words set inside it. The box is the
+   largest a memory gets, centred on it, and only the sphere's circle takes the pointer. */
+.mems { position: fixed; inset: 0; z-index: 45; margin: 0; padding: 0; list-style: none; pointer-events: none; visibility: hidden; }
+.mem {
+  position: absolute; left: 0; top: 0; width: 280px; height: 280px; pointer-events: none; visibility: hidden;
+  will-change: transform; --d: 160px;
+}
+/* The button is the sphere's circle: that's all that takes the pointer. It opens the memory.
+   No focus ring: keyboard focus peeks it (sharper, larger, brighter), which is the cue. */
+.mem-btn {
+  position: absolute; inset: 0; pointer-events: auto; cursor: pointer; outline: none;
+  clip-path: circle(var(--r, 0px) at 50% 50%);
+}
+.mem[data-open] .mem-btn { pointer-events: none; }
+/* The words fade out well inside the sphere's rim, so a long link trails off rather than
+   running into the dust. */
+.mem-mask {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, black 62%, transparent 86%);
+  mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, black 62%, transparent 86%);
+}
+/* Out of focus until it's looked at: soft and faded, sharp and whole when hovered or focused. */
+.mem-in {
+  position: relative; width: calc(var(--d) * 0.6); display: flex; flex-direction: column; align-items: center;
+  gap: 5px; text-align: center; transform: scale(var(--sv, 1));
+  filter: blur(0.55px); opacity: 0.66;
+  transition: filter var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
+}
+.mem[data-peek] .mem-in { filter: none; opacity: 1; }
+/* A little dark under the words, so dust passing behind them doesn't speckle them. */
+.mem-in::before {
+  content: ""; position: absolute; inset: -24% -20%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+.mem-who { display: flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mem-who span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-member .mem-who { flex-direction: column; gap: 7px; font-size: 12px; color: var(--text); }
+.mem-member .mem-who span { max-width: 100%; }
+.mem-av { flex: none; border-radius: 50%; object-fit: cover; display: block; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.mem-faces { display: flex; }
+.mem-faces .mem-av + .mem-av { margin-left: -7px; box-shadow: 0 0 0 2px var(--bg); }
+.mem-text {
+  font-size: 12px; line-height: 1.4; color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.mem-text b { font-weight: 600; }
+/* A source's address stays on one line. One too long for it starts at the left and fades out
+   on the right, inside the words' own width. */
+.mem-link { max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--text); white-space: nowrap; }
+.mem-link.long {
+  align-self: stretch; text-align: left;
+  -webkit-mask-image: linear-gradient(90deg, black 58%, transparent 96%); mask-image: linear-gradient(90deg, black 58%, transparent 96%);
+}
+.mem-ic { display: grid; place-items: center; color: var(--text-2); }
+.mem-dot { display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--ok); vertical-align: middle; }
+.mem-foot { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.2; color: var(--text-3); white-space: nowrap; }
+/* Peeked (hovered or focused): one more line, under the rest so nothing above it moves. */
+.mem-more {
+  position: absolute; top: 100%; left: -10%; right: -10%; margin-top: 5px;
+  font-size: 11.5px; line-height: 1.3; color: var(--text-2); opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.mem[data-peek] .mem-more { opacity: 1; }
+/* Each kind's words fit its sphere's size (brain.ts SIZE). */
+.mem-reply { --d: 184px; }
+.mem-impression { --d: 172px; }
+.mem-remembered, .mem-reminder, .mem-image { --d: 160px; }
+.mem-glossary, .mem-status { --d: 152px; }
+.mem-learned { --d: 164px; }
+.mem-member { --d: 140px; }
+.mem-people { --d: 156px; }
+.mem-health { --d: 148px; }
+
+/* The bot itself, in the middle of the form: its avatar, faint, filling most of the form under
+   the dust, and its name across it. brain.ts places both and fades them in once the form has
+   settled in the middle. */
+.orb-face {
+  position: fixed; left: 0; top: 0; z-index: -2; width: 400px; height: 400px; transform-origin: 0 0;
+  pointer-events: none; opacity: 0;
+}
+.orb-face img {
+  display: block; width: 100%; height: 100%; border-radius: 50%; opacity: 0.24; filter: blur(1.5px);
+  -webkit-mask-image: radial-gradient(closest-side, black 60%, transparent 100%);
+  mask-image: radial-gradient(closest-side, black 60%, transparent 100%);
+}
+.orb-name {
+  position: fixed; left: 0; top: 0; z-index: 44; pointer-events: none; opacity: 0;
+  font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; color: var(--text);
+  text-align: center; overflow-wrap: anywhere; width: max-content;
+}
+
+/* Without WebGL2 there's no dust: the memories get hairline rings, and the form one ring. */
+.orb-css { display: none; }
+.onb.no-form .mem::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: calc(2 * var(--r)); height: calc(2 * var(--r));
+  translate: -50% -50%; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.onb.no-form .orb-css {
+  display: block; position: fixed; left: 50%; top: 50%; z-index: -1; width: calc(var(--dvh) * 0.34); aspect-ratio: 1;
+  translate: -50% -50%; border-radius: 50%; pointer-events: none; opacity: var(--brain, 0);
+  box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 0 60px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* An opened memory: its sphere comes to the middle, large, and this sits in it. The back
+   button is at the sphere's upper left. */
+.mem-open {
+  position: fixed; left: 0; top: 0; z-index: 46; width: calc(var(--ro, 240px) * 2); height: calc(var(--ro, 240px) * 2);
+  display: grid; place-items: center; pointer-events: none; opacity: 0;
+}
+.mem-open::before {
+  content: ""; position: absolute; inset: 8%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 85%, transparent) 55%, transparent);
+}
+.mem-open .mem-back {
+  position: absolute; left: calc(var(--ro, 240px) * 0.46 - 16px); top: calc(var(--ro, 240px) * 0.46 - 16px);
+  width: 32px; height: 32px; pointer-events: auto; color: var(--text-2);
+}
+/* Back takes its hover look for keyboard focus, not a ring: it sits on the dust. */
+.mem-open .mem-back:hover, .mem-open .mem-back:focus-visible { color: var(--text); background: var(--bg-inset); }
+.mem-open .mem-back:focus-visible { box-shadow: none; }
+.mo-in {
+  position: relative; width: calc(var(--ro, 240px) * 1.22); max-height: calc(var(--ro, 240px) * 1.32); overflow-y: auto;
+  scrollbar-width: none; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+}
+.mo-in::-webkit-scrollbar { display: none; }
+/* Kept narrow enough to clear the back button at the sphere's upper left. */
+.mo-head { max-width: calc(var(--ro, 240px) * 1.08 - 48px); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.3; color: var(--text-3); }
+.mo-chat { align-self: stretch; display: grid; gap: 12px; text-align: left; }
+.mo-msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.mo-msg .mem-av { width: 24px; height: 24px; margin-top: 1px; }
+.mo-msg b { display: block; font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-msg.bot b { color: var(--text); }
+.mo-msg p { margin: 1px 0 0; font-size: 13px; line-height: 1.5; color: var(--text); white-space: pre-wrap; }
+.mo-msg:not(.bot) p { color: var(--text-2); }
+.mo-who { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.mo-who span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+.mo-strong { font-weight: 600; }
+.mo-status { font-size: 15px; }
+.mo-meta { font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.mo-url { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.mo-big { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.mo-faces { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 220px; }
+.mo-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.mo-checks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+@media (max-width: 560px) {
+  .mo-in { max-height: calc(var(--ro, 240px) * 1.42); gap: 10px; }
+  .mo-msg p, .mo-text { font-size: 12.5px; }
 }
 
 .muted { color: var(--text-2); }
@@ -1846,8 +2115,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .doc h2:first-child, .doc h3:first-child { margin-top: 0; }
 .doc h3 { color: var(--text); font-size: 13.5px; font-weight: 600; margin: 15px 0 6px; letter-spacing: 0; }
 .doc p { margin: 0 0 10px; }
-.doc p:last-child, .doc ul:last-child { margin-bottom: 0; }
-.doc ul { margin: 0 0 10px; padding-left: 20px; }
+.doc p:last-child, .doc ul:last-child, .doc ol:last-child { margin-bottom: 0; }
+.doc ul, .doc ol { margin: 0 0 10px; padding-left: 20px; }
 .doc li { margin: 3px 0; }
 .doc strong { color: var(--text); font-weight: 600; }
 .doc a {
@@ -2025,6 +2294,24 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .testchat-fab:hover { background: var(--bg-inset); border-color: var(--accent); }
 .testchat-fab:active { transform: scale(0.96); }
 .testchat-fab:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
+
+/* The save dock and the FAB collide: at 390px `elementFromPoint` over "Save changes" returned
+   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
+   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
+   aside while it is up.
+
+   But only where they actually meet, which is 1024px and below. The dock is centred over
+   the content column and the FAB is pinned to the right edge, so the gap between them grows
+   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
+   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
+   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
+   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
+@media (max-width: 1120px) {
+  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
+}
+@media (max-width: 720px) {
+  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+}
 
 .chatdrawer-backdrop {
   position: fixed; inset: 0; z-index: 100;
@@ -2452,67 +2739,75 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* ── Toast (bottom-right status) ─────────────────────────────────────────── */
-/* Same tinting as the callout, fixed bottom-right, slides in from the right.
-   Driven imperatively from overlays.tsx; tones: success / warning / danger / info / neutral. */
-/* The stack sits at a fixed 24px and gets out of the way with `transform`, not `bottom`:
-   `bottom` is laid out, so it can't transition, and the dock appears on the operator's first
-   keystroke — which is exactly when a toast is most likely to be on screen reading itself.
-   Jumping 72px in one frame is how the receipt naming what changed becomes unreadable. */
-.toast-stack {
-  position: fixed; right: 24px; bottom: 24px; z-index: 200;
-  display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;
-  transition: transform var(--dur-slow) var(--ease-out);
-}
-/* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
-   about the thing the operator just did there — landed on top of it. Sit above it instead. */
-body:has(.testchat-fab) .toast-stack { transform: translateY(-52px); }
-/* The save dock is centred but wide, and at common widths its right edge runs under the
-   toast stack — measured 113x57px of overlap at 1440. Every bulk "Set all N…" fires both
-   at once, so the receipt naming what just changed was the thing you couldn't read. Lift
-   the toasts clear while the dock is up. */
-body:has(.savedock.show) .toast-stack { transform: translateY(-72px); }
-/* Both up and the FAB has not moved: the two share a vertical band (dock 22–64 from the
-   bottom, FAB 24–64), so the dock's own clearance already covers the button. Stated at the
-   combined specificity or the -72px above loses to it. */
-body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-72px); }
-
-/* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
-   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
-   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
-   aside while it is up.
-
-   But only where they actually meet, which is 1024px and below. The dock is centred over
-   the content column and the FAB is pinned to the right edge, so the gap between them grows
-   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
-   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
-   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
-   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
-@media (max-width: 1120px) {
-  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
-  /* Now the stack has to clear a button that has itself moved up. */
-  body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-124px); }
-}
-@media (max-width: 720px) {
-  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+/* ── Toast (top-right stack) ─────────────────────────────────────────────── */
+/* Base UI's Toast (overlays.tsx) keeps the state; this draws it. Each toast gets
+   --toast-index (0 = newest), --toast-height, --toast-offset-y (the heights of the toasts
+   above it) and the live --toast-swipe-movement-x/y; the viewport carries
+   --toast-frontmost-height. Collapsed, older toasts shrink behind the newest and peek out
+   below it. [data-expanded] (pointer over the stack, or keyboard focus in it) fans them out
+   into a column. Same tinting as the callout; tones: success / warning / danger / info / neutral. */
+.toast-viewport {
+  position: fixed; top: 24px; right: 24px; z-index: 200;
+  width: min(380px, calc(var(--vw) - 48px));
+  outline: none;
 }
 .toast {
-  display: flex; align-items: center; gap: 12px; min-width: 280px; max-width: 420px;
-  padding: 13px 15px; border-radius: var(--radius); pointer-events: auto;
+  --gap: 10px;
+  --peek: 10px;
+  --scale: calc(max(0, 1 - var(--toast-index) * 0.1));
+  --shrink: calc(1 - var(--scale));
+  --height: var(--toast-frontmost-height, var(--toast-height));
+  --offset-y: calc(var(--toast-offset-y) + var(--toast-index) * var(--gap) + var(--toast-swipe-movement-y));
+  /* Where the toast sits when nothing is entering or leaving. Named so reduced motion can
+     park an exit in place instead of sending it off the top. */
+  --rest: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) + var(--toast-index) * var(--peek) + var(--shrink) * var(--height)))
+    scale(var(--scale));
+  position: absolute; top: 0; right: 0; width: 100%; box-sizing: border-box;
+  height: var(--height); z-index: calc(1000 - var(--toast-index));
+  border-radius: var(--radius);
   --tc: var(--neutral); --tc-border: var(--neutral-border);
   border: 1px solid var(--tc-border); background: color-mix(in srgb, var(--tc) 11%, var(--panel));
   box-shadow: var(--shadow-pop); color: var(--text);
-  transform: translateX(24px); opacity: 0;
-  transition: transform var(--dur-slow) var(--ease-out), opacity 0.24s var(--ease-out);
+  user-select: none; cursor: default;
+  transform-origin: top center; transform: var(--rest);
+  transition: transform 0.4s var(--ease-out), opacity var(--dur-slow) var(--ease-out),
+    height var(--dur-mid) var(--ease-out);
 }
-.toast.show { transform: translateX(0); opacity: 1; }
+.toast[data-expanded] {
+  --rest: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y));
+  height: var(--toast-height);
+}
+/* In from above, and back out the same way unless it was swiped somewhere else. */
+.toast[data-starting-style], .toast[data-ending-style] { transform: translateY(-150%); }
+.toast[data-ending-style] { opacity: 0; }
+.toast[data-ending-style][data-swipe-direction='up'] { transform: translateY(calc(var(--toast-swipe-movement-y) - 150%)); }
+.toast[data-ending-style][data-swipe-direction='right'] {
+  transform: translateX(calc(var(--toast-swipe-movement-x) + 150%)) translateY(var(--offset-y));
+}
+/* Past the limit of three. Still mounted (and inert); it comes back when a newer one leaves. */
+.toast[data-limited] { opacity: 0; }
+/* Fills the gap above each toast, so a pointer moving down the fanned-out stack never
+   leaves it, which would collapse the stack out from under the pointer. */
+.toast::after { content: ''; position: absolute; left: 0; bottom: 100%; width: 100%; height: calc(var(--gap) + 1px); }
+.toast:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
+.toast-content {
+  display: flex; align-items: center; gap: 12px; padding: 13px 15px; overflow: hidden;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+/* A toast behind the newest is cut to the newest one's height, so its text would spill or
+   clip mid-line. It shows as an edge until the stack fans out. */
+.toast-content[data-behind] { opacity: 0; }
+.toast-content[data-expanded] { opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
-/* min-width:0 so a long message truncates inside the flex row instead of widening it and
-   pushing a trailing action button past the toast's max-width. */
-.toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; min-width: 0; }
+/* min-width:0 so a long message wraps inside the flex row instead of widening it and
+   pushing a trailing action button out of the toast. */
+.toast .toast-msg { margin: 0; font-size: 13px; line-height: 1.45; flex: 1; min-width: 0; }
 /* A sticky toast is there to be read and quoted, so its text is selectable — the rest of
    the console suppresses selection on chrome, and a failure message is not chrome. A busy
-   toast is progress, not a message to quote, so it keeps the ordinary cursor. */
+   toast is progress, not a message to quote, so it keeps the ordinary cursor. The message
+   also opts out of swiping (data-base-ui-swipe-ignore), or every drag across it would be a
+   swipe rather than a selection. */
 .toast.sticky:not(.busy) .toast-msg { user-select: text; cursor: text; }
 .toast-x { flex: none; margin: -4px -4px -4px 0; color: var(--text-3); }
 /* Negative block margins keep the 34px text button from growing the toast's own height. */
@@ -2521,7 +2816,15 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
-@media (prefers-reduced-motion: reduce) { .toast { transition: opacity 0.2s var(--ease-out); transform: none; } }
+@media (max-width: 720px) {
+  .toast-viewport { top: max(12px, env(safe-area-inset-top)); right: 12px; width: calc(var(--vw) - 24px); }
+}
+/* Nothing travels: toasts fade in and out where they stand, and the stack still collapses
+   and fans out, just without the glide. */
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: opacity var(--dur-slow) var(--ease-out); }
+  .toast[data-starting-style], .toast[data-ending-style] { opacity: 0; transform: var(--rest); }
+}
 
 /* ── Confirm dialog (centered; replaces native confirm/prompt) ───────────── */
 .confirm-dialog {
@@ -2579,6 +2882,9 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 }
 .tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
 .tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
+/* Beside the target (a rail's buttons), stem on the left. */
+.tooltip.right { transform: translate(0, -50%); }
+.tooltip.right::after { left: -4.5px; top: 50%; margin: -4px 0 0; border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
 @keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* Trailing count chip on a tab (DESIGN.md Tabs: "a trailing count chip"). */
