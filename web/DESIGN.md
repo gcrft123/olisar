@@ -620,7 +620,7 @@ whatever needs a look (a hint in the tone of its badge, the intents callout, the
 swap), then the redirect URL to register, and the buttons: Open console, Stop or Start, Reconnect.
 The redirect is only there until Discord lists it: it turns to Added, holds 1.35 seconds so that's
 seen, and goes. What the final screen keeps (the title, the badge, the two buttons) is marked
-`data-morph`; what it lets go of, `data-fade`.
+`data-morph`; what it lets go of, `data-fade`. The bot chip above the title fades with those.
 
 #### The final server screen
 
