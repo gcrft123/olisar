@@ -1590,10 +1590,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .onb .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
 .onb .ok-pill { color: var(--ok); font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
 /* An in-step action row (Enable remote access) with its result beside it. */
-.onb .act-row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
-.onb .act-row .grow { flex: 1; min-width: 0; }
-.onb .act-row .err { margin-top: 0; }
-.onb .act-row + .field, .onb .err-help + .field { margin-top: 22px; }
+.onb .onb-act-row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+.onb .onb-act-row .grow { flex: 1; min-width: 0; }
+.onb .onb-act-row .err { margin-top: 0; }
+.onb .onb-act-row + .field, .onb .err-help + .field { margin-top: 22px; }
 .onb .redirect-box {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 9px 11px; font-family: var(--mono); font-size: 12px; word-break: break-all;
@@ -1755,7 +1755,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .hud-actions .icon-btn { width: 30px; padding: 0; color: var(--text-2); position: relative; }
 .hud-actions .icon-btn:hover { color: var(--text); }
 .hud-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
-.hud-note { max-width: 320px; }
+.hud-note { max-width: 320px; display: grid; gap: 6px; }
 .hud-note .srv-hint { margin: 0; }
 
 /* A memory: its sphere is drawn by the form; this is the words set inside it. The box is the

@@ -1,3 +1,5 @@
+import { rectScale } from './theme'
+
 // ── The form ────────────────────────────────────────────────────────────────────
 // The first-run screens' ornament (see onboarding.tsx): one WebGL2 canvas. Every setup step
 // has a form, written as a signed distance field, and the form eases from one to the next on
@@ -423,8 +425,16 @@ function rotMat(yaw: number, pitch: number, roll: number): number[] {
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x))
 
-/** The page's own units: layout px under the root's `zoom` (the interface size). */
+/** The root's `zoom` (the interface size): layout px to CSS px. */
 export const zoomOf = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1
+
+/** An element's box in layout px, the page's own units under the interface-size zoom. A rect
+ *  comes back zoomed or not depending on the engine (the desktop app's Chromium 126 doesn't
+ *  zoom it; current Chrome does), so it's divided by what the engine actually does. */
+export function layoutRect(el: Element): { x: number; y: number; w: number; h: number } {
+  const r = el.getBoundingClientRect(), k = rectScale()
+  return { x: r.left / k, y: r.top / k, w: r.width / k, h: r.height / k }
+}
 
 /** Where the form sits, in layout px: its centre (cx, cy), the px one world unit spans at the
  *  centre's depth (r), a fade in from the left edge between x0 and x1, and a fade at the top
@@ -527,13 +537,13 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
 
   // The canvas fills a fixed layer the size of the window. Everything the page hands over
   // (framing, memories) is in layout px, the page's own units under its interface-size zoom;
-  // the canvas is sized in device px. The layer's box is read when it changes, not every frame.
+  // the canvas is sized in device px (layout px × zoom × pixel ratio). The layer's box is read
+  // when it changes, not every frame.
   let Z = zoomOf(), view: View = { x: 0, y: 0, w: 1, h: 1 }
   function measure() {
     Z = zoomOf()
     state.dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const r = canvas.getBoundingClientRect()
-    view = { x: r.left / Z, y: r.top / Z, w: r.width / Z, h: r.height / Z }
+    view = layoutRect(canvas)
   }
   measure()
   const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null

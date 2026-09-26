@@ -10,7 +10,7 @@
 // frame. It finds its pieces by class inside the onboarding shell (onboarding.tsx, server.tsx).
 
 import type { Activity, ActivityItem, ActivityKind } from './activity'
-import { zoomOf, type Form, type Framing, type Satellite, type View } from './form'
+import { layoutRect, zoomOf, type Form, type Framing, type Satellite, type View } from './form'
 
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x))
 const seg = (p: number, a: number, b: number) => clamp((p - a) / (b - a), 0, 1)
@@ -23,10 +23,7 @@ const wrap = (a: number) => ((a % TAU) + TAU) % TAU
 const turnTo = (a: number, b: number) => wrap(b - a + Math.PI) - Math.PI   // shortest signed angle from a to b
 
 type Rect = { x: number; y: number; w: number; h: number }
-function rectL(el: Element): Rect {
-  const r = el.getBoundingClientRect(), z = zoomOf()
-  return { x: r.left / z, y: r.top / z, w: r.width / z, h: r.height / z }
-}
+const rectL = (el: Element): Rect => layoutRect(el)
 
 /** Each kind's size on screen: the diameter of its sphere, in layout px, at a 900px window. */
 export const SIZE: Record<ActivityKind, number> = {
@@ -56,7 +53,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
   let form: Form | null = null, detachHook: (() => void) | null = null
   let p = startOpen ? 1 : 0, target = p
   let open = false                        // memories are out
-  let view = { w: innerWidth / zoomOf(), h: innerHeight / zoomOf() }
+  let view = { w: innerWidth / zoomOf(), h: innerHeight / zoomOf() }  // until measured
   let slot: Rect | null = null, hudRect: Rect | null = null
   let pairs: Pair[] = []
   const bodies = new Map<string, Body>()
@@ -66,9 +63,20 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
   // One memory can be opened: it comes to the middle, large, with its context, while the form
   // and the rest draw back. `openness` is how far that has got (0 to 1).
   let openId: string | null = null, shownId: string | null = null, openness = 0
+  // Whether the opened memory has come all the way to the middle: its Back takes focus then,
+  // not while the sphere is still travelling (a tooltip shown on the way stays behind).
+  let arrived = false
 
+  // The window as the form's layer covers it: without a classic scrollbar's gutter, so the
+  // ring centres on the form rather than half a gutter right of it. The layer is withheld on a
+  // narrow window until the final screen starts; the window stands in until then.
+  function viewport() {
+    const layer = $('.orb-layer')
+    const r = layer && layer.getClientRects().length ? rectL(layer) : null
+    return r && r.w > 1 ? { w: r.w, h: r.h } : { w: innerWidth / zoomOf(), h: innerHeight / zoomOf() }
+  }
   function measure() {
-    view = { w: innerWidth / zoomOf(), h: innerHeight / zoomOf() }
+    view = viewport()
     const s = $('.onb-stage')
     slot = s && s.getClientRects().length ? rectL(s) : null
     const hud = $('.brain-hud')
@@ -195,7 +203,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
   // Keyboard focus follows the change: to the same control on the other side, or to the other
   // side's heading when that control can't take it (Stop turns into Working…).
   function moveFocus(toBrain: boolean, a: Element | null) {
-    const from = toBrain ? a?.closest?.('.onb-pane, .onb-rail') : a?.closest?.('.brain-hud, .mems')
+    const from = toBrain ? a?.closest?.('.onb-pane, .onb-rail') : a?.closest?.('.brain-hud, .mems, .mem-open')
     if (!from || !a) return
     const key = a.closest('[data-morph]')?.getAttribute('data-morph')
     const side = toBrain ? '.brain-hud' : '.onb-pane'
@@ -454,7 +462,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     const b = bodies.get(id)
     if (!b || !open || b.act < 0.5) return
     if (openId && openId !== id) { const a = bodies.get(openId); if (a) { a.ovT = 0; a.isOpen = false } }
-    openId = id; shownId = id
+    openId = id; shownId = id; arrived = false
     b.ovT = 1; b.isOpen = true; b.pinned = false; b.peekT = 0
     const mems = $('.mems'); if (mems) mems.inert = true
     form?.mood({ dim: 0.2 })
@@ -465,7 +473,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     if (!openId) return
     const id = openId, b = bodies.get(id)
     if (b) { b.ovT = 0; b.isOpen = false; b.returning = true; b.peekT = 0; b.pinned = false }
-    openId = null
+    openId = null; arrived = false
     const mems = $('.mems'); if (mems && !quiet) mems.inert = false
     if (!quiet) {
       form?.mood({})
@@ -479,6 +487,8 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
   document.addEventListener('keydown', onKey)
 
   function stepBodies(dt: number, now: number) {
+    // What was opened went from the feed (a fact forgotten, say): nothing is left to show.
+    if (openId && !itemFor(openId)) shut(false)
     if (!bodies.size) { openness = 0; return }
     const rm = reduce.matches
     // How far open: the one opened (or closing) memory's own progress.
@@ -486,6 +496,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     const shown = shownId ? bodies.get(shownId) : undefined
     openness = shown ? smooth(shown.ov) : 0
     if (shown && shown.ov === 0 && shown.ovT === 0 && shownId !== openId) { shownId = null; notify() }
+    if (shown && !arrived && shownId === openId && shown.ov >= 1) { arrived = true; notify() }
     const F = orbFrame()
     const vis = open ? visibleIds() : new Set<string>()
     if (openId) vis.add(openId)          // an opened memory stays, however old
@@ -737,7 +748,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     open(id: string) { openOne(id) },
     close() { shut(false) },
     /** The memory the open view shows (still set while it closes), and whether it's open. */
-    shown: () => (shownId ? { item: itemFor(shownId), open: shownId === openId } : null),
+    shown: () => (shownId ? { item: itemFor(shownId), open: shownId === openId, arrived: shownId === openId && arrived } : null),
     remeasure() { measure(); measurePairs(); kick() },
     /** Runs fn once the change in progress lands (at once if nothing's moving). */
     whenSettled(fn: (p: number) => void) {

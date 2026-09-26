@@ -388,7 +388,14 @@ export function ServerControlPanel() {
     return () => { b.destroy(); setBrain(null) }
   }, [shell.root, activity])
   useEffect(() => { brain?.attach(form) }, [brain, form])
-  useEffect(() => { brain?.setTarget(view === 'brain' ? 1 : 0) }, [brain, view])
+  useEffect(() => {
+    // The docs go with the rail they open from.
+    if (view === 'brain') shell.closeDocs()
+    brain?.setTarget(view === 'brain' ? 1 : 0)
+  }, [brain, view])  // eslint-disable-line react-hooks/exhaustive-deps
+  // Back on the stats screen, the form shows the server's state again, whatever an opened
+  // memory left it at.
+  useEffect(() => { if (view === 'stats') form?.mood(PHASES[phase].orb.mood) }, [view])  // eslint-disable-line react-hooks/exhaustive-deps
   // The heartbeat: the health memory ripples each time a check passes.
   useEffect(() => {
     if (phase !== 'running') return
@@ -550,7 +557,11 @@ export function ServerControlPanel() {
             label={stateLabel} chip={chip} uptime={phase === 'running' ? uptime : null}
             power={powerButton} consoleOff={!st?.url || updating} onConsole={openConsole}
             update={appUpdate} onSettings={(s) => shell.openSettings(s)}
-            note={!updating && updateNote ? <UpdateNote note={updateNote} version={st?.version} /> : null}
+            note={(err || (!updating && updateNote)) ? <>
+              {/* A Stop pressed here that fails lands back on this screen, so it says why here. */}
+              {err && <p className="srv-hint danger wiz-appear">{err}</p>}
+              {!updating && updateNote && <UpdateNote note={updateNote} version={st?.version} />}
+            </> : null}
           />
           {brain && <Memories brain={brain} bot={bot} />}
           <div className="orb-css" aria-hidden="true" />
@@ -753,7 +764,9 @@ function MemoryBody({ m }: { m: ActivityItem }) {
 function Memory({ m, now, brain }: { m: ActivityItem; now: number; brain: Brain }) {
   const k = kindOf(m)
   const openIt = () => brain.open(m.id)
-  const foot = m.kind === 'health' ? `Checked ${secsAgo(m.at, now)}s ago` : `${k.tag(m)} · ${agoShort(m.at, now)}`
+  // A time the feed doesn't know (a roster that hasn't synced since the app learned to ask)
+  // leaves the age off.
+  const foot = m.kind === 'health' ? `Checked ${secsAgo(m.at, now)}s ago` : m.at ? `${k.tag(m)} · ${agoShort(m.at, now)}` : k.tag(m)
   const more = k.more?.(m)
   return (
     <li className={'mem mem-' + m.kind} data-mem={m.id}>
@@ -761,7 +774,7 @@ function Memory({ m, now, brain }: { m: ActivityItem; now: number; brain: Brain 
         className="mem-btn"
         role="button"
         tabIndex={0}
-        aria-label={k.say(m, agoLong(m.at, now))}
+        aria-label={k.say(m, m.at ? agoLong(m.at, now) : 'earlier')}
         onPointerEnter={() => brain.peek(m.id, true)}
         onPointerLeave={() => brain.peek(m.id, false)}
         onBlur={() => brain.peek(m.id, false)}
@@ -828,17 +841,20 @@ function OpenBody({ m, now, bot }: { m: ActivityItem; now: number; bot: Person }
   }
 }
 
-function MemoryOpen({ m, isOpen, now, brain, bot }: { m: ActivityItem; isOpen: boolean; now: number; brain: Brain; bot: Person }) {
+function MemoryOpen({ m, isOpen, arrived, now, brain, bot }: {
+  m: ActivityItem; isOpen: boolean; arrived: boolean; now: number; brain: Brain; bot: Person
+}) {
   const el = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
   useInert(el, !isOpen)
-  useEffect(() => { if (isOpen) back.current?.focus({ preventScroll: true }) }, [m.id, isOpen])
+  // Once it's in the middle, so Back's tooltip isn't left where the sphere was on its way.
+  useEffect(() => { if (isOpen && arrived) back.current?.focus({ preventScroll: true }) }, [m.id, isOpen, arrived])
   const k = kindOf(m)
-  const when = agoLong(m.at, now)
+  const when = m.at ? agoLong(m.at, now) : ''
   const more = 'where' in m ? m.where : ''
   const head = m.kind === 'health' ? 'Health check' : [k.tag(m), more, when].filter(Boolean).join(' · ')
   return (
-    <section ref={el} className={'mem-open mem-open-' + m.kind} aria-label={k.say(m, when)}>
+    <section ref={el} className={'mem-open mem-open-' + m.kind} aria-label={k.say(m, when || 'earlier')}>
       <button className="ghost icon-btn mem-back" ref={back} aria-label="Back" data-tip="Back" onClick={() => brain.close()}>
         <Icon.arrowLeft size={18} />
       </button>
@@ -862,7 +878,7 @@ function Memories({ brain, bot }: { brain: Brain; bot: Person }) {
       <ol className="mems" aria-label="Recent activity">
         {brain.list().map((m) => <Memory key={m.id} m={m} now={now} brain={brain} />)}
       </ol>
-      {shown?.item && <MemoryOpen key={shown.item.id} m={shown.item} isOpen={shown.open} now={now} brain={brain} bot={bot} />}
+      {shown?.item && <MemoryOpen key={shown.item.id} m={shown.item} isOpen={shown.open} arrived={shown.arrived} now={now} brain={brain} bot={bot} />}
     </>
   )
 }

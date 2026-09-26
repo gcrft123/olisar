@@ -90,7 +90,8 @@ export function createActivity(load: () => Promise<ActivityPayload>, everyMs = 2
       if (r.health) health.checks = r.health
       const next = (r.items || []).map(normalize).filter((x): x is ActivityItem => !!x)
       if (r.members?.count) {
-        next.push({ id: `people:${r.members.at || ''}`, kind: 'people', at: ms(r.members.at), count: r.members.count, faces: (r.members.faces || []).map(person) })
+        // One memory for the roster, whenever it last synced, so an open one stays open.
+        next.push({ id: 'people', kind: 'people', at: ms(r.members.at), count: r.members.count, faces: (r.members.faces || []).map(person) })
       }
       next.sort((a, b) => b.at - a.at)
       const fresh = next.filter((m) => !seen.has(m.id))
