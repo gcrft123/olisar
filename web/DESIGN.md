@@ -930,16 +930,26 @@ A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`in
 .callout.tip     { --cc: var(--ok); }
 ```
 
-### Toast (bottom-right status)
+### Toast (top-right stack)
 
-Same tinting as the callout, fixed bottom-right, with a filled-circle icon in the state colour; slides in from the right. States: success / warning / danger / info / neutral.
+Same tinting as the callout, with a filled-circle icon in the state colour. States: success / warning / danger / info / neutral.
 
-**Failures do not expire.** `success`, `info` and `neutral` dismiss themselves on a timer — a
-confirmation the operator missed costs nothing. `danger` and `warning` wait to be dismissed, carry
-a close button, and set `user-select: text` so the message can be copied into a bug report. A
-timed error is an error the operator was told about and then had taken away, and the one thing they
-need from it — the exact wording — is the thing they were reading when it vanished. Tone also
-picks the live region: `role="alert"` for the two that persist, `role="status"` for the rest.
+The behaviour is Base UI's Toast (`@base-ui/react/toast`), mounted once by `<Overlays/>`; `toast()` feeds it. What that buys:
+
+- The newest three stack in the top-right corner. Older ones shrink behind the newest, 10px apart, with their text hidden; a fourth pushes the oldest out of view (still mounted and inert) until a newer one leaves.
+- Pointer over the stack, or keyboard focus in it, fans it out into a column and pauses every timer. So does the window losing focus, so nothing expires while the operator is in another app.
+- A toast swipes away up or right, toward the nearest edges. Dragging the other way is damped and springs back.
+- Escape closes the focused toast. F6 jumps into the stack from anywhere, including from inside an open dialog, and Tab walks the toasts. The Modal shell leaves keys pressed inside `.toast-viewport` alone for exactly that reason.
+- It enters from above and leaves the same way (or off whichever edge it was swiped toward). Under reduced motion nothing travels: toasts fade in place, and the stack snaps between collapsed and fanned out.
+
+**Failures do not expire.** `success`, `info` and `neutral` dismiss themselves after 5s of
+unpaused time — a confirmation the operator missed costs nothing. `danger` and `warning` wait to
+be dismissed, carry a close button, and set `user-select: text` (with `data-base-ui-swipe-ignore`
+on the message, so a drag selects instead of swiping) so the message can be copied into a bug
+report. A timed error is an error the operator was told about and then had taken away, and the one
+thing they need from it — the exact wording — is the thing they were reading when it vanished.
+Tone also picks the priority: the two that persist are `high` and announce as an alert, the rest
+are `low` and announce politely.
 
 **`toast(message, tone, opts?)` returns a `{ dismiss }` handle**, for work whose end the toast
 can't predict. Options override the tone default:
@@ -951,19 +961,39 @@ can't predict. Options override the tone default:
 - **`durationMs`** — auto-dismiss delay; ignored when sticky.
 
 An action toast shows no close ×; the action is the way out, and dismissing the only handle on
-work still running would strand it. `role` stays keyed to the *tone*, so a pinned progress toast
-announces as `status` rather than interrupting as an alert.
+work still running would strand it. Priority stays keyed to the *tone*, so a pinned progress toast
+announces politely rather than interrupting as an alert.
+
+Base UI writes `--toast-index` (0 = newest), `--toast-height`, `--toast-offset-y` and the live
+`--toast-swipe-movement-x/y` on each toast, and `--toast-frontmost-height` on the viewport. The
+toasts are absolutely positioned inside a fixed, zero-height viewport:
 
 ```css
-.toast { position: fixed; right: 24px; bottom: 24px; display: flex; align-items: center; gap: 13px;
-  min-width: 300px; max-width: 430px; padding: 13px 15px; border-radius: var(--radius);
-  border: 1px solid var(--tc-border); background: color-mix(in srgb, var(--tc) 11%, var(--panel)); box-shadow: var(--shadow-pop);
-  transform: translateX(24px); opacity: 0; transition: transform .3s var(--ease-out), opacity .24s ease; }
-.toast.show { transform: translateX(0); opacity: 1; }
-.toast .ic { color: var(--tc); font-size: 22px; }      /* solar:check-circle-bold etc. */
-.toast .title { font-size: 13.5px; font-weight: 650; }
-.toast .toast-msg { flex: 1; min-width: 0; }           /* long text truncates, action stays put */
-.toast-action { flex: none; margin: -4px 0 -4px 4px; } /* trailing ghost button */
+.toast-viewport { position: fixed; top: 24px; right: 24px; z-index: 200; width: min(380px, calc(var(--vw) - 48px)); }
+.toast {
+  --gap: 10px; --peek: 10px;
+  --scale: calc(max(0, 1 - var(--toast-index) * 0.1)); --shrink: calc(1 - var(--scale));
+  --height: var(--toast-frontmost-height, var(--toast-height));
+  --offset-y: calc(var(--toast-offset-y) + var(--toast-index) * var(--gap) + var(--toast-swipe-movement-y));
+  --rest: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) + var(--toast-index) * var(--peek) + var(--shrink) * var(--height)))
+    scale(var(--scale));
+  position: absolute; top: 0; right: 0; width: 100%; height: var(--height); z-index: calc(1000 - var(--toast-index));
+  border-radius: var(--radius); border: 1px solid var(--tc-border);
+  background: color-mix(in srgb, var(--tc) 11%, var(--panel)); box-shadow: var(--shadow-pop);
+  transform-origin: top center; transform: var(--rest);
+  transition: transform .4s var(--ease-out), opacity var(--dur-slow) var(--ease-out), height var(--dur-mid) var(--ease-out); }
+.toast[data-expanded] { --rest: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y)); height: var(--toast-height); }
+.toast[data-starting-style], .toast[data-ending-style] { transform: translateY(-150%); }
+.toast[data-ending-style] { opacity: 0; }
+.toast[data-limited] { opacity: 0; }
+.toast::after { content: ''; position: absolute; bottom: 100%; left: 0; width: 100%; height: calc(var(--gap) + 1px); } /* keeps hover across the gaps */
+.toast-content { display: flex; align-items: center; gap: 12px; padding: 13px 15px; overflow: hidden; }
+.toast-content[data-behind] { opacity: 0; }
+.toast-content[data-expanded] { opacity: 1; }
+.toast .ic { color: var(--tc); }                        /* solar:check-circle-bold etc. */
+.toast .toast-msg { margin: 0; flex: 1; min-width: 0; } /* long text wraps, action stays put */
+.toast-action { flex: none; margin: -4px 0 -4px 4px; }  /* trailing ghost button */
 .toast.success { --tc: var(--ok); --tc-border: var(--ok-border); }
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
@@ -1361,7 +1391,7 @@ a real 74px horizontal page scroll. `flex-wrap: wrap` plus `min-width: 0` on the
 - **Do** use one **primary** (bright-neutral) button per view; everything else is secondary/ghost.
 - **Do** keep motion quiet (.12–.3s, ease-out), and always honour `prefers-reduced-motion` — by **slowing** motion, not deleting it. A spinner with `animation: none` is a static ring that tells the operator nothing; `animation-duration: 1.6s` still says "working".
 - **Do** write the tokens: `var(--dur-fast|mid|slow)` and `var(--ease-out)`, not `.12s` and a bare `ease`. Bespoke durations are fine for bespoke moves (a .5s progress fill, a 1.4s press-and-hold) — it's the three canonical values drifting into literals that turns one motion system into twenty-eight.
-- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack steps aside on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other. The setup card's height tween was the one exception, and it went with the card.
+- **Don't** animate a layout property. `left`, `top`, `width` and `bottom` re-lay out the page on every frame; `transform`, `translate`, `opacity` and `filter` composite on the GPU. The toggle knob travels on `transform`, the toast stack collapses and fans out on `transform`, and the test-chat FAB lifts on `translate` — `translate` specifically, because its `transform` is already spoken for by the press scale, and one property can't carry two jobs without the more specific rule silently eating the other. The setup card's height tween was the one exception, and it went with the card. The toast's height clamp is the exception now: each toast is absolutely positioned, so its height change lays out nothing but itself.
 - **Don't** let a press scale go past `.96`. Below that it reads as a bounce rather than a press.
 - **Do** give every `div` you attached an `onClick` to a `role`, a `tabIndex`, and a key handler in the same breath — or make it a `<button>`. This is the failure that recurs.
 - **Don't** use emoji, bluish-purple gradients, drop shadows on anything that doesn't float, or Title Case headings.
