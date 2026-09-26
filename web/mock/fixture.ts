@@ -7,7 +7,8 @@
 // the body.
 
 export type MockEnv = {
-  /** SETUP_MOCK: '' | '1' | 'second' | 'intents' — open on the setup wizard. */
+  /** SETUP_MOCK: '' | '1' | 'second' | 'intents' — open on the setup wizard; 'server' — on the
+   *  server panel of a server that has been up a few hours, which goes to the final screen. */
   setup?: string
   /** FRESH_MOCK: '' | '1' | 'refused' | 'refused-console' — a console just after setup. */
   fresh?: string
@@ -446,7 +447,7 @@ let FRESH = ''
 let MOCK_ROLE = ''
 const FRESH_STATE = { reconnected: false }
 // `consoleErr`: the server bot deployed with a key Tailscale refused, until a new one is given.
-const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '' }
+const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '', bootAt: 0 }
 const MOCK_KEY_REFUSED = 'Tailscale rejected the auth key: it has expired, was revoked, or was already used. Use a new one.'
 // When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
 // later as if the operator had done it: the intents coming on, the redirect URLs being added,
@@ -485,6 +486,74 @@ const MOCK_INSTALL_LOG = [
   'Error response from daemon: Get "https://ghcr.io/v2/": dial tcp: lookup ghcr.io: temporary failure in name resolution',
 ].join('\n')
 
+// What the server's bot has been doing (the final screen's memories), in the shape
+// /api/server/activity answers with. A few are there from the start; a new one turns up every
+// ten to twenty seconds while the screen is open.
+const PEOPLE = ['DadBodNerd', 'quietmoon', 'Kestrel', 'vex.io', 'marisol', 'NightOwl_88', 'Tobi', 'hollowpoint', 'a_very_long_discord_display_name_indeed', 'ferrocene', 'Juniper', 'lumen_dust']
+const who = (name: string) => ({ name, avatar: '' })
+const ACTIVITY_POOLS: Record<string, any[]> = {
+  reply: [
+    { trigger: 'ask', who: who('DadBodNerd'), where: '#general', ask: 'when’s the Pyro run again, and do I need to bring anything?', text: 'Pyro run is Friday at 20:00 UTC. Meet at Checkmate and bring medpens. Fuel’s on the org this time.' },
+    { trigger: 'name', who: who('quietmoon'), where: '#off-topic', ask: 'olisar can you ping the whole org about tonight?', text: 'It’s 3:40 in the morning in JST, so maybe hold that ping until later. I can post it at 18:00 your time instead.' },
+    { trigger: 'mention', who: who('Kestrel'), where: '#help-and-questions', ask: 'which has the better med bay, the Carrack or the Cutlass Red?', text: 'The Carrack’s med bay can respawn you. The Cutlass Red’s can’t, but it gets to a downed crewmate faster.' },
+    { trigger: 'reply', who: who('vex.io'), where: '#general', ask: 'doesn’t that change if we’re carrying cargo though?', text: 'Fair point. The quantum fuel math changes once you’re hauling cargo. Budget about a fifth more for a full hold.' },
+    { trigger: 'proactive', who: who('marisol'), where: '#help-and-questions', ask: 'anyone know how to fix a stuck hangar elevator?', text: 'Someone asked this last week, and the answer’s pinned in this channel: leave the hangar, wait a minute, then call the elevator again.' },
+    { trigger: 'catchup', who: who('NightOwl_88'), where: '#general', ask: '/catchup hours: 24', text: 'Since yesterday: the op moved to Friday, Tobi’s ship is back, and ICA is recruiting. DadBodNerd is running movie night again.' },
+    { trigger: 'ask', who: who('hollowpoint'), where: '#lobby', ask: 'is mining worth it for a solo player?', text: 'Rent a Prospector first. Two runs will tell you whether mining is for you, and you won’t be out the price of a ship.' },
+    { trigger: 'name', who: who('a_very_long_discord_display_name_indeed'), where: '#off-topic', ask: 'olisar do you remember which hull I wanted?', text: 'I remember. You wanted the Hull C, not the Hull A.' },
+  ],
+  member: [{ who: who('ferrocene'), roles: ['Recruit'] }, { who: who('Juniper'), roles: ['Recruit'] }, { who: who('Kestrel'), roles: ['Recruit', 'Member'] }],
+  impression: [
+    { who: who('quietmoon'), messages: 15, text: 'Quiet until it matters, and knows the Pyro jump routes cold. Usually around late evenings JST. Prefers short answers with a source, and flies a Constellation with two regulars from the org.' },
+    { who: who('DadBodNerd'), messages: 22, text: 'Runs the Friday movie nights and most of the org ops. Dry sense of humour, answers questions before they finish being asked, and would rather be given the short version.' },
+  ],
+  remembered: [
+    { who: who('DadBodNerd'), where: '#general', type: 'fact', text: 'Flies a Carrack named Long Way Round.', said: 'the Carrack’s name is Long Way Round btw, don’t let vex rename it again' },
+    { who: who('Kestrel'), where: '#general', type: 'preference', text: 'Prefers voice over text for anything long.', said: 'honestly just hop in voice if it’s longer than a paragraph' },
+  ],
+  glossary: [
+    { subject: 'ICA', text: 'ICA is short for Ironclad Assault.', where: '#general' },
+    { subject: 'Checkmate', text: 'Checkmate is where the org meets up in Pyro.', where: '#general' },
+  ],
+  status: [{ text: 'watching the stars', how: 'Set when it started' }, { text: 'counting quantum fuel', how: 'Set during a conversation in #general' }],
+  learned: [
+    { title: 'Comm-Link', url: 'https://robertsspaceindustries.com/comm-link', count: 214, who: who('DadBodNerd'), how: 'site' },
+    { title: '', url: 'https://starcitizen.tools/Pyro', count: 96, who: who('NightOwl_88'), how: 'page' },
+  ],
+  reminder: [{ who: who('DadBodNerd'), where: '#general', text: 'Fuel the Carrack before the op.' }],
+  image: [{ who: who('hollowpoint'), where: '#off-topic', text: 'a Carrack over microTech at dusk' }],
+}
+const ACTIVITY = { seeded: 0, items: [] as any[], next: 0, seq: 0, used: {} as Record<string, number> }
+function mockActivity() {
+  const now = Date.now()
+  const iso = (ago: number) => new Date(now - ago * 1000).toISOString()
+  const make = (kind: string, data: any, ago = 0) => ({ id: `${kind}:${++ACTIVITY.seq}`, kind, at: iso(ago), ...data })
+  if (!ACTIVITY.seeded) {
+    const P = ACTIVITY_POOLS
+    ACTIVITY.items = [
+      make('reply', P.reply[0], 40), make('impression', P.impression[0], 190), make('reply', P.reply[1], 320),
+      make('member', P.member[2], 480), make('remembered', P.remembered[0], 730), make('status', P.status[0], 1140),
+      make('learned', P.learned[0], 2400), make('glossary', P.glossary[0], 3000),
+    ]
+    ACTIVITY.used = { reply: 1, impression: 0, member: 2, remembered: 0, status: 0, learned: 0, glossary: 0 }
+    ACTIVITY.seeded = now
+    ACTIVITY.next = now + 12000
+  } else if (now >= ACTIVITY.next) {
+    const kinds = ['reply', 'reply', 'reply', 'reply', 'impression', 'remembered', 'member', 'glossary', 'status', 'learned', 'reminder', 'image']
+    const kind = kinds[Math.floor(Math.random() * kinds.length)]
+    const pool = ACTIVITY_POOLS[kind]
+    const i = ACTIVITY.used[kind] = ((ACTIVITY.used[kind] ?? -1) + 1) % pool.length
+    ACTIVITY.items.unshift(make(kind, pool[i]))
+    ACTIVITY.items.length = Math.min(ACTIVITY.items.length, 24)
+    ACTIVITY.next = now + 10000 + Math.random() * 10000
+  }
+  return {
+    ok: true, supported: true, items: ACTIVITY.items,
+    members: { count: 176, at: new Date((SETUP_STATE.bootAt || now) + 20000).toISOString(), faces: PEOPLE.slice(0, 11).map(who) },
+    health: { vec: true, sandbox: true, model: 'ok' },
+  }
+}
+
 function setupMock(req: any, url: string, send: (obj: unknown, status?: number) => void): boolean {
   const later = (ms: number, fn: () => void) => { setTimeout(fn, ms); return true }
   const body = (fn: (b: any) => void) => {
@@ -494,12 +563,21 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     return true
   }
   const bad = (v: unknown) => typeof v === 'string' && v.trim().toLowerCase().startsWith('bad')
-  const finish = (as: 'local' | 'server') => { SETUP_STATE.done = as; SETUP_STATE.unread = true }
+  const finish = (as: 'local' | 'server') => {
+    SETUP_STATE.done = as; SETUP_STATE.unread = true
+    if (as === 'server') { SETUP_STATE.bootAt = Date.now(); ACTIVITY.seeded = 0 }
+  }
+  // `SETUP_MOCK=server`: an install that finished long ago, on a server up for a few hours.
+  if (SETUP === 'server' && !SETUP_STATE.done) {
+    SETUP_STATE.done = 'server'
+    SETUP_STATE.bootAt = Date.now() - (3 * 3600 + 720) * 1000
+    SETUP_WAIT.signin = Date.now() - 60000
+  }
 
   if (url.startsWith('/api/setup/status')) {
     // The read straight after finishing sees the finished install, which is what routes the
     // wizard into the console. Any read after that is a reload, and starts setup over.
-    const done = SETUP_STATE.unread ? SETUP_STATE.done : ''
+    const done = SETUP_STATE.unread || SETUP === 'server' ? SETUP_STATE.done : ''
     SETUP_STATE.unread = false
     if (!done) {
       SETUP_STATE.done = ''
@@ -509,6 +587,10 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
       configured: !!done, local_url: 'http://localhost:8723', redirect_uri: 'http://localhost:8723/auth/callback',
       tunnel_enabled: false, hosting_mode: done === 'server' ? 'server' : 'local', ...(done ? {} : { prefill: {} }),
     }), true
+  }
+  // A local setup lands on sign-in, as a real install does: nobody is signed in yet.
+  if (SETUP_STATE.done === 'local' && (url === '/api/me' || url.startsWith('/api/member/session'))) {
+    return send({ detail: 'not signed in' }, 401), true
   }
   if (url.startsWith('/api/bots/share-server')) return body(() => later(1400, () => send({
     ok: true, host: '203.0.113.9', user: 'ubuntu', admin_allowlist: 'gcrft123',
@@ -558,12 +640,20 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     }
     finish('server'); send({ ok: true })
   }))
-  // The control panel a server deploy lands on.
-  if (url.startsWith('/api/server/status')) return send({
-    configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
-    health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', logs: '',
-    url: SETUP_STATE.consoleErr ? '' : 'https://olisar.tail4f2a.ts.net', console_error: SETUP_STATE.consoleErr,
-  }), true
+  // The control panel a server deploy lands on. The container reads as starting for its first
+  // few seconds, then healthy; Docker's healthcheck runs every 30 seconds.
+  if (url.startsWith('/api/server/status')) {
+    const boot = SETUP_STATE.bootAt || Date.now()
+    const up = Date.now() - boot
+    const lastCheck = up < 3000 ? 0 : boot + 3000 + Math.floor((up - 3000) / 30000) * 30000
+    return send({
+      configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
+      health: up < 3000 ? 'starting' : 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', logs: '',
+      started_at: new Date(boot).toISOString(), health_at: lastCheck ? new Date(lastCheck).toISOString() : '',
+      url: SETUP_STATE.consoleErr ? '' : 'https://olisar.tail4f2a.ts.net', console_error: SETUP_STATE.consoleErr,
+    }), true
+  }
+  if (url.startsWith('/api/server/activity')) return later(500, () => send(mockActivity()))
   if (url.startsWith('/api/server/tunnel-key')) return body((b) => later(3000, () => {
     if (bad(b.key)) return send({ ok: false, error: MOCK_KEY_REFUSED })
     SETUP_STATE.consoleErr = ''
@@ -573,6 +663,7 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
   // SETUP_MOCK=intents also has the server bot's intents off until Turn on and restart.
   if (url.startsWith('/api/server/discord')) return later(400, () => send({
     ok: true, app_id: MOCK_APP_ID, redirect: 'https://olisar.tail4f2a.ts.net/auth/callback', added: waited('signin', 6000),
+    bot_name: 'Olisar', bot_avatar: '',
     intents_missing: SETUP === 'intents' && !SETUP_WAIT.intentsFixed ? ['message_content'] : [],
   }))
   if (url.startsWith('/api/server/reconnect')) return later(1500, () => { SETUP_WAIT.intentsFixed = 1; send({ ok: true, running: true, intents_missing: [] }) })

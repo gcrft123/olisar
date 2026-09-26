@@ -513,8 +513,24 @@ always-on Linux server, so you don't need to leave your computer on.
 - A free **Gemini API key**.
 - A free **Tailscale** account and a reusable **auth key** — this gives the server a public `https://…ts.net` address with no domain or open ports.
 
-#### Set it up — one line
-SSH into the VM and run:
+#### Set it up from the desktop app
+Pick **Server shared hosting** in the setup wizard and its Deploy step installs Olisar onto your VM
+over SSH, with no terminal needed. The VM has to exist first, made with the SSH key the Deploy step
+shows.
+
+#### A free VM on Oracle Cloud
+1. Create a free [Oracle Cloud account](https://www.oracle.com/cloud/free/). A card is needed to verify identity, but the Always Free Arm server costs nothing.
+2. Open **Menu → Compute → Instances → Create instance**. Pick the image **Ubuntu 22.04** and the shape **VM.Standard.A1.Flex** (Ampere, Always Free). If it says **out of capacity**, switch the Availability Domain or the region and try again: free Arm capacity frees up through the day.
+3. Under **Add SSH keys**, choose **Paste public keys** and paste the key from the Deploy step. Leave networking on its defaults, and create the instance.
+4. Open the instance's details, copy its **Public IP address** into the Deploy step, and press **Deploy to server**.
+
+#### Any other Linux VM
+1. Create an **Ubuntu 22.04** VM with 1 GB of memory or more, anywhere (DigitalOcean, Hetzner, AWS EC2), with the user `ubuntu` and passwordless `sudo`.
+2. Add the SSH public key from the Deploy step to the VM: its provider's SSH keys box, or `~/.ssh/authorized_keys`.
+3. Copy the VM's public IP into the Deploy step and press **Deploy to server**.
+
+#### Set it up from a terminal
+Without the desktop app, SSH into the VM and run:
 
 ```
 curl -fsSL https://raw.githubusercontent.com/gcrft123/olisar/main/deploy/bootstrap.sh | bash
@@ -533,6 +549,12 @@ Deployed from the desktop app's setup wizard instead? Its server control panel s
 to add and ticks it off once Discord has it. It also tells you if Discord refuses the bot because an intent
 is off, which the server itself can't: the container still reads as running. **Turn on and restart** fixes
 it where Discord allows.
+
+Once the server runs healthy and Discord has the address, the panel moves into the window's top-left
+corner and the rest of the window shows what the bot has been doing: who it answered and how it was
+called, who joined, what it learned about people and about the server, and the sources it read. Click
+one to read it in full. Anything that needs a look, like a stopped or unhealthy server, brings the full
+panel back.
 
 #### Several bots on one server
 

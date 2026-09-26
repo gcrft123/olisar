@@ -421,7 +421,8 @@ class Proactive(commands.Cog):
         # channel that went quiet the second before doesn't quote for no reason.
         sent = await send_paced(channel, clean, reply_to=anchor_for(self.bot, trigger))
         await record_bot_messages(
-            sent, guild_id=guild_id, channel_id=channel_id, bot_user_id=self.bot.user.id
+            sent, guild_id=guild_id, channel_id=channel_id, bot_user_id=self.bot.user.id,
+            trigger="proactive", answering=msg_id,
         )
         return True
 

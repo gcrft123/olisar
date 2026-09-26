@@ -8,6 +8,8 @@ const STATES: { id: string; label: string; env: MockEnv }[] = [
   // The wizard, then the console just after setup. Deploying to a server lands on a control
   // panel whose bot Discord refuses, so its fix shows too.
   { id: 'setup', label: 'Setup', env: { setup: 'intents', fresh: '1' } },
+  // A server that has been up a few hours: the panel folds into what its bot has been doing.
+  { id: 'server', label: 'Server', env: { setup: 'server' } },
   { id: 'console', label: 'After setup', env: { fresh: '1' } },
   { id: 'refused', label: 'Bot refused', env: { fresh: 'refused' } },
   { id: 'admin', label: 'Server admin', env: { fresh: '1', role: 'admin' } },

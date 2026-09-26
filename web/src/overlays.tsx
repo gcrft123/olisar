@@ -431,7 +431,7 @@ function ConfirmHost() {
 // Fixed-positioned so it's never clipped by an overflow:hidden modal; flips below
 // the target when there's no room above. Monaco owns its own hovers, so it's skipped.
 function TooltipHost() {
-  const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean } | null>(null)
+  const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean; right?: boolean } | null>(null)
   useEffect(() => {
     let current: Element | null = null
     const hide = () => { current = null; setTip(null) }
@@ -464,6 +464,12 @@ function TooltipHost() {
       // --ui-scale instead was right in the browser (Chromium 128+) and wrong in the
       // desktop app (Chromium 126), where it threw the tip left of its target.
       const k = rectScale()
+      // Beside a rail's buttons (`data-tip-side="right"`), where above or below would cover
+      // the next button. Not on a phone, where the rail is a bar across the top.
+      if (el.getAttribute('data-tip-side') === 'right' && window.innerWidth > 560) {
+        setTip({ text, x: Math.round((r.right + 10) / k), y: Math.round((r.top + r.height / 2) / k), below: false, right: true })
+        return
+      }
       const below = r.top < 52 * k   // a CSS-px threshold, compared against a rect
       setTip({
         text,
@@ -516,7 +522,7 @@ function TooltipHost() {
   }, [])
   if (!tip) return null
   return createPortal(
-    <div className={'tooltip' + (tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
+    <div className={'tooltip' + (tip.right ? ' right' : tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
       {tip.text}
     </div>,
     document.body,
