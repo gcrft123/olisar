@@ -6,7 +6,7 @@ import { FeedbackButton } from './settings'
 import { logTail, reportBody } from './feedback'
 import { SHAPE } from './form'
 import { handOff, Pane, shake, useForm, usePulseOn, useShell } from './onboarding'
-import { Field, Segmented, Select, Text, usePoll } from './ui'
+import { Badge, Field, Segmented, Select, Text, usePoll } from './ui'
 
 export type SetupPrefill = {
   discord_token?: string
@@ -235,7 +235,7 @@ export function RedirectRow({ url, added }: { url: string; added: boolean }) {
     <div className="redirect-box">
       <span>{url}</span>
       {added
-        ? <span className="ok-pill wiz-pop"><Icon.check size={14} weight="Bold" /> Added</span>
+        ? <span className="wiz-pop"><Badge tone="success" icon="check-circle">Added</Badge></span>
         : <CopyText text={url} />}
     </div>
   )
@@ -777,7 +777,7 @@ export function SetupWizard(
             </div>
             <Field label="Bot token">
               <Text field="s-token" invalid={tokenCheck.state === 'bad' || flagged === 's-token'} value={token}
-                onChange={edit('s-token', setToken)} placeholder="your bot token" mono />
+                onChange={edit('s-token', setToken)} placeholder="Paste the token here" mono />
             </Field>
             <CheckLine
               check={tokenCheck}
@@ -832,7 +832,9 @@ export function SetupWizard(
                 {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
               </button>
               <span className="grow">
-                {tunnelDone && tunnelUrl && <span className="ok-pill wiz-pop"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
+                {tunnelDone && tunnelUrl && (
+                  <span className="live-at wiz-pop"><Badge tone="success" icon="check-circle">Live</Badge><span className="mono">{tunnelUrl}</span></span>
+                )}
                 {tunnelErr && <span className="err wiz-appear"><Linkified text={tunnelErr} /></span>}
               </span>
             </div>
@@ -857,7 +859,7 @@ export function SetupWizard(
               desc={<>On {A(`${PORTAL}/${bot.id}/oauth2`, 'the OAuth2 page')}, press <strong>Reset Secret</strong> and copy it.</>}
             >
               <Text field="s-secret" invalid={secretCheck.state === 'bad' || flagged === 's-secret'} value={secret}
-                onChange={edit('s-secret', setSecret)} placeholder="client secret" mono />
+                onChange={edit('s-secret', setSecret)} placeholder="Paste the secret here" mono />
             </Field>
             <CheckLine
               check={secretCheck}

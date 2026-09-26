@@ -915,7 +915,7 @@ const ACCESS_OPTS = [
 
 // A Discord role chip: the role's own colour as a dot and a tinted border, the way it
 // reads in Discord's member list. `color` is "" for an uncoloured role.
-function RoleChip({ name, color }: { name: string; color?: string }) {
+export function RoleChip({ name, color }: { name: string; color?: string }) {
   const c = color || ''
   return (
     <span className={'rolechip' + (c ? '' : ' plain')} style={c ? { '--rc': c } as React.CSSProperties : undefined}>

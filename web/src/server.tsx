@@ -7,6 +7,7 @@ import { createBrain, type Brain } from './brain'
 import { SHAPE, type Mood } from './form'
 import { Icon } from './icons'
 import { Pane, useArrived, useForm, useInert, useShell } from './onboarding'
+import { RoleChip } from './pages'
 import { toast, type Tone } from './overlays'
 import { CopyText, DisclosureChev, Linkified, PubkeyBox, RedirectRow, usePubkey } from './setup'
 import { FeedbackButton } from './settings'
@@ -753,7 +754,7 @@ function MemoryBody({ m }: { m: ActivityItem }) {
     case 'glossary': return <><span className="mem-ic"><Icon.knowledge size={15} /></span>{text(m.text)}</>
     case 'learned': return <><span className="mem-ic"><Icon.docs size={15} /></span><MemLink text={m.title || hostOf(m.url)} />{text(`${m.count} passages`)}</>
     case 'status': return <div className="mem-text"><i className="mem-dot" />{m.text}</div>
-    case 'health': return <><span className="mem-ic ok"><Icon.check size={16} weight="Bold" /></span><div className="mem-text"><b>Healthy</b></div></>
+    case 'health': return <Badge tone="success" icon="check-circle">Healthy</Badge>
     case 'image': return <>{who(m.who)}{text(`“${m.text}”`)}</>
     case 'impression': return <>{who(m.who)}{text(firstSentence(m.text))}</>
     default: return <>{who(m.who)}{text(m.text)}</>
@@ -822,18 +823,19 @@ function OpenBody({ m, now, bot }: { m: ActivityItem; now: number; bot: Person }
     </>
     case 'reminder': return <><div className="mo-chat"><Msg who={bot} text={m.text} bot /></div><div className="mo-meta">For {m.who.name}</div></>
     case 'image': return <><Who p={m.who} /><p className="mo-text">“{m.text}”</p></>
-    case 'member': return <><Av who={m.who} size={56} /><p className="mo-text mo-strong">{m.who.name}</p>{m.roles.length > 0 && <div className="mo-roles">{m.roles.map((r) => <span key={r}>{r}</span>)}</div>}</>
+    case 'member': return <><Av who={m.who} size={56} /><p className="mo-text mo-strong">{m.who.name}</p>{m.roles.length > 0 && <div className="mo-roles">{m.roles.map((r) => <RoleChip key={r} name={r} />)}</div>}</>
     case 'people': return <><p className="mo-big">{m.count} members</p><div className="mo-faces">{m.faces.map((f, i) => <Av key={i} who={f} size={26} />)}</div></>
     case 'health': return <>
-      <span className="mem-ic ok"><Icon.check size={20} weight="Bold" /></span>
-      <p className="mo-text mo-strong">Healthy</p>
+      <Badge tone="success" icon="check-circle">Healthy</Badge>
+      {/* Each thing the check covers, as the backend's own self-check reports it. Only one
+          that failed is marked; one that couldn't tell ("inconclusive") isn't. */}
       <div className="mo-checks">
-        <div><Icon.check size={14} weight="Bold" /><span>Web server</span></div>
+        <Badge tone="success" icon="check-circle">Web server</Badge>
         {HEALTH.filter(([key]) => m.checks?.[key] != null).map(([key, name]) => {
           const v = m.checks![key]
-          // Only a check that failed is marked; one that couldn't tell ("inconclusive") isn't.
-          const ok = v !== false && v !== 'failed'
-          return <div key={key} className={ok ? '' : 'off'}>{ok ? <Icon.check size={14} weight="Bold" /> : <Icon.warn size={14} weight="Bold" />}<span>{name}</span></div>
+          return v === false || v === 'failed'
+            ? <Badge key={key} tone="danger" icon="close-circle">{name}</Badge>
+            : <Badge key={key} tone="success" icon="check-circle">{name}</Badge>
         })}
       </div>
       <div className="mo-meta">Checked {secsAgo(m.at, now)}s ago, every 30 seconds</div>
