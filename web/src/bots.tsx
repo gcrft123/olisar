@@ -37,12 +37,28 @@ let store: BotList | null | false = null
 let inflight: Promise<void> | null = null
 const listeners = new Set<() => void>()
 
+// The desktop window opens as soon as the bot on screen answers, which is before the other
+// bots' processes have. So the list read at page load has them all starting, and it stays
+// that way on every screen until something reads it again. While any bot is on its way up,
+// the list is read again this often, until each one is up or has failed.
+const SETTLE_MS = 2000
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+
+function settleSoon() {
+  clearTimeout(settleTimer)
+  settleTimer = undefined
+  if (!store || !listeners.size) return
+  if (store.profiles.some((b) => b.state !== 'ready' && b.state !== 'failed')) {
+    settleTimer = setTimeout(() => { settleTimer = undefined; void loadBots() }, SETTLE_MS)
+  }
+}
+
 export function loadBots(): Promise<void> {
   if (inflight) return inflight
   inflight = api.botList()
     .then((d: BotList) => { store = d })
     .catch(() => { if (store === null) store = false })
-    .finally(() => { inflight = null; listeners.forEach((l) => l()) })
+    .finally(() => { inflight = null; listeners.forEach((l) => l()); settleSoon() })
   return inflight
 }
 
@@ -51,7 +67,8 @@ export function useBots(pollMs = 0) {
   useEffect(() => {
     const l = () => bump((n) => n + 1)
     listeners.add(l)
-    if (store === null) void loadBots()
+    // Something that polls wants the list as it is now, not as the last screen read it.
+    if (store === null || pollMs) void loadBots()
     const t = pollMs ? setInterval(() => { void loadBots() }, pollMs) : undefined
     return () => { listeners.delete(l); if (t) clearInterval(t) }
   }, [pollMs])
