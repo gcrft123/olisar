@@ -38,6 +38,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 The server panel had an Update button that moved the VM onto the newest release by hand. Since 2.0 the app does that itself whenever it starts up on a newer version than the VM, which is every launch after it updates, so the button only repeated it. The server now moves when the app does.
 
+Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -337,6 +339,14 @@ The server panel had an Update button that moved the VM onto the newest release 
 [4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
 [8388322] — Transcripts, channel summaries, catch-ups and the prompts that decide whether the bot chimes in or reacts call it by its persona's name, so a bot whose persona has another name no longer reads its own messages as someone called Olisar.
+
+[b30006b] — Resetting a bot's configuration opens setup from the first step, instead of the connect-to-a-server screen for a bot that was on a server.
+
+[b30006b] — Setting a bot up on this computer after it was on a server starts it here, instead of ending on a server panel with no server.
+
+[b30006b] — Resetting a bot's configuration turns its remote access off right away; before, it stayed on until the app restarted.
+
+[b30006b] — The reset dialog for a server-hosted bot says its server keeps running, instead of saying the reset takes it offline.
 
 ## [1.5.0] — 2026-09-21
 
