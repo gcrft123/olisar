@@ -476,9 +476,6 @@ function General() {
       <div className="settings-row">
         <SizeChoice />
       </div>
-      <p className="settings-foot">
-        Scales the whole interface, the way your browser's zoom does. Applies to this browser only.
-      </p>
 
       {/* This pane held one three-option control in a 900x620 sheet — about 85% empty on the
           modal's default view. Shortcuts belong to "how the console behaves for me", they
