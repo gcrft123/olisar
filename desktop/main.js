@@ -270,7 +270,8 @@ function createWindow() {
   })
   // The console holds the window open over unsaved edits (a beforeunload guard). Electron
   // honours that silently, and on a quit the backend was already on its way down, so the app
-  // was left running with no window, no tray and no backend. Once quitting, the page goes.
+  // was left running with no window, no tray and no backend, and an update never restarted.
+  // Once quitting, the page goes. An update warns about unsaved edits while it downloads.
   win.webContents.on('will-prevent-unload', (e) => { if (app.isQuitting) e.preventDefault() })
   win.on('closed', () => { win = null })
 }
@@ -336,15 +337,21 @@ async function checkForUpdatesInteractive() {
 const UPDATE_INTERVAL_MS = 6 * 60 * 60 * 1000  // re-check every 6 hours
 
 // Update state for the in-app Settings → Updates panel (a serializable slice of the
-// updater's state, so the dashboard's "Install & restart" button works without the tray).
+// updater's state, so the dashboard's "Install & restart" button works without the tray),
+// and for the update screen, which reads `progress` when a window loads mid-update.
 function updateState() {
   const u = updater.getAvailableUpdate()
   return {
     available: u ? { version: u.version, hasInstaller: !!u.hasInstaller } : null,
     canSelfUpdate: updater.canSelfUpdate(),
     installing: updater.isInstalling(),
+    progress: updater.getProgress(),
   }
 }
+
+// The version this install ran before an update landed, read once by the window so it can
+// say the update worked. Set at launch by clearCacheOnNewVersion.
+let updatedFrom = null
 
 // IPC for the renderer's in-app updater (exposed via preload as window.olisar.updates).
 function registerUpdateIpc() {
@@ -358,8 +365,14 @@ function registerUpdateIpc() {
     let u = updater.getAvailableUpdate()
     if (!u) u = await updater.checkForUpdates()  // renderer may ask before the background poll ran
     if (!u) return { ok: false, reason: 'up-to-date' }
-    await updater.installUpdate(u)  // self-installs + relaunches, or opens the download page
-    return { ok: true }
+    return updater.installUpdate(u)  // self-installs + relaunches, or opens the download page
+  })
+  ipcMain.handle('updates:cancel', () => updater.cancelInstall())
+  ipcMain.handle('updates:dismiss', () => updater.dismissFailure())
+  ipcMain.handle('updates:just-updated', () => {
+    const from = updatedFrom
+    updatedFrom = null
+    return from ? { from: updater.displayVersion(from), to: updater.displayVersion(app.getVersion()) } : null
   })
 }
 
@@ -376,6 +389,7 @@ async function clearCacheOnNewVersion() {
   let last = ''
   try { last = fs.readFileSync(marker, 'utf8').trim() } catch { /* first launch */ }
   if (last === app.getVersion()) return
+  if (last) updatedFrom = last
   try { await session.defaultSession.clearCache() } catch { /* a stale page is the worst case */ }
   try { fs.writeFileSync(marker, app.getVersion()) } catch { /* retried next launch */ }
 }
@@ -396,9 +410,10 @@ async function boot() {
   createWindow()
   setInterval(refreshStatus, 10000)  // keep the tray status fresh
   // Check for a newer GitHub release shortly after launch, then periodically.
-  // getMainWindow lets it show download progress on the dock; stopBackend lets it wait for
-  // every bot to exit before an installer replaces the files they run from.
-  updater.init({ getMainWindow: () => win, stopBackend })
+  // getMainWindow lets it show download progress on the dock and feed the update screen;
+  // showWindow brings that screen forward; stopBackend lets it wait for every bot to exit
+  // before an installer replaces the files they run from.
+  updater.init({ getMainWindow: () => win, showWindow: createWindow, stopBackend })
   setTimeout(checkUpdates, 8000)
   setInterval(checkUpdates, UPDATE_INTERVAL_MS)
 }
@@ -416,9 +431,12 @@ if (!app.requestSingleInstanceLock()) {
   let backendStopped = false
   app.on('before-quit', (e) => {
     app.isQuitting = true
+    // Quitting while an update downloads calls the update off.
+    updater.cancelInstall()
     if (backendStopped || !backend) return
     e.preventDefault()
-    for (const w of BrowserWindow.getAllWindows()) w.hide()
+    // An update keeps its window up to show the last steps; any other quit hides it at once.
+    if (!updater.isCommitted()) for (const w of BrowserWindow.getAllWindows()) w.hide()
     if (tray) { tray.destroy(); tray = null }
     stopBackend().finally(() => { backendStopped = true; app.quit() })
   })

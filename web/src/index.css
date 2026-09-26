@@ -1736,6 +1736,39 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
   .onb .steps i.on::after { opacity: 1; }
 }
 
+/* ── The update screen ── */
+/* The desktop app installing an update (updating.tsx): the first-run frame over everything,
+   opaque, so nothing under it can be read as still usable. Above the tooltip layer (400). */
+.upd { position: fixed; inset: 0; z-index: 500; background: var(--bg); animation: wiz-fade var(--dur-slow) var(--ease-out) both; }
+/* One row per step: its mark, its name, and a readout at the end. The download's bar and a
+   failure's reason sit under the name. */
+.upd-steps { list-style: none; margin: 0; padding: 0; max-width: 440px; display: flex; flex-direction: column; gap: 2px; }
+.upd-step {
+  display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; column-gap: 12px;
+  min-height: 34px; font-size: 14px; color: var(--text-3);
+  transition: color var(--dur-mid) var(--ease-out);
+}
+.upd-step.active, .upd-step.failed { color: var(--text); font-weight: 550; }
+.upd-step.done { color: var(--text-2); }
+/* The Get started list's ring: empty while it waits, turning while it runs (the spinner's
+   accent arc), a bare check where the ring was once it's done, and a bare × if it failed. */
+.upd-mark {
+  width: 16px; height: 16px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  border: 1.5px solid var(--border-strong);
+}
+.upd-step.active .upd-mark { border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.upd-step.done .upd-mark { border-color: transparent; color: var(--ok); }
+.upd-step.failed .upd-mark { border-color: transparent; color: var(--danger); }
+.upd-step.done .upd-mark path { stroke-dasharray: 1; animation: gs-draw .25s var(--ease-out) both; }
+.upd-detail { font-family: var(--font-mono); font-size: 12.5px; font-weight: 400; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.upd-step .progress { grid-column: 2 / -1; margin: 2px 0 10px; }
+/* The reason is the exact wording, so it can be selected and pasted into a report. */
+.upd-err { grid-column: 2 / -1; margin: 0 0 10px; color: var(--danger); font-size: 13px; font-weight: 400; user-select: text; overflow-wrap: anywhere; }
+.upd .upd-note { max-width: 440px; margin: 24px 0 0; }   /* over .callout's own margin, set later */
+@media (prefers-reduced-motion: reduce) {
+  .upd-step.active .upd-mark { animation-duration: 1.6s; }
+}
+
 /* ── The final server screen ── */
 /* Running, healthy, and the console's redirect listed: the form in the middle of the window,
    the panel's title, status and controls small in its top-left corner, and memories of what
