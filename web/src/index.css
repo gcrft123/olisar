@@ -2295,6 +2295,24 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .testchat-fab:active { transform: scale(0.96); }
 .testchat-fab:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
 
+/* The save dock and the FAB collide: at 390px `elementFromPoint` over "Save changes" returned
+   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
+   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
+   aside while it is up.
+
+   But only where they actually meet, which is 1024px and below. The dock is centred over
+   the content column and the FAB is pinned to the right edge, so the gap between them grows
+   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
+   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
+   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
+   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
+@media (max-width: 1120px) {
+  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
+}
+@media (max-width: 720px) {
+  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+}
+
 .chatdrawer-backdrop {
   position: fixed; inset: 0; z-index: 100;
   background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px);
@@ -2721,67 +2739,75 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .rx-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rx-count { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
 
-/* ── Toast (bottom-right status) ─────────────────────────────────────────── */
-/* Same tinting as the callout, fixed bottom-right, slides in from the right.
-   Driven imperatively from overlays.tsx; tones: success / warning / danger / info / neutral. */
-/* The stack sits at a fixed 24px and gets out of the way with `transform`, not `bottom`:
-   `bottom` is laid out, so it can't transition, and the dock appears on the operator's first
-   keystroke — which is exactly when a toast is most likely to be on screen reading itself.
-   Jumping 72px in one frame is how the receipt naming what changed becomes unreadable. */
-.toast-stack {
-  position: fixed; right: 24px; bottom: 24px; z-index: 200;
-  display: flex; flex-direction: column; gap: 10px; align-items: flex-end; pointer-events: none;
-  transition: transform var(--dur-slow) var(--ease-out);
-}
-/* Persona mounts a launcher in this exact corner, so a toast fired from that page — often
-   about the thing the operator just did there — landed on top of it. Sit above it instead. */
-body:has(.testchat-fab) .toast-stack { transform: translateY(-52px); }
-/* The save dock is centred but wide, and at common widths its right edge runs under the
-   toast stack — measured 113x57px of overlap at 1440. Every bulk "Set all N…" fires both
-   at once, so the receipt naming what just changed was the thing you couldn't read. Lift
-   the toasts clear while the dock is up. */
-body:has(.savedock.show) .toast-stack { transform: translateY(-72px); }
-/* Both up and the FAB has not moved: the two share a vertical band (dock 22–64 from the
-   bottom, FAB 24–64), so the dock's own clearance already covers the button. Stated at the
-   combined specificity or the -72px above loses to it. */
-body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-72px); }
-
-/* Same collision, higher stakes: at 390px `elementFromPoint` over "Save changes" returned
-   the FAB, so tapping Save opened the test-chat drawer — on a product whose whole contract
-   is that nothing applies until you press Save. The dock wins the corner; the FAB steps
-   aside while it is up.
-
-   But only where they actually meet, which is 1024px and below. The dock is centred over
-   the content column and the FAB is pinned to the right edge, so the gap between them grows
-   with the viewport: measured 25px of clear air at 1100, 115px at 1280, 435px at 1920.
-   Lifting regardless meant the button jumped 64px on the operator's first keystroke, on
-   every ordinary desktop, to dodge something nowhere near it. 1120px is the existing
-   breakpoint one step up from the collision, and leaves ~35px of margin at the boundary. */
-@media (max-width: 1120px) {
-  body:has(.savedock.show) .testchat-fab { translate: 0 -64px; }
-  /* Now the stack has to clear a button that has itself moved up. */
-  body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY(-124px); }
-}
-@media (max-width: 720px) {
-  body:has(.savedock.show) .testchat-fab { opacity: 0; pointer-events: none; }
+/* ── Toast (top-right stack) ─────────────────────────────────────────────── */
+/* Base UI's Toast (overlays.tsx) keeps the state; this draws it. Each toast gets
+   --toast-index (0 = newest), --toast-height, --toast-offset-y (the heights of the toasts
+   above it) and the live --toast-swipe-movement-x/y; the viewport carries
+   --toast-frontmost-height. Collapsed, older toasts shrink behind the newest and peek out
+   below it. [data-expanded] (pointer over the stack, or keyboard focus in it) fans them out
+   into a column. Same tinting as the callout; tones: success / warning / danger / info / neutral. */
+.toast-viewport {
+  position: fixed; top: 24px; right: 24px; z-index: 200;
+  width: min(380px, calc(var(--vw) - 48px));
+  outline: none;
 }
 .toast {
-  display: flex; align-items: center; gap: 12px; min-width: 280px; max-width: 420px;
-  padding: 13px 15px; border-radius: var(--radius); pointer-events: auto;
+  --gap: 10px;
+  --peek: 10px;
+  --scale: calc(max(0, 1 - var(--toast-index) * 0.1));
+  --shrink: calc(1 - var(--scale));
+  --height: var(--toast-frontmost-height, var(--toast-height));
+  --offset-y: calc(var(--toast-offset-y) + var(--toast-index) * var(--gap) + var(--toast-swipe-movement-y));
+  /* Where the toast sits when nothing is entering or leaving. Named so reduced motion can
+     park an exit in place instead of sending it off the top. */
+  --rest: translateX(var(--toast-swipe-movement-x))
+    translateY(calc(var(--toast-swipe-movement-y) + var(--toast-index) * var(--peek) + var(--shrink) * var(--height)))
+    scale(var(--scale));
+  position: absolute; top: 0; right: 0; width: 100%; box-sizing: border-box;
+  height: var(--height); z-index: calc(1000 - var(--toast-index));
+  border-radius: var(--radius);
   --tc: var(--neutral); --tc-border: var(--neutral-border);
   border: 1px solid var(--tc-border); background: color-mix(in srgb, var(--tc) 11%, var(--panel));
   box-shadow: var(--shadow-pop); color: var(--text);
-  transform: translateX(24px); opacity: 0;
-  transition: transform var(--dur-slow) var(--ease-out), opacity 0.24s var(--ease-out);
+  user-select: none; cursor: default;
+  transform-origin: top center; transform: var(--rest);
+  transition: transform 0.4s var(--ease-out), opacity var(--dur-slow) var(--ease-out),
+    height var(--dur-mid) var(--ease-out);
 }
-.toast.show { transform: translateX(0); opacity: 1; }
+.toast[data-expanded] {
+  --rest: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y));
+  height: var(--toast-height);
+}
+/* In from above, and back out the same way unless it was swiped somewhere else. */
+.toast[data-starting-style], .toast[data-ending-style] { transform: translateY(-150%); }
+.toast[data-ending-style] { opacity: 0; }
+.toast[data-ending-style][data-swipe-direction='up'] { transform: translateY(calc(var(--toast-swipe-movement-y) - 150%)); }
+.toast[data-ending-style][data-swipe-direction='right'] {
+  transform: translateX(calc(var(--toast-swipe-movement-x) + 150%)) translateY(var(--offset-y));
+}
+/* Past the limit of three. Still mounted (and inert); it comes back when a newer one leaves. */
+.toast[data-limited] { opacity: 0; }
+/* Fills the gap above each toast, so a pointer moving down the fanned-out stack never
+   leaves it, which would collapse the stack out from under the pointer. */
+.toast::after { content: ''; position: absolute; left: 0; bottom: 100%; width: 100%; height: calc(var(--gap) + 1px); }
+.toast:focus-visible { outline: none; box-shadow: var(--ring), var(--shadow-pop); }
+.toast-content {
+  display: flex; align-items: center; gap: 12px; padding: 13px 15px; overflow: hidden;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+/* A toast behind the newest is cut to the newest one's height, so its text would spill or
+   clip mid-line. It shows as an edge until the stack fans out. */
+.toast-content[data-behind] { opacity: 0; }
+.toast-content[data-expanded] { opacity: 1; }
 .toast .ic { color: var(--tc); flex: none; display: grid; place-items: center; }
-/* min-width:0 so a long message truncates inside the flex row instead of widening it and
-   pushing a trailing action button past the toast's max-width. */
-.toast .toast-msg { font-size: 13px; line-height: 1.45; flex: 1; min-width: 0; }
+/* min-width:0 so a long message wraps inside the flex row instead of widening it and
+   pushing a trailing action button out of the toast. */
+.toast .toast-msg { margin: 0; font-size: 13px; line-height: 1.45; flex: 1; min-width: 0; }
 /* A sticky toast is there to be read and quoted, so its text is selectable — the rest of
    the console suppresses selection on chrome, and a failure message is not chrome. A busy
-   toast is progress, not a message to quote, so it keeps the ordinary cursor. */
+   toast is progress, not a message to quote, so it keeps the ordinary cursor. The message
+   also opts out of swiping (data-base-ui-swipe-ignore), or every drag across it would be a
+   swipe rather than a selection. */
 .toast.sticky:not(.busy) .toast-msg { user-select: text; cursor: text; }
 .toast-x { flex: none; margin: -4px -4px -4px 0; color: var(--text-3); }
 /* Negative block margins keep the 34px text button from growing the toast's own height. */
@@ -2790,7 +2816,15 @@ body:has(.savedock.show):has(.testchat-fab) .toast-stack { transform: translateY
 .toast.danger  { --tc: var(--danger); --tc-border: var(--danger-border); }
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
-@media (prefers-reduced-motion: reduce) { .toast { transition: opacity 0.2s var(--ease-out); transform: none; } }
+@media (max-width: 720px) {
+  .toast-viewport { top: max(12px, env(safe-area-inset-top)); right: 12px; width: calc(var(--vw) - 24px); }
+}
+/* Nothing travels: toasts fade in and out where they stand, and the stack still collapses
+   and fans out, just without the glide. */
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: opacity var(--dur-slow) var(--ease-out); }
+  .toast[data-starting-style], .toast[data-ending-style] { opacity: 0; transform: var(--rest); }
+}
 
 /* ── Confirm dialog (centered; replaces native confirm/prompt) ───────────── */
 .confirm-dialog {
