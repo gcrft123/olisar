@@ -1,0 +1,632 @@
+/* Tokens: web/src/index.css :root, unchanged. */
+:root {
+  color-scheme: dark;
+  --ui-scale: 1.1;
+  zoom: var(--ui-scale);
+  --vh: calc(100vh / var(--ui-scale));
+  --vw: calc(100vw / var(--ui-scale));
+  --dvh: calc(100dvh / var(--ui-scale));
+  --bg: #020203; --bg-sidebar: #040405; --panel: #08080a; --bg-inset: #0f0f12; --input-bg: #0f0f12;
+  --border: #26262a; --border-strong: #323237;
+  --text: #ededee; --text-2: #9d9da7; --text-3: #7f7f8a;
+  --accent: #5b9cf6; --accent-soft: rgba(91, 156, 246, 0.16);
+  --primary-bg: #ededee; --primary-fg: #18181b; --primary-hover: #ffffff;
+  --ok: #43cf8e; --ok-soft: rgba(67, 207, 142, 0.14); --ok-border: rgba(67, 207, 142, 0.34);
+  --danger: #ff6369; --danger-soft: rgba(255, 99, 105, 0.13); --danger-border: rgba(255, 99, 105, 0.34);
+  --warn: #e3a13a; --warn-soft: rgba(227, 161, 58, 0.14); --warn-border: rgba(227, 161, 58, 0.34);
+  --info: #5fc4f2;
+  --dc-brand: #5865f2; --dc-brand-hover: #4752e0;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: var(--font-mono);
+  --radius: 16px; --radius-sm: 12px; --radius-xs: 8px; --radius-pill: 999px;
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --shadow-modal: 0 24px 70px rgba(0, 0, 0, 0.5);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 0.12s; --dur-mid: 0.16s; --dur-slow: 0.3s;
+  --img-edge: oklch(1 0 0 / 0.1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font-family: var(--font-sans); font-size: 13.5px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  overflow-wrap: break-word;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
+::selection { background: var(--accent-soft); }
+code { font-family: var(--mono); font-size: 0.92em; }
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); background-clip: content-box; border: 3px solid transparent; border-radius: var(--radius-pill); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: content-box; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* ── Controls (index.css) ─────────────────────────────────────────────────── */
+button {
+  height: 34px; padding: 0 14px;
+  font: inherit; font-weight: 550; font-size: 13px; white-space: nowrap; cursor: pointer;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
+  transition: background var(--dur-fast) var(--ease-out), opacity var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out), transform 0.08s var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px; line-height: 1;
+}
+button:hover { background: var(--bg-inset); }
+button:active:not(:disabled) { transform: scale(0.96); }
+button:focus-visible { outline: none; box-shadow: var(--ring); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-fg); }
+button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+button.ghost:hover { background: var(--bg-inset); color: var(--text); }
+button.caution { color: var(--warn); }
+button.caution:hover { background: var(--warn-soft); border-color: transparent; }
+button.icon-btn { width: 34px; height: 34px; padding: 0; justify-content: center; flex: none; }
+.linklike {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--accent);
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+  display: inline; height: auto; line-height: inherit; vertical-align: baseline;
+}
+.linklike:hover { color: var(--text); background: none; }
+.linklike:active:not(:disabled) { transform: none; }
+
+.field { margin-bottom: 17px; }
+.field:last-child { margin-bottom: 0; }
+.field > label, .field > .flabel { display: block; font-weight: 550; font-size: 12.5px; margin-bottom: 6px; color: var(--text); }
+.field .desc { color: var(--text-2); font-size: 12px; margin: -3px 0 8px; line-height: 1.5; }
+input[type=text], textarea, select {
+  width: 100%; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  font: inherit; font-size: 13.5px; outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+input[type=text], select { height: 34px; padding: 0 12px; }
+textarea { padding: 8px 12px; resize: vertical; min-height: 120px; line-height: 1.55; }
+input::placeholder, textarea::placeholder { color: var(--text-3); }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: var(--ring); }
+select { appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239d9da7' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
+}
+input.mono { font-family: var(--mono); font-size: 12.5px; }
+/* A wrong value: the field takes the danger colour, focus ring included, until it changes. */
+input[aria-invalid="true"] { border-color: color-mix(in srgb, var(--danger) 75%, var(--border-strong)); }
+input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--danger) 70%, transparent); }
+input { caret-color: var(--accent); }
+
+.spinner {
+  width: 13px; height: 13px; border-radius: 50%; flex: none;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 1.6s; } }
+.err { color: var(--danger); font-size: 12.5px; }
+
+.callout {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 13px 15px; margin: 0 0 14px; border-radius: var(--radius);
+  font-size: 13.5px; line-height: 1.6; --cc: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--cc) 34%, transparent);
+  background: color-mix(in srgb, var(--cc) 9%, var(--panel));
+  color: color-mix(in srgb, var(--cc) 22%, var(--text));
+}
+.callout .ic { color: var(--cc); margin-top: 2px; flex: none; display: grid; place-items: center; }
+.callout-body { min-width: 0; }
+.callout a { color: var(--cc); text-decoration: underline; text-underline-offset: 2px; }
+.callout.tip { --cc: var(--ok); }
+.callout.warning { --cc: var(--warn); }
+.callout.note { --cc: var(--accent); }
+
+.codeblock { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); overflow: hidden; margin: 0 0 12px; }
+.codeblock .head { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 15px; border-bottom: 1px solid var(--border); }
+.codeblock .file { font-family: var(--mono); font-size: 12.5px; color: var(--text-2); }
+.codeblock pre { margin: 0; padding: 14px 16px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.7; }
+.codeblock pre code { font-size: inherit; color: var(--text); white-space: pre; display: block; }
+.cb-copy {
+  margin-left: auto; width: 30px; height: 30px; padding: 0; flex: none;
+  border: none; border-radius: var(--radius-xs); background: transparent; color: var(--text-3);
+}
+.cb-copy:hover { color: var(--text); background: var(--bg-inset); }
+.copyglyph { position: relative; display: inline-grid; place-items: center; flex: none; }
+.copyglyph > svg { grid-area: 1 / 1; transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon), filter var(--dur-mid) var(--ease-icon); }
+.copyglyph > svg:last-child { scale: 0.25; opacity: 0; filter: blur(4px); color: var(--ok); }
+.copyglyph.on > svg:first-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.copyglyph.on > svg:last-child { scale: 1; opacity: 1; filter: blur(0); }
+
+.disclosure { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 14px; margin-bottom: 16px; }
+.disclosure > summary {
+  display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
+  color: var(--text-2); font-size: 12.5px; font-weight: 550; user-select: none;
+  padding: 3px 4px; margin: -3px -4px; border-radius: var(--radius-xs);
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+.disclosure > summary:hover { color: var(--text); }
+.disclosure > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.disclosure-chev { display: inline-flex; color: var(--text-3); transition: transform var(--dur-mid) var(--ease-out); }
+.disclosure[open] > summary .disclosure-chev { transform: rotate(90deg); }
+
+.badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: var(--radius-pill);
+  font-size: 11px; font-weight: 600; background: var(--bg-inset); border: 1px solid var(--border); color: var(--text-2); }
+.badge.success { color: var(--ok); background: var(--ok-soft); border-color: var(--ok-border); }
+
+.btn-discord {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
+  background: var(--dc-brand); color: #fff; padding: 11px 20px; border-radius: var(--radius-sm);
+  font-weight: 600; font-size: 14px; transition: background var(--dur-fast) var(--ease-out);
+  border: 0; cursor: pointer; font-family: inherit; appearance: none; height: auto;
+}
+.btn-discord:hover { background: var(--dc-brand-hover); text-decoration: none; }
+.btn-discord:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* Tooltip for the icon-only settings button (overlays.tsx TooltipHost). */
+.tooltip {
+  position: fixed; z-index: 400; transform: translate(-50%, -100%);
+  padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
+  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  font-size: 11.5px; font-weight: 500; line-height: 1.3;
+  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s var(--ease-out);
+}
+.tooltip.below { transform: translate(-50%, 0); }
+.tooltip::after { content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px; background: var(--panel); transform: rotate(45deg); }
+.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
+.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+@keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
+
+/* ── The split ────────────────────────────────────────────────────────────── */
+/* Two halves: the wizard, and the stage the form lives on. The form is decoration, so it
+   gets a track of its own and never sits behind text; below the width where the wizard
+   needs the whole window it's withheld entirely (and stops rendering). */
+.onb { display: grid; grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); height: var(--dvh); }
+.onb.no-form { grid-template-columns: 64px minmax(0, 1fr); }
+.onb.no-form .onb-stage { display: none; }
+
+/* The wizard takes its whole half: the logo and settings on top, then the step, then its
+   buttons straight under it. The half scrolls as one page when a step (Deploy) runs long.
+   Past 760px of content the column stops growing, so fields and cards never turn into
+   hundred-character lines on a very wide window. */
+.onb-pane {
+  --pad: clamp(24px, calc(var(--vw) * 0.055), 88px);
+  --col: calc(760px + 2 * var(--pad));
+  min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
+}
+/* The step hangs from a fixed line rather than centring, so nothing above a field moves
+   while the step under it grows (see DESIGN.md, Setup card). */
+.onb-body { container: onb / inline-size; max-width: var(--col); padding: clamp(32px, calc(var(--dvh) * 0.17), 170px) var(--pad) 56px; }
+.onb-body h1 { font-size: 26px; letter-spacing: -0.02em; margin: 0 0 8px; }
+.onb-body .step-sub { color: var(--text-2); font-size: 14px; margin: 0 0 28px; }
+.onb.no-form .onb-body { margin-inline: auto; width: 100%; }
+
+/* The step's buttons: the primary first, the one other way out beside it. A size up from
+   the console's 34px, as the sign-in screen's call to action is. */
+.onb-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+.onb-actions button { height: 38px; padding: 0 18px; font-size: 13.5px; }
+.wiz .btn-discord.cta { width: auto; height: 38px; padding: 0 18px 0 16px; font-size: 13.5px; }
+
+/* The stage. The form sits right of centre and runs off the window's edge. Its canvas is a
+   layer the size of the window, under everything, so the form can cross to the middle of it
+   on the final screen; the track stays empty and is only measured. The mask the engine
+   applies keeps the dust off the wizard's half. */
+.onb-stage { position: relative; min-width: 0; }
+.orb-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.orb-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+@media (max-width: 1000px) {
+  .onb { grid-template-columns: 64px minmax(0, 1fr); }
+  .onb-stage, .orb-layer { display: none; }
+  .onb.brain-on .orb-layer { display: block; }
+}
+.onb.no-form .orb-layer { display: none; }
+@media (max-width: 560px) {
+  .onb-body { padding-top: 24px; padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .onb-body h1 { font-size: 22px; }
+  /* A phone's column can't hold two buttons side by side: the primary takes the width and
+     the other way out sits under it. */
+  .onb-actions { flex-direction: column; align-items: stretch; gap: 6px; }
+  .onb-actions button { width: 100%; }
+}
+
+/* ── The wizard (index.css .setup rules, minus the card) ───────────────────── */
+.wiz .steps { display: grid; height: 3px; margin: 0 -3px 32px; transition: grid-template-columns var(--dur-slow) var(--ease-out); }
+.wiz .steps i { position: relative; min-width: 0; overflow: hidden; }
+.wiz .steps i::before, .wiz .steps i::after { content: ''; position: absolute; inset: 0 3px; border-radius: 2px; background: var(--border); }
+.wiz .steps i::after { background: var(--accent); transform: scaleX(0); transform-origin: left center; transition: transform var(--dur-slow) var(--ease-out); }
+.wiz .steps i.on::after { transform: none; }
+.wiz .err { color: var(--danger); font-size: 13px; margin-top: 14px; }
+.wiz .err-block { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
+.wiz .err-block .err { margin-top: 0; flex: 1 1 240px; min-width: 0; }
+.wiz .err-block > button { flex: none; }
+.wiz .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
+.wiz .ok-pill { color: var(--ok); font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
+.wiz .act-row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
+.wiz .act-row .grow { flex: 1; min-width: 0; }
+.wiz .act-row .err { margin-top: 0; }
+.wiz .act-row + .field, .wiz .err-help + .field { margin-top: 22px; }
+.wiz .redirect-box {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 11px; font-family: var(--mono); font-size: 12px; word-break: break-all;
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+}
+.wiz .redirect-box > span:first-child { flex: 1; min-width: 0; }
+.wiz .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+.wiz .redirect-list { display: grid; gap: 8px; }
+.check-line { display: flex; align-items: center; gap: 6px; min-height: 20px; font-size: 13px; color: var(--text-2); }
+.check-line.ok { color: var(--ok); }
+.check-line.err { color: var(--danger); }
+.check-line b { font-weight: 600; }
+.check-line-in { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.wiz .check-line { margin: -9px 0 16px; }
+.wiz .invite-row { display: flex; align-items: center; gap: 4px; }
+.wiz .invite-row .btn-discord { width: auto; height: 34px; padding: 0 16px 0 14px; gap: 8px; font-size: 13px; }
+.wiz .deploy-seg { display: inline-flex; gap: 4px; padding: 3px; margin-bottom: 14px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.wiz .deploy-seg button { height: 28px; padding: 0 12px; border: 0; background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 550; border-radius: var(--radius-xs); }
+.wiz .deploy-seg button.on { background: var(--panel); color: var(--text); }
+/* The three hosting choices side by side, equal height; stacked again once the column is
+   too narrow for three (a 1024px window, a phone). */
+.wiz .mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@container onb (max-width: 440px) { .wiz .mode-grid { grid-template-columns: minmax(0, 1fr); } }
+.wiz .mode-card {
+  border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 13px 14px; cursor: pointer;
+  background: var(--bg-inset);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.wiz .mode-card:hover { border-color: var(--border-strong); }
+.wiz .mode-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.wiz .mode-card:focus-visible { outline: none; box-shadow: 0 0 0 1px var(--accent) inset, var(--ring); }
+.wiz .mode-card b { font-size: 13.5px; }
+.wiz .mode-card p { color: var(--text-2); font-size: 12px; margin: 5px 0 0; line-height: 1.4; }
+.wiz .tunnel-help {
+  background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 12px 14px; margin-bottom: 14px; font-size: 12.5px; color: var(--text-2); line-height: 1.5;
+}
+.wiz .tunnel-help b { display: block; color: var(--text); font-size: 13px; margin-bottom: 6px; }
+.wiz .tunnel-help ol { margin: 0 0 6px; padding-left: 18px; }
+.wiz .tunnel-help ol:last-child { margin-bottom: 0; }
+.wiz .tunnel-help li { margin: 4px 0; }
+.wiz .tunnel-help strong { color: var(--text); font-weight: 600; }
+.wiz .tunnel-help code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+.wiz .pubkey-err { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.wiz .check-avatar { width: 20px; height: 20px; border-radius: 50%; flex: none; }
+.wiz .srv-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.wiz .srv-head h1 { margin: 0; }
+.wiz .srv-head .badge { margin-left: auto; }
+.wiz .signin-note { color: var(--text-2); margin: 0 0 22px; }
+
+
+/* Motion: the step arrives from the side it was travelled to; arrivals inside a step fade
+   up 3px; what Discord or Tailscale confirms pops. Nothing plays on first paint. */
+.wiz .enter { animation: wiz-in var(--dur-slow) var(--ease-out) both; }
+.wiz .enter.back { animation-name: wiz-in-back; }
+@keyframes wiz-in { from { opacity: 0; transform: translateX(10px); } }
+@keyframes wiz-in-back { from { opacity: 0; transform: translateX(-10px); } }
+@keyframes wiz-fade { from { opacity: 0; } }
+.wiz .wiz-appear { animation: wiz-appear .2s var(--ease-out) both; }
+@keyframes wiz-appear { from { opacity: 0; transform: translateY(3px); } }
+.wiz .wiz-pop { animation: wiz-pop .24s var(--ease-out) both; }
+@keyframes wiz-pop { from { opacity: 0; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) {
+  .wiz .enter, .wiz .enter.back, .wiz .wiz-appear, .wiz .wiz-pop { animation-name: wiz-fade; }
+  .wiz .steps { transition: none; }
+  .wiz .steps i::after { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out); }
+  .wiz .steps i.on::after { opacity: 1; }
+}
+
+/* ── Settings (a stand-in for the console's SettingsModal) ─────────────────── */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 100; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  animation: fade-in var(--dur-fast) var(--ease-out);
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes modal-in { from { opacity: 0; transform: translateY(12px) scale(0.96); } }
+.settings-modal {
+  position: relative; width: min(820px, calc(var(--vw) * 0.94)); height: min(560px, calc(var(--vh) * 0.9));
+  display: grid; grid-template-columns: 212px minmax(0, 1fr);
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden;
+  box-shadow: var(--shadow-modal); animation: modal-in 0.22s var(--ease-out);
+}
+.settings-nav { background: var(--bg-sidebar); border-right: 1px solid var(--border); padding: 16px 12px; display: flex; flex-direction: column; gap: 3px; }
+.settings-nav-title { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); padding: 4px 10px 10px; }
+.settings-nav-item { justify-content: flex-start; width: 100%; background: transparent; border-color: transparent; color: var(--text-2); font-size: 13.5px; font-weight: 500; padding: 8px 10px; height: auto; }
+.settings-nav-item:hover { background: var(--bg-inset); color: var(--text); }
+.settings-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
+.settings-body { position: relative; padding: 30px 34px; overflow-y: auto; }
+.settings-body h2 { font-size: 18px; margin-bottom: 8px; }
+.settings-body p { color: var(--text-2); margin: 0 0 18px; }
+.settings-close { position: absolute; top: 14px; right: 14px; }
+@media (max-width: 700px) {
+  .modal-backdrop { padding: 0; }
+  .settings-modal { width: var(--vw); height: var(--dvh); border-radius: 0; border: 0; grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: 10px 12px; }
+  .settings-nav-title { display: none; }
+  .settings-nav-item { width: auto; flex: none; }
+}
+@media (prefers-reduced-motion: reduce) { .settings-modal { animation: none; } }
+
+/* ── The server panel (after a deploy or a connect) ─────────────────────────── */
+.badge.info { color: var(--info); background: rgba(95, 196, 242, 0.14); border-color: rgba(95, 196, 242, 0.34); }
+.badge.warning { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-border); }
+.badge.error { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-border); }
+/* A state that needs saying, under the rows (server.tsx srv-hint), in the tone of its badge. */
+.srv-hint { color: var(--text-2); font-size: 12.5px; line-height: 1.5; margin: -14px 0 24px; }
+.srv-hint.danger { color: var(--danger); }
+.srv-hint b { color: inherit; font-weight: 600; }
+
+/* Prototype only: hold the panel in any state the real one can report, to see its form. */
+.state-strip {
+  position: fixed; right: 12px; bottom: 12px; z-index: 47; display: flex; align-items: center; gap: 2px;
+  padding: 4px; border-radius: 10px; background: var(--panel); border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop);
+}
+.state-strip-l { padding: 0 8px; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; font-weight: 600; }
+.state-strip button { height: 28px; padding: 0 9px; border: 0; border-radius: 7px; background: transparent; color: var(--text-2); font-size: 12px; font-weight: 500; }
+.state-strip button:hover { background: var(--bg-inset); color: var(--text); }
+.state-strip button[aria-pressed="true"] { background: var(--bg-inset); color: var(--text); }
+.state-strip button:active:not(:disabled) { transform: none; }
+.state-strip-sep { width: 1px; height: 18px; margin: 0 4px; background: var(--border-strong); }
+@media (max-width: 1000px) { .state-strip { display: none; } }
+.srv .field { margin-bottom: 17px; }
+.srv-redirect.leaving { animation: srv-leave 0.25s var(--ease-out) forwards; }
+@keyframes srv-leave { to { opacity: 0; } }
+.srv .onb-actions button:disabled { opacity: 0.55; }
+/* Status rows: a title with its state beside it, then the facts under hairlines. */
+.srv-v1 .srv-head .badge { margin-left: 0; }
+.srv-rows { margin: 0 0 28px; border-top: 1px solid var(--border); }
+.srv-rows > div {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; column-gap: 16px;
+  min-height: 48px; padding: 6px 0; border-bottom: 1px solid var(--border);
+}
+.srv-rows dt { color: var(--text-2); font-size: 12.5px; }
+.srv-rows dd { margin: 0; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--text); }
+.srv-rows .mono { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
+.srv-rows a { color: var(--text); text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
+.srv-rows a:hover { color: var(--accent); text-decoration-color: currentColor; }
+.srv-rows dd button { flex: none; height: 28px; padding: 0 10px; margin-right: -10px; font-size: 12.5px; }
+
+@media (max-width: 560px) {
+  .srv-rows > div { grid-template-columns: minmax(0, 1fr); row-gap: 2px; padding: 10px 0; }
+}
+
+/* ── The rail and the docs ─────────────────────────────────────────────────── */
+/* A thin icon rail: the logo, then settings, then the docs. It sits above the docs panel,
+   which slides out from behind it. */
+.onb-rail {
+  position: relative; z-index: 60; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 20px 0; background: var(--bg-sidebar); border-right: 1px solid var(--border);
+}
+.onb-rail .brand-logo {
+  width: 34px; height: 34px; margin-bottom: 30px; border-radius: var(--radius-sm); display: block; object-fit: cover;
+  outline: 1px solid var(--img-edge); outline-offset: -1px;
+}
+.onb-rail .icon-btn { color: var(--text-2); }
+.onb-rail .icon-btn:hover, .onb-rail .icon-btn.on { color: var(--text); background: var(--bg-inset); }
+/* The docs glyph and the chevron that closes them share one cell and cross-fade, the way the
+   copy glyph does, so the button never reflows. */
+.swapglyph { position: relative; display: inline-grid; place-items: center; }
+.swapglyph > svg { grid-area: 1 / 1; transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon), filter var(--dur-mid) var(--ease-icon); }
+.swapglyph > svg:last-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.swapglyph.on > svg:first-child { scale: 0.25; opacity: 0; filter: blur(4px); }
+.swapglyph.on > svg:last-child { scale: 1; opacity: 1; filter: blur(0); }
+
+.docs-panel {
+  position: fixed; z-index: 55; top: 0; bottom: 0; left: 64px; width: min(1000px, calc(var(--vw) - 112px));
+  background: #08080a; border-right: 1px solid var(--border-strong); box-shadow: var(--shadow-modal);
+  transform: translateX(-100%); visibility: hidden;
+  transition: transform var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.docs-panel.open { transform: none; visibility: visible; transition: transform var(--dur-slow) var(--ease-out), visibility 0s; }
+.docs-frame { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
+@media (prefers-reduced-motion: reduce) {
+  .docs-panel { transform: none; opacity: 0; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow); }
+  .docs-panel.open { opacity: 1; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s; }
+  .swapglyph > svg { transition: opacity var(--dur-fast) var(--ease-out); scale: 1; filter: none; }
+  .swapglyph.on > svg:first-child, .swapglyph > svg:last-child { scale: 1; filter: none; }
+}
+
+/* Tooltips beside the rail. */
+.tooltip.right { transform: translate(0, -50%); }
+.tooltip.right::after { left: -4.5px; top: 50%; margin: -4px 0 0; border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+
+/* A phone: the rail becomes a bar across the top, and the docs take the width under it. */
+@media (max-width: 560px) {
+  .onb { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .onb.no-form { grid-template-columns: minmax(0, 1fr); }
+  .onb-rail { flex-direction: row; gap: 4px; padding: 10px 14px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .onb-rail .brand-logo { margin: 0 auto 0 0; }
+  .docs-panel { left: 0; top: 55px; width: 100%; border-right: 0; }
+}
+
+/* ── The final screen ─────────────────────────────────────────────────────────── */
+/* Running, healthy, and the console's redirect listed: the form in the middle of the window,
+   the panel's title, status and controls small in its top-left corner, and memories of what
+   the bot has been doing around the form. brain.js moves all of it; these are the resting
+   styles. A heading focused from script shows no ring (it isn't a control). */
+[tabindex="-1"]:focus { outline: none; }
+.brain-hud {
+  position: fixed; top: 22px; left: 22px; z-index: 50; display: grid; gap: 12px; justify-items: start;
+  max-width: calc(var(--vw) - 44px); visibility: hidden;
+}
+.brain-hud [data-morph] { transform-origin: 0 0; }
+/* brain.js writes opacity and transform on these every frame; a transition of their own on
+   either would lag behind it (a button fading out from where it rests while it's meant to be
+   invisible over the panel). Hover colours still ease. */
+.brain-hud [data-morph], .brain-hud [data-extra], .onb-pane [data-morph], .onb-pane [data-fade], .onb-rail [data-morph] {
+  transition-property: background, border-color, box-shadow, color;
+}
+.hud-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.hud-head .brand-logo {
+  width: 28px; height: 28px; border-radius: 10px; display: block; object-fit: cover; flex: none;
+  outline: 1px solid var(--img-edge); outline-offset: -1px;
+}
+.hud-head h1 { font-size: 15px; line-height: 1.55; letter-spacing: -0.02em; overflow-wrap: anywhere; min-width: 0; }
+.hud-up { color: var(--text-3); font-size: 12px; white-space: nowrap; }
+.hud-actions { display: flex; align-items: center; gap: 8px; }
+.hud-actions button { height: 30px; padding: 0 12px; font-size: 12.5px; }
+.hud-actions .icon-btn { width: 30px; padding: 0; color: var(--text-2); position: relative; }
+.hud-actions .icon-btn:hover { color: var(--text); }
+.hud-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--bg); }
+
+/* A memory: its sphere is drawn by the engine; this is the words set inside it. The box is
+   the largest a memory gets, centred on it, and only the sphere's circle takes the pointer. */
+.mems { position: fixed; inset: 0; z-index: 45; margin: 0; padding: 0; list-style: none; pointer-events: none; visibility: hidden; }
+.mem {
+  position: absolute; left: 0; top: 0; width: 280px; height: 280px; pointer-events: none; visibility: hidden;
+  will-change: transform; --d: 160px;
+}
+/* The button is the sphere's circle: that's all that takes the pointer. It opens the memory. */
+.mem-btn {
+  position: absolute; inset: 0; pointer-events: auto; cursor: pointer; outline: none;
+  clip-path: circle(var(--r, 0px) at 50% 50%);
+}
+.mem[data-open] .mem-btn { pointer-events: none; }
+/* The words fade out well inside the sphere's rim, so a long link trails off rather than
+   running into the dust. */
+.mem-mask {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+  mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+}
+/* Out of focus until it's looked at: soft and faded, sharp and whole when hovered or focused. */
+.mem-in {
+  position: relative; width: calc(var(--d) * 0.6); display: flex; flex-direction: column; align-items: center;
+  gap: 5px; text-align: center; transform: scale(var(--sv, 1));
+  filter: blur(0.55px); opacity: 0.66;
+  transition: filter var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
+}
+.mem[data-peek] .mem-in { filter: none; opacity: 1; }
+/* A little dark under the words, so dust passing behind them doesn't speckle them. */
+.mem-in::before {
+  content: ""; position: absolute; inset: -24% -20%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.72), rgb(2 2 3 / 0));
+}
+.mem-who { display: flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mem-who span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-member .mem-who { flex-direction: column; gap: 7px; font-size: 12px; color: var(--text); }
+.mem-member .mem-who span { max-width: 100%; }
+.mem-av { flex: none; border-radius: 50%; object-fit: cover; display: block; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.mem-faces { display: flex; }
+.mem-faces .mem-av + .mem-av { margin-left: -7px; box-shadow: 0 0 0 2px var(--bg); }
+.mem-text {
+  font-size: 12px; line-height: 1.4; color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+.mem-text b { font-weight: 600; }
+/* A source's address stays on one line. One too long for it starts at the left and fades out
+   on the right, inside the words' own width. */
+.mem-link { max-width: 100%; overflow: hidden; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--text); white-space: nowrap; }
+.mem-link.long {
+  align-self: stretch; text-align: left;
+  -webkit-mask-image: linear-gradient(90deg, #000 58%, transparent 96%); mask-image: linear-gradient(90deg, #000 58%, transparent 96%);
+}
+.mem-ic { display: grid; place-items: center; color: var(--text-2); }
+.mem-ic.ok { color: var(--ok); }
+.mem-dot { display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--ok); vertical-align: middle; }
+.mem-foot { font-family: var(--font-mono); font-size: 10.5px; line-height: 1.2; color: var(--text-3); white-space: nowrap; }
+/* Peeked (hovered or focused): one more line, under the rest so nothing above it moves. */
+.mem-more {
+  position: absolute; top: 100%; left: -10%; right: -10%; margin-top: 5px;
+  font-size: 11px; line-height: 1.3; color: var(--text-2); opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.mem[data-peek] .mem-more { opacity: 1; }
+/* No ring on a memory: keyboard focus peeks it (sharper, larger, brighter), which is the cue. */
+.mem-reply { --d: 184px; }
+.mem-impression { --d: 172px; }
+.mem-remembered, .mem-reminder, .mem-image { --d: 160px; }
+.mem-glossary, .mem-status { --d: 152px; }
+.mem-learned { --d: 164px; }
+.mem-member { --d: 140px; }
+.mem-people { --d: 156px; }
+.mem-health { --d: 148px; }
+
+/* The bot itself, in the middle of the form: its avatar, faint, filling most of the form under
+   the dust, and its name across it. brain.js places both on the form and fades them in once
+   the form has settled in the middle. */
+.orb-face {
+  position: fixed; left: 0; top: 0; z-index: -2; width: 400px; height: 400px; transform-origin: 0 0;
+  pointer-events: none; opacity: 0;
+}
+.orb-face img {
+  display: block; width: 100%; height: 100%; border-radius: 50%; opacity: 0.24; filter: blur(1.5px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 60%, transparent 100%);
+  mask-image: radial-gradient(closest-side, #000 60%, transparent 100%);
+}
+.orb-name {
+  position: fixed; left: 0; top: 0; z-index: 44; pointer-events: none; opacity: 0;
+  font-size: 17px; font-weight: 600; line-height: 1.3; letter-spacing: -0.015em; color: var(--text);
+  text-align: center; overflow-wrap: anywhere; width: max-content;
+}
+
+/* Without WebGL2 there's no dust: the memories get hairline rings, and the form one ring. */
+.orb-css { display: none; }
+.onb.no-form .mem::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: calc(2 * var(--r)); height: calc(2 * var(--r));
+  translate: -50% -50%; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.onb.no-form .orb-css {
+  display: block; position: fixed; left: 50%; top: 50%; z-index: -1; width: calc(var(--dvh) * 0.34); aspect-ratio: 1;
+  translate: -50% -50%; border-radius: 50%; pointer-events: none; opacity: var(--brain, 0);
+  box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 0 60px rgb(91 156 246 / 0.08);
+}
+
+/* Prototype only: ?debug=frame rings the form and every memory where brain.js thinks they are. */
+.dbg i { position: fixed; z-index: 90; border-radius: 50%; box-shadow: inset 0 0 0 1px rgb(255 99 105 / 0.8); pointer-events: none; }
+
+/* An opened memory: its sphere comes to the middle, large, and this sits in it. The back
+   button is at the sphere's upper left. */
+.mem-open {
+  position: fixed; left: 0; top: 0; z-index: 46; width: calc(var(--ro, 240px) * 2); height: calc(var(--ro, 240px) * 2);
+  display: grid; place-items: center; pointer-events: none; opacity: 0;
+}
+.mem-open::before {
+  content: ""; position: absolute; inset: 8%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.85) 55%, rgb(2 2 3 / 0));
+}
+.mem-open .mem-back {
+  position: absolute; left: calc(var(--ro, 240px) * 0.46 - 16px); top: calc(var(--ro, 240px) * 0.46 - 16px);
+  width: 32px; height: 32px; pointer-events: auto; color: var(--text-2);
+}
+.mem-open .mem-back:hover, .mem-open .mem-back:focus-visible { color: var(--text); background: var(--bg-inset); }
+.mem-open .mem-back:focus-visible { box-shadow: none; }
+.mo-in {
+  position: relative; width: calc(var(--ro, 240px) * 1.22); max-height: calc(var(--ro, 240px) * 1.32); overflow-y: auto;
+  scrollbar-width: none; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+}
+.mo-in::-webkit-scrollbar { display: none; }
+/* Kept narrow enough to clear the back button at the sphere's upper left. */
+.mo-head { max-width: calc(var(--ro, 240px) * 1.08 - 48px); font-family: var(--font-mono); font-size: 11px; line-height: 1.3; color: var(--text-3); }
+.mo-chat { align-self: stretch; display: grid; gap: 12px; text-align: left; }
+.mo-msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.mo-msg .mem-av { width: 24px; height: 24px; margin-top: 1px; }
+.mo-msg b { display: block; font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-msg.bot b { color: var(--text); }
+.mo-msg p { margin: 1px 0 0; font-size: 13px; line-height: 1.5; color: var(--text); }
+.mo-msg:not(.bot) p { color: var(--text-2); }
+.mo-who { display: flex; align-items: center; justify-content: center; gap: 8px; max-width: 100%; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.mo-who span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-text { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+.mo-strong { font-weight: 600; }
+.mo-status { font-size: 15px; }
+.mo-meta { font-size: 12px; line-height: 1.45; color: var(--text-3); }
+.mo-meta code { font-size: 11.5px; color: var(--text-2); }
+.mo-url { margin: 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
+.mo-pic { display: block; width: 100%; aspect-ratio: 8 / 5; object-fit: cover; border-radius: var(--radius-sm); outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.mo-big { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+.mo-faces { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 220px; }
+.mo-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.mo-roles span { padding: 2px 9px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--bg-inset); color: var(--text-2); font-size: 11px; font-weight: 600; }
+.mo-checks { display: grid; gap: 6px; text-align: left; }
+.mo-checks div { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
+.mo-checks svg { color: var(--ok); flex: none; }
+.mem-open-member .mem-av { outline: 1px solid var(--img-edge); outline-offset: -1px; }
+@media (max-width: 560px) {
+  .mo-in { max-height: calc(var(--ro, 240px) * 1.42); gap: 10px; }
+  .mo-msg p, .mo-text { font-size: 12.5px; }
+}
