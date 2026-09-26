@@ -219,15 +219,20 @@ On **Windows**, which isn't signed, `npm run dist:win` builds the installer into
 as the work is done, by hand — never generated from commit subjects or `git log` afterwards.
 A version with nothing written under it shouldn't go out.
 
+A beta doesn't get a heading and leaves `## [Unreleased]` in place, so the section keeps
+growing through the betas. A beta's notes are only what was written there since the previous
+beta, or since the last stable release for a `.beta-1`: the summary paragraphs and entries that
+`git diff v2.1.beta-1 -- CHANGELOG.md` shows as added, under the group headings they sit in.
+An entry reworded since then isn't a new change, so it stays out.
+
 Cutting a stable release renames that section to `## [2.1] — YYYY-MM-DD` (em dash, ISO
-date) and leaves `## [Unreleased]` empty above it. A beta doesn't get a heading: it ships the
-`## [Unreleased]` section as it stands and leaves it in place, so the section keeps growing
-through the betas and each beta's notes cover everything since the last stable release. CI
-publishes the GitHub Release with an **empty body**, so paste the section in afterwards — it
-ships verbatim:
+date) and leaves `## [Unreleased]` empty above it. Its notes are the whole section, so they
+cover every beta that led up to it, and it ships verbatim.
+
+CI publishes the GitHub Release with an **empty body**, so paste the notes in afterwards:
 
 ```sh
-gh release edit v2.1 --notes-file notes.md   # notes.md = that section, minus its heading
+gh release edit v2.1 --notes-file notes.md   # notes.md = the notes, without the section heading
 ```
 
 Title the release **`v2.1 — <short summary>`** (or **`v2.1.beta-1 — <short summary>`**).
