@@ -46,6 +46,10 @@ First run happened in a small card in the middle of an empty window: the setup w
 
 A server running healthy was a list of status lines, and the bot kept no record of most of what it did there. It now keeps one. Once Discord lists the server's sign-in address, the panel moves into the corner and the window shows what the bot has been up to: who it answered and how, who joined, what it learned about people and about the server, and what it read.
 
+Toasts piled up in the bottom-right corner, over the save bar and the Test chat button, which each needed rules to lift them out of the way. Several at once grew into a column up the screen, and a confirmation's timer ran down whether or not you were reading it. They now stack in the top-right corner the way Base UI's toasts do: the newest on top with the older ones tucked behind it, spreading out and holding still while you point at them.
+
+After the app started, Settings → Bots listed every bot but the one on screen as starting, and kept saying so until you opened one of them. The window opens as soon as the bot you're looking at is up, a moment before the others are, and the console read the list of bots once, then kept it. The list is now read again every couple of seconds while any bot is still starting, and every time Settings → Bots opens.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -320,6 +324,16 @@ A server running healthy was a list of status lines, and the bot kept no record 
 
 [addf2d8] — Setup's Added and Live confirmations are status badges, like every other status in the console.
 
+[5123186] — Toasts appear in the top-right corner, and the newest three stack with the older ones tucked behind the newest.
+
+[5123186] — A fourth toast hides the oldest until a newer one closes.
+
+[5123186] — Pointing at the toasts or tabbing into them spreads them out and pauses their timers, and so does switching to another window.
+
+[5123186] — A toast can be swiped away up or right, Escape closes the one with focus, and F6 moves focus to the toasts from anywhere, an open dialog included.
+
+[5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -401,6 +415,8 @@ A server running healthy was a list of status lines, and the bot kept no record 
 [2fb6045] — Numbered steps in the docs and in test chat show as a numbered list in the console instead of running together as one paragraph.
 
 [2fb6045] — Fields meant to be monospaced, like tokens, keys and addresses, are.
+
+[6f2f54c] — Settings → Bots and the bot switcher show each bot's status once it has started, instead of "Starting…" until a bot is opened.
 
 [f454741] — The console's sidebar scrolls when it's taller than the window, so with the Get started list open in a short desktop window, the lower half of the nav, the bot power control, Settings and Log out can be reached instead of hanging below the window.
 

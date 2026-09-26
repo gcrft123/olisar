@@ -13,6 +13,7 @@
     "demo": "VITE_DEMO=1 vite build --outDir dist-demo --emptyOutDir && printf '/*\\n  X-Robots-Tag: noindex\\n' > dist-demo/_headers"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@monaco-editor/react": "^4.7.0",
     "@solar-icons/react": "^1.1.1",
     "monaco-editor": "^0.52.2",
