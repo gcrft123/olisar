@@ -1912,19 +1912,30 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
   background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 85%, transparent) 55%, transparent);
 }
 .mem-open .mem-back {
-  position: absolute; left: calc(var(--ro, 240px) * 0.46 - 16px); top: calc(var(--ro, 240px) * 0.46 - 16px);
+  position: absolute; z-index: 1; left: calc(var(--ro, 240px) * 0.46 - 16px); top: calc(var(--ro, 240px) * 0.46 - 16px);
   width: 32px; height: 32px; pointer-events: auto; color: var(--text-2);
 }
 /* Back takes its hover look for keyboard focus, not a ring: it sits on the dust. */
 .mem-open .mem-back:hover, .mem-open .mem-back:focus-visible { color: var(--text); background: var(--bg-inset); }
 .mem-open .mem-back:focus-visible { box-shadow: none; }
+/* At its tallest, the words start level with the back button's top: the box is twice the way
+   from there to the middle. The head sits beside the button, so only the body under it
+   scrolls, and nothing long ever runs over the button. */
 .mo-in {
-  position: relative; width: calc(var(--ro, 240px) * 1.22); max-height: calc(var(--ro, 240px) * 1.32); overflow-y: auto;
-  scrollbar-width: none; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+  position: relative; width: calc(var(--ro, 240px) * 1.22); max-height: calc(var(--ro, 240px) * 1.08 + 32px);
+  pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
 }
-.mo-in::-webkit-scrollbar { display: none; }
-/* Kept narrow enough to clear the back button at the sphere's upper left. */
-.mo-head { max-width: calc(var(--ro, 240px) * 1.08 - 48px); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.3; color: var(--text-3); }
+/* Kept narrow enough to clear the back button at the sphere's upper left, and at least as tall
+   as it, so the body starts below it. */
+.mo-head {
+  flex: none; display: grid; align-items: center; min-height: 32px; max-width: calc(var(--ro, 240px) * 1.08 - 48px);
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.3; color: var(--text-3);
+}
+.mo-body {
+  align-self: stretch; min-height: 0; overflow-y: auto; scrollbar-width: none;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.mo-body::-webkit-scrollbar { display: none; }
 .mo-chat { align-self: stretch; display: grid; gap: 12px; text-align: left; }
 .mo-msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
 .mo-msg .mem-av { width: 24px; height: 24px; margin-top: 1px; }
@@ -1944,7 +1955,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .mo-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .mo-checks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 @media (max-width: 560px) {
-  .mo-in { max-height: calc(var(--ro, 240px) * 1.42); gap: 10px; }
+  .mo-in, .mo-body { gap: 10px; }
   .mo-msg p, .mo-text { font-size: 12.5px; }
 }
 

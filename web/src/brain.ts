@@ -142,9 +142,9 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     root.classList.toggle('brain-on', p > 0 || target > 0)
     root.classList.toggle('brain-full', p >= 1)
     root.style.setProperty('--brain', p.toFixed(3))
-    // The stats screen's details: gone in the first third.
+    // The stats screen's details, and the bot chip above them: gone in the first third.
     const out = rm ? smooth(seg(p, 0.15, 0.6)) : inOut(seg(p, 0, 0.3))
-    for (const el of $$('.onb-pane [data-fade]')) {
+    for (const el of $$('.onb-pane [data-fade], .onb-body > .bot-chip')) {
       el.style.opacity = p > 0 ? String(1 - out) : ''
       el.style.transform = p > 0 && !rm ? `translateX(${(-12 * out).toFixed(2)}px)` : ''
     }
