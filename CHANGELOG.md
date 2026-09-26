@@ -42,6 +42,10 @@ A bot added to a server another bot already ran on borrowed that bot's Tailscale
 
 Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
 
+First run happened in a small card in the middle of an empty window: the setup wizard, then the server panel or sign-in after it. They now share one screen, with the wizard on the left, the docs a click away beside it, and on the right a slowly turning form that changes with each step and reacts to what setup is waiting on.
+
+A server running healthy was a list of status lines, and the bot kept no record of most of what it did there. It now keeps one. Once Discord lists the server's sign-in address, the panel moves into the corner and the window shows what the bot has been up to: who it answered and how, who joined, what it learned about people and about the server, and what it read.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -147,6 +151,20 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 [31d8676] — A Cloudflare token that can see its own account fills in the account ID.
 
 [9fca613] — The server control panel takes a new Tailscale auth key when its console has no address, and restarts the bot on it.
+
+[2fb6045] — Setup, the server panel and sign-in share one screen: the steps on the left, and on the right a 3D form that changes with each step.
+
+[2fb6045] — The docs open in a drawer beside setup, from a rail that also holds Settings.
+
+[2fb6045] — A server running healthy, with its sign-in address listed, shows what its bot has been doing around the form: who it answered and how it was called, who joined, impressions, saved facts, glossary entries, its status, knowledge sources, reminders, images and the health check.
+
+[2fb6045] — Clicking one of those opens it in full, such as the message a reply answered along with the whole reply.
+
+[2fb6045] — The server panel shows how long the server has been up.
+
+[47c72b5] — The bot records how each of its replies was called and which message it answered, when members joined, how many members the last roster sync found, and the statuses it sets and images it draws.
+
+[47c72b5] — The desktop app reads a server bot's recent activity over SSH, never including a DM or anyone who opted out of being remembered.
 
 ### Changed
 
@@ -288,6 +306,18 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 
 [9fca613] — Adding a bot to a server another bot already runs on asks for its own Tailscale auth key instead of copying the other bot's.
 
+[2fb6045] — The Deploy step links to the docs for creating a VM instead of listing the Oracle Cloud steps itself.
+
+[2fb6045] — The docs' Host on a server page has the steps for creating a VM on Oracle Cloud, or on any other Linux host, for the desktop app to deploy to.
+
+[2fb6045] — A token, secret or key that Discord or Google turns down shakes its field and stays marked until it's edited.
+
+[2fb6045] — Connect to existing server sits beside Continue on setup's first step instead of appearing on hover.
+
+[2fb6045] — The server panel checks the server every 4 seconds while it's starting, instead of every 15.
+
+[47c72b5] — A fact Olisar saves in a server links back to the message it came from in the member portal.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -365,6 +395,10 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 [b30006b] — Resetting a bot's configuration turns its remote access off right away; before, it stayed on until the app restarted.
 
 [b30006b] — The reset dialog for a server-hosted bot says its server keeps running, instead of saying the reset takes it offline.
+
+[2fb6045] — Numbered steps in the docs and in test chat show as a numbered list in the console instead of running together as one paragraph.
+
+[2fb6045] — Fields meant to be monospaced, like tokens, keys and addresses, are.
 
 ## [1.5.0] — 2026-09-21
 
