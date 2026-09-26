@@ -285,7 +285,7 @@ export function RedirectRow({ url, added }: { url: string; added: boolean }) {
 }
 
 // Tailscale's errors end in a help link, which as plain text had to be retyped.
-function Linkified({ text }: { text: string }) {
+export function Linkified({ text }: { text: string }) {
   return (
     <>
       {text.split(/(https?:\/\/\S+)/g).map((part, i) => {
@@ -390,6 +390,9 @@ export function SetupWizard(
   const [deploying, setDeploying] = useState(false)
   const [deployLog, setDeployLog] = useState('')
   const [deployErr, setDeployErr] = useState('')
+  // The bot deployed and is running, but its console has no address (Tailscale refused the
+  // key, most often). Not a failed deploy: the fix is a new key and another Deploy.
+  const [consoleErr, setConsoleErr] = useState('')
   // A VM running several bots: which install is this one (the connect screen asks).
   const [installs, setInstalls] = useState<{ dir: string; name: string }[]>([])
   const [installDir, setInstallDir] = useState('')
@@ -454,7 +457,6 @@ export function SetupWizard(
         if (!alive) return
         if (!r?.ok) throw new Error(r?.error || 'Couldn’t use that server.')
         setShare({ from: source, host: r.host, user: r.user || 'ubuntu' })
-        setTunnelAuthKey((k) => k || r.tailscale_auth || '')
         setAdminUser((a) => a || r.admin_allowlist || '')
       })
       .catch((e: any) => { if (alive) setShareErr(e?.message || 'Couldn’t use that server.') })
@@ -571,7 +573,7 @@ export function SetupWizard(
   // and starts the container. On success the app is in server mode (no local bot) and
   // flips to the remote control panel.
   async function deployServer() {
-    setDeployErr('')
+    setDeployErr(''); setConsoleErr('')
     const host = sharing ? share?.host || '' : serverHost.trim()
     const user = sharing ? share?.user || 'ubuntu' : serverUser.trim() || 'ubuntu'
     if (sharing && !host) return setDeployErr(shareErr || 'Still connecting to that server.')
@@ -581,7 +583,8 @@ export function SetupWizard(
     setDeploying(true); setDeployLog('')
     try {
       const r = await api.serverDeploy({ host, user, env: envFile })
-      if (r?.ok) { onDone() }
+      if (r?.ok && r.console_error) setConsoleErr(r.console_error)
+      else if (r?.ok) { onDone() }
       else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
@@ -954,7 +957,9 @@ export function SetupWizard(
             </Field>
             </>
             )}
-            <Field label="Tailscale auth key" desc={<>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
+            <Field label="Tailscale auth key" desc={sharing
+              ? <>A new Tailscale key is needed per bot. Create one: {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>
+              : <>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
               <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
             </Field>
 
@@ -965,6 +970,12 @@ export function SetupWizard(
               </div>
             )}
             {deployLog && <Cb file="install log" code={deployLog} />}
+            {consoleErr && !deploying && (
+              <div className="callout warning wiz-appear">
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">Olisar is running on your server, but its console can’t be reached. <Linkified text={consoleErr} /></div>
+              </div>
+            )}
             {/* The costliest failure in setup: minutes in, with the log already on screen.
                 The report carries both, so nobody has to copy a terminal's worth of text. */}
             {deployErr && (

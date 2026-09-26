@@ -517,6 +517,17 @@ whether the key in use works, not only that one is set.
 .key-status + .check-line { margin-top: 8px; }   /* under a key's Saved / Not set row */
 ```
 
+A value that's **applied** rather than checked gets its button on the same line: the server
+panel's replacement Tailscale key, whose button recreates the container on it and waits for the
+answer. The input takes the room and the button keeps its width. This isn't a Test button; the
+press does the work, and what it found comes back as a toast.
+
+```css
+.setup .key-swap { display: flex; align-items: center; gap: 8px; }
+.setup .key-swap input { flex: 1; min-width: 0; }
+.setup .key-swap button { flex: none; }
+```
+
 ### Choice groups (mode cards, segmented pickers)
 
 A group of mutually exclusive cards is a **radiogroup**, not a row of clickable divs: `role="radiogroup"`
