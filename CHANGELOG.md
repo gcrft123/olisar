@@ -402,6 +402,8 @@ A server running healthy was a list of status lines, and the bot kept no record 
 
 [2fb6045] — Fields meant to be monospaced, like tokens, keys and addresses, are.
 
+[f454741] — The console's sidebar scrolls when it's taller than the window, so with the Get started list open in a short desktop window, the lower half of the nav, the bot power control, Settings and Log out can be reached instead of hanging below the window.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
