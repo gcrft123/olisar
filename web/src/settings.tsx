@@ -846,8 +846,10 @@ function Updates() {
         </div>
       )}
       <div className="settings-row">
+        {/* Not disabled while installing: the update screen covers it by then, and a cancel
+            hands focus back here, which a disabled button can't take. */}
         {data?.available && du && (
-          <button className="primary" onClick={install} disabled={installing}>
+          <button className="primary" onClick={install}>
             <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (canSelfUpdate ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
           </button>
         )}

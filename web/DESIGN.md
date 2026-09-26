@@ -646,6 +646,51 @@ rings.
 Memory text follows the type floor: the mono footer ("/ask · 5m") is 11.5px `--text-3`, the
 ActivityLedger's timestamp treatment, not a smaller size of its own.
 
+#### The update screen
+
+When the desktop app installs an update (updating.tsx, fed by desktop/updater.js), this frame
+takes the whole window, opaque, at z-index 500, from whichever place started it: Settings, the
+tray or a notification. The rail holds only the logo. Nothing on it is a setting, and the console
+underneath is about to lose its backend, so none of it should look usable.
+
+```
++------+----------------------------+----------------------------+
+| logo |  Updating Olisar           |                    .-''-.  |
+|      |  Olisar will close and ... |                  .'  ~~~~ '|
+|      |  (/) Download v2.0.beta-5  61 of 158 MB     :  sweep   |
+|      |      [=======-----------]  |                  '.      .'|
+|      |  ( ) Unpack                |                    '-..-'  |
+|      |  ( ) Shut down             |                            |
+|      |  ( ) Restart               |                            |
+|      |  [Cancel]                  |                            |
++------+----------------------------+----------------------------+
+```
+
+**Steps come from the shell,** because the platforms differ: macOS downloads, unpacks, shuts down
+and restarts; Windows has no unpack, because its installer does that. Each row is the Get started
+list's ring: empty while it waits, the spinner's accent arc while it runs, a bare check once done,
+a bare × if it failed. The download carries a mono readout ("61 of 158 MB", then "158 MB") and the
+progress bar under its name, indeterminate when the server sends no length.
+
+**Only the download can be cancelled,** so Cancel is the one button while it runs and there are
+none after it. A page with unsaved edits gets a warning callout during the download, while
+Cancel can still get them back. A failure retitles the screen "Update failed", says the version
+that's still running, marks the step that failed, and says what went wrong under it in
+`--danger`: a sentence, with the system's own reason in brackets so it can still be quoted
+("Couldn't reach GitHub (getaddrinfo ENOTFOUND …)."), selectable. Then: **Try again** (primary), **Download installer**, **Back to Olisar**
+(ghost, and Escape).
+
+**Everything else goes inert,** every child of `<body>` including portals that open later, and
+it's restored as it was. The console's shortcuts listen on the document, where `inert` doesn't
+reach, so the screen stops every keydown at `window` in the capture phase. A button's Enter and
+Space are default actions and still work. Tab wraps inside the screen. Focus lands on the title
+and returns to the Install button when the screen goes.
+
+The form follows the steps with the server panel's readings: the updating sweep while it
+downloads and unpacks, quieter while it shuts down, the stopped form as it restarts, the
+unhealthy tremor (and a `reject()`) when it fails. After the restart the console toasts
+"Updated to v…" once.
+
 ### Skip link
 
 Any surface with a nav rail ahead of its content opens with one. Offscreen until focused, then a
