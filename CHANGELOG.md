@@ -240,6 +240,12 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 [7233f62] — The setup card and the server control panel are centered on the screen whatever their height, and glide to their new center when it changes.
 
+[f14c197] — The server control panel resizes smoothly as warnings, the redirect URL and update notes come and go, and switching to Reconnect and back slides between the two screens.
+
+[f14c197] — Finishing a server deploy, or connecting to an existing server, resizes the setup card into the control panel instead of swapping one card for the other.
+
+[f14c197] — The server's status chip pops in when it changes, from Checking… to Running or Stopped.
+
 [8388322] — A server the bot joins starts with its persona named after the bot, a system prompt that introduces it by that name, and that name as its name trigger.
 
 [8388322] — Slash command descriptions call the bot by its Discord name. The command group is still `/olisar`.
