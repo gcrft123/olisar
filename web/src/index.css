@@ -1554,6 +1554,10 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .setup .srv-hint.warning { color: var(--warn); }
 .setup .srv-hint.danger { color: var(--danger); }
 .setup .srv-hint.warning .linklike, .setup .srv-hint.danger .linklike { color: inherit; }
+/* A key and the button that applies it, on one line: the panel's Tailscale key swap. */
+.setup .key-swap { display: flex; align-items: center; gap: 8px; }
+.setup .key-swap input { flex: 1; min-width: 0; }
+.setup .key-swap button { flex: none; }
 .setup .srv-logs {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 12px 14px; margin-top: 14px; font-family: var(--mono); font-size: 11.5px;

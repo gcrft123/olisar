@@ -294,12 +294,8 @@ export const api = {
   serverPower: (action: 'up' | 'stop') =>
     // Boots the pinned digest — no pull, so this is quick now.
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 120000 }),
-  // Runs the VM's update script: resolve the newest release, pin it, apply it health-gated,
-  // roll back on failure. On demand — the backend runs the same script by itself whenever it
-  // comes up ahead of the VM, which `serverStatus().auto_updating` reports while it's going.
-  serverUpdate: () =>
-    req('/api/server/update', { method: 'POST', timeoutMs: 1260000 }),
-  // The VM's last update attempt, including one the app applied at launch without being asked.
+  // The VM's last update attempt. The backend applies one by itself whenever it comes up
+  // ahead of the VM, which `serverStatus().auto_updating` reports while it's going.
   serverLastUpdate: () => req('/api/server/last-update', { timeoutMs: 40000 }),
   // SSH connect (≤20s) + one remote docker probe (≤45s). Leave headroom over the
   // backend budget so a slow link doesn't false-flag the panel as Unreachable.
@@ -309,6 +305,10 @@ export const api = {
   serverDiscord: (url: string) => req(`/api/server/discord?url=${encodeURIComponent(url)}`, { timeoutMs: 40000 }),
   // Turn the server bot's missing intents on and restart it: { ok, intents_missing, app_id? }.
   serverReconnect: () => req('/api/server/reconnect', { method: 'POST', timeoutMs: 120000 }),
+  // Replace the server bot's Tailscale auth key and recreate it: { ok, url } or { ok: false,
+  // error }. Waits out the container's first healthcheck, so it can take a few minutes.
+  serverTunnelKey: (key: string) =>
+    req('/api/server/tunnel-key', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 420000 }),
   serverLogs: (which: 'bot' | 'funnel', tail = 200) =>
     req(`/api/server/logs?which=${which}&tail=${tail}`, { timeoutMs: 40000 }),
 
@@ -335,7 +335,7 @@ export const api = {
   // A bot's own SSH public key, for a bot that isn't the one on screen (serverPubkey is).
   botPubkey: (id: string) => req(`/api/bots/${encodeURIComponent(id)}/pubkey`, { timeoutMs: 40000 }),
   // Put a bot on the VM another bot already runs on: that bot lets this one's SSH key in and
-  // hands back { ok, host, user, tailscale_auth, admin_allowlist } to deploy with.
+  // hands back { ok, host, user, admin_allowlist } to deploy with.
   shareServer: (fromId: string, toId?: string) =>
     req('/api/bots/share-server', { method: 'POST', body: JSON.stringify({ from_id: fromId, to_id: toId }), timeoutMs: 200000 }),
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>

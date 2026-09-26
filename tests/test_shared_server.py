@@ -13,7 +13,8 @@ Covered: the first bot deploys into ``~/olisar`` as it always has; a second bot 
 until the first lets its key in; once in, it deploys alongside rather than over the first,
 under its own Tailscale device name; redeploying a bot reuses its directory, even as a different
 Discord application; adopting a VM that runs two bots asks which one; every command runs in the
-directory of the bot that sent it; and an update replaces an older client's update script.
+directory of the bot that sent it; an update replaces an older client's update script; and a
+bot whose Tailscale key is refused is reported as such and can be given a new one.
 """
 
 from __future__ import annotations
@@ -36,14 +37,25 @@ from olisar.runtime import remote
 HERE = Path(__file__).resolve().parent
 
 # A docker that remembers nothing but logs where it was called from — enough for the update
-# script to "pull", pin a digest, start and pass its health gate.
+# script to "pull", pin a digest, start and pass its health gate. A container it brings up
+# publishes the backend's state.json from its .env: a Tailscale key with "dead" in it is one
+# Tailscale refuses, so that bot's console gets no address.
 DOCKER_STUB = r"""#!/usr/bin/env bash
 echo "$PWD|docker $*" >> "$STUB_LOG"
 case "$1" in
   compose)
     case "$2" in
       ps) echo "cid-$(basename "$PWD")" ;;
+      up)
+        if grep -q '^TAILSCALE_AUTH=.*dead' .env 2>/dev/null; then
+          printf '{"public_url": "http://127.0.0.1:8000", "tunnel_error": "tsnet.Up: backend: invalid key: API key does not exist"}\n' > state.json.stub
+        else
+          printf '{"public_url": "https://%s.example.ts.net"}\n' "$(basename "$PWD")" > state.json.stub
+        fi ;;
     esac
+    exit 0 ;;
+  exec)
+    cat state.json.stub 2>/dev/null
     exit 0 ;;
   inspect)
     case "$3" in
@@ -202,7 +214,8 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         refused = await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
         self.assertFalse(refused["ok"])
 
-        # The first bot lets it in (twice — it must not duplicate the line) and says what to reuse.
+        # The first bot lets it in (twice — it must not duplicate the line) and says what to
+        # reuse. Not its Tailscale key: each bot needs its own.
         await self.as_bot("alpha")
         self.assertTrue((await remote.authorize_key(beta_key))["ok"])
         self.assertTrue((await remote.authorize_key(beta_key))["ok"])
@@ -210,14 +223,15 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(1 for k in keys if k.split()[:2] == beta_key.split()[:2]), 1)
         info = await remote.share_info()
         self.assertEqual(
-            (info["host"], info["user"], info["tailscale_auth"], info["admin_allowlist"]),
-            ("127.0.0.1", "tester", "tskey-auth-shared", "424242"),
+            (info["host"], info["user"], info["admin_allowlist"]), ("127.0.0.1", "tester", "424242"),
         )
+        self.assertNotIn("tailscale_auth", info)
 
         # Now the second bot deploys — alongside, not over, and under its own device name.
         await self.as_bot("beta")
         second = await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
         self.assertTrue(second["ok"], second)
+        self.assertEqual(second["console_error"], "")
         self.assertEqual(second["app_dir"], "olisar-beta")
         self.assertEqual(self.read_env("olisar")["DISCORD_CLIENT_ID"], "111")
         self.assertEqual(self.read_env("olisar-beta")["DISCORD_CLIENT_ID"], "222")
@@ -287,8 +301,43 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
         script = self.home / "olisar" / remote.UPDATE_SCRIPT
         script.write_text("#!/usr/bin/env bash\n# an old script\nexit 0\n")
-        await remote.update_image()
+        # The app relaunching onto a newer build than the one that deployed the VM.
+        with mock.patch.object(remote, "current_version", lambda: "99.0.0"):
+            await remote.autoupdate()
         self.assertEqual(script.read_text(), remote._asset(remote.UPDATE_SCRIPT))
+
+    async def test_a_refused_tailscale_key_is_reported_and_can_be_replaced(self) -> None:
+        """A bot whose Tailscale key is refused runs with no console address. The deploy says
+        so instead of reporting a success, the panel doesn't offer the loopback origin as the
+        console, and a new key from the panel brings it up."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        env = self.env_file("111").replace("tskey-auth-shared", "tskey-auth-dead")
+        dep = await remote.deploy("127.0.0.1", "tester", env)
+        self.assertTrue(dep["ok"], dep)  # installed and running, so saved as this bot's server
+        self.assertIn("rejected the auth key", dep["console_error"])
+        status = await remote.status()
+        self.assertTrue(status["running"])
+        self.assertEqual(status["url"], "")
+        self.assertIn("rejected the auth key", status["console_error"])
+
+        # A key that's refused again says so; one that isn't a key never reaches the .env.
+        again = await remote.set_tunnel_key("tskey-auth-dead-too")
+        self.assertFalse(again["ok"])
+        self.assertIn("rejected the auth key", again["error"])
+        self.assertFalse((await remote.set_tunnel_key("tskey-auth-x\nDISCORD_TOKEN=evil"))["ok"])
+        self.assertEqual(self.read_env("olisar")["DISCORD_TOKEN"], "token-111")
+
+        self.log.write_text("")
+        fixed = await remote.set_tunnel_key(" tskey-auth-fresh ")
+        self.assertEqual(fixed, {"ok": True, "url": "https://olisar.example.ts.net"})
+        env_now = self.read_env("olisar")
+        self.assertEqual(env_now["TAILSCALE_AUTH"], "tskey-auth-fresh")
+        self.assertEqual(env_now["DISCORD_CLIENT_ID"], "111")  # the rest of the .env is kept
+        self.assertEqual((self.home / "olisar" / ".env").stat().st_mode & 0o777, 0o600)
+        # Recreated, not restarted: a restart keeps the environment the container was made with.
+        self.assertIn("compose up -d --force-recreate", self.log.read_text())
+        self.assertEqual((await remote.status())["url"], "https://olisar.example.ts.net")
 
     async def test_refuses_something_that_isnt_a_key(self) -> None:
         await self.as_bot("alpha")
