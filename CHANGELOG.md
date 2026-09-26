@@ -318,6 +318,8 @@ A server running healthy was a list of status lines, and the bot kept no record 
 
 [47c72b5] — A fact Olisar saves in a server links back to the message it came from in the member portal.
 
+[addf2d8] — Setup's Added and Live confirmations are status badges, like every other status in the console.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
