@@ -23,6 +23,7 @@ from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
+from olisar.memory.writer import record_bot_activity
 from olisar.memory.search import search_messages
 from olisar.message_links import ChannelFilter, channel_filter
 from olisar.proactivity import first_emoji
@@ -87,6 +88,8 @@ class ToolContext:
     # True when this exchange is a DM (raw guild_id 0). Lets tools offer own-DM recall
     # without mistaking it for a guild channel. cfg_guild is still the DM's home guild.
     is_dm: bool = False
+    # The Discord message being answered; 0 when there isn't one (/ask).
+    message_id: int = 0
     actions: DiscordActions | None = None
     # tool name -> async handler(args, ctx), supplied per-reply for enabled
     # extensions (olisar/extensions). execute_tool dispatches to these first.
@@ -475,6 +478,20 @@ def _summarize(text: str, limit: int = 200) -> str:
     return (s[:limit] + "…") if len(s) > limit else s
 
 
+# How ``DiscordActions.set_status`` opens a success, so the status can be recorded only
+# once Discord took it.
+STATUS_OK = "status set to:"
+
+
+async def _note_activity(ctx: ToolContext, **row) -> None:
+    """Record what a tool did for the server app's activity feed (``bot_activity``). The
+    tool has already done it by now, so a failure here is logged and never turns its
+    result into an error the model would repeat to the user."""
+    try:
+        await record_bot_activity(ctx.session, **row)
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't record %s for the activity feed", row.get("kind"))
+
 # What Olisar reacts with when it ends a turn without saying anything and doesn't pick an
 # emoji itself. A thumbs-up is the one reaction that reads as "got it" in every room.
 DEFAULT_ACK_EMOJI = "👍"
@@ -570,6 +587,9 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                     content=fact,
                     embedded=False,
                     event_date=remind_at if is_event else None,
+                    # Never a DM's message: a DM's fact is filed under the home guild, and
+                    # this staying empty is what keeps it out of the activity feed.
+                    source_message_id=(ctx.message_id or None) if not ctx.is_dm else None,
                 )
             )
             now = datetime.now(timezone.utc)
@@ -672,6 +692,14 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             result = await ctx.actions.send_image(data, filename=f"image.{ext}")
             if result != "image posted":
                 return result  # surface the failure reason to the model
+            await _note_activity(
+                ctx,
+                kind="image",
+                text=prompt,
+                guild_id=0 if ctx.is_dm else ctx.cfg_guild,
+                channel_id=ctx.channel_id,
+                request_message_id=ctx.message_id,
+            )
             return (
                 f"Posted the image you generated for: {prompt!r}. Now add a short, "
                 "natural caption in your own voice — don't describe it in detail."
@@ -680,7 +708,18 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         if name == "set_status":
             if ctx.actions is None:
                 return "Can't set status from here."
-            return await ctx.actions.set_status((args.get("text") or "")[:128])
+            text = (args.get("text") or "")[:128]
+            result = await ctx.actions.set_status(text)
+            if result.startswith(STATUS_OK):
+                await _note_activity(
+                    ctx,
+                    kind="status",
+                    text=text,
+                    guild_id=0 if ctx.is_dm else ctx.cfg_guild,
+                    channel_id=ctx.channel_id,
+                    request_message_id=ctx.message_id,
+                )
+            return result
 
         if name == "react":
             if ctx.actions is None:

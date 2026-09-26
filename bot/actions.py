@@ -14,7 +14,7 @@ import discord
 
 from bot.replies import chunk_text, mention_policy, sanitize_mentions
 from olisar.persona import strip_breaks
-from olisar.tools import ACK_OK
+from olisar.tools import ACK_OK, STATUS_OK
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -184,7 +184,7 @@ class BotActions:
             await self.bot.change_presence(
                 activity=discord.CustomActivity(name=text or "…")
             )
-            return f"status set to: {text}"
+            return f"{STATUS_OK} {text}"
         except Exception as exc:  # noqa: BLE001 - surfaced back to the model
             return f"couldn't set status: {exc}"
 

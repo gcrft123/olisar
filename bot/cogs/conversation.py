@@ -272,7 +272,8 @@ class Conversation(commands.Cog):
 
         if stores:
             await record_bot_messages(
-                sent, guild_id=guild_id, channel_id=message.channel.id, bot_user_id=bot_user.id
+                sent, guild_id=guild_id, channel_id=message.channel.id, bot_user_id=bot_user.id,
+                trigger=trigger, answering=message.id,
             )
 
     def _spawn_caption(self, message: discord.Message) -> None:
