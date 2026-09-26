@@ -1,9 +1,11 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { api } from './api'
 import { BotMenu, deviceNameFor, intentList, serverLabel, sharedServers, useBots } from './bots'
-import { DiscordLogo, Icon } from './icons'
-import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
-import { logTail, reportBody, type FeedbackPrefill } from './feedback'
+import { CopyGlyph, DiscordLogo, Icon } from './icons'
+import { FeedbackButton } from './settings'
+import { logTail, reportBody } from './feedback'
+import { SHAPE } from './form'
+import { handOff, Pane, shake, useForm, usePulseOn, useShell } from './onboarding'
 import { Field, Segmented, Select, Text, usePoll } from './ui'
 
 export type SetupPrefill = {
@@ -42,7 +44,7 @@ export function Cb({ file, code }: { file: string; code: string }) {
           data-tip={done ? 'Copied' : 'Copy'}
           onClick={() => { navigator.clipboard?.writeText(code); setDone(true); setTimeout(() => setDone(false), 1400) }}
         >
-          {done ? <Icon.check size={15} weight="Bold" /> : <Icon.copy size={15} />}
+          <CopyGlyph copied={done} />
         </button>
       </div>
       <pre><code>{code}</code></pre>
@@ -145,67 +147,6 @@ function stepsFor(mode: Mode): StepId[] {
 // the other's is last.
 const BAR_SLOTS = Math.max(...MODES.map((m) => stepsFor(m.id).length))
 
-// The setup card's height follows its content, which changes on every step and whenever a
-// check, a warning or an error arrives. It used to snap, and since the card is centred its
-// top jumped by half of every change: the title up to 110px between steps, and the token
-// field 63px while the operator was typing into it. `body` now tweens from the height it had
-// to the one its content needs, so the card glides to its new centre instead, clipped along
-// the bottom so the footer rides the moving edge.
-//
-// `flow` is measured, not `body`: it always sits at its content's height, while `body`'s is
-// the one being animated. A width change (window drag, interface size) snaps, since a card
-// trailing the window by a few hundred ms reads as lag rather than motion.
-//
-// A deploy or a connect swaps the wizard for the server panel, a different card. `handOff`
-// leaves this body's height for the next card that mounts with `arrive`, whose first reading
-// tweens from it instead of snapping, so the swap resizes the card like a step change does.
-// It's read while the new card renders, when the old one is still on screen, and dropped
-// when the old one unmounts, so a later mount can't pick up a stale height.
-let handedOff: (() => number) | null = null
-
-export function useHeightTween({ arrive = false } = {}) {
-  const body = useRef<HTMLDivElement>(null)
-  const flow = useRef<HTMLDivElement>(null)
-  const height = useRef<() => number>(() => 0)
-  const [arrivedFrom] = useState(() => (arrive && handedOff ? handedOff() : null))
-  useLayoutEffect(() => {
-    const b = body.current, f = flow.current
-    if (!b || !f || typeof ResizeObserver === 'undefined') return
-    let last: { w: number; h: number } | null = null
-    let anim: Animation | null = null
-    const read = () => (anim?.playState === 'running' ? parseFloat(getComputedStyle(b).height) : last?.h ?? 0)
-    height.current = read
-    const ro = new ResizeObserver(([e]) => {
-      const { width: w, height: h } = e.contentRect
-      const prev = last ?? (arrivedFrom === null ? null : { w, h: arrivedFrom })
-      last = { w, h }
-      if (!prev) return
-      // Mid-tween, start from where the edge is now rather than where it was headed.
-      const from = anim?.playState === 'running' ? parseFloat(getComputedStyle(b).height) : prev.h
-      anim?.cancel()
-      anim = null
-      if (w !== prev.w || Math.abs(h - from) < 1) return
-      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-      // Growing, the new content overflows until the edge reaches it. Clip only the bottom:
-      // the sides stay open so a focus ring or a step sliding in isn't shaved.
-      const clip = 'inset(-12px -24px 0 -24px)'
-      const ease = getComputedStyle(document.documentElement).getPropertyValue('--ease-out').trim() || 'ease-out'
-      anim = b.animate(
-        [{ height: `${from}px`, clipPath: clip }, { height: `${h}px`, clipPath: clip }],
-        // Longer for a longer move: a check line's 20px in ~190ms, a whole step in ~300ms.
-        { duration: Math.min(340, 180 + Math.abs(h - from) * 0.6), easing: ease },
-      )
-    })
-    ro.observe(f)
-    return () => {
-      ro.disconnect(); anim?.cancel()
-      if (handedOff === read) handedOff = null
-    }
-  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
-  const handOff = () => { handedOff = height.current }
-  return { body, flow, handOff, arrived: arrivedFrom !== null }
-}
-
 // What /api/setup/bot and /api/setup/discord-status say about the bot's Discord application.
 type BotApp = {
   id: string; username: string; avatar: string; bot_public: boolean; code_grant: boolean
@@ -279,7 +220,7 @@ function ArrivingLine({ id, children }: { id: string; children: ReactNode }) {
   return <span key={id} className="check-line-in wiz-appear">{children}</span>
 }
 
-function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
+export function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false)
   return (
     <button className="ghost" onClick={() => { navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}>
@@ -300,6 +241,15 @@ export function RedirectRow({ url, added }: { url: string; added: boolean }) {
   )
 }
 
+// The chevron a `<details className="disclosure">` turns (the same one as ui.tsx Disclosure).
+export function DisclosureChev() {
+  return (
+    <span className="disclosure-chev" aria-hidden="true">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+    </span>
+  )
+}
+
 // Tailscale's errors end in a help link, which as plain text had to be retyped.
 export function Linkified({ text }: { text: string }) {
   return (
@@ -313,11 +263,11 @@ export function Linkified({ text }: { text: string }) {
   )
 }
 
-/** First-run wizard, shown full-screen when the backend reports the app is
- *  unconfigured. Hosting comes first, since it decides the steps after it. The bot token
- *  then stands in for most of what the Developer Portal used to be visited for: the client
- *  ID comes from it, the intents are switched on through it, and the invite link is built
- *  from it. Local hosting saves + starts the bot here; server hosting instead installs
+/** First-run wizard, shown in the first-run frame (onboarding.tsx) when the backend reports
+ *  the app is unconfigured. Hosting comes first, since it decides the steps after it. The bot
+ *  token then stands in for most of what the Developer Portal used to be visited for: the
+ *  client ID comes from it, the intents are switched on through it, and the invite link is
+ *  built from it. Local hosting saves + starts the bot here; server hosting instead installs
  *  Olisar onto the operator's VM over SSH. */
 export function SetupWizard(
   { status, onDone }:
@@ -325,6 +275,8 @@ export function SetupWizard(
 ) {
   // Pre-fill from `.env` when the backend supplied it (loopback + not configured).
   const pf = status.prefill || {}
+  const form = useForm()
+  const { openSettings, openDocs } = useShell()
   // In the desktop app this may be one of several bots. Its Tailscale device name defaults to
   // its own name, so two bots' web addresses don't collide; the original keeps "olisar".
   const bots = useBots()
@@ -333,11 +285,6 @@ export function SetupWizard(
 
   const [step, setStep] = useState(0)
   const [err, setErr] = useState('')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsPane, setSettingsPane] = useState<SectionId | undefined>(undefined)
-  // Feedback opened from a failure below arrives pre-filled in this screen's own Settings.
-  const [fbPrefill, setFbPrefill] = useState<FeedbackPrefill | undefined>(undefined)
-  useFeedbackHost((p) => { setFbPrefill(p); setSettingsOpen(true) })
   // Whether `err` is the save failing, rather than a field left empty. Only the first is
   // ours to hear about.
   const [saveFailed, setSaveFailed] = useState(false)
@@ -351,7 +298,6 @@ export function SetupWizard(
   const [moved, setMoved] = useState<{ what: 'step' | 'screen'; back: boolean } | null>(null)
   const enter = (what: 'step' | 'screen') =>
     moved?.what === what ? ' enter' + (moved.back ? ' back' : '') : ''
-  const { body, flow, handOff } = useHeightTween()
 
   // Where it runs
   const [mode, setMode] = useState<Mode>(pf.tunnel_token ? 'tunnel' : 'local')
@@ -389,8 +335,7 @@ export function SetupWizard(
   const [tunnelUrl, setTunnelUrl] = useState('')
   const [tunnelErr, setTunnelErr] = useState('')
 
-  // Server-hosting extras (collected on the Deploy step)
-  const [provider, setProvider] = useState<'oracle' | 'other'>('oracle')
+  // Server-hosting extras (collected on the Deploy step).
   // Only ever carried over from a server another bot runs on (see the share effect). Asking
   // for it outright went wrong: the operator is already whoever owns the Discord app, and the
   // username the field invited isn't something ADMIN_ALLOWLIST can parse.
@@ -426,6 +371,8 @@ export function SetupWizard(
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
   const geminiCheck = useLiveCheck(gemini, (k) => api.checkSetupGemini(k))
   const [saving, setSaving] = useState(false)
+  // Set once the save or the handover to the server panel has gone through.
+  const [done, setDone] = useState(false)
 
   const steps = stepsFor(mode)
   const last = steps.length - 1
@@ -438,6 +385,7 @@ export function SetupWizard(
     ...(mode === 'tunnel' && tunnelUrl ? [tunnelUrl.replace(/\/$/, '') + '/auth/callback'] : []),
   ]
   const added = (u: string) => !!bot?.redirect_uris.includes(u)
+  const redirectsIn = redirects.length > 0 && redirects.every(added)
   // Sign-in can't move on until Discord lists every redirect: without them, the first sign-in
   // after setup fails on Discord's own error page, with nothing here to say why.
   const redirectPending = cur === 'signin' && !redirects.every(added)
@@ -453,7 +401,7 @@ export function SetupWizard(
     const { guilds: gs, ...app } = r
     setBot(app)
     setGuilds(gs)
-  }), 3000, watching)
+  }), 3000, watching && !done)
 
   // The app's SSH key: always needed on the Deploy step (new VM); on the connect
   // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
@@ -510,18 +458,39 @@ export function SetupWizard(
     return ''
   }
 
-  // A "do this first" message goes once it's done. The checks and polls resolve on their own,
-  // and a stale instruction under a step that's ready reads as still blocked.
+  // A refused Continue's reason goes once it no longer holds: when nothing blocks the step,
+  // or when the reason has become a different one ("Paste your bot token" once a token is
+  // pasted). The checks and polls resolve on their own, and a stale instruction reads as
+  // still blocked; the next press says what's in the way now.
   const blocked = blocker()
   useEffect(() => {
-    if (!blocked && !saveFailed) setErr('')
+    if (!saveFailed && err && err !== blocked) setErr('')
   }, [blocked])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The field a refused Continue is about, when the value is at fault: empty, or turned
+  // down. A check that is still running, or couldn't reach Discord, isn't the value's fault.
+  function blockerField(): string | null {
+    if (cur === 'bot' && (!token.trim() || tokenCheck.state === 'bad')) return 's-token'
+    if (cur === 'remote' && !tunnelDone && !tunnelAuthKey.trim()) return 's-ts'
+    if (cur === 'signin' && (!secret.trim() || secretCheck.state === 'bad')) return 's-secret'
+    if (cur === 'keys' && ((mode === 'server' && !gemini.trim()) || (gemini.trim() && geminiCheck.state === 'bad'))) return 's-gemini'
+    return null
+  }
+  // A wrong value shakes its field and marks it until it's edited or the step changes.
+  const [flagged, setFlagged] = useState<string | null>(null)
+  useEffect(() => { setFlagged(null) }, [cur, connectMode])
+  const flag = (id: string | null) => { if (id) { setFlagged(id); shake(form, id) } }
+  const edit = (id: string, set: (v: string) => void) => (v: string) => { set(v); if (flagged === id) setFlagged(null) }
+  // A value Discord or Google turns down shakes as the answer arrives.
+  useEffect(() => { if (tokenCheck.state === 'bad') shake(form, 's-token') }, [tokenCheck.state])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (secretCheck.state === 'bad') shake(form, 's-secret') }, [secretCheck.state])  // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (geminiCheck.state === 'bad') shake(form, 's-gemini') }, [geminiCheck.state])  // eslint-disable-line react-hooks/exhaustive-deps
 
   function next() {
     setSaveFailed(false)
     const why = blocker()
     setErr(why)
-    if (why) { setErrSeq((n) => n + 1); return }
+    if (why) { setErrSeq((n) => n + 1); flag(blockerField()); return }
     setMoved({ what: 'step', back: false })
     setStep((s) => Math.min(s + 1, last))
   }
@@ -558,11 +527,20 @@ export function SetupWizard(
   if (pf.cloudflare_api_token) envKeys.cloudflare_api_token = pf.cloudflare_api_token
   if (pf.uex_api_key) envKeys.uex_api_key = pf.uex_api_key
 
+  // Setup went through: the form pulses once, and the next screen (sign-in, or the server
+  // panel) takes over this frame and slides in.
+  function finished() {
+    setDone(true)
+    form?.pulse(1)
+    handOff()
+    onDone()
+  }
+
   async function finish() {
     setSaveFailed(false)
     const why = blocker()
     setErr(why)
-    if (why) { setErrSeq((n) => n + 1); return }
+    if (why) { setErrSeq((n) => n + 1); flag(blockerField()); return }
     setSaving(true)
     try {
       const keys: Record<string, string> = { ...envKeys }
@@ -574,7 +552,7 @@ export function SetupWizard(
         discord_client_secret: secret.trim(),
         target_guild_id: guildId,
       })
-      onDone()
+      finished()
     } catch (e: any) {
       setErr(e?.message || 'Save failed.')
       setErrSeq((n) => n + 1)
@@ -591,27 +569,28 @@ export function SetupWizard(
     const host = sharing ? share?.host || '' : serverHost.trim()
     const user = sharing ? share?.user || 'ubuntu' : serverUser.trim() || 'ubuntu'
     if (sharing && !host) return setDeployErr(shareErr || 'Still connecting to that server.')
-    if (!host) return setDeployErr('Enter the VM’s public IP address.')
-    if (!(gemini.trim() && tunnelAuthKey.trim()))
+    if (!host) { flag('s-host'); return setDeployErr('Enter the VM’s public IP address.') }
+    if (!(gemini.trim() && tunnelAuthKey.trim())) {
+      if (!tunnelAuthKey.trim()) flag('s-ts2')
       return setDeployErr('A Gemini key and a Tailscale auth key are both required.')
+    }
     setDeploying(true); setDeployLog('')
     try {
       const r = await api.serverDeploy({ host, user, env: envFile })
       if (r?.ok && r.console_error) setConsoleErr(r.console_error)
-      else if (r?.ok) { handOff(); onDone() }
+      else if (r?.ok) { finished(); return }
       else { setDeployErr(r?.error || 'Deploy failed.'); setDeployLog(r?.log || '') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
-    } finally {
-      setDeploying(false)
     }
+    setDeploying(false)
   }
 
   // Connect to a VM that already runs Olisar (no reinstall) — the app just verifies over
   // SSH and adopts it, then flips to the control panel.
   async function connectServer() {
     setDeployErr('')
-    if (!serverHost.trim()) return setDeployErr('Enter the VM’s public IP address.')
+    if (!serverHost.trim()) { flag('c-host'); return setDeployErr('Enter the VM’s public IP address.') }
     setDeploying(true)
     try {
       // Another bot here already runs on that VM: have it let this bot's key in first.
@@ -620,34 +599,73 @@ export function SetupWizard(
       const r = await api.serverConnect({
         host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', app_dir: installDir || undefined,
       })
-      if (r?.ok) { handOff(); onDone() }
-      else if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
+      if (r?.ok) { finished(); return }
+      if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
       else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {
       setDeployErr(e?.message || 'Couldn’t reach the server.')
-    } finally {
-      setDeploying(false)
     }
+    setDeploying(false)
   }
 
-  // The footer's primary action, per screen and step.
+  // The buttons' primary action, per screen and step.
   const primary = connectMode
-    ? { label: deploying ? 'Connecting…' : 'Connect', run: connectServer, off: deploying }
+    ? { label: deploying ? 'Connecting…' : 'Connect', run: connectServer, off: deploying || done }
     : step < last
       ? { label: 'Continue', run: next, off: redirectPending }
       : mode === 'server'
-        ? { label: deploying ? 'Deploying…' : 'Deploy to server', run: deployServer, off: deploying || (sharing && shareBusy) }
+        ? { label: deploying ? 'Deploying…' : 'Deploy to server', run: deployServer, off: deploying || done || (sharing && shareBusy) }
         : { label: saving ? 'Saving…' : 'Finish & start Olisar', run: finish, off: saving }
 
-  // "Connect to existing server" goes with the screen it was on, and Back comes home to a
-  // first step where Back is disabled. Either way focus would drop to the page: land on the
-  // address the connect screen asks for, and on the way back on the button that opened it.
+  // "Connect to existing server" goes with the screen it was on, and Back comes home to the
+  // first step. Either way focus would drop to the page: land on the address the connect
+  // screen asks for, and on the way back on the button that opened it.
+  const screen = useRef<HTMLDivElement>(null)
   const revealBtn = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     if (moved?.what !== 'screen') return
-    if (connectMode) flow.current?.querySelector<HTMLInputElement>('input')?.focus()
+    if (connectMode) screen.current?.querySelector<HTMLInputElement>('input')?.focus()
     else revealBtn.current?.focus()
   }, [connectMode])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The buttons stay put under the step while a long one scrolls, so whatever arrives at the
+  // bottom of it (a refused Continue's reason, the deploy notice, a failure) is brought into
+  // view rather than left below the fold.
+  useEffect(() => {
+    const all = screen.current?.querySelectorAll('[data-arrival]')
+    const el = all?.[all.length - 1]
+    if (!el || !(err || deployErr || deploying || deployLog || tunnelErr || consoleErr)) return
+    const smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    el.scrollIntoView({ block: 'nearest', behavior: smooth ? 'smooth' : 'auto' })
+  }, [errSeq, deployErr, deploying, deployLog, tunnelErr, consoleErr])
+
+  // What the form shows: the step's form and a few of its states. Which hosting choice is
+  // picked, whether Discord has listed the redirects, whether the bot has joined, whether the
+  // key works, how far a connect has got.
+  useEffect(() => {
+    if (!form || done) return
+    if (connectMode) return form.set(SHAPE.connect, deploying ? 0.62 : 0.12)
+    if (cur === 'where') return form.set(SHAPE.where, { local: 0, tunnel: 1, server: 2 }[mode])
+    if (cur === 'bot') return form.set(SHAPE.bot)
+    if (cur === 'remote') return form.set(SHAPE.remote)
+    if (cur === 'signin') return form.set(SHAPE.signin, redirectsIn ? 1 : 0)
+    if (cur === 'server') return form.set(SHAPE.server, guilds.length ? 1 : 0)
+    if (cur === 'keys') return form.set(SHAPE.keys, geminiCheck.state === 'ok' ? 1 : 0.45)
+    if (cur === 'deploy') return form.set(SHAPE.deploy)
+  }, [form, done, connectMode, deploying, cur, mode, redirectsIn, guilds.length, geminiCheck.state])
+  // Livelier while something is being waited on, calm again once it answers.
+  const waiting = !done && (tokenCheck.state === 'checking' || secretCheck.state === 'checking' || geminiCheck.state === 'checking'
+    || (cur === 'bot' && !!bot?.intents_missing.length) || redirectPending || (cur === 'server' && !!bot && !guilds.length)
+    || provisioning || deploying || saving || shareBusy)
+  useEffect(() => { if (!done) form?.energy(waiting ? 0.7 : 0) }, [form, waiting, done])
+  // Each thing Discord, Tailscale or Google confirms passes through the form once.
+  usePulseOn(form, tokenCheck.state === 'ok', 1)
+  usePulseOn(form, !!bot && !bot.intents_missing.length, 0.6)
+  usePulseOn(form, secretCheck.state === 'ok', 0.6)
+  usePulseOn(form, redirectsIn, 0.8)
+  usePulseOn(form, guilds.length > 0, 1)
+  usePulseOn(form, tunnelDone, 0.9)
+  usePulseOn(form, geminiCheck.state === 'ok', 0.8)
 
   const A = (href: string, text: string) => (
     <a href={href} target="_blank" rel="noreferrer">{text}</a>
@@ -671,79 +689,74 @@ export function SetupWizard(
     return L.join('\n')
   })()
 
-
-  return (
-    <div className="setup">
-      <div className="box">
-        <BotMenu variant="chip" onManage={() => { setSettingsPane('bots'); setSettingsOpen(true) }} />
-        <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setSettingsPane(undefined); setSettingsOpen(true) }}>
-          <Icon.settings size={16} />
-        </button>
-        {settingsOpen && (
-          <SettingsModal
-            sections={['general', 'bots', 'updates', 'desktop', 'feedback']}
-            initialSection={settingsPane}
-            prefill={fbPrefill}
-            onClose={() => { setSettingsOpen(false); setFbPrefill(undefined) }}
-          />
-        )}
-        <div className="box-body" ref={body}>
-        <div ref={flow}>
-        <img className="brand-logo" src="/logo.png" alt="Olisar" />
-        {connectMode ? (
-          <div key="connect" className={'wiz-screen' + enter('screen')}>
-            <h1>Connect to an existing server</h1>
-            <p className="step-sub">
-              Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.
-            </p>
-            <div className="callout tip" style={{ marginBottom: 16 }}>
-              <span className="ic"><Icon.info size={17} weight="Bold" /></span>
-              <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
-            </div>
-            <Field label="VM public IP address" desc="The VM already running Olisar.">
-              <Text value={serverHost} onChange={(v) => { setServerHost(v); setInstalls([]); setInstallDir('') }} placeholder="e.g. 203.0.113.9" mono />
-            </Field>
-            {installs.length > 0 && (
-              <Field label="Which bot is this?" desc="This server runs more than one.">
-                <Select value={installDir} onChange={setInstallDir} options={installs.map((i) => ({ value: i.dir, label: i.name }))} />
-              </Field>
-            )}
-            <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
-              <summary>Can’t connect? Add this app’s SSH key to the VM</summary>
-              <div className="desc" style={{ marginTop: 8 }}>
-                Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, or the provider’s SSH-keys box, then Connect. A VM this app already set up trusts it automatically.
-              </div>
-              <PubkeyBox state={pk} />
-              <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
-                <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
-              </Field>
-            </details>
-            {deploying && (
-              <div className="callout note wiz-appear" style={{ marginBottom: 4 }}>
-                <span className="ic"><span className="spinner" /></span>
-                <div className="callout-body">Connecting to your VM over SSH…</div>
-              </div>
-            )}
-            {deployErr && (
-              <div className="err-block wiz-appear">
-                <div className="err">{deployErr}</div>
-                <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Connecting to my existing Olisar server failed.', deployErr) }}>
-                  Report a problem
-                </FeedbackButton>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div key="wizard" className={'wiz-screen' + enter('screen')}>
-        <h1>Set up Olisar</h1>
-        <p className="step-sub">
-          A one-time setup to connect Olisar to your Discord server.
-        </p>
-        <div className="steps" style={{ gridTemplateColumns: Array.from({ length: BAR_SLOTS }, (_, i) => (i < steps.length ? '1fr' : '0fr')).join(' ') }}>
-          {Array.from({ length: BAR_SLOTS }, (_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
+  const body = connectMode ? (
+    <div key="connect" className={'wiz-screen' + enter('screen')}>
+      <h1>Connect to an existing server</h1>
+      <p className="step-sub">
+        Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.
+      </p>
+      <div className="callout tip" style={{ marginBottom: 16 }}>
+        <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+        <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
+      </div>
+      <Field label="VM public IP address" desc="The VM already running Olisar.">
+        <Text field="c-host" invalid={flagged === 'c-host'} value={serverHost}
+          onChange={(v) => { setServerHost(v); setInstalls([]); setInstallDir(''); if (flagged === 'c-host') setFlagged(null) }}
+          placeholder="e.g. 203.0.113.9" mono />
+      </Field>
+      {installs.length > 0 && (
+        <div className="wiz-appear">
+          <Field label="Which bot is this?" desc="This server runs more than one.">
+            <Select value={installDir} onChange={setInstallDir} options={installs.map((i) => ({ value: i.dir, label: i.name }))} />
+          </Field>
         </div>
+      )}
+      <details className="disclosure" onToggle={(e) => setShowKey((e.currentTarget as HTMLDetailsElement).open)}>
+        <summary><DisclosureChev /><span className="disclosure-title">Can’t connect? Add this app’s SSH key to the VM</span></summary>
+        <div className="disclosure-body">
+          <p className="desc">
+            Paste this into the VM’s <code>~/.ssh/authorized_keys</code>, or the provider’s SSH-keys box, then Connect. A VM this app already set up trusts it automatically.
+          </p>
+          <PubkeyBox state={pk} />
+          <Field label="SSH user" desc="The VM's login user. Ubuntu images use ubuntu.">
+            <Text value={serverUser} onChange={setServerUser} placeholder="ubuntu" mono />
+          </Field>
+        </div>
+      </details>
+      {deploying && (
+        <div className="callout note wiz-appear" data-arrival>
+          <span className="ic"><span className="spinner" /></span>
+          <div className="callout-body">Connecting to your VM over SSH…</div>
+        </div>
+      )}
+      {deployErr && (
+        <div className="err-block wiz-appear" data-arrival>
+          <div className="err">{deployErr}</div>
+          <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Connecting to my existing Olisar server failed.', deployErr) }}>
+            Report a problem
+          </FeedbackButton>
+        </div>
+      )}
+    </div>
+  ) : (
+    <div key="wizard" className={'wiz-screen' + enter('screen')}>
+      <div
+        className="steps"
+        style={{ gridTemplateColumns: Array.from({ length: BAR_SLOTS }, (_, i) => (i < steps.length ? '1fr' : '0fr')).join(' ') }}
+        role="progressbar"
+        aria-label="Setup progress"
+        aria-valuemin={1}
+        aria-valuemax={steps.length}
+        aria-valuenow={Math.min(step, last) + 1}
+      >
+        {Array.from({ length: BAR_SLOTS }, (_, i) => <i key={i} className={i <= step ? 'on' : ''} />)}
+      </div>
+      <h1>Set up Olisar</h1>
+      <p className="step-sub">
+        A one-time setup to connect Olisar to your Discord server.
+      </p>
 
-        <div key={cur} className={'wiz-step' + enter('step')}>
+      <div key={cur} className={'wiz-step' + enter('step')}>
         {cur === 'where' && <ModeChoice mode={mode} onPick={pickMode} />}
 
         {cur === 'bot' && (
@@ -755,7 +768,8 @@ export function SetupWizard(
               </ol>
             </div>
             <Field label="Bot token">
-              <Text value={token} onChange={setToken} placeholder="Paste the token here" mono />
+              <Text field="s-token" invalid={tokenCheck.state === 'bad' || flagged === 's-token'} value={token}
+                onChange={edit('s-token', setToken)} placeholder="your bot token" mono />
             </Field>
             <CheckLine
               check={tokenCheck}
@@ -793,35 +807,31 @@ export function SetupWizard(
                 <li>Generate an auth key at {A('https://login.tailscale.com/admin/settings/keys', 'Settings → Keys → Generate auth key')}, turning on <strong>Reusable</strong>. Paste it below.</li>
                 <li>Click <strong>Enable remote access</strong>. The first time, Tailscale may ask you to turn on <strong>Funnel</strong> for your tailnet: follow the link in the message, then press Enable again.</li>
               </ol>
-              <div style={{ marginTop: 8 }}>
+              <div className="tunnel-help-note">
                 Your dashboard then lives at a stable <code>https://…ts.net</code> address. Other admins just open it and sign in with Discord; they don't need Tailscale themselves.
               </div>
             </div>
-            <Field
-              label="Tailscale auth key"
-              desc="Stored on this machine and only ever handed to Tailscale."
-            >
-              <Text value={tunnelAuthKey} onChange={(v) => { setTunnelAuthKey(v); setTunnelDone(false) }} placeholder="tskey-auth-…" mono />
+            <Field label="Tailscale auth key" desc="Stored on this machine and only ever handed to Tailscale.">
+              <Text field="s-ts" invalid={flagged === 's-ts'} value={tunnelAuthKey}
+                onChange={(v) => { setTunnelAuthKey(v); setTunnelDone(false); if (flagged === 's-ts') setFlagged(null) }}
+                placeholder="tskey-auth-…" mono />
             </Field>
-            <Field
-              label="Device name (optional)"
-              desc="Becomes the first part of your dashboard's web address."
-            >
+            <Field label="Device name (optional)" desc="Becomes the first part of your dashboard's web address.">
               <Text value={tunnelNode} onChange={(v) => { setTunnelNode(v); setTunnelDone(false) }} placeholder="olisar" mono />
             </Field>
-            <div className="wiz-foot">
+            <div className="act-row">
+              <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
+                {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
+              </button>
               <span className="grow">
                 {tunnelDone && tunnelUrl && <span className="ok-pill wiz-pop"><Icon.check size={14} weight="Bold" /> Live at {tunnelUrl}</span>}
                 {tunnelErr && <span className="err wiz-appear"><Linkified text={tunnelErr} /></span>}
               </span>
-              <button disabled={!tunnelAuthKey.trim() || provisioning} onClick={enableTunnel}>
-                {provisioning ? 'Connecting…' : tunnelDone ? 'Reconnect' : 'Enable remote access'}
-              </button>
             </div>
             {/* Funnel is the step people get stuck on, and the fix usually lives in
                 Tailscale's admin panel rather than here: a question, not a bug. */}
             {tunnelErr && (
-              <p className="err-help">
+              <p className="err-help" data-arrival>
                 Stuck?{' '}
                 <FeedbackButton className="linklike" prefill={{
                   category: 'Question',
@@ -838,7 +848,8 @@ export function SetupWizard(
               label="Client secret"
               desc={<>On {A(`${PORTAL}/${bot.id}/oauth2`, 'the OAuth2 page')}, press <strong>Reset Secret</strong> and copy it.</>}
             >
-              <Text value={secret} onChange={setSecret} placeholder="Paste the secret here" mono />
+              <Text field="s-secret" invalid={secretCheck.state === 'bad' || flagged === 's-secret'} value={secret}
+                onChange={edit('s-secret', setSecret)} placeholder="client secret" mono />
             </Field>
             <CheckLine
               check={secretCheck}
@@ -899,7 +910,8 @@ export function SetupWizard(
                 ? <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
                 : <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
-              <Text value={gemini} onChange={setGemini} placeholder="AIza…" mono />
+              <Text field="s-gemini" invalid={geminiCheck.state === 'bad' || flagged === 's-gemini'} value={gemini}
+                onChange={edit('s-gemini', setGemini)} placeholder="AIza…" mono />
             </Field>
             <CheckLine
               check={geminiCheck}
@@ -909,7 +921,7 @@ export function SetupWizard(
           </>
         )}
 
-        {cur === 'deploy' && !connectMode && (
+        {cur === 'deploy' && (
           <>
             {shared.length > 0 && (
               <Segmented
@@ -925,7 +937,7 @@ export function SetupWizard(
             )}
 
             {sharing ? (
-              <div className={'callout ' + (shareErr ? 'warning' : 'note')} style={{ marginBottom: 16 }}>
+              <div className={'callout ' + (shareErr ? 'warning' : 'note')}>
                 <span className="ic">{shareBusy ? <span className="spinner" /> : <Icon.info size={17} weight="Bold" />}</span>
                 <div className="callout-body">
                   {shareBusy ? 'Connecting to that server…'
@@ -934,58 +946,40 @@ export function SetupWizard(
                 </div>
               </div>
             ) : (
-            <>
-            <div className="deploy-seg">
-              <button className={provider === 'oracle' ? 'on' : ''} onClick={() => setProvider('oracle')}>Oracle Cloud · free</button>
-              <button className={provider === 'other' ? 'on' : ''} onClick={() => setProvider('other')}>Other cloud</button>
-            </div>
-
-            {provider === 'oracle' ? (
-              <div className="tunnel-help">
-                <b>Create a free Oracle Cloud VM — Olisar installs itself onto it</b>
-                <ol>
-                  <li>Create a free {A('https://www.oracle.com/cloud/free/', 'Oracle Cloud account')}. A card is needed to verify identity, but the Always Free ARM server costs nothing.</li>
-                  <li><strong>Menu → Compute → Instances → Create instance</strong>. Image <strong>Ubuntu 22.04</strong>, shape <strong>VM.Standard.A1.Flex</strong> (Ampere — Always Free). If you see <strong>"out of capacity"</strong>, switch Availability Domain or region and retry. Free ARM frees up through the day.</li>
-                  <li>Under <strong>Add SSH keys</strong>, choose <strong>Paste public keys</strong> and paste the key below. Leave networking on defaults. Create it.</li>
-                  <li>Open the instance's details, copy its <strong>Public IP address</strong> into the field below, and press <strong>Deploy to server</strong>. Olisar SSHes in and sets everything up, with no terminal needed.</li>
-                </ol>
-              </div>
-            ) : (
-              <div className="tunnel-help">
-                <b>Any Linux VM — Olisar installs itself over SSH</b>
-                <ol>
-                  <li>Create an <strong>Ubuntu 22.04</strong> VM (1 GB+ RAM) anywhere — DigitalOcean, Hetzner, AWS EC2, etc. — with user <code>ubuntu</code> and passwordless <code>sudo</code>.</li>
-                  <li>Add the SSH public key below to the VM (its "SSH keys" box, or <code>~/.ssh/authorized_keys</code>).</li>
-                  <li>Copy the VM's public IP into the field below and press <strong>Deploy to server</strong>.</li>
-                </ol>
-              </div>
-            )}
-
-            <Field plain label="SSH public key — paste this when creating the VM"
-              desc="The matching private key never leaves this machine.">
-              <PubkeyBox state={pk} />
-            </Field>
-
-            <Field label="VM public IP address" desc="From the instance's details page.">
-              <Text value={serverHost} onChange={setServerHost} placeholder="e.g. 203.0.113.9" mono />
-            </Field>
-            </>
+              <>
+                {/* Creating the VM, click by click, lives in the docs, which open beside this. */}
+                <div className="callout note">
+                  <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+                  <div className="callout-body">
+                    No VM yet? <button type="button" className="linklike" onClick={() => openDocs('host-server')}>Host on a server</button> in the docs covers a free one on Oracle Cloud.
+                  </div>
+                </div>
+                <Field plain label="SSH public key — paste this when creating the VM"
+                  desc="The matching private key never leaves this machine.">
+                  <PubkeyBox state={pk} />
+                </Field>
+                <Field label="VM public IP address" desc="From the instance's details page.">
+                  <Text field="s-host" invalid={flagged === 's-host'} value={serverHost}
+                    onChange={edit('s-host', setServerHost)} placeholder="e.g. 203.0.113.9" mono />
+                </Field>
+              </>
             )}
             <Field label="Tailscale auth key" desc={sharing
               ? <>A new Tailscale key is needed per bot. Create one: {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>
               : <>Gives your server a dashboard address without needing a domain. Create a reusable key at {A('https://login.tailscale.com/admin/settings/keys', 'Tailscale → Settings → Keys')}.</>}>
-              <Text value={tunnelAuthKey} onChange={setTunnelAuthKey} placeholder="tskey-auth-…" mono />
+              <Text field="s-ts2" invalid={flagged === 's-ts2'} value={tunnelAuthKey}
+                onChange={edit('s-ts2', setTunnelAuthKey)} placeholder="tskey-auth-…" mono />
             </Field>
 
             {deploying && (
-              <div className="callout note wiz-appear" style={{ marginBottom: 4 }}>
+              <div className="callout note wiz-appear" data-arrival>
                 <span className="ic"><span className="spinner" /></span>
                 <div className="callout-body">Installing Olisar on your VM. This takes a few minutes — keep this window open.</div>
               </div>
             )}
-            {deployLog && <Cb file="install log" code={deployLog} />}
+            {deployLog && <div data-arrival><Cb file="install log" code={deployLog} /></div>}
             {consoleErr && !deploying && (
-              <div className="callout warning wiz-appear">
+              <div className="callout warning wiz-appear" data-arrival>
                 <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
                 <div className="callout-body">Olisar is running on your server, but its console can’t be reached. <Linkified text={consoleErr} /></div>
               </div>
@@ -993,13 +987,13 @@ export function SetupWizard(
             {/* The costliest failure in setup: minutes in, with the log already on screen.
                 The report carries both, so nobody has to copy a terminal's worth of text. */}
             {deployErr && (
-              <div className="err-block wiz-appear">
+              <div className="err-block wiz-appear" data-arrival>
                 <div className="err">{deployErr}</div>
                 <FeedbackButton className="" prefill={{
                   category: 'Bug report',
                   logs: true,
                   message: [
-                    `Deploying Olisar to my server failed (${provider === 'oracle' ? 'Oracle Cloud' : 'another cloud'}).`,
+                    'Deploying Olisar to my server failed.',
                     '', 'Error:', deployErr,
                     ...(deployLog ? ['', 'Install log (last lines):', logTail(deployLog)] : []),
                     '', 'What I was doing:', '',
@@ -1013,37 +1007,35 @@ export function SetupWizard(
         )}
 
         {err && (saveFailed ? (
-          <div key={errSeq} className="err-block wiz-appear">
+          <div key={errSeq} className="err-block wiz-appear" data-arrival>
             <div className="err">{err}</div>
             <FeedbackButton className="" prefill={{ category: 'Bug report', logs: true, message: reportBody('Finishing setup failed.', err) }}>
               Report a problem
             </FeedbackButton>
           </div>
-        ) : <div key={errSeq} className="err wiz-appear">{err}</div>)}
-        </div>
-          </div>
-        )}
-        </div>
-        </div>
-
-        {/* Outside the tweened body, so it rides the card's bottom edge. One footer and one
-            primary button for every step and both screens: the button that was pressed is
-            still there afterwards, so focus stays on it and Enter walks the whole wizard. */}
-        <div className="wiz-foot">
-          <button disabled={connectMode ? deploying : step === 0 || saving} onClick={connectMode ? () => showConnect(false) : back}>
-            Back
-          </button>
-          <span className="grow" />
-          <div className="cta-reveal">
-            <div className="reveal-slot">
-              {!connectMode && cur === 'where' && (
-                <button ref={revealBtn} className="ghost reveal-btn" onClick={() => showConnect(true)}>Connect to existing server</button>
-              )}
-            </div>
-            <button className="primary" disabled={primary.off} onClick={primary.run}>{primary.label}</button>
-          </div>
-        </div>
+        ) : <div key={errSeq} className="err wiz-appear" role="alert" data-arrival>{err}</div>)}
       </div>
     </div>
+  )
+
+  return (
+    <Pane resetKey={`${cur}|${connectMode}`}>
+      <BotMenu variant="chip" onManage={() => openSettings('bots')} />
+      <div ref={screen}>
+        {body}
+        {/* The buttons sit right under the step, primary first. One primary button for every
+            step and both screens, so the one that was pressed is still there afterwards and
+            Enter walks the whole wizard. Beside it is the one other way out: Back, or on the
+            first step, connecting to a server that already runs Olisar. */}
+        <div className="onb-actions">
+          <button className="primary" disabled={primary.off} onClick={primary.run}>{primary.label}</button>
+          {connectMode
+            ? <button className="ghost" disabled={deploying || done} onClick={() => showConnect(false)}>Back</button>
+            : step === 0
+              ? <button className="ghost" ref={revealBtn} onClick={() => showConnect(true)}>Connect to existing server</button>
+              : <button className="ghost" disabled={saving || deploying || done} onClick={back}>Back</button>}
+        </div>
+      </div>
+    </Pane>
   )
 }
