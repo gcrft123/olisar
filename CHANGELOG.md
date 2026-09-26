@@ -50,6 +50,8 @@ Toasts piled up in the bottom-right corner, over the save bar and the Test chat 
 
 After the app started, Settings → Bots listed every bot but the one on screen as starting, and kept saying so until you opened one of them. The window opens as soon as the bot you're looking at is up, a moment before the others are, and the console read the list of bots once, then kept it. The list is now read again every couple of seconds while any bot is still starting, and every time Settings → Bots opens.
 
+Installing an update from the desktop app changed a button to "Installing…", and a minute later the window vanished. In between, the console stayed usable on a backend that was about to stop, and a page with unsaved edits could hold the quit open, which left the app with no window, no tray and no backend, and no update. An update now takes the window while it runs, shows each step and what's left, and can be cancelled while it downloads.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -169,6 +171,14 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 [47c72b5] — The bot records how each of its replies was called and which message it answered, when members joined, how many members the last roster sync found, and the statuses it sets and images it draws.
 
 [47c72b5] — The desktop app reads a server bot's recent activity over SSH, never including a DM or anyone who opted out of being remembered.
+
+[55b26c2] — Installing an update from the desktop app takes over its window until it restarts, with each step, the download's progress, and a Cancel while it downloads.
+
+[55b26c2] — While an update downloads, a page with unsaved edits gets a warning, so Cancel can still get back to them.
+
+[55b26c2] — A failed update says which step failed and what went wrong, and offers Try again, the installer, or the way back to the console.
+
+[55b26c2] — After an update, the console says which version the app opened on.
 
 ### Changed
 
@@ -423,6 +433,10 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 [23cffa0] — On the server's final screen, the back button on a long opened memory can be seen and clicked; the memory's text used to cover it.
 
 [8c598a1] — The bot switcher fades out with the rest of the server panel as the final screen takes over, instead of staying put until the move ends and then vanishing.
+
+[1b2f39f] — Quitting the desktop app with unsaved edits closes it, instead of leaving it running with no window, no tray and no backend.
+
+[55b26c2] — An update download that loses its connection partway through fails, instead of waiting forever.
 
 [dc07313] — The Gemini key fields in setup and on the API keys page show a key starting with `AQ.`, the format Google AI Studio hands out now, instead of the older `AIza`.
 
