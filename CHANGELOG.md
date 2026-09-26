@@ -182,6 +182,8 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 ### Changed
 
+[296e0c0] — Settings → General no longer describes the Size control.
+
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
 
 [c6d7bd8] — Betas are published as GitHub pre-releases, and the server image's `latest` tag only moves for a stable release.
