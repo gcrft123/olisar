@@ -46,6 +46,8 @@ First run happened in a small card in the middle of an empty window: the setup w
 
 A server running healthy was a list of status lines, and the bot kept no record of most of what it did there. It now keeps one. Once Discord lists the server's sign-in address, the panel moves into the corner and the window shows what the bot has been up to: who it answered and how, who joined, what it learned about people and about the server, and what it read.
 
+Toasts piled up in the bottom-right corner, over the save bar and the Test chat button, which each needed rules to lift them out of the way. Several at once grew into a column up the screen, and a confirmation's timer ran down whether or not you were reading it. They now stack in the top-right corner the way Base UI's toasts do: the newest on top with the older ones tucked behind it, spreading out and holding still while you point at them.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -319,6 +321,16 @@ A server running healthy was a list of status lines, and the bot kept no record 
 [47c72b5] — A fact Olisar saves in a server links back to the message it came from in the member portal.
 
 [addf2d8] — Setup's Added and Live confirmations are status badges, like every other status in the console.
+
+[5123186] — Toasts appear in the top-right corner, and the newest three stack with the older ones tucked behind the newest.
+
+[5123186] — A fourth toast hides the oldest until a newer one closes.
+
+[5123186] — Pointing at the toasts or tabbing into them spreads them out and pauses their timers, and so does switching to another window.
+
+[5123186] — A toast can be swiped away up or right, Escape closes the one with focus, and F6 moves focus to the toasts from anywhere, an open dialog included.
+
+[5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
 
 ### Fixed
 
