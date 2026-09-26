@@ -304,8 +304,8 @@ function Linkified({ text }: { text: string }) {
  *  from it. Local hosting saves + starts the bot here; server hosting instead installs
  *  Olisar onto the operator's VM over SSH. */
 export function SetupWizard(
-  { status, onDone, initialConnectMode }:
-  { status: SetupStatus; onDone: () => void; initialConnectMode?: boolean },
+  { status, onDone }:
+  { status: SetupStatus; onDone: () => void },
 ) {
   // Pre-fill from `.env` when the backend supplied it (loopback + not configured).
   const pf = status.prefill || {}
@@ -381,9 +381,7 @@ export function SetupWizard(
   const [adminUser, setAdminUser] = useState('')
   // A standalone shortcut (from the first page): adopt a VM that already runs Olisar,
   // skipping the whole setup. Rendered as its own screen, not a wizard step.
-  // Reconnect from a reset/reinstall (App passes hosting_mode==='server') opens the connect
-  // flow directly instead of the full wizard.
-  const [connectMode, setConnectMode] = useState(!!initialConnectMode)
+  const [connectMode, setConnectMode] = useState(false)
   const [serverUser, setServerUser] = useState('ubuntu')
   const [serverHost, setServerHost] = useState('')
   const [showKey, setShowKey] = useState(false)  // the collapsible "add this key" fallback
@@ -438,7 +436,7 @@ export function SetupWizard(
     setGuilds(gs)
   }), 3000, watching)
 
-  // The app's SSH key: always needed on the Deploy step (new VM); on the connect/reconnect
+  // The app's SSH key: always needed on the Deploy step (new VM); on the connect
   // screen it's only a fallback (the key is already on a VM the app set up), fetched lazily
   // when the operator expands "Can't connect?".
   const pk = usePubkey((cur === 'deploy' && !sharing) || (connectMode && showKey))

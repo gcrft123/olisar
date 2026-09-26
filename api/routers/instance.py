@@ -40,15 +40,17 @@ def require_gateway(request: Request) -> None:
 
 router = APIRouter(prefix="/api/instance", tags=["instance"], dependencies=[Depends(require_gateway)])
 
-# Deployment config a "reset" clears (to defaults). Deliberately KEEPS the SSH keypair
-# (server_ssh_pubkey/privkey — the app's identity, so reconnect works), session_secret,
-# hosting_mode (a routing hint so a reset server bot lands on Reconnect, not the full wizard)
-# and server_app_dir (so Reconnect finds this bot's install on a VM that runs several).
+# Deployment config a "reset" clears (to defaults), hosting included: a reset bot starts the
+# setup wizard from the top, like a new one. Deliberately KEEPS the SSH keypair
+# (server_ssh_pubkey/privkey — the app's identity, so connecting back to its VM works),
+# session_secret and server_app_dir (so that connect finds this bot's install on a VM that
+# runs several).
 _RESET_CONFIG = dict(
     discord_token="", discord_client_id="", discord_client_secret="",
     target_guild_id=0, public_base_url="",
     tunnel_enabled=False, tunnel_hostname="", tunnel_node="", tunnel_token="",
-    server_host="", configured=False,
+    hosting_mode="local", server_host="", server_ssh_user="ubuntu", server_synced_version="",
+    configured=False,
 )
 
 
@@ -93,12 +95,20 @@ async def status(request: Request) -> dict:
 
 @router.post("/reset")
 async def reset(request: Request) -> dict:
-    """Clear this bot's deployment config (Discord creds, server, API keys → unconfigured),
-    keeping its learned data + SSH key, and take its bot offline. Returns the hosting mode it
-    had, so the console can route a reset server bot to Reconnect."""
+    """Clear this bot's deployment config (Discord creds, hosting, remote access, API keys →
+    unconfigured), keeping its learned data + SSH key, and take its bot offline. Returns the
+    hosting mode it had."""
     hosting = await runtime_config.hosting_mode()
     runtime_config.invalidate()
     await runtime_config.save(**_RESET_CONFIG)
+    # Clearing tunnel_enabled only stops the Funnel at the next launch; until then it would
+    # keep publishing this machine for a bot that no longer asks for it.
+    tunnel = getattr(request.app.state, "tunnel", None)
+    if tunnel is not None:
+        await tunnel.stop()
+    from olisar.runtime import state
+
+    state.write(public_url="")
     async with session_scope() as session:
         row = await session.get(AppSecret, 1)
         if row is not None:
