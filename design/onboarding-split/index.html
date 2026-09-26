@@ -3422,7 +3422,7 @@ void main() {
             <${Field} id="s-gemini" label="Gemini API key" desc=${mode === 'server'
               ? html`Powers everything Olisar says. Create a free key in ${A('https://aistudio.google.com/apikey', 'Google AI Studio')}.`
               : html`Powers everything Olisar says. Create a free key in ${A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.`}>
-              <${Text} id="s-gemini" desc value=${gemini} invalid=${geminiCheck.state === 'bad' || flagged === 's-gemini'} onChange=${edit('s-gemini', setGemini)} placeholder="AIza…" mono />
+              <${Text} id="s-gemini" desc value=${gemini} invalid=${geminiCheck.state === 'bad' || flagged === 's-gemini'} onChange=${edit('s-gemini', setGemini)} placeholder="AQ.…" mono />
             <//>
             <${CheckLine} check=${geminiCheck} ok=${html`${I.check(14)} Key works`} bad="Google didn’t accept that key." />`}
 
