@@ -418,6 +418,8 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 
 [6f2f54c] — Settings → Bots and the bot switcher show each bot's status once it has started, instead of "Starting…" until a bot is opened.
 
+[f454741] — The console's sidebar scrolls when it's taller than the window, so with the Get started list open in a short desktop window, the lower half of the nav, the bot power control, Settings and Log out can be reached instead of hanging below the window.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.

@@ -191,12 +191,15 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
    0: a quarter of Channels, including the indexing control, simply could not be reached. */
 .shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100%; }
 
+/* The rail scrolls on its own once it's taller than the window. It's pinned to the window's
+   height, so whatever didn't fit used to hang below the window where no scroll could reach it:
+   with Get started open it's 970px at 110%, and the desktop window goes down to 620. */
 .sidebar {
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
   padding: 18px 14px;
   display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 0; height: var(--vh);
+  position: sticky; top: 0; height: var(--vh); overflow-y: auto;
 }
 
 /* The rail is a fixed 244px track, which at 375px leaves 43px of usable content — so below
@@ -478,7 +481,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
     width: min(292px, calc(var(--vw) * 0.86)); height: var(--dvh); max-height: none;
     padding-top: max(18px, env(safe-area-inset-top));
     padding-left: max(14px, env(safe-area-inset-left));
-    overflow-y: auto; visibility: hidden;
+    visibility: hidden;
     transform: translateX(-100%); box-shadow: var(--shadow-modal);
     transition: transform var(--dur-slow) var(--ease-out), visibility var(--dur-slow);
   }
