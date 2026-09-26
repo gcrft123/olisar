@@ -447,7 +447,7 @@ def _foreign_origin(request: Request) -> bool:
     """A browser request that changes something, sent by a page that isn't this console.
 
     Any website the operator has open can send a simple POST to 127.0.0.1 (``no-cors``), and a
-    body-less one — reset a bot, run a server update — gets through without CORS ever being
+    body-less one — reset a bot, reconnect the server's bot — gets through without CORS ever being
     asked. Browsers stamp those with the page's Origin, and the console's own pages are always
     on loopback, so anything else is refused before it reaches a bot. Requests with no Origin
     (the desktop shell, curl) aren't from a web page and pass."""

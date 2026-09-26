@@ -6,7 +6,6 @@
 #
 #   * automatically, when the app finds itself on a newer build than the VM — which is the
 #     case every time it relaunches after updating itself
-#   * on demand, from the control panel's "Update now"
 #   * by hand on the VM: ./olisar-update.sh
 #
 # One implementation, every trigger: the client never reimplements any of this. (There used
