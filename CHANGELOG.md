@@ -38,6 +38,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 The server panel had an Update button that moved the VM onto the newest release by hand. Since 2.0 the app does that itself whenever it starts up on a newer version than the VM, which is every launch after it updates, so the button only repeated it. The server now moves when the app does.
 
+A bot added to a server another bot already ran on borrowed that bot's Tailscale key. That key had already been used once, and was often single-use or expired by then, so the new bot never got a web address. Setup finished as if it had, and "Open console" opened `http://127.0.0.1:8000`, an address that only means something inside the server. Each bot now brings its own key, a deploy that doesn't get an address says so, and the server panel takes a new key without anyone editing files on the server.
+
 Resetting a server-hosted bot's configuration didn't reset where it was hosted. The console reopened it on the screen for connecting to an existing server, and going back from there to set it up on this computer instead finished on the server panel, saying no server was configured, with the bot never started. A reset now starts a bot over the way a new one starts.
 
 ### New
@@ -144,6 +146,8 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 
 [31d8676] — A Cloudflare token that can see its own account fills in the account ID.
 
+[9fca613] — The server control panel takes a new Tailscale auth key when its console has no address, and restarts the bot on it.
+
 ### Changed
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -242,6 +246,14 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 
 [4b78a70] — Pressing Continue with something still missing shows the reason again, so a second press no longer looks like it did nothing.
 
+[7233f62] — The setup card and the server control panel are centered on the screen whatever their height, and glide to their new center when it changes.
+
+[f14c197] — The server control panel resizes smoothly as warnings, the redirect URL and update notes come and go, and switching to Reconnect and back slides between the two screens.
+
+[f14c197] — Finishing a server deploy, or connecting to an existing server, resizes the setup card into the control panel instead of swapping one card for the other.
+
+[f14c197] — The server's status chip pops in when it changes, from Checking… to Running or Stopped.
+
 [8388322] — A server the bot joins starts with its persona named after the bot, a system prompt that introduces it by that name, and that name as its name trigger.
 
 [8388322] — Slash command descriptions call the bot by its Discord name. The command group is still `/olisar`.
@@ -273,6 +285,8 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 [3f0eb36] — The server panel no longer has an Update button, or a line saying a newer release is available.
 
 [3f0eb36] — `POST /api/server/update` is gone; running `olisar-update.sh` on the VM still updates it by hand.
+
+[9fca613] — Adding a bot to a server another bot already runs on asks for its own Tailscale auth key instead of copying the other bot's.
 
 ### Fixed
 
@@ -334,11 +348,15 @@ Resetting a server-hosted bot's configuration didn't reset where it was hosted. 
 
 [9388392] — A bot missing an intent no longer retries connecting every few seconds until Discord resets its token for too many attempts; it stops within 20 seconds and says which intent is off.
 
-[4b78a70] — The setup card no longer jumps up and down between steps, and the bot token field stays put while you type, instead of sliding when Discord's answer arrives.
+[4b78a70] — The setup card no longer jumps up and down between steps, or while you type in the bot token field when Discord's answer arrives.
 
 [4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
 [8388322] — Transcripts, channel summaries, catch-ups and the prompts that decide whether the bot chimes in or reacts call it by its persona's name, so a bot whose persona has another name no longer reads its own messages as someone called Olisar.
+
+[9fca613] — "Open console" no longer opens `http://127.0.0.1:8000` when a server bot couldn't connect to Tailscale. The panel says why the console can't be reached instead.
+
+[9fca613] — Deploying a bot whose Tailscale key is refused says so instead of finishing as if it worked.
 
 [b30006b] — Resetting a bot's configuration opens setup from the first step, instead of the connect-to-a-server screen for a bot that was on a server.
 

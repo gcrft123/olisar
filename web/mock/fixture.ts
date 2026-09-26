@@ -427,9 +427,11 @@ const MOCK_AUDIT = {
 // the deploy step offers the server another bot already runs on.
 //
 // A value starting with "bad" takes that step's failure path: a token (Discord rejects it), a
-// client secret or Gemini key (not accepted), a Tailscale key (Funnel refuses), a VM address
-// (the deploy fails with its install log, or the connect can't reach it). Connecting to a VM
-// whose address ends in .9 finds two installs and asks which bot this is.
+// client secret or Gemini key (not accepted), a Tailscale key (Funnel refuses; on the deploy
+// step, Tailscale refuses it and the bot deploys with no console address, which the control
+// panel then offers to fix with a new key), a VM address (the deploy fails with its install
+// log, or the connect can't reach it). Connecting to a VM whose address ends in .9 finds two
+// installs and asks which bot this is.
 //
 // A token containing "intents" belongs to an app whose intents setup can't switch on, so the
 // Bot step waits for the operator to; they come on 8 seconds in. The redirect URLs register
@@ -443,7 +445,9 @@ let SETUP = ''
 let FRESH = ''
 let MOCK_ROLE = ''
 const FRESH_STATE = { reconnected: false }
-const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false }
+// `consoleErr`: the server bot deployed with a key Tailscale refused, until a new one is given.
+const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '' }
+const MOCK_KEY_REFUSED = 'Tailscale rejected the auth key: it has expired, was revoked, or was already used. Use a new one.'
 // When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
 // later as if the operator had done it: the intents coming on, the redirect URLs being added,
 // then the bot joining a server. Each wait starts once the one before it is over.
@@ -507,7 +511,7 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     }), true
   }
   if (url.startsWith('/api/bots/share-server')) return body(() => later(1400, () => send({
-    ok: true, host: '203.0.113.9', user: 'ubuntu', tailscale_auth: 'tskey-auth-mock', admin_allowlist: 'gcrft123',
+    ok: true, host: '203.0.113.9', user: 'ubuntu', admin_allowlist: 'gcrft123',
   })))
   if (/^\/api\/bots\/[^/]+\/pubkey/.test(url)) return later(500, () => send({ public_key: MOCK_PUBKEY }))
   if (url.startsWith('/api/bots')) {
@@ -543,7 +547,9 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
   if (url.startsWith('/api/server/pubkey')) return later(600, () => send({ public_key: MOCK_PUBKEY }))
   if (url.startsWith('/api/server/deploy')) return body((b) => later(4500, () => {
     if (bad(b.host)) return send({ ok: false, error: 'The install stopped: the VM couldn’t download the Olisar image.', log: MOCK_INSTALL_LOG })
-    finish('server'); send({ ok: true })
+    finish('server')
+    SETUP_STATE.consoleErr = bad(/^TAILSCALE_AUTH=(.*)$/m.exec(String(b.env))?.[1]) ? MOCK_KEY_REFUSED : ''
+    send({ ok: true, console_error: SETUP_STATE.consoleErr })
   }))
   if (url.startsWith('/api/server/connect')) return body((b) => later(1800, () => {
     if (bad(b.host)) return send({ ok: false, error: `Couldn't reach the VM: connection to ${b.host}:22 timed out` })
@@ -555,8 +561,14 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
   // The control panel a server deploy lands on.
   if (url.startsWith('/api/server/status')) return send({
     configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
-    health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', url: 'https://olisar.tail4f2a.ts.net', logs: '',
+    health: 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', logs: '',
+    url: SETUP_STATE.consoleErr ? '' : 'https://olisar.tail4f2a.ts.net', console_error: SETUP_STATE.consoleErr,
   }), true
+  if (url.startsWith('/api/server/tunnel-key')) return body((b) => later(3000, () => {
+    if (bad(b.key)) return send({ ok: false, error: MOCK_KEY_REFUSED })
+    SETUP_STATE.consoleErr = ''
+    send({ ok: true, url: 'https://olisar.tail4f2a.ts.net' })
+  }))
   // The console's sign-in address turns up registered 6 seconds after the panel first asks.
   // SETUP_MOCK=intents also has the server bot's intents off until Turn on and restart.
   if (url.startsWith('/api/server/discord')) return later(400, () => send({
