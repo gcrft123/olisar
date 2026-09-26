@@ -457,6 +457,7 @@ and blur and keep the opacity cross-fade — the colour and the glyph still chan
 .input:focus, .select:focus, .textarea:focus { border-color: var(--accent); box-shadow: var(--ring); }
 ::placeholder { color: var(--text-3); }
 input.mono { font-family: var(--font-mono); font-size: 12.5px; }  /* tokens, keys, addresses */
+input.mono::placeholder { font-family: var(--font-sans); font-size: 13.5px; }  /* the prompt stays a sentence */
 ```
 
 ### Toggle (pill switch)
@@ -604,7 +605,7 @@ the console's own pages stays flat (see **Base layer**).
 | Screen | the wizard ↔ "Connect to an existing server", and the server panel ↔ Reconnect, move the same way; focus lands on the new screen's IP field, or back on the button that opened it |
 | Progress bar | one grid track per step of the longest hosting choice; the tracks past this choice's last step are `0fr`, so picking a choice grows or shrinks the bar at its end. A segment fills from the left going forward and empties back toward it going back |
 | Arrivals | `.wiz-appear`, 3px and a fade. A check line keeps its `role="status"` element and replaces only the words inside it. A refused Continue replays its reason |
-| Confirmations | `.wiz-pop` for what Discord or Tailscale just confirmed ("Added", "Live at …") |
+| Confirmations | what Discord or Tailscale just confirmed is a success Badge ("Added", "Live" beside the address), popped in with `.wiz-pop` |
 | Handoff | setup finishing hands the half to the next screen (the server panel, or sign-in), which slides in as the next screen: the wizard calls `handOff()`, the arriving screen reads `useArrived()` |
 | Gap | when something above the server panel's buttons goes (the redirect once it's listed, a hint), the buttons close the gap on a transform |
 

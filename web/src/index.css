@@ -549,6 +549,8 @@ select { appearance: none; cursor: pointer;
 /* `input[type=text]` sets `font: inherit` at the same weight as `.mono`, and came later, so a
    field asked to be monospaced (a token, a key, an address) never was. */
 input.mono { font-family: var(--mono); font-size: 12.5px; }
+/* What's typed is monospaced; the prompt before it is a sentence, so it stays in the UI face. */
+input.mono::placeholder { font-family: var(--font-sans); font-size: 13.5px; }
 /* A reply's {placeholders}, listed in its row's description. */
 .desc code.ph { color: var(--accent); font-family: var(--mono); font-size: 11.5px; margin-right: 6px; }
 /* Command replies: the reply you write beside the Discord message it becomes. */
@@ -1588,7 +1590,9 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .onb .err-block .err { margin-top: 0; flex: 1 1 240px; min-width: 0; }
 .onb .err-block > button { flex: none; }
 .onb .err-help { margin: 10px 0 18px; font-size: 12.5px; color: var(--text-3); }
-.onb .ok-pill { color: var(--ok); font-size: 13px; display: inline-flex; align-items: center; gap: 5px; }
+/* Remote access came up: the Live badge, then the address it's live at. */
+.onb .live-at { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.onb .live-at .mono { overflow-wrap: anywhere; color: var(--text-2); }
 /* An in-step action row (Enable remote access) with its result beside it. */
 .onb .onb-act-row { display: flex; align-items: center; gap: 14px; margin-top: 22px; }
 .onb .onb-act-row .grow { flex: 1; min-width: 0; }
@@ -1812,7 +1816,6 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
   -webkit-mask-image: linear-gradient(90deg, black 58%, transparent 96%); mask-image: linear-gradient(90deg, black 58%, transparent 96%);
 }
 .mem-ic { display: grid; place-items: center; color: var(--text-2); }
-.mem-ic.ok { color: var(--ok); }
 .mem-dot { display: inline-block; width: 7px; height: 7px; margin: 0 6px 1px 0; border-radius: 50%; background: var(--ok); vertical-align: middle; }
 .mem-foot { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.2; color: var(--text-3); white-space: nowrap; }
 /* Peeked (hovered or focused): one more line, under the rest so nothing above it moves. */
@@ -1903,11 +1906,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .mo-big { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
 .mo-faces { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; max-width: 220px; }
 .mo-roles { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-.mo-roles span { padding: 2px 9px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--bg-inset); color: var(--text-2); font-size: 11.5px; font-weight: 600; }
-.mo-checks { display: grid; gap: 6px; text-align: left; }
-.mo-checks div { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-2); }
-.mo-checks svg { color: var(--ok); flex: none; }
-.mo-checks .off svg { color: var(--warn); }
+.mo-checks { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 @media (max-width: 560px) {
   .mo-in { max-height: calc(var(--ro, 240px) * 1.42); gap: 10px; }
   .mo-msg p, .mo-text { font-size: 12.5px; }
