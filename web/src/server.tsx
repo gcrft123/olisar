@@ -3,7 +3,7 @@ import { api } from './api'
 import { BotMenu, intentList, sharedServers, useBots } from './bots'
 import { Icon } from './icons'
 import { toast, type Tone } from './overlays'
-import { PubkeyBox, RedirectRow, usePubkey } from './setup'
+import { Linkified, PubkeyBox, RedirectRow, usePubkey } from './setup'
 import { FeedbackButton, SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import { reportBody, type FeedbackPrefill } from './feedback'
 import { Badge, Field, Select, Text, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
@@ -19,6 +19,8 @@ type Status = {
   version?: string
   digest?: string
   url?: string
+  /** Why a running server's console has no address (Tailscale refused the key, most often). */
+  console_error?: string
   host?: string
   /** An update the app started by itself is in flight (see remote.autoupdate). */
   auto_updating?: boolean
@@ -73,6 +75,9 @@ export function ServerControlPanel() {
   const [updateNote, setUpdateNote] = useState<{ text: string; tone: Tone } | null>(null)
   const [updating, setUpdating] = useState(false)
   const [available, setAvailable] = useState('')  // newer release tag, if any
+  // A replacement Tailscale key, for a server whose console never got an address.
+  const [tsKey, setTsKey] = useState('')
+  const [savingKey, setSavingKey] = useState(false)
 
   // Reconnect sub-flow
   const [reconnect, setReconnect] = useState(false)
@@ -236,6 +241,22 @@ export function ServerControlPanel() {
     }
   }
 
+  // Recreates the container on the new key and waits for its funnel, so this takes as long
+  // as a boot does. The panel keeps polling meanwhile and reads that as "Starting…".
+  async function replaceKey() {
+    setSavingKey(true)
+    try {
+      const r = await api.serverTunnelKey(tsKey.trim())
+      if (r?.ok) { setTsKey(''); toast('Tailscale connected.', 'success') }
+      else toast(r?.error || 'Couldn’t use that key.', 'danger')
+    } catch (e: any) {
+      toast(`Couldn’t use that key: ${e?.message || 'request failed'}`, 'danger')
+    } finally {
+      setSavingKey(false)
+      await refresh()
+    }
+  }
+
   function openReconnect() {
     setReconnect(true); setRcErr(''); setShowKey(false); setRcHost(st?.host || '')
     setRcInstalls([]); setRcDir('')
@@ -284,7 +305,11 @@ export function ServerControlPanel() {
               ? { label: 'Starting…', tone: 'info', busy: true }
               : { label: 'Running', tone: 'success', icon: 'play-circle' }
   const { label: stateLabel, ...stateChip } = state
-  const actionsLocked = busy || busyUpdating
+  const actionsLocked = busy || busyUpdating || savingKey
+  // Running and healthy, but with no address to open. Held while a new key is applied, or
+  // the field would vanish under the operator the moment the container reads as starting.
+  const consoleDown = savingKey || (!loading && !busyUpdating && reachable && running && !starting
+    && !unhealthy && !st?.url && !!st?.console_error)
   const modal = settingsOpen && (
     <SettingsModal
       sections={['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']}
@@ -376,6 +401,23 @@ export function ServerControlPanel() {
               </div>
             </div>
           </div>
+        )}
+        {consoleDown && (
+          <>
+            <div className="callout warning">
+              <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+              <div className="callout-body">Your console can’t be reached. <Linkified text={st?.console_error || ''} /></div>
+            </div>
+            <Field
+              label="Tailscale auth key"
+              desc={<>A new Tailscale key is needed per bot. Create one: <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noreferrer">Tailscale → Settings → Keys</a>.</>}
+            >
+              <div className="key-swap">
+                <Text value={tsKey} onChange={setTsKey} placeholder="tskey-auth-…" mono />
+                <button disabled={!tsKey.trim() || actionsLocked} onClick={replaceKey}>{savingKey ? 'Restarting…' : 'Use key'}</button>
+              </div>
+            </Field>
+          </>
         )}
         {dc?.redirect && signinMissing.current && (
           <Field

@@ -82,6 +82,17 @@ async def reconnect() -> dict:
     return await remote.reconnect()
 
 
+class TunnelKeyIn(BaseModel):
+    key: str
+
+
+@router.post("/tunnel-key")
+async def tunnel_key(body: TunnelKeyIn) -> dict:
+    """Replace the server bot's Tailscale auth key and recreate its container on it. Waits for
+    the result: ``{ok, url}``, or ``{ok: False, error}`` with why the console still has no address."""
+    return await remote.set_tunnel_key(body.key)
+
+
 @router.get("/last-update")
 async def last_update() -> dict:
     """The VM's last update attempt — including one the app applied at launch, unwatched."""

@@ -49,6 +49,9 @@ APP_DIR = "olisar"          # ~/olisar holds the first bot's .env + docker-compo
 _APP_DIR_RE = re.compile(r"^olisar(-[a-z0-9]{1,32})?$")
 CONNECT_TIMEOUT = 20        # seconds to establish the SSH connection
 KEEPALIVE_INTERVAL = 15     # seconds between SSH keepalives (4 unanswered = dead)
+# Seconds to wait for a recreated container to pass its first healthcheck. The funnel alone
+# may take 100 before the backend serves, and the check runs every 30.
+SETTLE_TIMEOUT = 240
 _TSNET_RE = re.compile(r"https://[\w.-]+\.ts\.net")
 
 # The container mounts the olisar-data volume here, so the VM's DB + uploads live at these
@@ -357,6 +360,14 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         # them) and then run this one.
         out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start{pin}", timeout=1500)
         log_lines.append(out.strip()[-2000:])
+        # The script only returns once the container is healthy, and the backend publishes
+        # whether its funnel came up before it answers that check. A refused Tailscale key
+        # leaves the bot running with no console address, which used to read as a success.
+        console_error = ""
+        try:
+            console_error = (await _probe(conn, app_dir))["console_error"]
+        except Exception as exc:  # noqa: BLE001 — the control panel reads it again
+            log.warning("couldn't read the new install's state: %s", exc)
     except Exception as exc:  # noqa: BLE001
         conn.close()
         return {"ok": False, "error": str(exc), "log": "\n".join(log_lines)}
@@ -369,7 +380,9 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         server_synced_version=current_version(),
     )
     await runtime_config.session_secret()
-    return {"ok": True, "app_dir": app_dir, "log": "\n".join(log_lines)}
+    # Still ``ok``: the bot is installed and running, and saved as this app's server, so the
+    # control panel can replace the key. The wizard shows ``console_error`` instead of moving on.
+    return {"ok": True, "app_dir": app_dir, "console_error": console_error, "log": "\n".join(log_lines)}
 
 
 async def connect(host: str, user: str, app_dir: str = "") -> dict:
@@ -569,13 +582,62 @@ async def share_info() -> dict:
         return {"ok": False, "error": str(exc)}
     finally:
         conn.close()
+    # Not its Tailscale key: that one has already joined the VM's first node, and a key that
+    # was single-use or has since expired can't join another. Each bot brings its own.
     return {
         "ok": True,
         "host": cfg.server_host,
         "user": user,
-        "tailscale_auth": env.get("TAILSCALE_AUTH", ""),
         "admin_allowlist": env.get("ADMIN_ALLOWLIST", ""),
     }
+
+
+_TSKEY_RE = re.compile(r"^tskey-[A-Za-z0-9_-]+$")
+
+
+async def set_tunnel_key(key: str) -> dict:
+    """Put a new Tailscale auth key in this bot's ``.env`` on the VM and recreate its
+    container on it, then report whether the console came up: ``{ok, url}`` or
+    ``{ok: False, error}``.
+
+    Recreated, not restarted: a restarted container keeps the environment it was created
+    with, dead key included. A node that joined before keeps its identity in the data
+    volume and never reads the key again, so this only changes anything for one that hasn't."""
+    key = (key or "").strip()
+    if not _TSKEY_RE.match(key):
+        return {"ok": False, "error": "That isn't a Tailscale auth key. They start with tskey-."}
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    app_dir = app_dir_of(cfg)
+    try:
+        async with _gate:  # not while an update is recreating the same container
+            env_text = await _run(conn, f"cat ~/{app_dir}/.env", timeout=30)
+            # Over stdin, like deploy, so the key never shows in the VM's process list.
+            await asyncio.wait_for(
+                conn.run(
+                    f"cat > ~/{app_dir}/.env",
+                    input=_set_env_line(env_text, "TAILSCALE_AUTH", key) + "\n",
+                    check=True,
+                ),
+                timeout=30,
+            )
+            await _run(conn, f"chmod 600 ~/{app_dir}/.env", timeout=30)
+            await _run(conn, f"cd ~/{app_dir} && sudo docker compose up -d --force-recreate", timeout=180)
+            probe = await _settled_probe(conn, app_dir)
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)}
+    finally:
+        conn.close()
+    if probe["url"]:
+        return {"ok": True, "url": probe["url"]}
+    if probe["health"] == "starting":
+        return {"ok": False, "error": "The server is still starting. Check back in a minute."}
+    return {"ok": False, "error": probe["console_error"] or "The server didn't come back up."}
 
 
 async def authorize_key(pubkey: str) -> dict:
@@ -646,7 +708,7 @@ echo '__OLISAR_LOGS__'
 sudo docker compose logs --tail 40 --no-color 2>/dev/null
 echo '__OLISAR_URL__'
 case "$STATE" in
-  *ts.net*) : ;;
+  *ts.net*|*tunnel_error*) : ;;
   *)
     url=$(sudo docker compose logs --tail 5000 --no-color 2>/dev/null \\
       | grep -oiE 'https://[A-Za-z0-9._-]+\\.ts\\.net' | tail -1)
@@ -722,13 +784,18 @@ def parse_probe(out: str) -> dict:
             published = {}  # a truncated/garbled read is just an absent state file
 
     logs = sec.get("LOGS", "")
+    tunnel_error = str(published.get("tunnel_error") or "")
     url = str(published.get("public_url") or "").rstrip("/")
-    if not url:  # pre-state.json container — the old log-scrape path
+    if not url and not tunnel_error:  # pre-state.json container — the old log-scrape path
         url_lines = sec.get("URL", "").splitlines()
         url = url_lines[0].strip() if url_lines else ""
-    if not url:
+    if not url and not tunnel_error:
         m = _TSNET_RE.search(logs)
         url = m.group(0) if m else ""
+    # Only a funnel address reaches the console. With the funnel down the backend publishes
+    # its own loopback origin, which "Open console" used to open on this machine instead.
+    if tunnel_error or not url.startswith("https://"):
+        url = ""
 
     # `docker inspect` is authoritative; the ps regex only covers a host whose compose
     # couldn't give us a container id (Compose v1), where "Stopped" would be a lie.
@@ -744,8 +811,23 @@ def parse_probe(out: str) -> dict:
         "revision": revision,
         "digest": digest,
         "url": url,
+        # Why a running server's console has no address. Also set for an image from before
+        # the backend published a reason, which only left its loopback origin behind.
+        "console_error": tunnel_problem(tunnel_error) if running and not url else "",
         "logs": logs.strip()[-4000:],
     }
+
+
+def tunnel_problem(reason: str) -> str:
+    """Why the console has no address, from the reason the funnel gave. Tailscale reports a
+    refused auth key as ``invalid key: …`` whatever the cause; that's the case the operator
+    can fix from the panel, so it gets said plainly."""
+    reason = " ".join((reason or "").split())
+    if "invalid key" in reason.lower():
+        return "Tailscale rejected the auth key: it has expired, was revoked, or was already used. Use a new one."
+    if reason:
+        return f"Tailscale couldn't connect: {reason}"
+    return "Tailscale didn't connect."
 
 
 async def _probe(conn, app_dir: str) -> dict:
@@ -757,6 +839,19 @@ async def _probe(conn, app_dir: str) -> dict:
     if r.exit_status not in (0, None):
         raise RuntimeError(f"status probe failed ({r.exit_status}):\n{out.strip()[-800:]}")
     return parse_probe(out)
+
+
+async def _settled_probe(conn, app_dir: str) -> dict:
+    """Probe once the container has finished starting. The data volume keeps the previous
+    boot's state.json until the new backend replaces it, just before it starts answering
+    its healthcheck, so a probe taken while the health is still "starting" reads the old
+    boot's funnel outcome."""
+    deadline = asyncio.get_running_loop().time() + SETTLE_TIMEOUT
+    while True:
+        probe = await _probe(conn, app_dir)
+        if probe["health"] != "starting" or asyncio.get_running_loop().time() >= deadline:
+            return probe
+        await asyncio.sleep(3)
 
 
 async def last_update() -> dict:
