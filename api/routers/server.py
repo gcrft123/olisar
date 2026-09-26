@@ -60,15 +60,6 @@ async def power(body: PowerIn) -> dict:
     return await remote.power(body.action)
 
 
-@router.post("/update")
-async def update() -> dict:
-    """Apply the newest Olisar release on the VM, health-gated, rolling back on failure.
-
-    On demand. The backend also runs this by itself, whenever it starts up ahead of the VM
-    (see ``remote.autoupdate``) — ``/status`` reports that one as ``auto_updating``."""
-    return await remote.update_image()
-
-
 @router.get("/discord")
 async def discord(url: str = "") -> dict:
     """What Discord says about the server's bot: whether the console's sign-in address

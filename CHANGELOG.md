@@ -36,6 +36,8 @@ Operators bring their own Discord bot and name it, but Olisar kept calling it Ol
 
 The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
 
+The server panel had an Update button that moved the VM onto the newest release by hand. Since 2.0 the app does that itself whenever it starts up on a newer version than the VM, which is every launch after it updates, so the button only repeated it. The server now moves when the app does.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -265,6 +267,10 @@ The console's status chips had drifted into five styles whose colors didn't agre
 [3fb1326] — The live per-minute figures on Usage carry a Live chip, which turns amber and reads Not responding when they stop updating.
 
 [3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
+
+[3f0eb36] — The server panel no longer has an Update button, or a line saying a newer release is available.
+
+[3f0eb36] — `POST /api/server/update` is gone; running `olisar-update.sh` on the VM still updates it by hand.
 
 ### Fixed
 

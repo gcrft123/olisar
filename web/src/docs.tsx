@@ -342,9 +342,6 @@ which is what every launch after the app updates itself looks like — it applie
 VM as well, and the control panel says **Updating…** while it does. If the new version fails to
 start, the previous one is restored automatically. Your data is kept either way.
 
-The control panel's **Update to v…** button does the same thing on demand, which is what you want
-if you've skipped an update for the app but not for the server.
-
 The server follows the app's [update channel](#settings). On **Beta**, it runs the betas
 too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a
 stable release passes it.
