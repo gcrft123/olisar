@@ -103,6 +103,43 @@ class ParseProbeTests(unittest.TestCase):
         out = parse_probe(probe(container="running|healthy", state="{truncated", url=URL))
         self.assertEqual(out["url"], URL)
 
+    def test_loopback_url_is_not_a_console_address(self) -> None:
+        """With the funnel down, a backend from before it published why left its loopback
+        origin as ``public_url``, and "Open console" opened that on the operator's machine."""
+        out = parse_probe(
+            probe(container="running|healthy", state=json.dumps({"public_url": "http://127.0.0.1:8000"}))
+        )
+        self.assertEqual(out["url"], "")
+        self.assertEqual(out["console_error"], "Tailscale didn't connect.")
+
+    def test_a_published_tunnel_error_wins_over_any_url(self) -> None:
+        """A failed funnel can sit beside a stale …ts.net host from an earlier boot, and the
+        log scrape must not dig one back up either."""
+        state = json.dumps({
+            "public_url": URL,
+            "tunnel_error": "couldn't join your tailnet: tsnet.Up: backend: invalid key: API key does not exist",
+        })
+        out = parse_probe(probe(container="running|healthy", state=state, url=URL, logs=f"up at {URL}"))
+        self.assertEqual(out["url"], "")
+        self.assertIn("rejected the auth key", out["console_error"])
+
+    def test_other_tunnel_errors_are_passed_through(self) -> None:
+        state = json.dumps({"tunnel_error": "Funnel not available; enable it at https://login.tailscale.com/f/funnel"})
+        out = parse_probe(probe(container="running|healthy", state=state))
+        self.assertEqual(
+            out["console_error"],
+            "Tailscale couldn't connect: Funnel not available; enable it at https://login.tailscale.com/f/funnel",
+        )
+
+    def test_a_stopped_server_has_no_console_error(self) -> None:
+        """Nothing to reach while it's stopped, and nothing a new key would fix."""
+        out = parse_probe(probe(container="exited|", state=json.dumps({"tunnel_error": "invalid key"})))
+        self.assertEqual(out["console_error"], "")
+
+    def test_a_healthy_console_has_no_error(self) -> None:
+        out = parse_probe(probe(container="running|healthy", state=json.dumps({"public_url": URL})))
+        self.assertEqual((out["url"], out["console_error"]), (URL, ""))
+
     def test_no_container_id_falls_back_to_the_ps_regex(self) -> None:
         """Compose v1 can't give us a container id; reporting "Stopped" would be a lie."""
         out = parse_probe(probe(container="", ps="olisar   Up 3 hours"))

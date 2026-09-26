@@ -537,10 +537,14 @@ it where Discord allows.
 #### Several bots on one server
 
 One VM can run all your bots. When you set up another bot in the desktop app and pick **Server shared
-hosting**, the Deploy step offers the server your other bot already runs on. Choose it and there's nothing
-to create and no key to paste: Olisar lets the new bot into that VM itself, reuses its Tailscale key and
-admin, and installs the new bot next to the first. **Move** in [Settings → Bots](#running-multiple-bots) offers the same
-choice for a bot that's already set up.
+hosting**, the Deploy step offers the server your other bot already runs on. Choose it and there's no VM
+to create and no SSH key to paste: Olisar lets the new bot into that VM itself, reuses its admin, and
+installs the new bot next to the first. The new bot does need its own Tailscale auth key, since the first
+bot's key has already joined its own device and often can't join another. **Move** in
+[Settings → Bots](#running-multiple-bots) offers the same choice for a bot that's already set up.
+
+If Tailscale refuses a bot's key, the bot still runs but its console has no address. The control panel
+says so and takes a new key, then restarts the bot on it.
 
 Each bot on the VM is its own install, in its own folder (`~/olisar` for the first, `~/olisar-<id>` for
 the rest) with its own configuration, container, data and web address, so stopping, updating or moving one
@@ -566,9 +570,6 @@ The desktop app keeps the two in step. Whenever it starts up on a newer version 
 which is what every launch after the app updates itself looks like — it applies that release to the
 VM as well, and the control panel says **Updating…** while it does. If the new version fails to
 start, the previous one is restored automatically. Your data is kept either way.
-
-The control panel's **Update to v…** button does the same thing on demand, which is what you want
-if you've skipped an update for the app but not for the server.
 
 The server follows the app's [update channel](#console-settings). On **Beta**, it runs the betas
 too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a

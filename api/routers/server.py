@@ -60,15 +60,6 @@ async def power(body: PowerIn) -> dict:
     return await remote.power(body.action)
 
 
-@router.post("/update")
-async def update() -> dict:
-    """Apply the newest Olisar release on the VM, health-gated, rolling back on failure.
-
-    On demand. The backend also runs this by itself, whenever it starts up ahead of the VM
-    (see ``remote.autoupdate``) — ``/status`` reports that one as ``auto_updating``."""
-    return await remote.update_image()
-
-
 @router.get("/discord")
 async def discord(url: str = "") -> dict:
     """What Discord says about the server's bot: whether the console's sign-in address
@@ -80,6 +71,17 @@ async def discord(url: str = "") -> dict:
 async def reconnect() -> dict:
     """Turn the server bot's missing intents on and restart it."""
     return await remote.reconnect()
+
+
+class TunnelKeyIn(BaseModel):
+    key: str
+
+
+@router.post("/tunnel-key")
+async def tunnel_key(body: TunnelKeyIn) -> dict:
+    """Replace the server bot's Tailscale auth key and recreate its container on it. Waits for
+    the result: ``{ok, url}``, or ``{ok: False, error}`` with why the console still has no address."""
+    return await remote.set_tunnel_key(body.key)
 
 
 @router.get("/last-update")
