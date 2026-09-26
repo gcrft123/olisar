@@ -20,8 +20,12 @@ from __future__ import annotations
 
 import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
-from olisar.runtime.remote import parse_probe
+from olisar import discord_app
+from olisar.runtime import remote
+from olisar.runtime.remote import docker_time, parse_probe
 
 URL = "https://olisar.example.ts.net"
 DIGEST = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -163,6 +167,98 @@ class ParseProbeTests(unittest.TestCase):
         )
         self.assertEqual(out["health"], "healthy")
         self.assertEqual(out["version"], "1.3.1")
+
+
+# What `docker inspect --format` prints for _FMT_CONTAINER: status|health|StartedAt|each
+# healthcheck's End, JSON-quoted. Docker keeps the last five checks.
+STARTED = "2026-09-26T08:15:02.123456789Z"
+CHECKS = '"2026-09-26T09:14:02.401927512Z""2026-09-26T09:14:32.466503104Z""2026-09-26T09:15:02.532911867Z"'
+
+
+class StartedAndCheckedTests(unittest.TestCase):
+    """When the container started and when its healthcheck last ran, for the uptime and the
+    heartbeat on the server screen."""
+
+    def test_running_container_reports_both_in_utc_to_the_millisecond(self) -> None:
+        out = parse_probe(probe(container=f"running|healthy|{STARTED}|{CHECKS}"))
+        self.assertEqual(out["started_at"], "2026-09-26T08:15:02.123Z")
+        self.assertEqual(out["health_at"], "2026-09-26T09:15:02.532Z")  # the last check, not the first
+        self.assertEqual((out["state"], out["health"]), ("running", "healthy"))
+
+    def test_a_stopped_container_has_no_start_time(self) -> None:
+        """Docker keeps the last run's StartedAt after a stop; the uptime it implies is wrong."""
+        out = parse_probe(probe(container=f"exited|unhealthy|{STARTED}|{CHECKS}"))
+        self.assertEqual(out["started_at"], "")
+        self.assertFalse(out["running"])
+
+    def test_a_container_that_never_started_reports_docker_zero_time_as_nothing(self) -> None:
+        out = parse_probe(probe(container="created||0001-01-01T00:00:00Z|"))
+        self.assertEqual((out["started_at"], out["health_at"]), ("", ""))
+
+    def test_no_healthcheck_means_no_check_time(self) -> None:
+        out = parse_probe(probe(container=f"running||{STARTED}|"))
+        self.assertEqual(out["health"], "")
+        self.assertEqual(out["health_at"], "")
+        self.assertEqual(out["started_at"], "2026-09-26T08:15:02.123Z")
+
+    def test_a_first_check_still_running_has_no_log_yet(self) -> None:
+        out = parse_probe(probe(container=f"running|starting|{STARTED}|"))
+        self.assertEqual((out["health"], out["health_at"]), ("starting", ""))
+
+    def test_a_daemon_off_utc_is_converted(self) -> None:
+        """Health log times are the daemon's local time; the VM may not be on UTC."""
+        out = parse_probe(probe(container=f'running|healthy|{STARTED}|"2026-09-26T11:15:02.5+02:00"'))
+        self.assertEqual(out["health_at"], "2026-09-26T09:15:02.500Z")
+
+    def test_old_two_field_output_still_parses(self) -> None:
+        """A probe line without the new fields (or a hand-run one) keeps its old meaning."""
+        out = parse_probe(probe(container="running|healthy"))
+        self.assertEqual((out["running"], out["health"]), (True, "healthy"))
+        self.assertEqual((out["started_at"], out["health_at"]), ("", ""))
+
+    def test_new_fields_do_not_bleed_into_health(self) -> None:
+        out = parse_probe(probe(container=f"running|unhealthy|{STARTED}|{CHECKS}"))
+        self.assertEqual(out["health"], "unhealthy")
+
+    def test_docker_time_edge_cases(self) -> None:
+        self.assertEqual(docker_time(""), "")
+        self.assertEqual(docker_time("<no value>"), "")
+        self.assertEqual(docker_time("not a time"), "")
+        self.assertEqual(docker_time("2026-09-26T08:15:02Z"), "2026-09-26T08:15:02.000Z")
+        # Go's own time format, in case a template prints one bare.
+        self.assertEqual(
+            docker_time("2026-09-26 08:15:02.123456789 +0000 UTC"), "2026-09-26T08:15:02.123Z"
+        )
+
+
+class DiscordCheckTests(unittest.IsolatedAsyncioTestCase):
+    """The server bot's name and face for the final screen, from the same application read
+    that checks its sign-in address and intents."""
+
+    async def check(self, bot: dict, **app) -> dict:
+        body = {"id": "1500", "name": "Olisar App", "flags": (1 << 19) | (1 << 15),
+                "redirect_uris": ["https://olisar.example.ts.net/auth/callback"], "bot": bot, **app}
+        cfg = SimpleNamespace(server_host="203.0.113.7", server_ssh_user="ubuntu", server_app_dir="")
+        with patch.object(remote, "_load", AsyncMock(return_value=cfg)), \
+                patch.object(remote, "_vm_token", AsyncMock(return_value="tok")), \
+                patch.object(discord_app, "_call", AsyncMock(return_value=(200, body))):
+            return await remote.discord_check(URL)
+
+    async def test_the_name_discord_shows_and_the_avatar_url(self) -> None:
+        out = await self.check({"id": "42", "username": "everest_bot", "global_name": "Everest", "avatar": "abc"})
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["bot_name"], "Everest")
+        self.assertEqual(out["bot_avatar"], "https://cdn.discordapp.com/avatars/42/abc.png")
+        self.assertTrue(out["added"])
+
+    async def test_a_bot_without_a_display_name_goes_by_its_username(self) -> None:
+        out = await self.check({"id": "42", "username": "everest_bot", "global_name": None, "avatar": None})
+        self.assertEqual(out["bot_name"], "everest_bot")
+        self.assertEqual(out["bot_avatar"], "")
+
+    async def test_a_bot_without_an_avatar_shows_the_application_icon(self) -> None:
+        out = await self.check({"id": "42", "username": "everest_bot", "avatar": None}, icon="ic0n")
+        self.assertEqual(out["bot_avatar"], "https://cdn.discordapp.com/app-icons/1500/ic0n.png")
 
 
 if __name__ == "__main__":

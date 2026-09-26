@@ -29,6 +29,7 @@ import re
 import secrets
 import shlex
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncssh
@@ -234,7 +235,7 @@ async def public_key() -> str:
     return pub
 
 
-async def _connect(host: str, user: str):
+async def _connect(host: str, user: str, *, connect_timeout: float = CONNECT_TIMEOUT):
     """Open an SSH connection with the app's private key. Caller must close it."""
     cfg = await _load()
     priv = cfg.server_ssh_privkey if cfg else ""
@@ -243,7 +244,7 @@ async def _connect(host: str, user: str):
     ck = asyncssh.import_private_key(priv)
     return await asyncssh.connect(
         host, username=user, client_keys=[ck], known_hosts=None,
-        connect_timeout=CONNECT_TIMEOUT,
+        connect_timeout=connect_timeout,
         # A silently-dead peer (the VM rebooted, a NAT dropped the flow) would otherwise
         # leave a `conn.run` waiting on the OS TCP timeout — tens of minutes, during which
         # an automatic update holds the panel in "Updating…". Keepalives turn that into a
@@ -516,8 +517,9 @@ async def _vm_token(cfg: AppConfig) -> str:
 
 
 async def discord_check(public_url: str = "") -> dict:
-    """What Discord says about the server's bot, which nothing on the VM reports: whether
-    its console's sign-in address is registered, and whether its intents are on.
+    """What Discord says about the server's bot, which nothing on the VM reports: its name
+    and avatar, whether its console's sign-in address is registered, and whether its
+    intents are on.
 
     Discord login there redirects to ``<public_url>/auth/callback`` and is refused unless the
     app lists it; nothing registers it for the operator (the API ignores ``redirect_uris``).
@@ -540,6 +542,10 @@ async def discord_check(public_url: str = "") -> dict:
     return {
         "ok": True,
         "app_id": app["id"],
+        # The bot's name as Discord shows it, and its avatar: a CDN URL, the application's
+        # icon when the bot has none, or "" when there's neither (as the setup wizard shows).
+        "bot_name": app["name"],
+        "bot_avatar": app["avatar"],
         "redirect": redirect,
         "added": bool(redirect) and redirect in app["redirect_uris"],
         "intents_missing": app["intents_missing"],
@@ -672,7 +678,8 @@ async def authorize_key(pubkey: str) -> dict:
 # from Docker itself and from the backend's own state.json — not from parsing log text:
 #   * run state + health  — `docker inspect` on the container (the image has defined a
 #     HEALTHCHECK all along; the old `ps`-regex threw that verdict away, so a crashlooping
-#     container under `restart: unless-stopped` reported "Running")
+#     container under `restart: unless-stopped` reported "Running"), plus when it started
+#     and when its last healthcheck finished
 #   * version + revision + digest — the OCI labels CI already stamps on the image, which
 #     resolve even while the container is stopped
 #   * public URL — state.json, written by the backend into the data volume
@@ -681,7 +688,15 @@ async def authorize_key(pubkey: str) -> dict:
 
 _PROBE_SECTIONS = ("CONTAINER", "IMAGE", "STATE", "PS", "LOGS", "URL")
 
-_FMT_CONTAINER = "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}"
+# status|health|started|every healthcheck's end time. Docker keeps the last few checks and a
+# template can't index the last one, so they all come back and the parser takes the last.
+# Each is JSON-quoted, because a Go time printed bare has spaces in it. Fields are only ever
+# added at the end: ``parse_probe`` still reads the older two-field line.
+_FMT_CONTAINER = (
+    "{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}|"
+    "{{.State.StartedAt}}|"
+    "{{if .State.Health}}{{range .State.Health.Log}}{{json .End}}{{end}}{{end}}"
+)
 _FMT_IMAGE = (
     '{{index .Config.Labels "org.opencontainers.image.version"}}|'
     '{{index .Config.Labels "org.opencontainers.image.revision"}}|'
@@ -752,17 +767,48 @@ def _sections(out: str) -> dict[str, str]:
     return found
 
 
+_DOCKER_TIME_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?\s*(Z|[+-]\d{2}:?\d{2})?"
+)
+
+
+def docker_time(value: str) -> str:
+    """A time Docker printed (RFC 3339 to the nanosecond, in whatever zone the daemon keeps)
+    as ISO 8601 UTC to the millisecond, ``2026-09-26T08:15:02.123Z``. "" for nothing, for
+    anything unreadable, and for Go's zero time (``0001-01-01T00:00:00Z``), which is how
+    Docker says "never"."""
+    m = _DOCKER_TIME_RE.match(_clean(value).strip('"'))
+    if not m:
+        return ""
+    day, clock, fraction, zone = m.groups()
+    if day.startswith("0001-"):
+        return ""
+    if zone in (None, "Z"):
+        zone = "+00:00"
+    elif ":" not in zone:
+        zone = f"{zone[:3]}:{zone[3:]}"
+    try:
+        stamp = datetime.fromisoformat(f"{day}T{clock}.{(fraction or '').ljust(6, '0')[:6]}{zone}")
+    except ValueError:
+        return ""
+    stamp = stamp.astimezone(timezone.utc)
+    return stamp.strftime("%Y-%m-%dT%H:%M:%S.") + f"{stamp.microsecond // 1000:03d}Z"
+
+
 def parse_probe(out: str) -> dict:
     """Turn raw probe output into the status fields. Pure — the unit tests drive it with
     captured ``docker`` output for the running / stopped / starting / unhealthy shapes."""
     sec = _sections(out)
 
-    container_state = health = ""
+    container_state = health = started = checked = ""
     lines = sec.get("CONTAINER", "").splitlines()
     if lines:
-        parts = lines[0].split("|", 1)
+        parts = lines[0].split("|", 3)
         container_state = _clean(parts[0])
         health = _clean(parts[1]) if len(parts) > 1 else ""
+        started = parts[2] if len(parts) > 2 else ""
+        ends = re.findall(r'"([^"]*)"', parts[3]) if len(parts) > 3 else []
+        checked = ends[-1] if ends else ""
 
     version = revision = digest = ""
     lines = sec.get("IMAGE", "").splitlines()
@@ -806,6 +852,10 @@ def parse_probe(out: str) -> dict:
         "running": running,
         "state": container_state,
         "health": health,  # healthy | unhealthy | starting | "" (no healthcheck)
+        # When the container started (ISO 8601 UTC), "" unless it's running now.
+        "started_at": docker_time(started) if container_state == "running" else "",
+        # When its latest healthcheck finished, "" without a healthcheck.
+        "health_at": docker_time(checked),
         "version": version or str(published.get("version") or ""),
         "revision": revision,
         "digest": digest,
@@ -1168,6 +1218,104 @@ async def status() -> dict:
         return {**base, "reachable": True, "error": str(exc)}
     conn.close()
     return {**base, "reachable": True, **probe}
+
+
+# ── activity feed ───────────────────────────────────────────────────────────────
+# What the bot has been doing, for the server app's final screen. The feed is built inside
+# the container, next to the database the bot uses (olisar/activity.py), and read back over
+# the same kind of SSH round trip as the status probe. Polled every ~20s while that screen
+# is open, so the whole call is held well under the console's 30s fetch budget.
+
+ACTIVITY_CONNECT_TIMEOUT = 10  # seconds to open the SSH connection
+ACTIVITY_RUN_TIMEOUT = 12      # seconds for the feed to come back once connected
+ACTIVITY_TIMEOUT = 24          # the whole call, whatever it's stuck on
+
+_ACTIVITY_TEMPLATE = """set +e
+cd ~/@APP_DIR@ 2>/dev/null || { echo '__OLISAR_NO_INSTALL__'; exit 0; }
+CID=$(sudo docker compose ps -q 2>/dev/null | head -1)
+[ -n "$CID" ] || { echo '__OLISAR_NOT_RUNNING__'; exit 0; }
+sudo docker exec "$CID" timeout @RUN@ python -m olisar.activity
+"""
+
+
+def _activity_script(app_dir: str = APP_DIR) -> str:
+    # The in-container limit sits under ours, so a stuck read is killed where it runs
+    # rather than left behind when the connection drops.
+    return _ACTIVITY_TEMPLATE.replace("@APP_DIR@", app_dir).replace(
+        "@RUN@", str(ACTIVITY_RUN_TIMEOUT - 2)
+    )
+
+
+def parse_activity(stdout: str, stderr: str = "") -> dict:
+    """Turn what the container printed into the feed, or why there isn't one. Pure, for the
+    tests.
+
+    An image from before the feed existed has no ``olisar.activity``: that's
+    ``{ok: True, supported: False, items: []}``, not an error, so the screen just shows no
+    memories until the server updates."""
+    stdout, stderr = stdout or "", stderr or ""
+    if "__OLISAR_NO_INSTALL__" in stdout:
+        return {"ok": False, "error": "There's no Olisar install on the server."}
+    if "__OLISAR_NOT_RUNNING__" in stdout:
+        return {"ok": False, "error": "The server isn't running."}
+    if "No module named olisar.activity" in stdout + stderr:
+        return {"ok": True, "supported": False, "items": []}
+    for line in reversed(stdout.strip().splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            answer = json.loads(line)
+        except ValueError:
+            break
+        if not isinstance(answer, dict):
+            break
+        if not answer.get("ok"):
+            return {"ok": False, "error": str(answer.get("error") or "The server couldn't read its activity.")}
+        items = answer.get("items")
+        return {
+            "ok": True,
+            "supported": True,
+            "items": items if isinstance(items, list) else [],
+            "members": answer.get("members") if isinstance(answer.get("members"), dict) else None,
+            "health": answer.get("health") if isinstance(answer.get("health"), dict) else None,
+        }
+    detail = " ".join((stderr or stdout).split())[-300:]
+    return {"ok": False, "error": detail or "The server's activity couldn't be read."}
+
+
+async def activity() -> dict:
+    """The server bot's activity feed (see ``olisar.activity.feed`` for its items), or
+    ``{ok: False, error}`` when the VM can't be reached or the bot isn't running."""
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "This bot isn't running on a server."}
+    try:
+        return await asyncio.wait_for(_activity(cfg), timeout=ACTIVITY_TIMEOUT)
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "The server took too long to answer."}
+
+
+async def _activity(cfg: AppConfig) -> dict:
+    try:
+        conn = await _connect(
+            cfg.server_host, cfg.server_ssh_user or "ubuntu",
+            connect_timeout=ACTIVITY_CONNECT_TIMEOUT,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    try:
+        r = await asyncio.wait_for(
+            conn.run("bash -s", input=_activity_script(app_dir_of(cfg)), check=False),
+            timeout=ACTIVITY_RUN_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        return {"ok": False, "error": "The server took too long to answer."}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc) or type(exc).__name__}
+    finally:
+        conn.close()
+    return parse_activity(r.stdout or "", r.stderr or "")
 
 
 # ── cross-host data transfer (used by olisar.runtime.migrate) ───────────────────

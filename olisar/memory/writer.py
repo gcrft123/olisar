@@ -7,12 +7,13 @@ on a background queue (Phase 2), so this never blocks a reply.
 
 from __future__ import annotations
 
-from datetime import timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.db.models import (
+    BotActivity,
     ChannelAllowlist,
     ChannelMode,
     Guild,
@@ -175,8 +176,11 @@ async def upsert_profile(
     display_name: str,
     roles: list[dict] | None = None,
     avatar: str | None = None,
+    joined_at: datetime | None = None,
 ) -> UserProfile:
-    """Insert or refresh a member's profile (display name, avatar + roles) and return it."""
+    """Insert or refresh a member's profile (display name, avatar + roles) and return it.
+    ``joined_at`` is when they joined the server, from the member object; like the avatar,
+    None leaves what's stored alone."""
     profile = await session.scalar(
         select(UserProfile).where(
             UserProfile.user_id == user_id, UserProfile.guild_id == guild_id
@@ -189,6 +193,7 @@ async def upsert_profile(
             display_name=display_name,
             avatar=avatar or "",
             roles=roles or [],
+            joined_at=joined_at,
         )
         session.add(profile)
         return profile
@@ -199,6 +204,8 @@ async def upsert_profile(
         profile.avatar = avatar
     if roles is not None:
         profile.roles = roles
+    if joined_at is not None:
+        profile.joined_at = joined_at
     profile.last_seen = utcnow()
     return profile
 
@@ -235,8 +242,11 @@ async def record_message(
     reply_to: int | None = None,
     display_name: str = "",
     roles: list[dict] | None = None,
+    trigger: str | None = None,
 ) -> Message | None:
     """Store a message and advance the channel's unsummarized-token counter.
+
+    ``trigger`` is only for Olisar's own replies: how it was reached (see ``Message.trigger``).
 
     Returns the new ``Message`` (so the caller can enqueue it for embedding), or
     ``None`` if it was skipped (duplicate, or the author opted out).
@@ -270,6 +280,7 @@ async def record_message(
         author_name=(display_name or "")[:64],
         content=content,
         reply_to_message_id=reply_to,
+        trigger=(trigger or None) if author_is_bot else None,
     )
     session.add(msg)
 
@@ -423,3 +434,37 @@ async def record_search_message(
         )
     )
     return True
+
+
+# How many rows of each kind ``bot_activity`` keeps. The feed shows a couple of dozen items
+# across every kind, so anything older than this is never read again.
+BOT_ACTIVITY_KEEP = 50
+
+
+async def record_bot_activity(
+    session: AsyncSession,
+    *,
+    kind: str,
+    text: str,
+    guild_id: int | None = None,
+    channel_id: int | None = None,
+    request_message_id: int | None = None,
+) -> None:
+    """Note something Olisar did that leaves no other row behind (see ``BotActivity``),
+    and drop that kind's rows past the newest ``BOT_ACTIVITY_KEEP``."""
+    session.add(
+        BotActivity(
+            kind=kind,
+            text=(text or "")[:2048],
+            guild_id=guild_id,
+            channel_id=channel_id or None,
+            request_message_id=request_message_id or None,
+        )
+    )
+    await session.flush()
+    keep = select(BotActivity.id).where(BotActivity.kind == kind).order_by(
+        BotActivity.id.desc()
+    ).limit(BOT_ACTIVITY_KEEP)
+    await session.execute(
+        delete(BotActivity).where(BotActivity.kind == kind, BotActivity.id.not_in(keep))
+    )

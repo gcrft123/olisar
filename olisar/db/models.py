@@ -120,6 +120,10 @@ class Guild(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)  # False once the bot is removed
     privacy_notice_ack: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # The last roster sync (bot/cogs/members.py): when it finished and how many members it
+    # found. NULL until the first sync after this column existed.
+    roster_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    roster_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     config: Mapped["GuildConfig"] = relationship(back_populates="guild", uselist=False)
     persona: Mapped["Persona"] = relationship(back_populates="guild", uselist=False)
@@ -347,6 +351,10 @@ class Message(Base):
     summarized: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     # Set once mined for guild glossary facts (independent of summarization).
     fact_mined: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    # Only on Olisar's own replies: how it was reached ("mention" | "name" | "reply" | "dm" |
+    # "proactive"). Such a row's reply_to_message_id is the message it answered. NULL on
+    # everyone else's rows, and on Olisar's from before this was recorded.
+    trigger: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class ChannelSummary(Base):
@@ -409,6 +417,9 @@ class UserProfile(Base):
         DateTime(timezone=True), nullable=True
     )
     messages_since_persona: Mapped[int] = mapped_column(Integer, default=0)
+    # When they joined this server, as Discord reports it (``Member.joined_at``). Kept by the
+    # members cog; NULL for a profile it hasn't synced since this column existed.
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -424,6 +435,9 @@ class UserMemory(Base):
     kind: Mapped[UserMemoryKind] = mapped_column(Enum(UserMemoryKind), default=UserMemoryKind.fact)
     content: Mapped[str] = mapped_column(Text)
     salience: Mapped[float] = mapped_column(Float, default=0.5)
+    # The server message the ``remember`` tool saved this from. Deliberately left empty for
+    # one saved in a DM: those are stored under the home guild, so this is the only mark
+    # that a fact came from a server channel (olisar/activity.py shows nothing else).
     source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # For kind='event': when the thing happens / a follow-up should fire (drives the
     # auto-reminder created alongside the fact).
@@ -961,6 +975,29 @@ class AuditLog(Base):
     before: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class BotActivity(Base):
+    """Things Olisar did that leave no other row behind: the custom status it set itself
+    (``kind="status"``) and the images it generated (``kind="image"``). Read by the server
+    app's activity feed (olisar/activity.py); nothing in the bot reads it back.
+
+    Holds no member id. Who asked for an image is found through ``request_message_id``,
+    the message it was answering, the same way as for Olisar's own replies — so once that
+    member's messages are forgotten, nothing here points at them any more.
+    """
+
+    __tablename__ = "bot_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    # NULL when it didn't happen in a conversation (the status invented at startup), 0 for
+    # a DM, otherwise the server.
+    guild_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    channel_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    request_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    text: Mapped[str] = mapped_column(Text, default="")  # the status, or the image prompt
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class GeminiUsage(Base):

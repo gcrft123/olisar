@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import json
 import os
 import tempfile
 import unittest
@@ -45,7 +46,7 @@ echo "$PWD|docker $*" >> "$STUB_LOG"
 case "$1" in
   compose)
     case "$2" in
-      ps) echo "cid-$(basename "$PWD")" ;;
+      ps) [ -f stopped.stub ] || echo "cid-$(basename "$PWD")" ;;
       up)
         if grep -q '^TAILSCALE_AUTH=.*dead' .env 2>/dev/null; then
           printf '{"public_url": "http://127.0.0.1:8000", "tunnel_error": "tsnet.Up: backend: invalid key: API key does not exist"}\n' > state.json.stub
@@ -55,10 +56,17 @@ case "$1" in
     esac
     exit 0 ;;
   exec)
-    cat state.json.stub 2>/dev/null
+    case "$*" in
+      *olisar.activity*)
+        # An image from before the feed has no such module.
+        [ -f activity.stub ] || { echo "/app/.venv/bin/python: No module named olisar.activity" >&2; exit 1; }
+        cat activity.stub ;;
+      *) cat state.json.stub 2>/dev/null ;;
+    esac
     exit 0 ;;
   inspect)
     case "$3" in
+      *State.StartedAt*) echo 'running|healthy|2026-09-26T08:15:02.123456789Z|"2026-09-26T09:14:32.4Z""2026-09-26T09:15:02.5Z"' ;;
       *State.Status*) echo running ;;
       *State.Health*) echo healthy ;;
     esac
@@ -305,6 +313,32 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(remote, "current_version", lambda: "99.0.0"):
             await remote.autoupdate()
         self.assertEqual(script.read_text(), remote._asset(remote.UPDATE_SCRIPT))
+
+    async def test_status_and_activity_come_from_the_bot_s_own_container(self) -> None:
+        """The probe's start and healthcheck times, and the activity feed read from inside the
+        container — or, on an image from before the feed, an empty one rather than an error."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        status = await remote.status()
+        self.assertEqual((status["started_at"], status["health_at"]),
+                         ("2026-09-26T08:15:02.123Z", "2026-09-26T09:15:02.500Z"))
+
+        self.assertEqual(await remote.activity(), {"ok": True, "supported": False, "items": []})
+
+        feed = {"ok": True, "supported": True, "items": [{"id": "status:1", "kind": "status"}],
+                "members": {"count": 2, "at": None, "faces": []}, "health": {"vec": True, "sandbox": True, "model": None}}
+        (self.home / "olisar" / "activity.stub").write_text(json.dumps(feed) + "\n")
+        self.log.write_text("")
+        self.assertEqual(await remote.activity(), feed)
+        [call] = [ln for ln in self.log.read_text().splitlines() if "olisar.activity" in ln]
+        self.assertEqual(call.split("|")[0], str(self.home / "olisar"))
+        self.assertIn("docker exec cid-olisar timeout", call)
+
+        (self.home / "olisar" / "stopped.stub").write_text("")
+        stopped = await remote.activity()
+        self.assertFalse(stopped["ok"])
+        self.assertIn("isn't running", stopped["error"])
 
     async def test_a_refused_tailscale_key_is_reported_and_can_be_replaced(self) -> None:
         """A bot whose Tailscale key is refused runs with no console address. The deploy says

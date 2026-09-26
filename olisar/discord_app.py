@@ -200,9 +200,12 @@ def _avatar(app: dict) -> str:
 
 def _summary(app: dict) -> dict:
     """What the setup wizard shows and gates on."""
+    bot = app.get("bot") or {}
     return {
         "id": str(app["id"]),
-        "username": (app.get("bot") or {}).get("username") or app.get("name") or "",
+        "username": bot.get("username") or app.get("name") or "",
+        # What Discord shows it as, which is what the console calls it (api/botinfo.py).
+        "name": bot.get("global_name") or bot.get("username") or app.get("name") or "",
         "avatar": _avatar(app),
         "bot_public": bool(app.get("bot_public", True)),
         # With this on, an invite link needs a full OAuth round trip, so a plain one fails.

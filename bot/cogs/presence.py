@@ -4,7 +4,8 @@ On startup Olisar invents its own Discord custom status, in character, via the
 model (so it's a little different each boot). Falls back to a curated line if the
 model is unavailable (no key, rate-limited). Olisar can also change it mid-run with
 the ``set_status`` tool. Status + avatar are settable at runtime; the profile *bio*
-is not (that stays a copy-paste affordance in the dashboard).
+is not (that stays a copy-paste affordance in the dashboard). Either way the status is
+noted in ``bot_activity`` for the server app's activity feed.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import Persona
 from olisar.gemini.client import get_gemini
+from olisar.memory.writer import record_bot_activity
 from olisar.persona import DEFAULT_PERSONA_NAME, DEFAULT_SYSTEM_PROMPT, DEFAULT_TONE_NOTES
 
 log = logging.getLogger("olisar.presence")
@@ -49,6 +51,11 @@ class Presence(commands.Cog):
             activity=discord.CustomActivity(name=status),
         )
         log.info("status set to %r", status)
+        try:
+            async with session_scope() as session:
+                await record_bot_activity(session, kind="status", text=status)
+        except Exception:  # noqa: BLE001 — the status is set; this is only its record
+            log.exception("couldn't record the startup status")
 
     async def _invent_status(self) -> str:
         """Ask the model for an in-character status; fall back if it can't."""
