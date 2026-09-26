@@ -637,8 +637,9 @@ Each memory is a small sphere of the form's dust with its words set inside it, o
 it's hovered or focused (which is also the keyboard cue, so memories draw no focus ring). They are
 spaced on an ellipse with the same straight-line gap between neighbors' edges, and leave out the
 stretch that would overlap the corner. Clicking one brings it to the middle with its context; a
-back button at the sphere's upper left, or Escape, sends it home and returns focus to it. The
-activity comes from the VM (`/api/server/activity`, activity.ts), never includes a DM, and falls
+back button at the sphere's upper left, or Escape, sends it home and returns focus to it. A long
+memory never runs over that button: its heading sits beside it, only what's under the heading
+scrolls, and at its tallest the text starts level with the button's top. The activity comes from the VM (`/api/server/activity`, activity.ts), never includes a DM, and falls
 back to Discord's default avatar for anyone without one. Without WebGL2 the memories get hairline
 rings.
 
