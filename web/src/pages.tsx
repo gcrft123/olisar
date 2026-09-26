@@ -3386,7 +3386,7 @@ export function ApiKeys() {
           desc={<>Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio → Get API key')}.</>}
           status={st('gemini_api_key')}
           value={val('gemini_api_key')}
-          example="AIza…"
+          example="AQ.…"
           onChange={(v) => set('gemini_api_key', v)}
           onClear={() => clear('gemini_api_key', 'Gemini API key')}
           check={g?.set !== false && (

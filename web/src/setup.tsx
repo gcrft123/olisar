@@ -921,7 +921,7 @@ export function SetupWizard(
                 : <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text field="s-gemini" invalid={geminiCheck.state === 'bad' || flagged === 's-gemini'} value={gemini}
-                onChange={edit('s-gemini', setGemini)} placeholder="AIza…" mono />
+                onChange={edit('s-gemini', setGemini)} placeholder="AQ.…" mono />
             </Field>
             <CheckLine
               check={geminiCheck}
