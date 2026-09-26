@@ -420,6 +420,10 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 
 [f454741] — The console's sidebar scrolls when it's taller than the window, so with the Get started list open in a short desktop window, the lower half of the nav, the bot power control, Settings and Log out can be reached instead of hanging below the window.
 
+[23cffa0] — On the server's final screen, the back button on a long opened memory can be seen and clicked; the memory's text used to cover it.
+
+[8c598a1] — The bot switcher fades out with the rest of the server panel as the final screen takes over, instead of staying put until the move ends and then vanishing.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
