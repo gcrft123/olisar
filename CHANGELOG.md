@@ -36,6 +36,8 @@ Operators bring their own Discord bot and name it, but Olisar kept calling it Ol
 
 The console's status chips had drifted into five styles whose colors didn't agree. Something in progress was blue in one list, amber in another and the accent color in a third, and a banned extension was amber on the page where a banned publisher was red. They're now one chip, where each color means one thing, and every chip has an icon so the color is never the only thing saying it.
 
+A bot added to a server another bot already ran on borrowed that bot's Tailscale key. That key had already been used once, and was often single-use or expired by then, so the new bot never got a web address. Setup finished as if it had, and "Open console" opened `http://127.0.0.1:8000`, an address that only means something inside the server. Each bot now brings its own key, a deploy that doesn't get an address says so, and the server panel takes a new key without anyone editing files on the server.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -139,6 +141,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 [31d8676] — The API keys page checks each key with its service and says whether it works, whether it's the one you typed or the saved one.
 
 [31d8676] — A Cloudflare token that can see its own account fills in the account ID.
+
+[9fca613] — The server control panel takes a new Tailscale auth key when its console has no address, and restarts the bot on it.
 
 ### Changed
 
@@ -266,6 +270,8 @@ The console's status chips had drifted into five styles whose colors didn't agre
 
 [3fb1326] — Developer console statuses read Published, Yanked, Banned and Warned instead of the registry's lowercase values.
 
+[9fca613] — Adding a bot to a server another bot already runs on asks for its own Tailscale auth key instead of copying the other bot's.
+
 ### Fixed
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
@@ -331,6 +337,10 @@ The console's status chips had drifted into five styles whose colors didn't agre
 [4b78a70] — Pressing Continue with the keyboard in setup keeps focus on the button, so Enter takes you through every step. Before, focus dropped to the page after the first one.
 
 [8388322] — Transcripts, channel summaries, catch-ups and the prompts that decide whether the bot chimes in or reacts call it by its persona's name, so a bot whose persona has another name no longer reads its own messages as someone called Olisar.
+
+[9fca613] — "Open console" no longer opens `http://127.0.0.1:8000` when a server bot couldn't connect to Tailscale. The panel says why the console can't be reached instead.
+
+[9fca613] — Deploying a bot whose Tailscale key is refused says so instead of finishing as if it worked.
 
 ## [1.5.0] — 2026-09-21
 
