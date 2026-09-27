@@ -1477,7 +1477,7 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 | \`host.files.read(optionName)\` | — | Load a slash \`attachment\` as base64 into the sandbox (\`{ contentB64, … }\`, ≤ ~20 MB). Fine for small files. |
 | \`host.files.from({ name, text\\|contentB64 })\` | — | Create a host blob from sandbox data. |
 | \`host.discord.*\` (via the interaction) | \`discord.reply\`, \`discord.modal\`, \`discord.components\` | Reply (optionally with \`files\` / \`blobId\`), pop forms, and use buttons — see [flows](#ext-flows). |
-| \`host.generate({ task, maxTokens? })\` | \`model.generate\` | Generate text in your server's persona voice (the persona is applied as the system prompt for you). Resolves to a string. **First-party only.** |
+| \`host.generate({ task, maxTokens?, channelId? })\` | \`model.generate\` | Generate text in your server's persona voice (the persona is applied as the system prompt for you). Resolves to a string. With \`channelId\`, it's written the way a reply in that channel would be, from the channel's name, topic and recent conversation. **First-party only.** |
 | \`host.discord.send(channelId, payload)\` | \`discord.send\` | Post a message to a channel (content / embed / components / files) — for [event hooks](#ext-sdk) that have no interaction to reply to. |
 
 :::warning Host secrets and shared code
@@ -1533,6 +1533,7 @@ events: {
     if (!cfg.channel_id) return
     const text = await host.generate({
       task: "Welcome " + ctx.member.displayName + " to the server in one warm sentence.",
+      channelId: cfg.channel_id,
       maxTokens: 200,
     })
     await host.discord.send(cfg.channel_id, ctx.member.mention + " " + text)
@@ -1542,7 +1543,9 @@ events: {
 
 The handler's \`ctx\` carries \`guildId\` and \`member\` (\`{ id, displayName, username, mention, bot }\`). There's
 **no interaction to reply to** — an event handler posts with \`host.discord.send(channelId, payload)\`, and can
-generate a message in the server's voice with \`host.generate(...)\`.
+generate a message in the server's voice with \`host.generate(...)\`. Give \`host.generate\` the channel you're
+posting to as \`channelId\` and the message reads as if Olisar had been called there: it sees that channel's
+name, topic and recent conversation, like a reply would.
 
 :::warning First-party only
 Event hooks, \`host.generate\`, and \`host.discord.send\` run only for **built-in and locally-authored**
