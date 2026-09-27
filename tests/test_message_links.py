@@ -74,6 +74,33 @@ class StripUnofferedLinks(unittest.TestCase):
         text, _ = strip_unoffered_links(f"rook [posted it here]({SLIPPED})", self.offered)
         self.assertEqual(text, "rook posted it here")
 
+    def test_a_label_that_is_itself_a_made_up_link_goes_too(self):
+        text, removed = strip_unoffered_links(f"it's [{SLIPPED}]({SLIPPED}) ok", self.offered)
+        self.assertEqual(text, "it's ok")
+        self.assertEqual(removed, [SLIPPED, SLIPPED])
+
+    def test_a_made_up_label_on_a_real_link_leaves_the_real_one(self):
+        text, removed = strip_unoffered_links(f"here: [{SLIPPED}]({GIVEN})", self.offered)
+        self.assertEqual(text, f"here: {GIVEN}")
+        self.assertEqual(removed, [SLIPPED])
+        text, _ = strip_unoffered_links(f"[see {SLIPPED}]({GIVEN})", self.offered)
+        self.assertEqual(text, f"[see]({GIVEN})")
+
+    def test_capitals_in_the_url_are_the_same_link(self):
+        shouty = SLIPPED.replace("https://discord.com", "HTTPS://Discord.com")
+        text, removed = strip_unoffered_links(f"rook posted it {shouty} earlier", self.offered)
+        self.assertEqual((text, removed), ("rook posted it earlier", [shouty]))
+        given = GIVEN.replace("discord.com", "DISCORD.com")
+        self.assertEqual(strip_unoffered_links(given, self.offered), (given, []))
+
+    def test_only_the_spot_a_link_left_is_tidied(self):
+        """The tidy ran over the whole reply and flattened code indentation."""
+        code = "```py\ndef f(x):\n    if x :\n        return  x\n```"
+        text, _ = strip_unoffered_links(f"try this:\n{code}\nsee {SLIPPED}", self.offered)
+        self.assertEqual(text, f"try this:\n{code}\nsee")
+        text, _ = strip_unoffered_links(f"{SLIPPED}\nfirst  line", self.offered)
+        self.assertEqual(text, "first  line")
+
     def test_other_discord_hostnames_count_as_given(self):
         ptb = GIVEN.replace("https://discord.com", "https://ptb.discord.com")
         self.assertEqual(strip_unoffered_links(ptb, self.offered), (ptb, []))

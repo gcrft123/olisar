@@ -28,9 +28,12 @@ _LINK = (
     r"https?://(?:www\.|ptb\.|canary\.)?discord(?:app)?\.com/channels/"
     r"(?:\d+|@me)/\d+/\d+"
 )
+# Case-insensitive, as URLs' scheme and host are: `https://Discord.com/...` opens the
+# same message, so it has to be recognized to be checked.
 _LINK_IDS = re.compile(
     r"https?://(?:www\.|ptb\.|canary\.)?discord(?:app)?\.com/channels/"
-    r"(\d+|@me)/(\d+)/(\d+)"
+    r"(\d+|@me)/(\d+)/(\d+)",
+    re.IGNORECASE,
 )
 # Each form a link is written in, matched whole so that removing the link doesn't leave
 # `[label]()`, `<>` or `()` behind. A bare link also takes the separator in front of it
@@ -38,8 +41,23 @@ _LINK_IDS = re.compile(
 _CITATION = re.compile(
     r"\[(?P<label>[^\]\n]*)\]\(\s*<?(?P<masked>" + _LINK + r")>?\s*\)"
     r"|(?P<lead>[ \t]*(?:[:→–—-][ \t]*)?)"
-    r"(?:\(<?(?P<paren>" + _LINK + r")>?\)|<(?P<angle>" + _LINK + r")>|(?P<bare>" + _LINK + r"))"
+    r"(?:\(<?(?P<paren>" + _LINK + r")>?\)|<(?P<angle>" + _LINK + r")>|(?P<bare>" + _LINK + r"))",
+    re.IGNORECASE,
 )
+# Marks where a link came out, so the whitespace tidy that follows touches only those
+# spots. It used to run over the whole reply, and flattened the indentation of any code
+# block in it. A control character no reply contains.
+_GAP = "\x00"
+_GAPS = re.compile(r"[ \t]*(?:\x00[ \t]*)+")
+
+
+def _close_gap(m: re.Match) -> str:
+    """One space where a link was mid-sentence; nothing at the start or end of a line or
+    before punctuation ("posted in general <link>." is "posted in general.")."""
+    text, start, end = m.string, m.start(), m.end()
+    before = text[start - 1] if start else "\n"
+    after = text[end] if end < len(text) else "\n"
+    return "" if before == "\n" or after in "\n,.!?;:)]" else " "
 
 
 def message_link(guild_id: int, channel_id: int, message_id: int) -> str:
@@ -51,7 +69,7 @@ def link_ids(text: str) -> set[tuple[str, str, str]]:
 
     Compared by id rather than by string, so a ptb/canary/discordapp form of a link the
     model was given still counts as given."""
-    return {m.groups() for m in _LINK_IDS.finditer(text or "")}
+    return {(g.lower(), c, m) for g, c, m in (x.groups() for x in _LINK_IDS.finditer(text or ""))}
 
 
 def strip_unoffered_links(
@@ -59,22 +77,32 @@ def strip_unoffered_links(
 ) -> tuple[str, list[str]]:
     """Remove every message link in ``reply`` whose ids aren't in ``offered``.
 
-    Returns the cleaned reply and the links taken out. A masked link keeps its label."""
+    Returns the cleaned reply and the links taken out. A masked link keeps its label, with
+    any links in the label checked too: `[<made-up link>](<same>)` keeping its label kept
+    the made-up link."""
     removed: list[str] = []
 
     def _swap(m: re.Match) -> str:
         url = next(g for g in (m["masked"], m["paren"], m["angle"], m["bare"]) if g)
-        if link_ids(url) <= offered:
+        given = link_ids(url) <= offered
+        if m["masked"] is not None:
+            label = _CITATION.sub(_swap, m["label"])
+            if not given:
+                removed.append(url)
+                return label
+            if label == m["label"]:
+                return m.group(0)
+            # A real link under a made-up one: keep the real one.
+            return f"[{label}]({url})" if label.replace(_GAP, "").strip() else url
+        if given:
             return m.group(0)
         removed.append(url)
-        return m["label"] if m["masked"] is not None else ""
+        return _GAP
 
     cleaned = _CITATION.sub(_swap, reply or "")
     if not removed:
         return reply, []
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    cleaned = re.sub(r"[ \t]+([,.!?;])", r"\1", cleaned)
-    cleaned = "\n".join(line.rstrip() for line in cleaned.split("\n")).strip()
+    cleaned = _GAPS.sub(_close_gap, cleaned).rstrip().lstrip("\n")
     return cleaned, removed
 
 
