@@ -68,8 +68,8 @@ export function clearPendingReport(): void {
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
 // gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
 // `prefill` opens it pre-filled from whatever screen sent the operator here. `operator` is
-// false for a signed-in admin who isn't the operator: the install-wide settings (the PIN,
-// the update channel) are shown to them but aren't theirs to change.
+// false for a signed-in admin who isn't the operator: the tool PIN is install-wide, so it's
+// shown to them but isn't theirs to change.
 export function SettingsModal(
   { onClose, sections, initialSection, report, prefill, operator }:
   { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill; operator?: boolean },
@@ -138,7 +138,7 @@ export function SettingsModal(
           {section === 'security' && <Security canEdit={operator !== false} />}
           {section === 'remote' && <Remote />}
           {section === 'server-remote' && <ServerRemote />}
-          {section === 'updates' && <Updates operator={operator} />}
+          {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
           {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
         </div>
@@ -914,7 +914,7 @@ const desktopUpdates = () => (window as any).olisar?.updates as
 
 type Channel = 'stable' | 'beta'
 
-function Updates({ operator }: { operator?: boolean }) {
+function Updates() {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
   const [canSelfUpdate, setCanSelfUpdate] = useState(false)
@@ -999,9 +999,11 @@ function Updates({ operator }: { operator?: boolean }) {
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
-      {/* The channel moves the whole install, so it's the operator's, or whoever is at the
-          machine (where the desktop app's bridge is). */}
-      {(operator !== false || !!du) && <>
+      {/* Only where the desktop app is. It reads the channel before each check and carries a
+          server-hosted VM onto the release it installs, so the app decides. Anywhere else (a
+          VM's own console, a remote browser) the picker wrote a file nothing acted on. The API
+          takes it only from the operator or someone at the machine, which the bridge means. */}
+      {!!du && <>
         <div className="settings-subhead">Channel</div>
         <div className="settings-row">
           {channel === null ? <span className="settings-muted">…</span> : (
@@ -1019,7 +1021,7 @@ function Updates({ operator }: { operator?: boolean }) {
         )}
       </>}
       {!du && (
-        <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
+        <p className="settings-foot">Updates are installed from the Olisar desktop app, which also picks the channel.</p>
       )}
     </>
   )
