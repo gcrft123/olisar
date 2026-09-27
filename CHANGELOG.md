@@ -182,6 +182,10 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 ### Changed
 
+[c6121a5] — Bot power, the web link, who's signed in, and Settings and Log out are in a drawer at the bottom of the console's sidebar, opened with a tap or by dragging it up.
+
+[c6121a5] — Closed, the drawer still shows whether the bot is online.
+
 [296e0c0] — Settings → General no longer describes the Size control.
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
