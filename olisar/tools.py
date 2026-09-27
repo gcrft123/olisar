@@ -60,9 +60,10 @@ class DiscordActions(Protocol):
         components: object, ext_key: str, home_guild_id: int,
     ) -> str: ...
     # Ask the channel to confirm a gated tool call with the 4-digit PIN, and wait for the
-    # answer. Returns one of the outcome constants in olisar.toolpin.
+    # answer. `details` says what the call would do. Returns one of the outcome constants
+    # in olisar.toolpin.
     async def request_pin(
-        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
     ) -> str: ...
     # React to the message that triggered this reply and end the turn without sending
     # anything. Returns a success string, or a refusal when there's no message to react
@@ -877,7 +878,7 @@ async def _recover_session(ctx: ToolContext) -> None:
         log.exception("couldn't roll back after a failed tool")
 
 
-async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:
+async def _confirm_with_pin(name: str, args: dict, ctx: ToolContext) -> str:
     """Put a PIN prompt in the channel and wait for it. Returns an ``olisar.toolpin``
     outcome; anything but ``APPROVED`` means the call doesn't run.
 
@@ -901,6 +902,7 @@ async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:
         guild_id=ctx.cfg_guild,
         user_id=ctx.user_id,
         timeout=float(state.timeout_sec),
+        details=toolpin.describe(name, args),
     )
 
 
@@ -910,7 +912,7 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
     action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
     if action and action not in ctx.pin_approved:
-        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, ctx)
+        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, args, ctx)
         if outcome != toolpin.APPROVED:
             ctx.pin_denied[action] = outcome
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)

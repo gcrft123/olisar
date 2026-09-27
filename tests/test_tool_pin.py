@@ -113,6 +113,51 @@ class DenialNoteTests(unittest.TestCase):
         self.assertFalse(_useful(toolpin.denial_note("react", toolpin.TIMEOUT)))
 
 
+class DescribeTests(unittest.TestCase):
+    """What the PIN prompt says the call would do. Whoever types the PIN is approving
+    that call, and "run change_setting" doesn't say which setting or what it becomes."""
+
+    def test_a_setting_change_names_the_key_and_the_value(self):
+        say = toolpin.describe
+        self.assertEqual(
+            say("change_setting", {"key": "name", "value": "Rook"}), 'change "name" to "Rook"'
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "system_prompt", "value": "boats", "find": "trains"}),
+            'replace "trains" with "boats" in "system_prompt"',
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "tone_notes", "value": "be kind", "append": "true"}),
+            'add "be kind" to the end of "tone_notes"',
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "reply.ping", "value": ""}),
+            'reset "reply.ping" to its default',
+        )
+
+    def test_an_action_names_its_target_and_options(self):
+        self.assertEqual(
+            toolpin.describe(
+                "settings_action",
+                {"action": "kb_add_site", "target": "https://wiki.example", "depth": "2"},
+            ),
+            '"kb_add_site" on "https://wiki.example", depth "2"',
+        )
+
+    def test_any_other_tool_lists_its_arguments(self):
+        self.assertEqual(toolpin.describe("react", {"emoji": "👍"}), 'emoji "👍"')
+        self.assertEqual(toolpin.describe("react", {}), "no arguments")
+
+    def test_a_long_or_formatted_value_is_cut_and_defused(self):
+        """A spoiler bar or a line break in the value mustn't hide part of it."""
+        said = toolpin.describe(
+            "change_setting", {"key": "system_prompt", "value": "||x||\n\n" + "y" * 500}
+        )
+        self.assertIn("\\|\\|x\\|\\| yyy", said)
+        self.assertIn("(506 chars)", said)
+        self.assertNotIn("\n", said)
+
+
 class _DbCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -329,9 +374,13 @@ class _Actions:
     def __init__(self, *outcomes: str) -> None:
         self.outcomes = list(outcomes)
         self.asked: list[str] = []
+        self.details: list[str] = []
 
-    async def request_pin(self, *, tool: str, guild_id: int, user_id: int, timeout: float) -> str:
+    async def request_pin(
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
+    ) -> str:
         self.asked.append(tool)
+        self.details.append(details)
         return self.outcomes.pop(0) if self.outcomes else toolpin.TIMEOUT
 
 
@@ -459,6 +508,19 @@ class SelfEditTests(_DbCase):
         self.assertEqual(results, ["tool ran"] * 3)
         self.assertEqual(actions.asked, ["change_setting"])
         self.assertEqual(dispatch.await_count, 3)
+
+    async def test_the_prompt_is_told_what_the_call_would_do(self):
+        actions = _Actions(toolpin.APPROVED)
+        async with self.Session() as session:
+            ctx = ToolContext(
+                session=session, cfg_guild=GUILD, channel_id=2, user_id=3,
+                display_name="ada", actions=actions,
+            )
+            with patch.object(toolpin.settings, "pin_gated_tools", ""), patch(
+                "olisar.tools._dispatch", new=AsyncMock(return_value="tool ran")
+            ):
+                await execute_tool("change_setting", {"key": "name", "value": "Rook"}, ctx)
+        self.assertEqual(actions.details, ['change "name" to "Rook"'])
 
     async def test_a_refusal_covers_both_tools(self):
         actions = _Actions(toolpin.REFUSED, toolpin.APPROVED)

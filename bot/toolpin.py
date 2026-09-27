@@ -30,7 +30,7 @@ from bot.replies import typing_paused
 from olisar import toolpin
 from olisar.audit import record_audit
 from olisar.db.engine import session_scope
-from olisar.messages import get_command_messages, render_message
+from olisar.messages import DEFAULT_COMMAND_MESSAGES, get_command_messages, render_message
 
 log = logging.getLogger("olisar.toolpin.discord")
 
@@ -180,8 +180,10 @@ async def request_pin(
     guild_id: int,
     user_id: int,
     timeout: float,
+    details: str = "",
 ) -> str:
     """Ask the channel to confirm ``tool`` with the PIN and wait up to ``timeout`` seconds.
+    ``details`` is what the call would do (``olisar.toolpin.describe``).
 
     Returns an outcome from :mod:`olisar.toolpin`. Anything that goes wrong on the Discord
     side (no channel, no permission to post, an API error) resolves to ``UNAVAILABLE``,
@@ -198,7 +200,14 @@ async def request_pin(
         log.info("PIN prompt for %s not posted: locked out (%s)", tool, locked)
         await _record(tool, guild_id, actor=user_id, outcome=toolpin.LOCKED, lockout=locked)
         return toolpin.LOCKED
-    prompt = render_message(custom, "tool_pin_prompt", tool=tool, seconds=seconds)
+    prompt = render_message(
+        custom, "tool_pin_prompt", tool=tool, seconds=seconds, details=details
+    )
+    wording = custom.get("tool_pin_prompt") or DEFAULT_COMMAND_MESSAGES["tool_pin_prompt"]
+    if details and "{details}" not in wording:
+        # A server's own wording from before there was a {details}. Whoever types the PIN
+        # is approving this call, so they're shown it whatever the wording says.
+        prompt += f"\n{details}"
 
     request = _PinRequest(tool=tool, guild_id=guild_id)
     view = _PinView(request, timeout)

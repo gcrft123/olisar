@@ -493,7 +493,7 @@ class BotActions:
         return f"Posted in {where}." if getattr(target, "name", None) else "Posted it here."
 
     async def request_pin(
-        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
     ) -> str:
         """Put a PIN prompt in the active channel and wait for it (see bot/toolpin.py).
 
@@ -504,6 +504,7 @@ class BotActions:
 
         return await ask(
             self.channel, tool=tool, guild_id=guild_id, user_id=user_id, timeout=timeout,
+            details=details,
         )
 
     async def send_image(

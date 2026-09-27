@@ -356,6 +356,13 @@ class CommandReplies(_Db):
     async def test_unknown_reply(self):
         self.assertIn("No reply", await self.change("reply.hello", "hi"))
 
+    async def test_the_pin_prompt_is_not_changeable_from_chat(self):
+        """It's how whoever types the PIN sees what they're approving, so the tools it
+        gates can't reword it."""
+        out = await self.change("reply.tool_pin_prompt", "type the PIN to say hi")
+        self.assertIn("only be changed from the console", out)
+        self.assertNotIn("tool_pin_prompt", await self.custom())
+
 
 class KnowledgeActions(_Db):
     async def source(self, sid: int) -> KBSource | None:
