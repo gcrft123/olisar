@@ -7,9 +7,14 @@
 # while the tag is spelled the way people read it (v2.0.beta-1); left to itself it would create
 # a second, wrongly named release. macOS has a second reason: its .dmg is signed with the
 # Developer ID certificate and notarized by Apple, and stapling the notarization ticket
-# rewrites the file, so it can't be uploaded until that's done. Both land on the same release,
-# published as a pre-release when the tag is a beta. Without the signing secrets below the
-# macOS job still produces the old unsigned build. See RELEASING.md.
+# rewrites the file, so it can't be uploaded until that's done. Without the signing secrets
+# below the macOS job still produces the old unsigned build. See RELEASING.md.
+#
+# The release is opened as a draft and only published by the last job, once the .dmg, the .exe
+# and the server image all exist. A draft is invisible to the desktop updaters, to a VM moving
+# to the release, and to /releases/latest. Publishing from whichever build finished first put
+# v2.0.beta-4 live for two minutes with no .dmg (macOS installs were offered it as a download
+# and then never told it could be installed) and five with no server image to pull.
 name: Release
 
 on:
@@ -17,8 +22,9 @@ on:
     tags:
       - 'v*'
   # A rehearsal: builds, signs, notarizes and staples the macOS .dmg and publishes nothing.
-  # Everything that uploads — the Windows job, the server image, the macOS `gh release`
-  # step — is gated on a tag below, so a dispatch run can't create or touch a release. The finished .dmg comes back as a build artifact instead. This is how you
+  # Everything that uploads — the draft release, the Windows job, the server image, the macOS
+  # `gh release` step, the publish job — is gated on a tag below, so a dispatch run can't
+  # create or touch a release. The finished .dmg comes back as a build artifact instead. This is how you
   # prove the whole signing chain end to end without spending a version number on it.
   workflow_dispatch:
 
@@ -32,8 +38,7 @@ jobs:
   version-check:
     runs-on: ubuntu-latest
     outputs:
-      # "true" for a beta. Both publish steps pass it to `gh release create`, so whichever
-      # job creates the release creates it as the right kind.
+      # "true" for a beta. The draft is opened as that kind, and the publish job keeps it.
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +49,22 @@ jobs:
         env:
           TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: python3 scripts/check_release_version.py
+
+      # Opened once, here, for the build jobs to attach to. Left to them, both would try to
+      # create it, and GitHub lets two drafts share a tag where it refuses two releases.
+      - name: Open the release as a draft
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          # A re-run finds the release its first run opened (still a draft, or published).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already has a release; the builds will be attached to it."
+          else
+            gh release create "$TAG" --draft --title "$TAG" --notes '' --prerelease="$PRERELEASE"
+          fi
 
   # Build the server image here rather than from a `tags:` filter in image.yml: that
   # workflow's `paths` filter applies to the whole push event, so a tag whose diff touched
@@ -68,7 +89,7 @@ jobs:
     secrets: inherit
 
   macos:
-    needs: [version-check, mac-preflight] # version-check for its outputs; preflight gates the build
+    needs: [version-check, mac-preflight] # version-check opens the draft it uploads to; preflight gates the build
     runs-on: macos-14 # Apple Silicon → arm64 .dmg
     # Build the venv on uv's own CPython, never the runner image's. sqlite-vec is loaded
     # through SQLite's extension API, which needs --enable-loadable-sqlite-extensions, and
@@ -140,21 +161,19 @@ jobs:
           npm run release:mac
 
       # macOS can't publish through electron-builder (see the note at the top), so upload the
-      # finished .dmg here. The Windows job may have created the release already — whichever
-      # job gets there first wins, and the other just adds its asset.
+      # finished .dmg here, to the draft version-check opened. It stays a draft until the
+      # publish job at the bottom.
       #
       # `dist:mac` passes --publish never for that reason. Without it electron-builder still
       # schedules an upload of its own — and since this step's env deliberately carries no
       # GH_TOKEN (it was dropped when signing moved publishing down here), the build died on
       # "GitHub Personal Access Token is not set" *after* signing and notarizing successfully.
-      - name: Publish the .dmg to the release
+      - name: Attach the .dmg to the draft release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRERELEASE: ${{ needs.version-check.outputs.prerelease }}
         run: |
           TAG='${{ github.ref_name }}'
-          gh release create "$TAG" --title "$TAG" --notes '' --prerelease="$PRERELEASE" || true
           gh release upload "$TAG" desktop/out/*.dmg --clobber
 
       # A rehearsal run publishes nothing, so hand the .dmg back as an artifact — the same file
@@ -222,13 +241,44 @@ jobs:
           npm install
           npm run dist:win
 
-      # Same as the macOS upload: the job that gets there first creates the release, and the
-      # other just adds its asset.
-      - name: Publish the installer to the release
+      # Same as the macOS upload: onto the draft, which the publish job makes live.
+      - name: Attach the installer to the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PRERELEASE: ${{ needs.version-check.outputs.prerelease }}
         run: |
           TAG='${{ github.ref_name }}'
-          gh release create "$TAG" --title "$TAG" --notes '' --prerelease="$PRERELEASE" || true
           gh release upload "$TAG" desktop/out/*.exe --clobber
+
+  # The one place the release goes live, and only once every build has succeeded: `needs`
+  # holds it back until the macOS, Windows and server-image jobs are all green. If any of
+  # them fails, the release stays a draft; re-running the failed jobs runs this one after.
+  # It checks the installers are really attached first, since a draft published without
+  # one is exactly what this job is here to prevent.
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [version-check, macos, windows, server-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.version-check.outputs.prerelease }}
+        run: |
+          assets="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          for ext in dmg exe; do
+            if ! grep -qi "\.$ext\$" <<<"$assets"; then
+              echo "::error::$TAG has no .$ext attached, so it stays a draft."
+              exit 1
+            fi
+          done
+          # Edits only these flags: a title or notes written into the draft meanwhile stay.
+          # A beta stays a pre-release, off every stable install. A stable release becomes
+          # Latest, which is what /releases/latest (the stable channel) reads.
+          if [ "$PRERELEASE" = true ]; then
+            gh release edit "$TAG" --draft=false --prerelease
+          else
+            gh release edit "$TAG" --draft=false --prerelease=false --latest
+          fi
