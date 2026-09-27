@@ -182,6 +182,12 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 ### Changed
 
+[ce98ef9] — The notes on the connect, reconnect and Move bot screens show a check, like every other tip.
+
+[9373627] — When the Usage page's live numbers stop updating, it says it can't reach the bot, the same as the search index card.
+
+[fb125b3] — In the member portal, Resume now is a button under the pause notice instead of beside it.
+
 [4d31b08] — The first tooltip waits a moment before it shows; after that, moving to another control shows its tooltip at once, gliding over from the last one.
 
 [4d31b08] — The Settings close button's tooltip shows Esc as a key.
@@ -351,6 +357,10 @@ Installing an update from the desktop app changed a button to "Installing…", a
 [5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
 
 ### Fixed
+
+[ce98ef9] — When Olisar can't use the server you picked to share, the notice shows a warning sign instead of an info icon.
+
+[57dce81] — The docs show italic words in italics instead of between asterisks, in the console and on the docs site.
 
 [4d31b08] — A tooltip's arrow is part of its outline. It used to sit a fraction of a pixel off the border, poking through it or stopping short.
 
