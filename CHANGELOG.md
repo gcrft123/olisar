@@ -482,6 +482,8 @@ A bot's web address came from the device name typed during setup, and nothing in
 
 [265cc27] — A bot moved onto a server another bot already runs on uses the Tailscale device name the move picked for it, instead of the one it had on this machine, which could be the other bot's.
 
+[dfe71f5] — When the model types a tool call as its reply, like `react(emoji="🔥")` or `[reacted 🔥]`, Olisar reacts with that emoji or answers in words instead of posting the call to the channel.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
