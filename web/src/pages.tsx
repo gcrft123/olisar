@@ -340,7 +340,15 @@ export function Behavior() {
   const { data: models } = modelsQ
   const proEd = useEditable<any>(api.getProactivity)
   const saver = useSaver(async () => {
-    const cfg = configEd.data
+    // Only what this page edits. GET /api/config also carries the Access page's settings,
+    // and sending them back put this tab's copy over whatever was saved there since it
+    // loaded: an admin enabling the PIN on Access had it turned off again by a Behavior save
+    // open in another tab.
+    const {
+      pin_actions: _pin, allowed_role_ids: _allow, blocked_role_ids: _block,
+      member_portal_enabled: _portal, member_portal_show_persona: _portalPersona,
+      remote_access_configured: _remote, ...cfg
+    } = configEd.data
     await api.putConfig({
       ...cfg,
       name_triggers: typeof cfg.name_triggers === 'string'
