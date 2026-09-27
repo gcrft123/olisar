@@ -1028,11 +1028,13 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
   }, [open])
   useInert(body, !open)
 
-  // The light that slides while the bot starts or stops rides the edge itself: up the left
-  // side, around both top corners and down the right, instead of straight along the top and
-  // off past the corners. A motion path needs lengths, so it's traced from the glow's box
-  // (which covers the sheet's border) along the border's centerline, and again on a resize.
+  // The light that runs while the bot starts or stops is a stretch of the border itself: a dash
+  // of a stroke laid along the border's centerline, from the foot of the left side, around both
+  // top corners, to the foot of the right. Being the line, it bends with the corners. The path
+  // needs lengths, so it's traced from the glow's box (which covers the sheet's border), along
+  // with its length for the dash, and traced again on a resize.
   const glow = useRef<HTMLSpanElement>(null)
+  const haloId = 'foot-halo' + useId().replace(/:/g, '')
   useLayoutEffect(() => {
     const el = glow.current
     if (!el) return
@@ -1042,11 +1044,10 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
       const h = 0.5  // half the 1px border
       const r = Math.max(h, parseFloat(cs.borderTopLeftRadius) || 0)
       const peek = parseFloat(cs.getPropertyValue('--foot-peek')) || 49
-      // Down the sides as far as the edge still shows lit, about halfway to the peek's foot.
-      const side = r + (peek - r) * 0.45
       const a = `A ${r - h} ${r - h} 0 0 1`
       el.style.setProperty('--glow-path',
-        `path('M ${h} ${side} L ${h} ${r} ${a} ${r} ${h} L ${w - r} ${h} ${a} ${w - h} ${r} L ${w - h} ${side}')`)
+        `path('M ${h} ${peek} L ${h} ${r} ${a} ${r} ${h} L ${w - r} ${h} ${a} ${w - h} ${r} L ${w - h} ${peek}')`)
+      el.style.setProperty('--glow-len', String(2 * (peek - r) + Math.PI * (r - h) + (w - 2 * r)))
     }
     trace()
     const ro = new ResizeObserver(trace)
@@ -1132,7 +1133,17 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
             <Badge tone={badge.tone} {...badge.glyph}>{badge.word}</Badge>
           </span>
         </button>
-        <span ref={glow} className="foot-glow" aria-hidden="true"><span className="foot-glow-in" /></span>
+        <span ref={glow} className="foot-glow" aria-hidden="true">
+          <span className="foot-glow-in" />
+          <svg className="foot-trace">
+            <filter id={haloId} x="-50%" y="-200%" width="200%" height="500%">
+              <feGaussianBlur stdDeviation="3" />
+            </filter>
+            <path className="foot-trace-halo" filter={`url(#${haloId})`} />
+            <path className="foot-trace-tail" />
+            <path className="foot-trace-core" />
+          </svg>
+        </span>
         <div ref={body} id={bodyId} className="foot-body">
           <BotPower onStatus={setBot} />
           <WebLink tunnel={tunnel} />
