@@ -1137,7 +1137,7 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
           <span className="foot-glow-in" />
           <svg className="foot-trace">
             <filter id={haloId} x="-50%" y="-200%" width="200%" height="500%">
-              <feGaussianBlur stdDeviation="4" />
+              <feGaussianBlur stdDeviation="6" />
             </filter>
             <path className="foot-trace-halo" filter={`url(#${haloId})`} />
             <path className="foot-trace-tail" />
