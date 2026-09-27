@@ -1,6 +1,6 @@
 # Usage page
 
-A standalone redesign of the console's Usage page (`Usage` in `web/src/pages.tsx`), laid out in the order someone opening it needs answers: how much is left today, which model is replying, where the requests go, then everything else. It isn't wired into `web/`.
+A standalone redesign of the console's Usage page, laid out in the order someone opening it needs answers: how much is left today, which model is replying, where the requests go, then everything else. It's built into the console as `web/src/usage.tsx`; this folder keeps the prototype it was built from.
 
 Open `index.html` in a browser, from disk or from any server. It's one file, drawn in the console's tokens at its 110% interface size, with the rail around it so the page can be judged in place. It only reaches the network for IBM Plex Sans and JetBrains Mono; the glyphs are Solar's, rendered from `@solar-icons/react`'s own path data. A request arrives every few seconds, so the numbers move the way they would on a live bot.
 
@@ -13,9 +13,9 @@ The Preview strip in the corner holds the page in one of six states. `?state=low
 | `explorations/states.jpg` | The top block in each of the six states. |
 | `explorations/phone.jpg` | The page at 390 wide. |
 | `explorations/interactions.mp4` | The first pass, with the chain bar the review took out: a segment lighting its row, a model resting and coming back, the chain running low and running out. |
-| `explorations/before.jpg` | The page as it is in `web/` today, on the dev fixture, for comparison. |
+| `explorations/before.jpg` | The page it replaced, on the dev fixture, for comparison. |
 
-## What the page in `web/` gets wrong
+## What the page before it got wrong
 
 - **"+10% vs yesterday"** compares today so far with the whole of yesterday. At 9 AM an ordinary day reads about −60%.
 - **Tokens / min** draws the busiest minute's tokens across every model against a hard-coded 1M cap (`TPM_LIMIT` in `api/routers/usage.py`). Google's token limit is per model, so the chart compares a sum with one model's limit. When the cap is off the chart, its label sits at the top edge anyway, where it reads as a ceiling the line is about to hit.
@@ -71,7 +71,7 @@ Requests and tokens today against the same time yesterday, the busiest minute ag
 
 ## What the backend would need
 
-Most of this page is data the API doesn't return yet. In the order the page uses it:
+Most of this page was data the API didn't return. All six of these landed with the page (`olisar/gemini/quota.py`, `olisar/gemini/rate_limiter.py`, `api/routers/usage.py`). In the order the page uses it:
 
 1. **A daily limit for each model.** `ModelInfo` in `olisar/gemini/models.py` carries `rpm` only. Google's rate-limits page doesn't list free-tier numbers any more; AI Studio shows a project's own. Two sources would cover it: an `rpd` beside `rpm`, and Google's own figure from a daily 429, whose `QuotaFailure` names the quota (`GenerateRequestsPerDayPerProjectPerModel-FreeTier`) and its value. The limits in this fixture (250 for the Flash models, 1,000 for Flash-Lite and for embeddings, 500 for grounding) are placeholders.
 2. **Count by Google's day.** `record_usage` keys rows on `datetime.now(timezone.utc).date()`. It should use the date in `America/Los_Angeles`.

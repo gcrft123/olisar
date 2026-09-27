@@ -4,8 +4,9 @@ import { botName, setBotName } from './botname'
 import { Modal, confirmDialog, toast } from './overlays'
 import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
-  Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, Usage, ApiKeys, Docs,
+  Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, ApiKeys, Docs,
 } from './pages'
+import { Usage } from './usage'
 import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'

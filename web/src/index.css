@@ -1167,10 +1167,6 @@ kbd {
   background: var(--bg-inset); white-space: nowrap;
 }
 
-/* Idle rows in the fallback chain, folded away by default. */
-.u-idle-toggle { margin-top: 12px; height: 28px; font-size: 12px; color: var(--text-2); border-color: transparent; }
-.u-idle-toggle:hover { color: var(--text); background: var(--bg-inset); }
-
 /* Numeric field: the unit sits in the box, the range and default sit under it. Both were
    invisible before — the browser enforced min/max nobody could see, and nothing said what
    a reasonable value looks like, so every threshold was a guess. */
@@ -3151,128 +3147,193 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
    specificity, keeping the shadow underneath the ring. */
 .ext-seg button.on:focus-visible,
 .useg button.on:focus-visible { outline: none; box-shadow: var(--ring), 0 1px 2px rgba(0, 0, 0, 0.3); }
-/* Today's four figures: one strip, cells divided by hairlines. The strip's own top rule
-   continues the section rhythm; the first section below supplies the bottom one. */
-.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); }
-.u-kpi { min-width: 0; padding: 24px 24px 28px; border-left: 1px solid var(--border); }
+/* The page answers in order: what's left today and what's replying, the fallback chain,
+   where the requests go, then the rest. Every meter fills with what's LEFT, not what's used
+   (a departure from the meter recipe in DESIGN.md), because every figure beside one is a
+   "left" figure. Breakpoints query the page's own width, not the viewport's. */
+.usage { container: usage / inline-size; }
+.u-eyebrow {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em; line-height: 1.4;
+  text-transform: uppercase; color: var(--text-3);
+}
+
+/* What's left, and what's replying: two readings of right now, split by a hairline, over
+   the pace line and the two limits that sit outside the chain. */
+.u-now { border-top: 1px solid var(--border); display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+.u-now-left { padding: 26px 32px 26px 0; min-width: 0; }
+.u-now-right { padding: 26px 0 26px 32px; border-left: 1px solid var(--border); min-width: 0; display: flex; flex-direction: column; }
+.u-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px; }
+/* Plex Sans, not mono, at this size: mono's dotted zeros read as a code sample. */
+.u-hero {
+  font-size: 60px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; margin-top: 12px;
+  font-variant-numeric: proportional-nums; transition: opacity var(--dur-slow) var(--ease-out);
+}
+.u-hero.zero { color: var(--text-3); }
+.u-hero-sub { color: var(--text-2); margin-top: 12px; font-size: 13.5px; }
+.u-hero-sub b { color: var(--text); font-weight: 500; }
+.u-cur { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin-top: 16px; overflow-wrap: anywhere; }
+.u-cur.none { color: var(--text-2); }
+.u-cur-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+.u-now-foot {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between;
+  gap: 14px 32px; flex-wrap: wrap; padding: 18px 0 20px; border-top: 1px solid var(--border);
+}
+.u-pace { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+.u-pace svg { flex: none; }
+.u-pace.ok svg { color: var(--ok); }
+.u-pace.warn { color: var(--warn); }
+.u-pace.danger { color: var(--danger); }
+.u-side-limits { display: flex; gap: 10px 28px; flex-wrap: wrap; }
+.u-side { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-2); }
+.u-side .v { font-family: var(--font-mono); font-size: 11.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.u-side .v s { text-decoration: none; color: var(--text-3); }
+/* Not responding: the last figures stay readable, and look it. */
+.u-now.stale :is(.u-hero, .u-cur, .u-cur-id, .u-side-limits, .u-pace),
+.u-chain.stale tbody { opacity: 0.55; }
+
+/* A meter filled with what's left: --used clips the fill in from the left. */
+.u-mini {
+  position: relative; width: 72px; height: 6px; border-radius: 3px; flex: none;
+  background: var(--bg-inset); box-shadow: inset 0 0 0 1px var(--border);
+}
+.u-mini i {
+  position: absolute; inset: 0; border-radius: 3px; background: var(--accent);
+  clip-path: inset(0 0 0 var(--used)); transition: clip-path 0.5s var(--ease-out);
+}
+.u-mini.out i { clip-path: inset(0 0 0 100%); }
+/* Quota Google says is gone although Olisar never counted it: something else on the same
+   Google Cloud project used it. */
+.u-lost {
+  position: absolute; inset: 0 0 0 var(--used); border-radius: 0 3px 3px 0;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-3) 42%, transparent) 0 1.5px, transparent 1.5px 5px);
+}
+
+/* The chain: one row per chat model, in the order the bot falls back through them. */
+.u-chain { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.u-chain th, .u-chain td { padding: 10px 0; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; font-weight: 400; }
+.u-chain tbody tr:last-child > * { border-bottom: 0; }
+.u-chain thead th { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); padding: 0 0 9px; }
+.u-chain .c-rank { width: 34px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+.u-chain .c-status { width: 196px; }
+.u-chain .c-today { width: 250px; }
+.u-chain tbody tr > * { transition: background var(--dur-fast) var(--ease-out); }
+.u-chain tbody tr:hover > * { background: var(--bg-inset); }
+.u-chain tbody tr:hover > :first-child { border-radius: var(--radius-xs) 0 0 var(--radius-xs); }
+.u-chain tbody tr:hover > :last-child { border-radius: 0 var(--radius-xs) var(--radius-xs) 0; }
+.u-chain tbody th.c-rank { padding-left: 2px; }
+.u-chain tbody td.c-today { padding-right: 8px; }
+.u-chain tr.cur .c-rank { color: var(--accent); }
+.u-chain .m-name { font-weight: 500; }
+.u-chain tr.cur .m-name { font-weight: 600; }
+.u-chain tr.gone .m-name { color: var(--text-2); font-weight: 400; }
+.u-chain .m-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+.u-chain .m-status { display: none; }
+.u-chain .st { display: flex; align-items: center; gap: 8px; }
+.u-chain .when { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.u-chain .badge .num { font-family: var(--font-mono); font-size: 11.5px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.u-chain .today { display: flex; align-items: center; gap: 14px; }
+.u-chain .today .u-mini { flex: 1; width: auto; min-width: 48px; overflow: hidden; }
+.u-chain .today .v { width: 92px; flex: none; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.u-chain .today .v s { text-decoration: none; font-size: 11.5px; color: var(--text-3); }
+.u-chain .left-v { font-size: 13px; color: var(--text); }
+.u-chain tr.gone .left-v { color: var(--text-3); }
+
+/* By feature. Each feature keeps its hue whatever the range, in the order that clears the
+   colorblind check for neighbours round the ring on this ground. */
+.u-f0 { color: var(--accent-blue); } .u-f1 { color: var(--accent-amber); } .u-f2 { color: var(--accent-teal); }
+.u-f3 { color: var(--accent-rose); } .u-f4 { color: var(--accent-violet); } .u-f5 { color: var(--text-3); }
+.u-feat { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 44px; align-items: center; }
+.u-ring { display: block; overflow: visible; }
+.u-ring-track { stroke: var(--bg-inset); fill: none; }
+.u-ring-seg { fill: none; stroke: currentColor; transition: opacity var(--dur-fast) var(--ease-out), stroke-width var(--dur-fast) var(--ease-out); }
+.u-ring.hover .u-ring-seg:not(.hl) { opacity: 0.28; }
+.u-ring-total { fill: var(--text); font-family: var(--font-sans); font-size: 26px; font-weight: 600; letter-spacing: -0.03em; }
+.u-ring-sub { fill: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.u-legend { display: flex; flex-direction: column; min-width: 0; }
+.u-lg {
+  display: grid; grid-template-columns: 10px minmax(120px, 170px) minmax(0, 1fr) 62px 40px; align-items: center; gap: 12px;
+  padding: 7px 8px; margin: 0 -8px; border-radius: var(--radius-xs); font-size: 13px;
+}
+.u-lg.hl { background: var(--bg-inset); }
+.u-lg .sw { width: 10px; height: 10px; border-radius: 3px; background: currentColor; }
+.u-lg .nm { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.u-lg .bar { height: 6px; border-radius: 3px; background: currentColor; transform-origin: left; transition: transform 0.4s var(--ease-out); }
+.u-lg .val { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+.u-lg .pc { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
+.u-lg-parts { padding: 0 0 4px 22px; font-size: 12px; color: var(--text-3); line-height: 1.7; }
+.u-lg-parts .part { white-space: nowrap; }
+.u-lg-parts .mono { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-2); }
+.u-lg-parts .sep { margin: 0 7px; }
+
+/* Stats: four figures in one strip divided by hairlines, then requests per day. */
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.u-kpi { min-width: 0; padding: 4px 24px 6px; border-left: 1px solid var(--border); }
 .u-kpi:first-child { border-left: 0; padding-left: 0; }
 .u-kpi:last-child { padding-right: 0; }
-/* Two panes side by side, split by a vertical hairline. By model gets the wider pane: its
-   table has four columns, the donut beside it has one. */
-.u-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-top: 1px solid var(--border); }
-.u-split.wide-first { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
-.u-split > .section { border-top: 0; padding: 28px 0; min-width: 0; }
-.u-split > .section:first-child { padding-right: 28px; }
-.u-split > .section + .section { border-left: 1px solid var(--border); padding-left: 28px; }
-.u-split + .callout { margin-top: 8px; }
-@media (max-width: 1120px) {
-  .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.u-big { font-size: 26px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; margin-top: 10px; white-space: nowrap; }
+.u-big s { text-decoration: none; color: var(--text-3); font-size: 17px; font-weight: 500; letter-spacing: 0; }
+.u-cap { font-size: 12px; color: var(--text-2); margin-top: 7px; }
+.section-body > .u-daily { margin-top: 34px; }
+.u-days-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.u-days-head h3 { font-size: 13.5px; font-weight: 600; }
+.u-days-head span { color: var(--text-3); font-size: 12.5px; }
+/* The box the chart measures; the svg inside is drawn at its exact pixel size. */
+.u-days { position: relative; width: 100%; min-width: 0; }
+.u-days-chart { display: block; }
+.u-days-chart .grid { stroke: var(--border); }
+.u-days-chart .axis { fill: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+.u-days-chart .axis.on { fill: var(--text); }
+.u-days-chart .limit { stroke: var(--danger); stroke-opacity: 0.55; }
+.u-days-chart .limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--font-mono); font-size: 11px; }
+.u-days-chart .bar { fill: color-mix(in srgb, var(--text-3) 55%, var(--bg)); transition: fill var(--dur-fast) var(--ease-out); }
+.u-days-chart .bar.today { fill: var(--accent); }
+.u-days-chart .bar.ranout { fill: color-mix(in srgb, var(--warn) 70%, var(--bg)); }
+.u-days-chart .col.hl .bar { fill: var(--text-2); }
+.u-days-chart .col.hl .bar.today { fill: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.u-days-chart .tag { fill: var(--text); font-family: var(--font-mono); font-size: 11px; }
+.u-days-chart .hit { fill: transparent; }
+.u-tip {
+  position: absolute; z-index: 2; pointer-events: none; transform: translate(-50%, -100%);
+  padding: 7px 10px; border-radius: var(--radius-xs); background: var(--panel);
+  border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop);
+  font-size: 12px; line-height: 1.45; white-space: nowrap;
+}
+.u-tip b { display: block; font-family: var(--font-mono); font-weight: 500; font-size: 12.5px; color: var(--text); }
+.u-tip span { color: var(--text-2); }
+
+@container usage (max-width: 780px) {
+  .u-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
   .u-kpi:nth-child(3) { border-left: 0; padding-left: 0; }
-  .u-kpi:nth-child(odd) { padding-left: 0; }
-  .u-kpi:nth-child(even) { padding-right: 0; }
-  .u-kpi:nth-child(n + 3) { border-top: 1px solid var(--border); }
-  .u-split, .u-split.wide-first { grid-template-columns: minmax(0, 1fr); }
-  .u-split > .section:first-child { padding-right: 0; }
-  .u-split > .section + .section { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); }
+  .u-kpi:nth-child(2) { padding-right: 0; }
+  .u-chain .c-status { width: 150px; }
+  .u-chain .m-id { display: none; }
 }
-/* The eyebrow is an h2 for the outline, so it states its own size and tracking rather than
-   inheriting the heading base's negative letter-spacing, the worst setting for all-caps. */
-h2.u-eyebrow {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
-  text-transform: uppercase; color: var(--text-3); margin-bottom: 2px;
+@container usage (max-width: 600px) {
+  .u-now { grid-template-columns: minmax(0, 1fr); }
+  .u-now-left { padding-right: 0; }
+  .u-now-right { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 22px; }
+  .u-feat { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 24px; }
+  .u-legend { width: 100%; }
+  .u-chain .c-today { width: 150px; }
+  .u-chain .today .u-mini { display: none; }
 }
-.u-big { font-family: var(--mono); font-size: 26px; font-weight: 500; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-top: 9px; }
-.u-big s { color: var(--text-3); text-decoration: none; font-size: 15px; }
-.u-delta { font-size: 11.5px; color: var(--text-2); margin-top: 8px; }
-.u-delta .up { color: var(--ok); } .u-delta .dn { color: var(--danger); }
-.u-track { height: 6px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 5px; overflow: hidden; margin-top: 11px; }
-.u-track i { display: block; height: 100%; border-radius: 5px; background: var(--accent); }
-.u-track i.warn { background: var(--warn); }
-.u-hint { color: var(--text-2); font-size: 12px; margin-top: 2px; }
-.u-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); margin: 10px 0 4px; }
-.u-legend .lg { display: inline-flex; align-items: center; }
-.u-legend .d { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: currentColor; }
-/* The box the chart measures itself against; the svg inside is drawn at its exact pixel
-   size, so `width` on the svg is a value, not a stretch. */
-.u-chartbox { width: 100%; min-width: 0; margin-top: 6px; }
-.u-chart { display: block; max-width: 100%; }
-.u-grid { stroke: var(--border); }
-.u-limit { stroke: var(--danger); stroke-opacity: 0.55; }
-.u-limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--mono); font-size: 11px; }
-.u-axis { fill: var(--text-3); font-family: var(--mono); font-size: 11px; }
-.u-line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
-.u-line.primary { stroke-width: 2.6; }
-.u-area { fill: currentColor; fill-opacity: 0.12; stroke: none; }
-.u-dot { fill: currentColor; stroke: var(--bg); stroke-width: 2; }
-.u-tag { fill: currentColor; font-family: var(--mono); font-size: 11px; }
+@container usage (max-width: 480px) {
+  .u-hero { font-size: 48px; }
+  .u-chain .c-status { display: none; }
+  .u-chain .m-status { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+  .u-chain .c-rank { width: 26px; }
+  .u-chain .c-today { width: 96px; }
+  .u-lg { grid-template-columns: 10px minmax(0, 1fr) 58px 36px; }
+  .u-lg .bar { display: none; }
+  .u-kpis { grid-template-columns: minmax(0, 1fr); }
+  .u-kpi, .u-kpi:nth-child(n) { border-left: 0; padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .u-mini i, .u-lg .bar { transition-duration: 0s; }
+}
 .us0 { color: var(--accent-blue); } .us1 { color: var(--accent-teal); } .us2 { color: var(--accent-violet); }
 .us3 { color: var(--accent-amber); } .us4 { color: var(--accent-green); } .us5 { color: var(--accent-rose); }
 .us-mut { color: var(--neutral); }
-.u-meter { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.u-meter:last-child { margin-bottom: 2px; }
-.u-meter b { font-family: var(--mono); font-weight: 500; font-size: 11.5px; min-width: 74px; }
-.u-meter .bar { flex: 1; height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
-.u-meter .bar i { display: block; height: 100%; border-radius: 4px; background: currentColor; }
-.u-meter .bar i.warn { background: var(--warn); }
-.u-meter .v { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); min-width: 46px; text-align: right; }
-/* By-model table. Same look the div grid had — mono numerics, hairline rules, a fixed
-   name column — but as a real table, so each value keeps its column association. */
-.u-mtable { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.u-mtable th, .u-mtable td { padding: 11px 0; border-bottom: 1px solid var(--border); vertical-align: middle; text-align: left; font-weight: 400; }
-.u-mtable tbody tr:last-child th, .u-mtable tbody tr:last-child td { border-bottom: 0; }
-.u-mtable thead th {
-  font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.07em; text-transform: uppercase;
-  color: var(--text-3); padding-bottom: 8px; padding-top: 0; font-weight: 400;
-}
-.u-mtable th:first-child { width: 156px; }
-.u-mtable th:nth-child(3), .u-mtable td:nth-child(3) { width: 84px; }
-.u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: 76px; }
-.u-mtable .num, .u-mtable td.u-num { text-align: right; }
-.u-mtable td:not(:last-child) { padding-right: 12px; }
-/* 156 + 84 + 76 of fixed column plus padding leaves the rpm meter nothing under ~430px of
-   card. Drop the meter column and let the name take the room; the numbers still line up.
-   Placed after every rule it overrides — the previous version of this block sat above them
-   and lost on equal specificity, so three of its four rules never applied. */
-/* The rpm meter is the first thing to go — it needs real width to mean anything, and the
-   two numeric columns beside it are the ones an operator is actually reading. Dropping it at
-   560 was too late: with the rail gone the card is much narrower than the viewport, so the
-   model name was ellipsising to nothing well before that. */
-@media (max-width: 820px) {
-  .u-mtable { table-layout: auto; }
-  .u-mtable th:first-child { width: auto; }
-  .u-mtable thead th:nth-child(2), .u-mtable tbody td:nth-child(2) { display: none; }
-  .u-mtable th:nth-child(3), .u-mtable td:nth-child(3),
-  .u-mtable th:nth-child(4), .u-mtable td:nth-child(4) { width: auto; }
-  .u-mname b { font-size: 11px; }
-}
-@media (max-width: 560px) {
-  .u-kpis { grid-template-columns: minmax(0, 1fr); }
-  .u-kpi, .u-kpi:nth-child(n) { border-left: 0; padding-left: 0; padding-right: 0; }
-  .u-kpi + .u-kpi { border-top: 1px solid var(--border); }
-  .u-big { font-size: 22px; }
-}
-/* NOT `display: flex` — that removes a table cell from the table layout algorithm and every
-   value in the row shifts one column left, so the meter sat under "Model", the request count
-   under "Peak rpm vs cap", and the "Tokens" header labelled an empty column. The flex box
-   goes inside the cell. */
-.u-mname > .cell, .u-rpm > .cell { display: flex; align-items: center; gap: 9px; min-width: 0; }
-.u-mname { min-width: 0; }
-.u-mname .d { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
-.u-mname b { font-weight: 500; font-family: var(--mono); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.u-mname span { color: var(--text-3); font-size: 11.5px; flex: none; }
-.u-rpm { font-family: var(--mono); font-size: 11.5px; color: var(--text-2); }
-.u-rpm > .cell { gap: 8px; }
-.u-rpm .bar { display: block; flex: 1; height: 5px; background: var(--bg-inset); border-radius: 3px; overflow: hidden; }
-.u-rpm .bar i { display: block; height: 100%; border-radius: 3px; background: currentColor; }
-.u-rpm .bar i.warn { background: var(--warn); }
-.u-num { font-family: var(--mono); font-size: 12.5px; text-align: right; }
-.u-num s { color: var(--text-3); text-decoration: none; font-size: 11.5px; display: block; }
-.u-prow { margin-bottom: 13px; }
-.u-prow:last-child { margin-bottom: 2px; }
-.u-pl { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 6px; }
-.u-pl .mono { color: var(--text-2); font-family: var(--mono); }
-.u-pbar { height: 6px; background: var(--bg-inset); border-radius: 4px; overflow: hidden; }
-.u-pbar i { display: block; height: 100%; border-radius: 4px; background: currentColor; }
 .u-donut-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; padding-top: 4px; }
 .u-donut { display: block; }
 .u-donut-track { stroke: var(--bg-inset); }
