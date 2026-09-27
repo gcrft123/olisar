@@ -1260,34 +1260,111 @@
       </div>`
   }
 
-  // overlays.tsx TooltipHost: one tooltip, for icon-only buttons (data-tip).
+  // overlays.tsx TooltipHost: one tooltip, for icon-only buttons (data-tip), timed like React
+  // Bits' Warm Tooltip. The first waits, then pops out of its trigger; while one is showing, and
+  // for a moment after, the next comes at once, gliding over from one still on screen.
   function tooltips() {
-    let tip = null, on = null
-    const show = (el) => {
-      hide(); on = el
-      tip = document.createElement('div')
-      tip.textContent = el.getAttribute('data-tip')
-      // Below the control, unless it's too near the bottom of the window (the settings gear).
-      const r = el.getBoundingClientRect(), z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1
-      // Beside the rail's buttons; below anything else, or above it near the window's bottom.
-      if (el.closest('.onb-rail') && window.innerWidth > 560) {
-        tip.className = 'tooltip right'
-        document.body.append(tip)
-        tip.style.left = `${(r.right + 10) / z}px`
-        tip.style.top = `${(r.top + r.height / 2) / z}px`
-        return
-      }
-      const below = r.bottom + 44 < window.innerHeight
-      tip.className = 'tooltip' + (below ? ' below' : '')
-      document.body.append(tip)
-      tip.style.left = `${(r.left + r.width / 2) / z}px`
-      tip.style.top = `${(below ? r.bottom + 8 : r.top - 8) / z}px`
+    // STEM is how far the stem reaches out; INSET keeps it off the 8px rounded ends.
+    const COLD = 400, WARM = 300, GRACE = 80, FAST = 120, GAP = 8, SIDE_GAP = 10, EDGE = 8, RADIUS = 8, STEM = 5, INSET = 14
+    let box = null, shown = null, hovered = null, phase = 'closed', byKey = false, warmUntil = 0
+    let openT = 0, leaveT = 0, closeT = 0
+    const warm = () => phase !== 'closed' || performance.now() < warmUntil
+    const zoom = () => parseFloat(getComputedStyle(document.documentElement).zoom) || 1
+    const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi))
+    const stemAt = (v, len) => len < INSET * 2 ? len / 2 : clamp(v, INSET, len - INSET)
+    // Body and stem as one path (overlays.tsx tipPath()), stroked half a pixel in.
+    const outline = (side, w, h, at) => {
+      const o = 0.5, r = RADIUS - o, R = w - o, B = h - o, s = STEM
+      const arc = (x, y) => `A${r} ${r} 0 0 1 ${x} ${y}`
+      const up = side === 'bottom' ? `H${at - s}L${at} ${o - s}L${at + s} ${o}` : ''
+      const down = side === 'top' ? `H${at + s}L${at} ${B + s}L${at - s} ${B}` : ''
+      const left = side === 'right' ? `V${at + s}L${o - s} ${at}L${o} ${at - s}` : ''
+      return `M${o + r} ${o}${up}H${R - r}${arc(R, o + r)}V${B - r}${arc(R - r, B)}${down}H${o + r}${arc(o, B - r)}${left}V${o + r}${arc(o + r, o)}Z`
     }
-    const hide = () => { tip?.remove(); tip = null; on = null }
-    document.addEventListener('pointerover', (e) => { const el = e.target.closest?.('[data-tip]'); if (el && el !== on) show(el); else if (!el) hide() })
-    document.addEventListener('focusin', (e) => { const el = e.target.closest?.('[data-tip]'); if (el && e.target.matches(':focus-visible')) show(el) })
-    document.addEventListener('focusout', hide)
-    document.addEventListener('pointerdown', hide)
+    const layerFor = (el) => {
+      const text = document.createElement('span'); text.className = 'tooltip-label'; text.textContent = el.getAttribute('data-tip')
+      const layer = document.createElement('span'); layer.className = 'tooltip-layer'; layer.append(text)
+      return layer
+    }
+    // Sized from its label, kept inside the window, the stem moved along to stay on the target.
+    const place = (label, side, x, y) => {
+      const w = label.offsetWidth + 20, h = label.offsetHeight + 12, z = zoom()
+      let left, top, at
+      if (side === 'right') { left = x; top = Math.round(clamp(y - h / 2, EDGE, innerHeight / z - EDGE - h)); at = stemAt(y - top, h) }
+      else { left = Math.round(clamp(x - w / 2, EDGE, innerWidth / z - EDGE - w)); top = side === 'top' ? y - h : y; at = stemAt(x - left, w) }
+      Object.assign(box.style, { left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px` })
+      box.style.setProperty('--tip-at', `${at}px`)
+      box.querySelector('.tooltip-shape path').setAttribute('d', outline(side, w, h, at))
+    }
+    const open = (el, how) => {
+      clearTimeout(openT); clearTimeout(leaveT); clearTimeout(closeT)
+      if (!el.isConnected || !el.getAttribute('data-tip')) return
+      const was = phase === 'closed' ? null : shown
+      shown = el; phase = 'open'; byKey = how === 'key'
+      if (was === el) { box.removeAttribute('data-closing'); return }
+      const r = el.getBoundingClientRect(), z = zoom()
+      // Beside the rail's buttons; below anything else, or above it near the window's bottom.
+      const side = el.closest('.onb-rail') && innerWidth > 560 ? 'right' : r.bottom + 44 < innerHeight ? 'bottom' : 'top'
+      const x = Math.round(side === 'right' ? (r.right + SIDE_GAP) / z : (r.left + r.width / 2) / z)
+      const y = Math.round(side === 'right' ? (r.top + r.height / 2) / z : side === 'bottom' ? (r.bottom + GAP) / z : (r.top - GAP) / z)
+      const layer = layerFor(el)
+      if (box && was && how !== 'key' && box.dataset.side === side) {
+        // Across from the one still on screen: the labels slide the way it goes.
+        const prev = box.querySelector('.tooltip-layer:not(.out)')
+        const d = Math.sign(side === 'right' ? y - box.dataset.y : x - box.dataset.x) || 1
+        box.querySelectorAll('.tooltip-layer.out').forEach((n) => n.remove())
+        for (const l of [prev, layer]) { l.style.setProperty('--dx', side === 'right' ? 0 : d); l.style.setProperty('--dy', side === 'right' ? d : 0) }
+        prev.classList.remove('in'); prev.classList.add('out'); layer.classList.add('in')
+        setTimeout(() => { prev.remove(); layer.classList.remove('in') }, FAST)
+        box.dataset.arrive = 'move'; box.removeAttribute('data-closing'); box.querySelector('.tooltip-clip').append(layer)
+      } else {
+        box?.remove()
+        box = document.createElement('div'); box.className = 'tooltip'; box.setAttribute('role', 'tooltip')
+        box.dataset.arrive = how === 'cold' ? 'cold' : 'warm'; box.dataset.side = side
+        // Labels clipped inside the outline, so one wider than the box mid-glide doesn't show past it.
+        box.innerHTML = '<svg class="tooltip-shape" aria-hidden="true"><path/></svg><span class="tooltip-clip"></span>'
+        box.querySelector('.tooltip-clip').append(layer)
+        document.body.append(box)
+      }
+      box.dataset.x = x; box.dataset.y = y
+      place(layer.firstChild, side, x, y)
+    }
+    const finish = () => { clearTimeout(closeT); phase = 'closed'; shown = null; box?.remove(); box = null }
+    const close = (now) => {
+      clearTimeout(openT)
+      if (phase === 'closed') return
+      if (now || byKey) { clearTimeout(leaveT); warmUntil = performance.now() + WARM; finish(); return }
+      if (phase === 'closing') return
+      clearTimeout(leaveT)
+      leaveT = setTimeout(() => {
+        phase = 'closing'; warmUntil = performance.now() + WARM
+        box.setAttribute('data-closing', ''); closeT = setTimeout(finish, FAST)
+      }, GRACE)
+    }
+    document.addEventListener('pointerover', (e) => {
+      if (e.pointerType === 'touch') return
+      const el = e.target.closest?.('[data-tip]') ?? null
+      if (el === hovered) return
+      hovered = el
+      if (!el || e.buttons !== 0) return
+      clearTimeout(openT)
+      if (warm()) open(el, 'warm'); else openT = setTimeout(() => open(el, 'cold'), COLD)
+    }, true)
+    document.addEventListener('pointerout', (e) => {
+      const el = e.target.closest?.('[data-tip]')
+      if (!el || el !== hovered || (e.relatedTarget && el.contains(e.relatedTarget))) return
+      hovered = null; clearTimeout(openT)
+      if (el === shown) close(false)
+    }, true)
+    // A press closes it; it comes back only once the pointer leaves and returns.
+    document.addEventListener('pointerdown', () => close(false), true)
+    document.addEventListener('focusin', (e) => { const el = e.target.closest?.('[data-tip]'); if (el && e.target.matches(':focus-visible')) open(el, 'key') })
+    document.addEventListener('focusout', (e) => { if (shown && shown.contains(e.target)) close(true) })
+    document.addEventListener('keydown', () => close(true), true)
+    new MutationObserver(() => {
+      if (hovered && !hovered.isConnected) hovered = null
+      if (shown && !shown.isConnected) close(true)
+    }).observe(document.body, { childList: true, subtree: true })
   }
 
   // ── The rail: the logo, settings, and the docs ────────────────────────────────

@@ -168,19 +168,46 @@ input { caret-color: var(--accent); }
 .btn-discord:hover { background: var(--dc-brand-hover); text-decoration: none; }
 .btn-discord:focus-visible { outline: none; box-shadow: var(--ring); }
 
-/* Tooltip for the icon-only settings button (overlays.tsx TooltipHost). */
+/* Tooltip for the icon-only buttons (overlays.tsx TooltipHost, same as web/src/index.css): a
+   dark chip read by its hairline, timed after React Bits' Warm Tooltip. The fill and hairline
+   are one SVG path, body and stem together, so the stem can't come apart from the border.
+   tooltips() sets its size, its place, the path and --tip-at (where the stem sits). */
 .tooltip {
-  position: fixed; z-index: 400; transform: translate(-50%, -100%);
-  padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
-  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  --tip-from: translateY(4px);
+  position: fixed; z-index: 400; left: 0; top: 0;
+  border-radius: var(--radius-xs); color: var(--text);
   font-size: 11.5px; font-weight: 500; line-height: 1.3;
-  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s var(--ease-out);
+  box-shadow: var(--shadow-pop); pointer-events: none;
+  transform-origin: var(--tip-at) 100%;
+  transition: opacity var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--ease-out), filter var(--dur-mid) var(--ease-out);
 }
-.tooltip.below { transform: translate(-50%, 0); }
-.tooltip::after { content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px; background: var(--panel); transform: rotate(45deg); }
-.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
-.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
-@keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
+.tooltip[data-side=bottom] { --tip-from: translateY(-4px); transform-origin: var(--tip-at) 0; }
+.tooltip[data-side=right] { --tip-from: translateX(-4px); transform-origin: 0 var(--tip-at); }
+.tooltip-shape { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+.tooltip-shape path { fill: var(--panel); stroke: var(--border-strong); stroke-width: 1px; }
+@starting-style { .tooltip[data-arrive=cold] { opacity: 0; transform: var(--tip-from) scale(0.94); filter: blur(4px); } }
+.tooltip[data-arrive=move] {
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-mid) var(--ease-out), filter var(--dur-mid) var(--ease-out),
+    left var(--dur-slow) var(--ease-out), top var(--dur-slow) var(--ease-out),
+    width var(--dur-slow) var(--ease-out), height var(--dur-slow) var(--ease-out);
+}
+.tooltip[data-arrive=move] .tooltip-shape path { transition: d var(--dur-slow) var(--ease-out); }
+.tooltip[data-closing] { opacity: 0; transform: var(--tip-from) scale(0.94); filter: blur(4px); transition-duration: var(--dur-fast); }
+.tooltip-clip { position: absolute; inset: 1px; overflow: hidden; border-radius: inherit; }
+.tooltip-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.tooltip-label { flex: none; width: max-content; max-width: 260px; }
+.tooltip-layer.in { animation: tip-swap-in var(--dur-fast) var(--ease-out) both; }
+.tooltip-layer.out { animation: tip-swap-out var(--dur-fast) var(--ease-out) both; }
+@keyframes tip-swap-in { from { opacity: 0; transform: translate(calc(var(--dx) * 10px), calc(var(--dy) * 10px)); filter: blur(3px); } }
+@keyframes tip-swap-out { to { opacity: 0; transform: translate(calc(var(--dx) * -10px), calc(var(--dy) * -10px)); filter: blur(3px); } }
+@media (prefers-reduced-motion: reduce) {
+  .tooltip, .tooltip[data-arrive=move] { transition: opacity var(--dur-mid) var(--ease-out); }
+  .tooltip[data-closing] { transform: none; filter: none; }
+  @starting-style { .tooltip[data-arrive=cold] { transform: none; filter: none; } }
+  .tooltip[data-arrive=move] .tooltip-shape path { transition: none; }
+  .tooltip-layer.in { animation: none; }
+  .tooltip-layer.out { display: none; }
+}
 
 /* ── The split ────────────────────────────────────────────────────────────── */
 /* Two halves: the wizard, and the stage the form lives on. The form is decoration, so it
@@ -429,10 +456,6 @@ input { caret-color: var(--accent); }
   .swapglyph > svg { transition: opacity var(--dur-fast) var(--ease-out); scale: 1; filter: none; }
   .swapglyph.on > svg:first-child, .swapglyph > svg:last-child { scale: 1; filter: none; }
 }
-
-/* Tooltips beside the rail. */
-.tooltip.right { transform: translate(0, -50%); }
-.tooltip.right::after { left: -4.5px; top: 50%; margin: -4px 0 0; border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
 
 /* A phone: the rail becomes a bar across the top, and the docs take the width under it. */
 @media (max-width: 560px) {

@@ -2914,25 +2914,59 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 @media (prefers-reduced-motion: reduce) { .confirm-dialog { animation: none; } }
 
 /* ── Tooltip (delegated; driven by overlays.tsx TooltipHost) ─────────────── */
+/* A dark chip read by its hairline, like every overlay here. The fill and the hairline are
+   one SVG path, body and stem together (tipPath() in overlays.tsx), so the stem is part of
+   the outline instead of a second shape laid against a CSS border. TooltipHost sets its
+   size, its place, the path and --tip-at (how far the stem sits from its left/top edge)
+   before it paints, and times it after React Bits' Warm Tooltip. */
 .tooltip {
-  position: fixed; z-index: 400; transform: translate(-50%, -100%);
-  padding: 5px 9px; border-radius: var(--radius-xs); max-width: 280px;
-  background: var(--panel); border: 1px solid var(--border-strong); color: var(--text);
+  --tip-from: translateY(4px);
+  position: fixed; z-index: 400; left: 0; top: 0;
+  border-radius: var(--radius-xs); color: var(--text);
   font-size: 11.5px; font-weight: 500; line-height: 1.3;
-  box-shadow: var(--shadow-pop); pointer-events: none; animation: tip-in 0.1s var(--ease-out);
+  box-shadow: var(--shadow-pop); pointer-events: none;
+  transform-origin: var(--tip-at) 100%;
+  transition: opacity var(--dur-mid) var(--ease-out), transform var(--dur-mid) var(--ease-out), filter var(--dur-mid) var(--ease-out);
 }
-.tooltip.below { transform: translate(-50%, 0); }
-/* Stem: a small bordered diamond pointing at the target. */
-.tooltip::after {
-  content: ""; position: absolute; left: 50%; margin-left: -4px; width: 8px; height: 8px;
-  background: var(--panel); transform: rotate(45deg);
+.tooltip[data-side=bottom] { --tip-from: translateY(-4px); transform-origin: var(--tip-at) 0; }
+.tooltip[data-side=right] { --tip-from: translateX(-4px); transform-origin: 0 var(--tip-at); }
+.tooltip-shape { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; }
+.tooltip-shape path { fill: var(--panel); stroke: var(--border-strong); stroke-width: 1px; }
+/* The first one in a while pops out of its trigger: from a little smaller, blurred, and 4px
+   toward it. Closing goes back the same way, faster. */
+@starting-style {
+  .tooltip[data-arrive=cold] { opacity: 0; transform: var(--tip-from) scale(0.94); filter: blur(4px); }
 }
-.tooltip:not(.below)::after { bottom: -4px; border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
-.tooltip.below::after { top: -4px; border-left: 1px solid var(--border-strong); border-top: 1px solid var(--border-strong); }
-/* Beside the target (a rail's buttons), stem on the left. */
-.tooltip.right { transform: translate(0, -50%); }
-.tooltip.right::after { left: -4.5px; top: 50%; margin: -4px 0 0; border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
-@keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
+/* Across from the one before: the box, its size and the stem all travel. */
+.tooltip[data-arrive=move] {
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-mid) var(--ease-out), filter var(--dur-mid) var(--ease-out),
+    left var(--dur-slow) var(--ease-out), top var(--dur-slow) var(--ease-out),
+    width var(--dur-slow) var(--ease-out), height var(--dur-slow) var(--ease-out);
+}
+.tooltip[data-arrive=move] .tooltip-shape path { transition: d var(--dur-slow) var(--ease-out); }
+.tooltip[data-closing] { opacity: 0; transform: var(--tip-from) scale(0.94); filter: blur(4px); transition-duration: var(--dur-fast); }
+/* Labels are clipped to the inside of the outline: on a glide the box is narrower than the
+   incoming label until it catches up, and light text past a dark box's edge would show. */
+.tooltip-clip { position: absolute; inset: 1px; overflow: hidden; border-radius: inherit; }
+/* Each label fills the box in a layer of its own, so the outgoing one and the incoming one
+   overlap while they swap. */
+.tooltip-layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+/* Its own width, never the box's: TooltipHost measures it to size the box. */
+.tooltip-label { flex: none; display: flex; align-items: center; gap: 6px; width: max-content; max-width: 260px; }
+.tooltip-layer.in { animation: tip-swap-in var(--dur-fast) var(--ease-out) both; }
+.tooltip-layer.out { animation: tip-swap-out var(--dur-fast) var(--ease-out) both; }
+@keyframes tip-swap-in { from { opacity: 0; transform: translate(calc(var(--dx) * 10px), calc(var(--dy) * 10px)); filter: blur(3px); } }
+@keyframes tip-swap-out { to { opacity: 0; transform: translate(calc(var(--dx) * -10px), calc(var(--dy) * -10px)); filter: blur(3px); } }
+/* data-tip-kbd: the shortcut, as the console's kbd chip cut down to the tooltip's line. */
+.tooltip-kbd { font-size: 10.5px; line-height: 1.3; padding: 0 5px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .tooltip, .tooltip[data-arrive=move] { transition: opacity var(--dur-mid) var(--ease-out); }
+  .tooltip[data-closing] { transform: none; filter: none; }
+  @starting-style { .tooltip[data-arrive=cold] { transform: none; filter: none; } }
+  .tooltip[data-arrive=move] .tooltip-shape path { transition: none; }
+  .tooltip-layer.in { animation: none; }
+  .tooltip-layer.out { display: none; }
+}
 
 /* Trailing count chip on a tab (DESIGN.md Tabs: "a trailing count chip"). */
 .dev-tab-count {
