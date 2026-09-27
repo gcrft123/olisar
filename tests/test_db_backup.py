@@ -89,6 +89,26 @@ class DbBackupTests(unittest.TestCase):
             os.utime(str(snap), (1_700_000_000 + i, 1_700_000_000 + i))
         self.assertEqual(len(self.snapshots()), dbbackup.KEEP)
 
+    def test_a_moves_backup_is_never_pruned(self) -> None:
+        """Moving a bot between hosts keeps the database it replaced beside the new one, under
+        the same prefix. It's the only copy of that database, and older than any snapshot."""
+        import os
+
+        make_db(self.db)
+        move_backup = self.dir / "olisar.db.pre-move.bak"
+        make_db(move_backup, rows=5)
+        os.utime(str(move_backup), (1_600_000_000, 1_600_000_000))
+        for i, version in enumerate(["1.0.0", "1.1.0", "2.0.0-beta.1"]):
+            dbbackup.record_version(self.db, version)
+            snap = dbbackup.before_migration(self.db, f"9.{i}")
+            os.utime(str(snap), (1_700_000_000 + i, 1_700_000_000 + i))
+        self.assertTrue(move_backup.exists())
+        self.assertEqual(row_count(move_backup), 5)
+        self.assertEqual(
+            [p.name for p in self.snapshots() if p != move_backup],
+            ["olisar.db.pre-1.1.0", "olisar.db.pre-2.0.0-beta.1"],
+        )
+
     def test_marker_is_only_written_when_asked(self) -> None:
         """before_migration must not stamp the version itself — a crash between it and
         create_schema would otherwise skip the backup on the next attempt."""
