@@ -338,8 +338,13 @@ export function SetupWizard(
   )
   const [tunnelAuthKey, setTunnelAuthKey] = useState(pf.tunnel_token || '')
   const [provisioning, setProvisioning] = useState(false)
-  const [tunnelDone, setTunnelDone] = useState(false)
-  const [tunnelUrl, setTunnelUrl] = useState('')
+  // Remote access may already be on: the wizard can be opened again on an install that had
+  // it. Starting from "off" meant nothing here ever turned it off, so finishing as Local
+  // left this machine published.
+  const [tunnelDone, setTunnelDone] = useState(!!status.tunnel_enabled)
+  const [tunnelUrl, setTunnelUrl] = useState(
+    status.tunnel_enabled && /^https:\/\//.test(status.local_url) ? status.local_url : '',
+  )
   const [tunnelErr, setTunnelErr] = useState('')
 
   // Server-hosting extras (collected on the Deploy step).
@@ -433,13 +438,18 @@ export function SetupWizard(
     return () => { alive = false }
   }, [cur, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Remote access turned on for shared hosting and then abandoned for another choice was
+  // left running, publishing this machine for a setup that no longer wanted it. Every way
+  // out of the wizard that isn't shared hosting turns it off: picking another choice,
+  // finishing, and connecting to an existing server instead.
+  async function dropTunnel() {
+    if (!tunnelDone) return
+    setTunnelDone(false); setTunnelUrl('')
+    await api.disableTunnel().catch(() => {})
+  }
+
   function pickMode(m: Mode) {
-    // Remote access turned on for shared hosting and then abandoned for another choice was
-    // left running, publishing this machine for a setup that no longer wanted it.
-    if (m !== 'tunnel' && tunnelDone) {
-      api.disableTunnel().catch(() => {})
-      setTunnelDone(false); setTunnelUrl('')
-    }
+    if (m !== 'tunnel') void dropTunnel()
     setMode(m)
   }
 
@@ -559,6 +569,7 @@ export function SetupWizard(
         discord_client_secret: secret.trim(),
         target_guild_id: guildId,
       })
+      if (mode !== 'tunnel') await dropTunnel()
       finished()
     } catch (e: any) {
       setErr(e?.message || 'Save failed.')
@@ -606,7 +617,7 @@ export function SetupWizard(
       const r = await api.serverConnect({
         host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', app_dir: installDir || undefined,
       })
-      if (r?.ok) { finished(); return }
+      if (r?.ok) { await dropTunnel(); finished(); return }
       if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
       else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {
