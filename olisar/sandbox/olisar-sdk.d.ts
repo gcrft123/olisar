@@ -285,6 +285,22 @@ interface FetchInit {
   responseBlob?: boolean;
 }
 
+interface GenerateOpts {
+  /** What to write. With `channelId`, it sits where a new message would. */
+  task: string;
+  /** Output cap (the host clamps it to 1200). Default 600. */
+  maxTokens?: number;
+  /** An extra instruction added to the system prompt for this call. */
+  systemNote?: string;
+  /**
+   * Write as if the bot had been called in this channel (an id or `<#id>` mention; it must
+   * be in the same server). The model sees what a reply there would: the channel's name
+   * and topic, its recent conversation, and the server's glossary and resource channels.
+   * Built-in and locally-authored extensions only; the call throws for anything imported.
+   */
+  channelId?: string;
+}
+
 interface FetchResponse {
   status: number;
   ok: boolean;
@@ -325,7 +341,7 @@ declare const host: {
    * system prompt automatically, so output stays in character. Resolves to the generated
    * string. Needs `model.generate`; uses the operator's own model quota.
    */
-  generate(opts: { task: string; maxTokens?: number; systemNote?: string }): Promise<string>;
+  generate(opts: GenerateOpts): Promise<string>;
   /**
    * File helpers. Attachment methods only work inside a slash-command handler.
    * Prefer `ingest` + `blobId` for large files / API pipelines so bytes stay on the host.
