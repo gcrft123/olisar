@@ -1348,6 +1348,65 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
   )
 }
 
+// An audit value as the console would show it, not as JSON: a switch reads On or Off, a
+// list is its items, and nothing is "(empty)" rather than a blank line.
+function actValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '(empty)'
+  if (typeof v === 'boolean') return v ? 'On' : 'Off'
+  if (typeof v === 'number') return v.toLocaleString()
+  if (Array.isArray(v)) return v.length ? v.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ') : '(none)'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+const plainObject = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
+
+// The counts a destructive action leaves: `{counts: {...}}`, or clear_memory's own flat map of
+// numbers. Either is a receipt, not a change to show field by field.
+function countsOf(after: unknown): Record<string, unknown> | null {
+  const a = plainObject(after)
+  if (!a) return null
+  const nested = plainObject(a.counts)
+  if (nested) return nested
+  const values = Object.values(a)
+  return values.length && values.every((v) => typeof v === 'number') ? a : null
+}
+
+// What an entry changed, collapsed under its line. A save that wrote over something (a
+// system prompt rewritten from chat, a PIN requirement switched off) keeps what it replaced
+// as `before`, and this is the one place an operator can read it back and put it back.
+function ActDetail({ before, after }: { before: unknown; after: unknown }) {
+  const b = plainObject(before)
+  // A flat map of counts is all receipt; nested ones sit beside other values worth showing.
+  const all = plainObject(after)
+  const a = all && countsOf(all) === all && !b ? null : all
+  const keys = [...new Set([...Object.keys(b ?? {}), ...Object.keys(a ?? {})])].filter((k) => k !== 'counts')
+  if (!keys.length) return null
+  const name = (k: string) => { const t = k.replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1) }
+  return (
+    <details className="act-detail">
+      <summary>
+        <span className="disclosure-chev" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+        </span>
+        Details
+      </summary>
+      <dl className="act-diff">
+        {keys.map((k) => (
+          <div key={k}>
+            <dt>{name(k)}</dt>
+            {b ? <>
+              <dd><span className="act-tag">Before</span><span className="act-text">{k in b ? actValue(b[k]) : '(empty)'}</span></dd>
+              <dd><span className="act-tag">After</span><span className="act-text">{a && k in a ? actValue(a[k]) : '(empty)'}</span></dd>
+            </> : <dd className="solo"><span className="act-text">{actValue(a?.[k])}</span></dd>}
+          </div>
+        ))}
+      </dl>
+    </details>
+  )
+}
+
 // The counts a destructive action reports are the most consequential receipt in the
 // product, and until now they existed for 3.6 seconds inside a toast. record_audit has
 // been writing them to audit_log all along; this reads it back.
@@ -1364,10 +1423,12 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
     return isNaN(+d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
   // clear_memory stores its deleted-row counts in `after`; other actions carry other
-  // shapes, so render whatever numbers are there rather than assuming a schema.
+  // shapes, so render whatever numbers are there rather than assuming a schema. Only the
+  // fixture nested them under `counts`: the real clear_memory stores the map itself, so its
+  // receipt never showed.
   const receipt = (after: any): string => {
-    const counts = after?.counts
-    if (!counts || typeof counts !== 'object') return ''
+    const counts = countsOf(after)
+    if (!counts) return ''
     return Object.entries(counts)
       .filter(([, v]) => typeof v === 'number' && v > 0)
       .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
@@ -1384,6 +1445,10 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
       <span className="act-what">
         {e.label}
         {receipt(e.after) && <span className="act-receipt">{receipt(e.after)}</span>}
+        {/* A member asked the bot to change it, from Discord. Otherwise it's a console change,
+            and nothing in the row said which. */}
+        {e.via === 'chat' && <span className="act-receipt">Via Discord chat</span>}
+        <ActDetail before={e.before} after={e.after} />
       </span>
       <span className="act-who">{e.actor}</span>
     </div>

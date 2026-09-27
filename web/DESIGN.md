@@ -1310,6 +1310,13 @@ the difference between an operator who can answer "did that run?" and one who ca
 }
 ```
 
+**Show what it replaced.** An entry that kept its old values (`before`: a persona or behavior
+save, the PIN requirement, anything changed by asking the bot in chat) gets a **Details**
+disclosure under its line, `.act-detail`, with each changed field's Before and After as an
+eyebrow-tagged pair; one without shows its values alone. Long values scroll inside their row
+and stay selectable, because an overwritten system prompt is copied back from here. A change
+made from Discord chat says so on its own line, "Via Discord chat", in the receipt style.
+
 Two copy rules. **Translate the action names** — a stored `set_channel_indexing` is an internal
 identifier, and an operator reading their own history should not have to decode it. And **state
 the log's real scope**: if the audit table has no per-server column, say the entries are
