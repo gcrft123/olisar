@@ -204,8 +204,14 @@ async function checkForUpdates({ interactive = false } = {}) {
     }
     return null
   }
+  // In the background, a build that installs updates itself waits for the release's installer
+  // before it says anything. A release seen mid-upload used to be toasted as a download, which
+  // used up the version's one toast, so the install toast never came once the .dmg landed.
   if (interactive) promptInstall(update)
-  else if (notifiedVersion !== update.version) { notifiedVersion = update.version; toastUpdate(update) }
+  else if (notifiedVersion !== update.version && (update.hasInstaller || !canSelfUpdate())) {
+    notifiedVersion = update.version
+    toastUpdate(update)
+  }
   return update
 }
 
