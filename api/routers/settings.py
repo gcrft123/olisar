@@ -216,6 +216,10 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
         # Whether this admin is at the operator's machine, where /api/tunnel can be driven
         # (renaming the device, the on/off toggle). An admin signed in over the funnel isn't.
         "local": is_local_request(request),
+        # Same as /api/tunnel/status: whether turning it on can reuse a stored auth key, and
+        # the device name it last used. The pane asks for a key when there's none.
+        "has_key": bool(await runtime_config.tunnel_token()),
+        "node": await runtime_config.tunnel_node(),
     }
     # Tunnel-related lines from the in-memory log (the funnel helper + our manager).
     logs = logbuffer.tail(300, contains="olisar.tunnel") + logbuffer.tail(300, contains="olisar.api.tunnel")
