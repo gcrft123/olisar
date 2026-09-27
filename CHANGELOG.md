@@ -436,6 +436,8 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 
 ### Fixed
 
+[19aa1f0] — Pressing Enter or Space in a dialog runs that action and leaves the dialog closed.
+
 [ce98ef9] — When Olisar can't use the server you picked to share, the notice shows a warning sign instead of an info icon.
 
 [57dce81] — The docs show italic words in italics instead of between asterisks, in the console and on the docs site.

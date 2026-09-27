@@ -4,7 +4,7 @@ import { api } from './api'
 import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
-import { Modal, confirmDialog, fromToasts, promptDialog, toast } from './overlays'
+import { Modal, confirmDialog, fromToasts, promptDialog, restoreFocus, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, serverDate, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
@@ -253,7 +253,7 @@ function TestChatDrawer() {
       if (top) top.inert = false
       const back = returnTo.current
       returnTo.current = null
-      if (back?.isConnected) back.focus()
+      restoreFocus(back)
       return
     }
     returnTo.current = document.activeElement as HTMLElement | null
