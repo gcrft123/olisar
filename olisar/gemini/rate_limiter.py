@@ -25,9 +25,18 @@ from datetime import date, datetime, timezone
 from sqlalchemy import select
 
 from olisar import runtime_keys
+from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import GeminiUsage, UsageDay, UsageHour, UsageMinutePeak, UsageSource
-from olisar.gemini.models import RANKED_NAMES, rpm_for
+from olisar.db.models import (
+    GeminiUsage,
+    Guild,
+    GuildConfig,
+    UsageDay,
+    UsageHour,
+    UsageMinutePeak,
+    UsageSource,
+)
+from olisar.gemini.models import RANKED_NAMES, model_chain, rpm_for
 from olisar.gemini.quota import aware, next_reset, quota_day, quota_hour
 
 log = logging.getLogger("olisar.gemini.ratelimit")
@@ -48,6 +57,37 @@ def key_id(key: str | None) -> str | None:
     if not key:
         return None
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def reply_chain(default_model: str | None) -> list[str]:
+    """The fallback chain a server replies through: its ``default_model`` (else
+    GEMINI_CHAT_MODEL, as the pipeline does) and everything ranked below it."""
+    return model_chain(default_model or settings.gemini_chat_model)
+
+
+async def chains_in_use(session) -> dict[int, list[str]]:
+    """Each active server's reply chain, by guild id."""
+    rows = (
+        await session.execute(
+            select(Guild.id, GuildConfig.default_model)
+            .outerjoin(GuildConfig, GuildConfig.guild_id == Guild.id)
+            .where(Guild.active.is_(True))
+        )
+    ).all()
+    return {gid: reply_chain(model) for gid, model in rows}
+
+
+def union_chain(chains) -> list[str]:
+    """Every model any of ``chains`` replies through, best first. The bot is out of
+    requests only when all of them are: each server's chain is out exactly when every
+    model in it is. With no servers, the default chain."""
+    seen: dict[str, None] = {}
+    for chain in chains:
+        seen.update(dict.fromkeys(chain))
+    if not seen:
+        return reply_chain(None)
+    rank = {name: i for i, name in enumerate(RANKED_NAMES)}
+    return sorted(seen, key=lambda name: rank.get(name, -1))
 
 
 class RateLimitExceeded(Exception):
@@ -157,9 +197,11 @@ class RateLimiter:
         self._probe_at.pop(model, None)
         return self._spent.pop(model, None) is not None
 
-    def chain_spent(self) -> bool:
-        """True when Google has refused every model in the chat chain for the day."""
-        return all(self.spent_at(name) is not None for name in RANKED_NAMES)
+    def chain_spent(self, chain: list[str] | None = None) -> bool:
+        """True when Google has refused every model in ``chain`` for the day. Pass the
+        chain the bot actually replies through (``union_chain(chains_in_use(...))``); the
+        default is the whole ranking."""
+        return all(self.spent_at(name) is not None for name in chain or RANKED_NAMES)
 
     def back_in(self, model: str) -> float:
         """Seconds until a resting model can take a request again: the rest of its cooldown,
@@ -187,11 +229,12 @@ class RateLimiter:
             self._tokens.popleft()
         return sum(t for _, t in self._tokens)
 
-    def chat_exhausted(self) -> bool:
+    def chat_exhausted(self, chain: list[str] | None = None) -> bool:
         """True when every model in the chat fallback chain is busy or cooling — the
         bot can't answer until one clears. One parked model is normal (the client walks
-        the rest of the chain); this is the all-models-gone case."""
-        return all(self.state(name) != "ok" for name in RANKED_NAMES)
+        the rest of the chain); this is the all-models-gone case. ``chain`` as for
+        ``chain_spent``."""
+        return all(self.state(name) != "ok" for name in chain or RANKED_NAMES)
 
     def reserve(self, model: str) -> None:
         self._calls[model].append(time.monotonic())
@@ -344,7 +387,10 @@ async def mark_spent(model: str, limit: int | None = None, *, key: str | None = 
                 row.exhausted_key = kid
             if limit:
                 row.quota_limit = limit
-            if model in RANKED_NAMES and limiter.chain_spent():
+            # The chain the servers reply through, not the whole ranking: a server that
+            # starts lower down is out of requests once its own models are.
+            chain = union_chain((await chains_in_use(session)).values())
+            if model in chain and limiter.chain_spent(chain):
                 log.warning("every model in the chat chain is out for the day")
                 marker = await session.get(UsageDay, day)
                 if marker is None:
