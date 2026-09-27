@@ -214,6 +214,10 @@ Powering a bot down from its console on a server stopped it in Discord and left 
 
 ### Changed
 
+[42d5291] — Powering a server bot down from its console shows Powered down on the desktop app, with Turn on, and leaves the server running.
+
+[42d5291] — Reconnect on the server panel is in the menu on the three-dot button.
+
 [ce98ef9] — The notes on the connect, reconnect and Move bot screens show a check, like every other tip.
 
 [9373627] — When the Usage page's live numbers stop updating, it says it can't reach the bot, the same as the search index card.
