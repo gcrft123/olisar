@@ -186,6 +186,10 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 [c6121a5] — Closed, the drawer still shows whether the bot is online.
 
+[d00b7e0] — The closed drawer shows the bot's status as a badge, and its top edge glows in the badge's color.
+
+[d00b7e0] — While the bot starts or stops, a light slides back and forth along the drawer's edge, and while it's rate-limited, the glow breathes.
+
 [296e0c0] — Settings → General no longer describes the Size control.
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
