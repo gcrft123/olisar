@@ -443,7 +443,7 @@ the wizard shows; it's the same for every bot on this machine.
 > [!NOTE]
 > **Remote access per bot**
 > Each bot publishes its own [web link](#remote-access), so give each one its own device name (the setup wizard
-> suggests the bot's name). Before this version, bots with remote access on shared one Tailscale device. If
+> suggests the bot's name, and [Settings → Remote access](#remote-access) can change it later). Before this version, bots with remote access on shared one Tailscale device. If
 > more than one of yours did, all but one get a device of their own the first time they run side by side,
 > with a new web address; register its `…/auth/callback` in that bot's Discord app.
 
@@ -648,6 +648,19 @@ once Discord has it.
 Once remote access is on, the drawer at the bottom of the sidebar shows the public address: **"Open from the web"** with the
 `…ts.net` link and a **Copy** button. Share that link with your other admins; each signs in with their own
 Discord account and only sees the servers where they have **Manage Server** (see [Servers](#servers)).
+
+#### Changing the address
+
+The first part of the address is the Tailscale device name. To change it, type a new one under **Device
+name** in **Settings → Remote access** and press **Rename**; for a bot on a server, that's the Settings
+button on its control panel. The console moves to the new address and the old one stops working, so admins
+sign in again at the new link. Discord refuses sign-ins there until the new `…/auth/callback` is
+registered, so the same panel shows it with a **Copy** button and ticks it off once Discord lists it.
+
+Renaming only works on the machine the desktop app runs on, not from a console opened over the web link.
+If another device in your tailnet already has the name, Tailscale adds a number to it (`everest-1`). A
+device renamed by hand in Tailscale's admin console keeps that name until **Auto-generate from OS
+hostname** is turned back on for it there.
 
 > [!WARNING]
 > **Keep the auth key private**
