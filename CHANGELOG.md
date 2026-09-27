@@ -230,7 +230,7 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 
 [d00b7e0] — While the bot starts or stops, a light slides back and forth along the drawer's edge, and while it's rate-limited, the glow breathes.
 
-[9953b1f] — The light that slides while the bot starts, updates or stops follows the drawer's edge around both top corners and partway down its sides, instead of running straight off past the corners.
+[92b23a5] — While the bot starts, updates or stops, the light is a stretch of the drawer's border that runs along it, around both top corners and down the sides, instead of a glow sliding straight along the top and off past the corners.
 
 [b522f79] — A server's own console says Updating in the sidebar drawer while the desktop app moves the server onto a new release, and keeps saying it while the new version starts.
 
