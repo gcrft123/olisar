@@ -120,7 +120,7 @@ export function SettingsModal(
           })}
         </nav>}
         <div className="settings-body">
-          <button className="settings-close" onClick={guardedClose} aria-label="Close settings" title="Close (Esc)">
+          <button className="settings-close" onClick={guardedClose} aria-label="Close settings" data-tip="Close" data-tip-kbd="Esc">
             <CloseX size={18} />
           </button>
           {section === 'general' && <General />}
