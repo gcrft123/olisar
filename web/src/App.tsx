@@ -16,7 +16,7 @@ import { SHAPE } from './form'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
-import { Badge, PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
+import { Badge, PageBoundary, copyText, currentPageActions, hasDraft, hasUnsavedChanges, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 import { uiScale } from './theme'
@@ -882,7 +882,13 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   // invite, or copy it for whoever manages the other server.
   const actions = invite?.available ? [
     { key: 'add', label: 'Add to a server', ic: Icon.add, run: () => { window.open(invite.url, '_blank', 'noopener'); setOpen(false) } },
-    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: () => { navigator.clipboard?.writeText(invite.url); toast('Invite link copied', 'success'); setOpen(false) } },
+    // The link goes in the failure toast, which stays up and can be selected, so it can
+    // still be copied by hand.
+    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: async () => {
+      setOpen(false)
+      if (await copyText(invite.url)) toast('Invite link copied', 'success')
+      else toast(`Couldn’t copy the invite link: ${invite.url}`, 'danger')
+    } },
   ] : []
   // Roving focus starts on the server you're already on, so the list opens where you are.
   const optRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -1462,11 +1468,9 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
 
   const host = url.replace(/^https:\/\//, '')
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    } catch { /* clipboard blocked — the link is still selectable */ }
+    if (!(await copyText(url))) { toast(`Couldn’t copy the link: ${url}`, 'danger'); return }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
   }
 
   return (
