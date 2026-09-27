@@ -28,7 +28,7 @@ from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageS
 from olisar.gemini.client import get_gemini
 from olisar.gemini.models import GROUNDING_RPD, RANKED, rpd_for, rpm_for
 from olisar.gemini.quota import PACIFIC, aware, day_start, next_reset, quota_day
-from olisar.gemini.rate_limiter import get_rate_limiter
+from olisar.gemini.rate_limiter import current_key, get_rate_limiter
 
 router = APIRouter(prefix="/api/usage", tags=["usage"])
 
@@ -59,6 +59,12 @@ async def live(_: AdminUser = Depends(require_admin)):
     ``exhausted`` is true only when every chat-chain model is parked or at its RPM cap — the
     bot can't answer. A single model cooling down is normal fallback, not this flag."""
     limiter = get_rate_limiter()
+    # A key pasted into the dashboard is a new quota: un-park the old key's models now
+    # rather than at the next reply.
+    try:
+        kid = await current_key()
+    except Exception:  # noqa: BLE001 — the page still renders from what the limiter knows
+        kid = limiter.key
     now = datetime.now(timezone.utc)
     day = quota_day(now)
     async with session_scope() as session:
@@ -77,7 +83,8 @@ async def live(_: AdminUser = Depends(require_admin)):
 
     def spent_at(model: str) -> datetime | None:
         row = today.get(model)
-        return limiter.spent_at(model) or aware(row.exhausted_at if row else None)
+        stored = row.exhausted_at if row and row.exhausted_key == kid else None
+        return limiter.spent_at(model) or aware(stored)
 
     chain = []
     for info in RANKED:

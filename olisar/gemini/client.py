@@ -23,6 +23,7 @@ from olisar.gemini.quota import next_reset, read_refusal
 from olisar.gemini.rate_limiter import (
     RateLimitExceeded,
     get_rate_limiter,
+    key_id,
     mark_spent,
     record_usage,
 )
@@ -182,13 +183,19 @@ class GeminiClient:
     async def aclient(self) -> genai.Client:
         """The underlying SDK client, built lazily and rebuilt when the effective
         API key changes (a dashboard edit overrides .env without a restart). Raises
-        if no key is configured anywhere, so callers degrade rather than crash oddly."""
+        if no key is configured anywhere, so callers degrade rather than crash oddly.
+
+        A new key is a new quota: the rate limiter un-parks the models the old key ran
+        out on, and a web search block from the old key is lifted."""
         key = await runtime_keys.gemini_api_key()
         if not key:
             raise RuntimeError("no Gemini API key configured (set GEMINI_API_KEY or add one in the dashboard)")
         if self._client is None or key != self._key:
+            if self._key is not None:
+                self._grounding_blocked_until = None
             self._client = genai.Client(api_key=key)
             self._key = key
+        get_rate_limiter().use_key(key_id(key))
         return self._client
 
     async def _raw_generate(
@@ -213,6 +220,10 @@ class GeminiClient:
         call in the usage rollup that the per-guild grounding cap reads."""
         limiter = get_rate_limiter()
         chain = chain or model_chain(model)
+        # Resolve the key before reading the chain's state: a key changed since the last
+        # call un-parks the models the old one ran out on (see aclient).
+        client = await self.aclient()
+        kid = key_id(self._key)
         last_error: Exception | None = None
         # Which models we walked past, and why — reported with the model that finally
         # answered. This skip used to be silent, so "the reply came from a worse model"
@@ -220,12 +231,15 @@ class GeminiClient:
         skipped: list[str] = []
         for candidate in chain:
             state = limiter.state(candidate)
+            if state == "spent" and limiter.claim_probe(candidate):
+                # Out for the day, but it's been an hour: billing may have been turned on.
+                log.info("asking Google again whether %s is still out for today", candidate)
+                state = "ok"
             if state != "ok":
                 skipped.append(f"{candidate} ({state})")
                 continue  # busy or cooling down — fall back to the next model
             limiter.reserve(candidate)
             try:
-                client = await self.aclient()
                 # Per-candidate config: only the thinking-capable models in the chain
                 # get thinking_config; the 2.0/1.x fallbacks would 400 on the field.
                 cand_config = config
@@ -270,7 +284,7 @@ class GeminiClient:
                     # own block for grounding.
                     refusal = read_refusal(exc)
                     if refusal.daily and not grounding:
-                        await mark_spent(candidate, refusal.limit)
+                        await mark_spent(candidate, refusal.limit, key=kid)
                     else:
                         limiter.penalize(candidate, reason="a rate limit (429)")
                 elif code in _TRANSIENT_5XX:

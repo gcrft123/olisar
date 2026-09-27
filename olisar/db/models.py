@@ -1023,6 +1023,9 @@ class GeminiUsage(Base):
     # doing so. A model can be refused before Olisar's own count reaches its limit: the quota
     # is per Google Cloud project, and anything else on the project draws on it too.
     exhausted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Which API key was refused: a short one-way fingerprint (rate_limiter.key_id), never the
+    # key. The quota belongs to the key's project, so another key's refusal doesn't apply.
+    exhausted_key: Mapped[str | None] = mapped_column(String(16), nullable=True)
     quota_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
