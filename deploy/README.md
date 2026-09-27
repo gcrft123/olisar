@@ -43,8 +43,10 @@ All settings are in [`.env.example`](.env.example).
 
 - **Persistence:** the SQLite DB, knowledge uploads, and the Tailscale node identity (so
   the URL stays stable) all live in the `olisar-data` Docker volume.
-- **Updating:** `./olisar-update.sh` — pulls the newest release, pins it by digest,
-  health-checks it, and rolls back if it doesn't come up. The desktop app runs this same
+- **Updating:** `./olisar-update.sh` — pulls the newest stable release, pins it by digest,
+  health-checks it, and rolls back if it doesn't come up. It never moves the server to an
+  older release than the one it runs (a beta the desktop app put there, say):
+  `--tag v2.0.beta-1` picks a release, and `--force` goes back. The desktop app runs this same
   script over SSH whenever it starts up on a newer version than the VM, so a server paired
   with the app keeps itself in step; a VM managed only from the browser updates when you
   run it. (Earlier builds ran it on a daily systemd timer, which is removed on the next

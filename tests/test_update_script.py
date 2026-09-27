@@ -39,6 +39,8 @@ log() { echo "$*" >> "$STATE_DIR/calls.log"; }
 log "docker $*"
 # An image's ID, made up from the digest it's pinned by.
 id_of() { echo "sha256:id-${1##*@sha256:}" | cut -c1-24; }
+# The version CI stamps on an image: $STUB_DIR/labels has a "<digest> <version>" line per image.
+label_of() { grep -m1 "^${1##*@} " "$STATE_DIR/labels" 2>/dev/null | cut -d' ' -f2; }
 
 case "$1 $2" in
   "compose version") exit 0 ;;
@@ -89,6 +91,7 @@ case "$1" in
         # `docker image inspect --format <fmt> <ref>`
         case "$4" in
           *RepoDigests*) echo "${IMAGE_REF_DIGEST}" ;;
+          *image.version*) label_of "$5" ;;
           *.Id*) id_of "$5" ;;
         esac
         exit 0 ;;
@@ -351,6 +354,111 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual(out["status"], "up-failed")
         self.assertEqual(self.deployed_ref(), f"{IMAGE}@{NEW_DIGEST}")
+
+    # ── never backwards ──────────────────────────────────────────────────────
+    def label(self, digest: str, version: str) -> None:
+        """The version CI stamped on the image with this digest (the tag it was built from)."""
+        with (self.stub_dir / "labels").open("a", encoding="utf-8") as f:
+            f.write(f"{digest} {version}\n")
+
+    def pulls(self) -> list[str]:
+        calls = self.stub_dir / "calls.log"
+        lines = calls.read_text("utf-8").splitlines() if calls.exists() else []
+        return [line for line in lines if line.startswith("docker pull")]
+
+    def on_a_newer_release(self, version: str = "v10.0.beta-2") -> None:
+        self.write_compose(OLD_DIGEST)
+        self.label(OLD_DIGEST, version)
+        self.set_running(True)
+        self.set_health("healthy")
+
+    def test_a_run_by_hand_leaves_a_beta_server_on_its_beta(self) -> None:
+        """Without --tag the script takes GitHub's latest release, which is stable. On a VM
+        the app had moved onto a newer beta, that used to pin the older stable release."""
+        self.on_a_newer_release()
+        r = self.run_script()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.last_update()
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["status"], "server-ahead")
+        self.assertFalse(out["updated"])
+        self.assertEqual(out["message"], "the server is on 10.0.beta-2, which is newer than 9.9.9")
+        self.assertEqual(self.deployed_ref(), f"{IMAGE}@{OLD_DIGEST}")
+        self.assertEqual((self.pulls(), self.ups()), ([], 0))
+        self.assertIn("--force", r.stderr)
+
+    def test_an_older_tag_is_refused_the_same_way(self) -> None:
+        self.on_a_newer_release("v10.0")
+        self.run_script("--tag", TAG)
+        self.assertEqual(self.last_update()["status"], "server-ahead")
+        self.assertEqual(self.deployed_ref(), f"{IMAGE}@{OLD_DIGEST}")
+
+    def test_force_moves_the_server_back(self) -> None:
+        self.on_a_newer_release()
+        r = self.run_script("--force")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.last_update()["status"], "updated")
+        self.assertEqual(self.deployed_ref(), f"{IMAGE}@{NEW_DIGEST}")
+
+    def test_a_redeploy_onto_a_server_that_is_ahead_still_applies_its_env(self) -> None:
+        """--start is a redeploy: the release stays, the new .env still has to reach it."""
+        self.on_a_newer_release()
+        r = self.run_script("--start", "--tag", TAG)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = self.last_update()
+        self.assertEqual(out["status"], "server-ahead")
+        self.assertIn("applied its configuration", out["message"])
+        self.assertEqual(self.ups(), 1)
+        self.assertEqual(self.pulls(), [])
+        self.assertEqual(self.deployed_ref(), f"{IMAGE}@{OLD_DIGEST}")
+
+    def test_releases_are_ordered_as_the_app_orders_them(self) -> None:
+        cases = {
+            "v9.9.9.beta-3": "updated",   # the stable release comes after its betas
+            "v1.5.0": "updated",
+            "v9.10": "server-ahead",      # by number, not by text
+            "v10.0": "server-ahead",
+            "main": "updated",            # not a version: nothing is refused on a guess
+        }
+        for deployed, status in cases.items():
+            with self.subTest(deployed):
+                (self.stub_dir / "labels").unlink(missing_ok=True)
+                self.on_a_newer_release(deployed)
+                self.run_script("--tag", TAG)
+                self.assertEqual(self.last_update()["status"], status)
+
+    def test_an_image_without_a_version_label_goes_by_the_record_of_its_digest(self) -> None:
+        """Only the record of the digest that's pinned now: a rollback leaves the compose file
+        on the old digest, and a record of another one says nothing about it."""
+        for digest, status in ((OLD_DIGEST, "server-ahead"), ("sha256:" + "c" * 64, "updated")):
+            with self.subTest(digest=digest[:10]):
+                self.write_compose(OLD_DIGEST)
+                self.set_running(True)
+                self.set_health("healthy")
+                (self.app / "versions.json").write_text(
+                    json.dumps({"tag": "v10.0", "digest": digest}, indent=2), encoding="utf-8"
+                )
+                self.run_script()
+                self.assertEqual(self.last_update()["status"], status)
+
+    def test_without_a_tag_a_beta_is_never_picked(self) -> None:
+        """GitHub calls a beta its latest release when it's published without the pre-release
+        flag. The app's --tag is how a beta reaches a server, never this."""
+        self.write_compose(OLD_DIGEST)
+        self.set_running(True)
+        r = self.run_script(RELEASE_TAG="v10.0.beta-1")
+        self.assertEqual(r.returncode, 1)
+        out = self.last_update()
+        self.assertEqual(out["status"], "no-release")
+        self.assertIn("v10.0.beta-1", out["message"])
+        self.assertEqual(out["tag"], "")
+        self.assertEqual(self.pulls(), [])
+        self.assertEqual(self.deployed_ref(), f"{IMAGE}@{OLD_DIGEST}")
+
+        self.set_health("healthy")
+        r = self.run_script("--tag", "v10.0.beta-1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.last_update()["status"], "updated")
 
     # ── telling the console ──────────────────────────────────────────────────
     def marked_during_pull(self) -> dict | None:

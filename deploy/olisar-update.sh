@@ -18,9 +18,13 @@
 #
 #   ./olisar-update.sh [--force] [--start] [--tag v2.0 | --tag v2.0.beta-1]
 #
-# Without --tag it resolves GitHub's latest release, which is always a stable one. The app
-# always passes --tag: the newest release on its own update channel, so a beta tester's VM
-# runs the betas.
+# Without --tag it resolves GitHub's latest release, which is always a stable one (a beta
+# published there without its pre-release flag is refused). The app always passes --tag: the
+# newest release on its own update channel, so a beta tester's VM runs the betas.
+#
+# It never moves the server to an older release than the one it runs: an app switched from
+# beta to stable leaves its server on the beta until a stable release passes it, and so does
+# a run by hand. --force does move it back, and re-applies the release it's already on.
 #
 # --start brings the container up even if it wasn't already running; that makes a first
 # deploy the same code path as an update, so there's only one place that knows how to put
@@ -155,21 +159,106 @@ roll_back() {  # roll_back <what went wrong> <status: recovered> <status: didn't
   exit 1
 }
 
+# Bring up <image-ref>, which the compose file already pins, for --start, and stop: a re-run
+# of a half-finished deploy brings the container up, and a redeploy that just wrote a new
+# .env gets a container built from it (compose recreates when the resolved config changed and
+# leaves an unchanged one alone). Skipping this for a running container left a redeploy's new
+# keys unread: it kept the environment it started with, a dead Tailscale key included.
+start_pinned() {  # start_pinned <image-ref> <status> <what the server is on>
+  local out
+  if ! out="$($DC up -d 2>&1)"; then
+    emit false up-failed "$3 but docker compose up failed"
+    echo "$out" | tail -20 >&2
+    exit 1
+  fi
+  if wait_healthy "$1"; then
+    if [ "$WAS_RUNNING" -eq 1 ]; then
+      emit true "$2" "$3; applied its configuration"
+    else
+      emit true started "$3; started the server"
+    fi
+    exit 0
+  fi
+  emit false unhealthy "$3 but the server did not become healthy"
+  exit 1
+}
+
+# ── versions ─────────────────────────────────────────────────────────────────
+# Read the way olisar/versioning.py reads them ("v2.0", "v2.0.beta-1", "1.5.0",
+# "2.0.0-beta.1"). Prints a key that sorts as the releases do, a beta before the release it
+# leads up to (2.0.beta-9 < 2.0), or fails for anything that isn't a version.
+version_key() {
+  local re='^[vV]?([0-9]+)\.([0-9]+)(\.([0-9]+))?([.-]?([bB][eE][tT][aA]|[bB])[.-]?([0-9]+))?$' stable=1
+  [[ "${1:-}" =~ $re ]] || return 1
+  [ -n "${BASH_REMATCH[7]:-}" ] && stable=0
+  printf '%06d.%06d.%06d.%d.%06d\n' "$((10#${BASH_REMATCH[1]}))" "$((10#${BASH_REMATCH[2]}))" \
+    "$((10#${BASH_REMATCH[4]:-0}))" "$stable" "$((10#${BASH_REMATCH[7]:-0}))"
+}
+
+# Whether release $1 comes before release $2. False when either isn't a version, so nothing
+# is refused on a guess.
+older_than() {
+  local a b
+  a="$(version_key "$1")" && b="$(version_key "$2")" || return 1
+  [[ "$a" < "$b" ]]
+}
+
+is_beta() {
+  local key
+  key="$(version_key "$1")" || return 1
+  [ "$(echo "$key" | cut -d. -f4)" = 0 ]
+}
+
+json_field() {  # json_field <key> <file> — a string field of a JSON file this script wrote
+  grep -m1 "^[[:space:]]*\"$1\"[[:space:]]*:" "$2" 2>/dev/null | sed -E 's/^[^:]*:[[:space:]]*"([^"]*)".*/\1/'
+}
+
 # ── what's deployed now ──────────────────────────────────────────────────────
 CURRENT_REF="$(grep -oE '^[[:space:]]*image:[[:space:]]*\S+' "$DIR/docker-compose.yml" 2>/dev/null | head -1 | awk '{print $2}')"
 case "$CURRENT_REF" in
   *@sha256:*) PREV_DIGEST="${CURRENT_REF##*@}" ;;
 esac
+# Which release that is: the version CI stamps on every image (the tag it was built from),
+# or, for an image without one, the tag recorded here when that same digest was pinned.
+DEPLOYED=""
+if [ -n "$CURRENT_REF" ]; then
+  DEPLOYED="$($SUDO docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$CURRENT_REF" 2>/dev/null)"
+  if ! version_key "$DEPLOYED" >/dev/null && [ -n "$PREV_DIGEST" ] \
+    && [ "$(json_field digest "$DIR/versions.json")" = "$PREV_DIGEST" ]; then
+    DEPLOYED="$(json_field tag "$DIR/versions.json")"
+  fi
+fi
+WAS_RUNNING=0; is_running && WAS_RUNNING=1
 
 # ── which release do we want ─────────────────────────────────────────────────
 TAG="$WANT_TAG"
 if [ -z "$TAG" ]; then
-  TAG="$(curl -fsSL --max-time 20 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-    | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  LATEST="$(curl -fsSL --max-time 20 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null)"
+  TAG="$(printf '%s\n' "$LATEST" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+  # GitHub never calls a pre-release its latest release, but it would a beta published
+  # without that flag. Without --tag this is the stable path, so a beta is refused either way.
+  case "$LATEST" in *'"prerelease":true'*|*'"prerelease": true'*) BETA="$TAG" ;; *) BETA="" ;; esac
+  is_beta "$TAG" && BETA="$TAG"
+  if [ -n "$BETA" ]; then
+    TAG=""
+    emit false no-release "GitHub's latest release, ${BETA}, is a beta; pass --tag to install a beta"
+    exit 1
+  fi
 fi
 if [ -z "$TAG" ]; then
   emit false no-release "could not resolve the latest release tag from GitHub"
   exit 1
+fi
+
+# ── never backwards ──────────────────────────────────────────────────────────
+# The server stays on a newer release than the one asked for (see the top of this file). With
+# --start it's still brought up on it, with whatever .env a redeploy just wrote.
+if [ "$FORCE" -eq 0 ] && older_than "$TAG" "$DEPLOYED"; then
+  AHEAD="the server is on ${DEPLOYED#[vV]}, which is newer than ${TAG#[vV]}"
+  echo "olisar-update: --force installs ${TAG} anyway" >&2
+  [ "$START" -eq 1 ] && start_pinned "$CURRENT_REF" server-ahead "$AHEAD"
+  emit true server-ahead "$AHEAD"
+  exit 0
 fi
 
 # ── tell the console ─────────────────────────────────────────────────────────
@@ -204,31 +293,9 @@ if [ -z "$DIGEST" ]; then
   exit 1
 fi
 
-WAS_RUNNING=0; is_running && WAS_RUNNING=1
-
 if [ "$DIGEST" = "$PREV_DIGEST" ] && [ "$FORCE" -eq 0 ]; then
-  # Already pinned to this digest. --start still runs `up -d`, running or not: a re-run of a
-  # half-finished deploy brings the container up, and a redeploy that just wrote a new .env
-  # gets a container built from it (compose recreates when the resolved config changed and
-  # leaves an unchanged one alone). Skipping this for a running container left a redeploy's
-  # new keys unread: it kept the environment it started with, a dead Tailscale key included.
-  if [ "$START" -eq 1 ]; then
-    if ! UP_OUT="$($DC up -d 2>&1)"; then
-      emit false up-failed "already on ${TAG} but docker compose up failed"
-      echo "$UP_OUT" | tail -20 >&2
-      exit 1
-    fi
-    if wait_healthy "${IMAGE}@${DIGEST}"; then
-      if [ "$WAS_RUNNING" -eq 1 ]; then
-        emit true up-to-date "already on ${TAG}; applied its configuration"
-      else
-        emit true started "already on ${TAG}; started the server"
-      fi
-      exit 0
-    fi
-    emit false unhealthy "already on ${TAG} but the server did not become healthy"
-    exit 1
-  fi
+  # Already pinned to this digest. --start still runs `up -d`, running or not.
+  [ "$START" -eq 1 ] && start_pinned "${IMAGE}@${DIGEST}" up-to-date "already on ${TAG}"
   emit true up-to-date "already on ${TAG}"
   exit 0
 fi
