@@ -40,6 +40,7 @@ log = logging.getLogger("olisar.toolpin.discord")
 # the two failures and the two errors, where silence would be a mystery.
 _WRONG = "Wrong PIN ({used}/{max})."
 _EXHAUSTED = "Wrong PIN entered {max} times."
+_LOCKED = "Too many wrong PINs. Try again later."
 _GONE = "Error: Already answered."
 _FORM_FAILED = "Error: Something went wrong with the form."
 
@@ -106,6 +107,7 @@ class _PinRequest:
         self.attempts = 0
         self.outcome = ""
         self.answered_by = 0
+        self.lockout = ""  # "user" or "install" when wrong entries here tipped into one
         self._future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
 
     @property
@@ -118,19 +120,31 @@ class _PinRequest:
         if self.done:
             await interaction.response.send_message(_GONE, ephemeral=True)
             return
+        uid = interaction.user.id
         async with session_scope() as session:
-            ok = await toolpin.verify(session, entered)
+            # Someone already locked out gets no guess checked, on anyone's prompt.
+            locked = await toolpin.lockout(session, uid)
+            ok = not locked and await toolpin.verify(session, entered)
+            if not ok and not locked:
+                self.attempts += 1
+                await toolpin.record_failure(session, user_id=uid, guild_id=self.guild_id)
+                locked = await toolpin.lockout(session, uid)
         if ok:
             # The deadline can land while the form is open, so this only counts as the
             # confirmation if it's what actually resolved the request.
-            if self.resolve(toolpin.APPROVED, by=interaction.user.id):
+            if self.resolve(toolpin.APPROVED, by=uid):
                 await interaction.response.defer()
             else:
                 await interaction.response.send_message(_GONE, ephemeral=True)
             return
-        self.attempts += 1
+        if locked:
+            # Ends the prompt for everyone, which is no more than Cancel lets anyone do.
+            self.lockout = locked
+            self.resolve(toolpin.LOCKED, by=uid)
+            await interaction.response.send_message(_LOCKED, ephemeral=True)
+            return
         if self.attempts >= toolpin.MAX_ATTEMPTS:
-            self.resolve(toolpin.WRONG, by=interaction.user.id)
+            self.resolve(toolpin.WRONG, by=uid)
             await interaction.response.send_message(
                 _EXHAUSTED.format(max=toolpin.MAX_ATTEMPTS), ephemeral=True
             )
@@ -178,6 +192,12 @@ async def request_pin(
     seconds = int(timeout)
     async with session_scope() as session:
         custom = await get_command_messages(session, guild_id)
+        locked = await toolpin.lockout(session, user_id)
+    if locked:
+        # Not posted at all: a prompt would be three more guesses.
+        log.info("PIN prompt for %s not posted: locked out (%s)", tool, locked)
+        await _record(tool, guild_id, actor=user_id, outcome=toolpin.LOCKED, lockout=locked)
+        return toolpin.LOCKED
     prompt = render_message(custom, "tool_pin_prompt", tool=tool, seconds=seconds)
 
     request = _PinRequest(tool=tool, guild_id=guild_id)
@@ -207,20 +227,27 @@ async def request_pin(
         "PIN prompt for %s: %s (by %s, %d wrong attempt(s))",
         tool, outcome, request.answered_by or "nobody", request.attempts,
     )
+    await _record(
+        tool, guild_id, actor=request.answered_by or user_id, outcome=outcome,
+        attempts=request.attempts, lockout=request.lockout,
+    )
+    return outcome
+
+
+async def _record(
+    tool: str, guild_id: int, *, actor: int, outcome: str, attempts: int = 0,
+    lockout: str = "",
+) -> None:
+    """How a prompt ended, for the Activity log. ``lockout`` says whose wrong entries
+    stopped it ("user" or "install") when that's why."""
+    after = {"outcome": outcome, "wrong_attempts": attempts, "guild_id": str(guild_id)}
+    if lockout:
+        after["lockout"] = lockout
     try:
         async with session_scope() as session:
             await record_audit(
-                session,
-                actor=request.answered_by or user_id,
-                action="tool_pin",
-                target_type="tool",
-                target_id=tool,
-                after={
-                    "outcome": outcome,
-                    "wrong_attempts": request.attempts,
-                    "guild_id": str(guild_id),
-                },
+                session, actor=actor, action="tool_pin", target_type="tool",
+                target_id=tool, after=after,
             )
     except Exception:  # noqa: BLE001
         log.exception("couldn't record the PIN outcome for %s", tool)
-    return outcome

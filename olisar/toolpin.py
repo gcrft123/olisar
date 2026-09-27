@@ -1,7 +1,7 @@
 """The tool PIN: a 4-digit code that has to be entered in Discord before Olisar runs a
 gated tool call.
 
-Three parts live here, all Discord-agnostic so the bot, the API and the tests share them:
+Four parts live here, all Discord-agnostic so the bot, the API and the tests share them:
 
 * **the secret** — stored as a salted scrypt hash in the single-row ``tool_pin`` table, set
   and changed from the console. A 4-digit PIN is trivially brute-forced by anyone holding
@@ -11,6 +11,10 @@ Three parts live here, all Discord-agnostic so the bot, the API and the tests sh
   server picks the actions that need the PIN on the console's Access page
   (``GuildConfig.pin_actions``); ``OLISAR_PIN_GATED_TOOLS`` can gate any single tool on
   top of that, for driving the flow in testing.
+* **the lockout** — :func:`lockout` stops the prompts once too many wrong PINs have been
+  entered within an hour, by one person or by everyone together. A prompt's own three
+  tries start over with every prompt, so without it a member could keep asking again and
+  guess the four digits three at a time. Changing the PIN lifts it.
 * **the refusal** — :func:`denial_note` is what the model reads back when the PIN never
   arrived. It is phrased the way a coding agent is told a tool call was denied, because
   that is the behaviour we want: say plainly that it didn't run, don't retry it, carry on
@@ -29,20 +33,26 @@ import logging
 import re
 import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
-from olisar.db.models import GuildConfig, ToolPin
+from olisar.db.models import GuildConfig, ToolPin, ToolPinFailure, utcnow
 
 log = logging.getLogger("olisar.toolpin")
 
 PIN_LENGTH = 4
 # Tries allowed on one prompt before it's refused outright. Three is the cash-machine
-# convention, and with 10,000 combinations it's the only thing standing between a 4-digit
-# secret and someone guessing it in a channel.
+# convention. It resets with every prompt, so on its own it doesn't stop anyone asking
+# again for three more; the counts below do.
 MAX_ATTEMPTS = 3
+# Wrong entries allowed across prompts, within LOCK_WINDOW, before prompts stop being
+# posted: per person, and for the whole install (one person with several accounts).
+LOCK_WINDOW = timedelta(hours=1)
+USER_LOCK_AFTER = 5
+INSTALL_LOCK_AFTER = 15
 DEFAULT_TIMEOUT_SEC = 120
 MIN_TIMEOUT_SEC = 15
 MAX_TIMEOUT_SEC = 900
@@ -71,6 +81,7 @@ TIMEOUT = "timeout"
 WRONG = "wrong"
 REFUSED = "refused"        # someone with Manage Server said no, rather than letting it lapse
 UNAVAILABLE = "unavailable"  # nowhere to ask (no Discord surface, or no PIN is set)
+LOCKED = "locked"          # too many wrong PINs lately (see lockout)
 
 _DENIALS = {
     TIMEOUT: (
@@ -82,6 +93,10 @@ _DENIALS = {
         "{attempts} times."
     ),
     REFUSED: "DENIED: an admin refused the {tool} call.",
+    LOCKED: (
+        "DENIED: the {tool} call was not confirmed — too many wrong PINs have been entered "
+        "lately, so PIN prompts are paused for now."
+    ),
     UNAVAILABLE: (
         "DENIED: the {tool} call needs a PIN confirmation, and there is no way to ask for "
         "one here."
@@ -172,6 +187,7 @@ async def set_pin(session: AsyncSession, pin: str, *, actor: object = "") -> Non
     row = await _row(session, create=True)
     row.pin_hash = hash_pin(digits)
     row.set_by = str(actor or "")
+    await clear_failures(session)
 
 
 async def set_timeout(session: AsyncSession, seconds: int) -> int:
@@ -187,6 +203,7 @@ async def clear_pin(session: AsyncSession) -> None:
     if row is not None:
         row.pin_hash = ""
         row.set_by = ""
+    await clear_failures(session)
 
 
 async def verify(session: AsyncSession, pin: object) -> bool:
@@ -196,6 +213,34 @@ async def verify(session: AsyncSession, pin: object) -> bool:
     if row is None or not row.pin_hash:
         return False
     return check_pin(normalize(pin), row.pin_hash)
+
+
+async def record_failure(session: AsyncSession, *, user_id: int, guild_id: int = 0) -> None:
+    """Count a wrong PIN entered by ``user_id``, and drop the ones too old to matter."""
+    await session.execute(
+        delete(ToolPinFailure).where(ToolPinFailure.at < utcnow() - LOCK_WINDOW)
+    )
+    session.add(ToolPinFailure(user_id=int(user_id), guild_id=int(guild_id or 0)))
+    await session.flush()
+
+
+async def lockout(session: AsyncSession, user_id: int) -> str:
+    """Why PIN prompts are refused right now: "install" when everyone together has entered
+    ``INSTALL_LOCK_AFTER`` wrong PINs within ``LOCK_WINDOW``, "user" when ``user_id`` alone
+    has entered ``USER_LOCK_AFTER``, or "" when neither has. It lifts as entries age out of
+    the window, or at once when the PIN is changed or removed."""
+    since = utcnow() - LOCK_WINDOW
+    recent = select(func.count()).select_from(ToolPinFailure).where(ToolPinFailure.at >= since)
+    if (await session.scalar(recent) or 0) >= INSTALL_LOCK_AFTER:
+        return "install"
+    mine = await session.scalar(recent.where(ToolPinFailure.user_id == int(user_id or 0)))
+    return "user" if (mine or 0) >= USER_LOCK_AFTER else ""
+
+
+async def clear_failures(session: AsyncSession) -> None:
+    """Forget every wrong entry. Guesses at a PIN that's been replaced tell nobody anything
+    about the new one, so an admin changing it is also how a lockout is lifted early."""
+    await session.execute(delete(ToolPinFailure))
 
 
 def gated_tools() -> frozenset[str]:
