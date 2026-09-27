@@ -767,8 +767,14 @@ export function SaveDock(props: {
 
 // ── Minimal Markdown renderer (no dependency) ───────────────────────────────
 // Supports: ## / ### headings, - bullet lists, blank-line paragraphs, and inline
-// **bold**, `code`, and [text](url). Content is trusted (authored in docs.tsx),
-// and we render React nodes (no dangerouslySetInnerHTML).
+// **bold**, `code`, and [text](url). Rendered as React nodes (no dangerouslySetInnerHTML).
+// Not all of it is ours: the test chat renders the model's replies through here, and a reply
+// can say anything a member got it to say.
+
+// The schemes a link out may use. Anything else, `javascript:` and `file:` included, keeps its
+// text and loses the link: an href is the one place React renders a string as code.
+const LINK_OUT = /^(https?:|mailto:)/i
+
 function inline(text: string, key: string, onLink?: (id: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
@@ -783,14 +789,16 @@ function inline(text: string, key: string, onLink?: (id: string) => void): React
     else if (t.startsWith('`')) nodes.push(<code key={key + i}>{t.slice(1, -1)}</code>)
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!
-      const url = mm[2]
+      const url = mm[2].trim()
       if (url.startsWith('#') || url.startsWith('tab:')) {
         // In-app link: between doc pages (#id / #heading) or to a dashboard tab (tab:id).
         nodes.push(
           <a key={key + i} href={url.startsWith('#') ? url : '#'} onClick={(e) => { e.preventDefault(); onLink?.(url) }}>{mm[1]}</a>,
         )
-      } else {
+      } else if (LINK_OUT.test(url)) {
         nodes.push(<a key={key + i} href={url} target="_blank" rel="noreferrer">{mm[1]}</a>)
+      } else {
+        nodes.push(<React.Fragment key={key + i}>{mm[1]}</React.Fragment>)
       }
     }
     last = m.index + t.length
