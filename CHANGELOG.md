@@ -62,6 +62,8 @@ What stops Olisar replying is the daily limit on each model it falls back throug
 
 Before 2.0 ships, everything since 1.5 went through another pass, with a bot set up from scratch in a test server and the console driven the way an operator drives it. It turned up a tool PIN anyone could keep guessing by asking again, cross-site requests that still reached each bot's own port after the gateway stopped them, a VM update that could move a server back onto 1.5, a marketplace extension that became trusted once its listing was yanked, and a Save button that had quietly stopped checking its fields when the console dropped its cards. Those, and the smaller things found around them, are fixed below.
 
+Powering a bot down from its console on a server stopped it in Discord and left the desktop app on the screen of what the bot has been doing, still marked Running. The desktop app now comes back to the server panel and says the bot is powered down, with a way to turn it back on without stopping the server.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -211,6 +213,10 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 [72b33ef] — Holding Enter or Space on the power button powers the bot down, the same as holding the pointer.
 
 ### Changed
+
+[42d5291] — Powering a server bot down from its console shows Powered down on the desktop app, with Turn on, and leaves the server running.
+
+[42d5291] — Reconnect on the server panel is in the menu on the three-dot button.
 
 [ce98ef9] — The notes on the connect, reconnect and Move bot screens show a check, like every other tip.
 

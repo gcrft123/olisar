@@ -111,6 +111,7 @@ class BotSupervisor:
             return
         self._task = asyncio.create_task(self._run(token), name="olisar-bot")
         log.info("bot task started")
+        await publish_bot_running(True)
 
     async def _run(self, token: str) -> None:
         from bot.client import OlisarBot
@@ -225,6 +226,21 @@ async def _apply_runtime_config() -> None:
 def bot_supervisor(app) -> BotSupervisor | None:
     """This process's ``BotSupervisor`` (None in the standalone dev API)."""
     return getattr(app.state, "bot_supervisor", None)
+
+
+async def publish_bot_running(running: bool) -> None:
+    """Tell the desktop server panel whether this process's Discord bot is up.
+
+    The panel reads ``state.json`` over SSH. A server-mode process is that panel, not the
+    bot, so it doesn't publish — a false here would be this machine's file. ``False`` is a
+    real value and survives later rewrites until the bot is started again.
+    """
+    from olisar import runtime_config
+    from olisar.runtime import state
+
+    if await runtime_config.hosting_mode() == "server":
+        return
+    state.write(bot_running=running)
 
 
 async def start_bot(app) -> None:

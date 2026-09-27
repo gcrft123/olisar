@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, patch
 
 from olisar import discord_app
 from olisar.runtime import remote
-from olisar.runtime.remote import docker_time, parse_probe
+from olisar.runtime.remote import docker_time, parse_bot_on, parse_probe
 
 URL = "https://olisar.example.ts.net"
 DIGEST = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -219,6 +219,30 @@ class StartedAndCheckedTests(unittest.TestCase):
     def test_new_fields_do_not_bleed_into_health(self) -> None:
         out = parse_probe(probe(container=f"running|unhealthy|{STARTED}|{CHECKS}"))
         self.assertEqual(out["health"], "unhealthy")
+
+    def test_a_powered_down_bot_is_reported_while_the_container_runs(self) -> None:
+        """The console's power button stops Discord, not Docker. The panel has to tell them apart."""
+        out = parse_probe(probe(
+            container="running|healthy",
+            state=json.dumps({"public_url": URL, "bot_running": False}),
+        ))
+        self.assertTrue(out["running"])
+        self.assertIs(out["bot_running"], False)
+        self.assertEqual(out["url"], URL)
+
+    def test_an_older_state_file_does_not_read_as_powered_down(self) -> None:
+        """Images from before this field existed must stay 'Running', not 'Powered down'."""
+        out = parse_probe(probe(container="running|healthy", state=json.dumps({"public_url": URL})))
+        self.assertIsNone(out["bot_running"])
+        self.assertTrue(out["running"])
+
+    def test_bot_on_answer(self) -> None:
+        self.assertEqual(parse_bot_on('{"ok": true, "running": true}\n'), {"ok": True, "running": True})
+
+    def test_bot_on_404_is_an_old_image(self) -> None:
+        out = parse_bot_on('{"ok": false, "status": 404}\n')
+        self.assertFalse(out["ok"])
+        self.assertIn("Open the console", out["error"])
 
     def test_docker_time_edge_cases(self) -> None:
         self.assertEqual(docker_time(""), "")
