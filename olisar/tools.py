@@ -137,12 +137,17 @@ class ToolContext:
     # without_settings_tools). They aren't declared then, and a call that names one anyway
     # is refused.
     settings_allowed: bool = True
+    # False for a reply nobody addressed to Olisar (a proactive chime-in). Search and
+    # recall then go by what @everyone can open rather than by the person it answers; see
+    # olisar.message_links.channel_filter.
+    addressed: bool = True
 
     def readable(self) -> ChannelFilter:
-        """The channels this reply's asker can open, for filtering search and recall."""
+        """The channels this reply's asker can open, for filtering search and recall. For a
+        reply nobody asked for, what @everyone can open."""
         return channel_filter(
-            self.actions, guild_id=self.cfg_guild, requester_id=self.user_id,
-            here=self.channel_id,
+            self.actions, guild_id=self.cfg_guild,
+            requester_id=self.user_id if self.addressed else 0, here=self.channel_id,
         )
 
 
