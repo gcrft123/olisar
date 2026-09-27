@@ -74,6 +74,15 @@ LABELS: dict[str, str] = {
 }
 
 
+def _where(after: object) -> tuple[object, str | None]:
+    """Split the ``via`` marker off an entry's ``after``. A change made by asking the bot in
+    Discord (olisar/self_settings.py) is recorded with ``"via": "chat"`` in it, which is a
+    fact about the entry, not one of the values that changed."""
+    if isinstance(after, dict) and "via" in after:
+        return {k: v for k, v in after.items() if k != "via"}, after.get("via")
+    return after, None
+
+
 @router.get("")
 async def list_audit(
     limit: int = Query(100, ge=1, le=500),
@@ -102,22 +111,30 @@ async def list_audit(
                 if pr.display_name:
                     names.setdefault(str(pr.user_id), pr.display_name)
 
+    entries = []
+    for r in rows:
+        after, via = _where(r.after)
+        entries.append({
+            "id": r.id,
+            "ts": r.ts.isoformat() if r.ts else None,
+            "actor": names.get(r.actor or "", r.actor),
+            "action": r.action,
+            "label": LABELS.get(r.action, r.action.replace("_", " ").capitalize()),
+            "destructive": r.action in DESTRUCTIVE,
+            "target_type": r.target_type,
+            "target_id": r.target_id,
+            # What it replaced. `record_audit` has stored this for the changes that keep
+            # it (a chat edit, the PIN actions, a behavior or persona save) and nothing
+            # read it back, so an overwritten system prompt was gone for good.
+            "before": r.before,
+            # `after` carries the receipt — clear_memory stores its deleted-row counts
+            # here, which is exactly the number the operator watched disappear.
+            "after": after,
+            # "chat" when a member changed it by asking the bot in Discord; None when it
+            # was changed here.
+            "via": via,
+        })
     return {
         "install_wide": True,  # no guild_id on the table; say so rather than imply otherwise
-        "entries": [
-            {
-                "id": r.id,
-                "ts": r.ts.isoformat() if r.ts else None,
-                "actor": names.get(r.actor or "", r.actor),
-                "action": r.action,
-                "label": LABELS.get(r.action, r.action.replace("_", " ").capitalize()),
-                "destructive": r.action in DESTRUCTIVE,
-                "target_type": r.target_type,
-                "target_id": r.target_id,
-                # `after` carries the receipt — clear_memory stores its deleted-row counts
-                # here, which is exactly the number the operator watched disappear.
-                "after": r.after,
-            }
-            for r in rows
-        ],
+        "entries": entries,
     }

@@ -161,12 +161,17 @@ async def put_persona(body: PersonaIn, gctx: GuildContext = Depends(require_guil
         if p is None:
             p = Persona(guild_id=gctx.guild_id)
             session.add(p)
+        # What each changed field held before, so the Activity log can show it and an
+        # overwritten system prompt can be put back. A chat edit records the same.
+        changed = {k: v for k, v in data.items() if getattr(p, k, None) != v}
+        before = {k: getattr(p, k, None) for k in changed}
         _apply(p, data)
         p.updated_by = gctx.admin.discord_user_id
-        await record_audit(
-            session, actor=gctx.admin.discord_user_id, action="update_persona",
-            target_type="persona", target_id=gctx.guild_id, after=data,
-        )
+        if changed:
+            await record_audit(
+                session, actor=gctx.admin.discord_user_id, action="update_persona",
+                target_type="persona", target_id=gctx.guild_id, before=before, after=changed,
+            )
     # The profile bio is the bot's bot-wide Application Description (About Me), so it
     # can only be driven by one persona — the home/target guild's. Apply it live when
     # that guild's persona is saved; other guilds keep the field as a stored draft.
