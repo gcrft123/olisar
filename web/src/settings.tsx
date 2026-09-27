@@ -917,7 +917,11 @@ type Channel = 'stable' | 'beta'
 function Updates() {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
-  const [canSelfUpdate, setCanSelfUpdate] = useState(false)
+  // Whether pressing the button installs the update in place. It takes an app that can replace
+  // itself *and* a release with an installer for this platform: without one the desktop app
+  // opens the release page instead (desktop/updater.js installUpdate), so the button has to
+  // say Download, not "Install & restart".
+  const [inPlace, setInPlace] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [channel, setChannel] = useState<Channel | null>(null)
   const du = desktopUpdates()
@@ -931,7 +935,7 @@ function Updates() {
       du ? du.check().catch(() => null) : Promise.resolve(null),
     ])
       .then(([backend, desk]: [any, any]) => {
-        setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate)
+        setData(backend); if (desk) setInPlace(!!desk.canSelfUpdate && !!desk.available?.hasInstaller)
         if (backend?.channel) setChannel(backend.channel)
         if (notify) {
           if (backend?.error) toast(backend.error, 'danger')
@@ -994,7 +998,7 @@ function Updates() {
             hands focus back here, which a disabled button can't take. */}
         {data?.available && du && (
           <button className="primary" onClick={install}>
-            <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (canSelfUpdate ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
+            <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (inPlace ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
           </button>
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
