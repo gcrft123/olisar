@@ -53,6 +53,7 @@ from olisar.db.models import (
 )
 from olisar.gemini.models import RANKED_NAMES
 from olisar.knowledge import sources
+from olisar.knowledge.crawler import non_public_reason
 from olisar.knowledge.refresh import MAX_INTERVAL_HOURS, REFRESHABLE_TYPES
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
@@ -721,10 +722,15 @@ async def _kb_add(ctx: ToolContext, target: str, args: dict, *, site: bool) -> s
         pages = _count(args.get("pages"), 25, 1, 100, "pages")
     except ValueError as e:
         return f"Not added: {e}."
+    # Olisar runs inside someone's network, so from chat only public addresses are read:
+    # checked here, and again on every request of every crawl (public_only).
+    reason = await non_public_reason(target)
+    if reason:
+        return f"Not added: {reason}. Only public web pages can be added from chat."
     kind = "website" if site else "url"
     src = sources.new_source(
         guild_id=ctx.cfg_guild, type=kind, uri=target, crawl_depth=depth,
-        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id,
+        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id, public_only=True,
     )
     ctx.session.add(src)
     await ctx.session.flush()

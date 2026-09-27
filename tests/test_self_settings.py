@@ -443,8 +443,35 @@ class CommandReplies(_Db):
 
 
 class KnowledgeActions(_Db):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        # Every host resolves to a public address unless a test says otherwise; nothing
+        # here may reach the network.
+        self.resolved = ["93.184.216.34"]
+        resolver = patch(
+            "olisar.knowledge.crawler._resolve", new=AsyncMock(side_effect=lambda h: self.resolved)
+        )
+        resolver.start()
+        self.addCleanup(resolver.stop)
+
     async def source(self, sid: int) -> KBSource | None:
         return await self.row(KBSource, sid)
+
+    async def test_a_page_added_from_chat_is_read_from_public_addresses_only(self):
+        await self.action("kb_add_page", target="https://a.example")
+        self.assertTrue((await self.source(1)).public_only)
+
+    async def test_a_host_on_the_local_network_is_refused(self):
+        for resolved in (["127.0.0.1"], ["10.1.2.3"], ["169.254.169.254"], ["::1"],
+                         ["::ffff:192.168.1.1"], ["93.184.216.34", "192.168.1.1"]):
+            with self.subTest(resolved=resolved):
+                self.resolved = resolved
+                out = await self.action("kb_add_site", target="https://intranet.example")
+                self.assertIn("private or local address", out)
+        for target in ("http://127.0.0.1:8723/api", "http://[::1]/", "http://10.0.0.1/"):
+            with self.subTest(target=target):
+                self.assertIn("private or local", await self.action("kb_add_page", target=target))
+        self.assertIsNone(await self.source(1))
 
     async def test_adding_a_site_queues_it_with_its_options(self):
         out = await self.action("kb_add_site", target="https://wiki.example", depth="2",
