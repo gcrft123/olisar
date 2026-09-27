@@ -712,15 +712,19 @@ async def change_setting(args: dict, ctx: ToolContext) -> str:
 
 
 def _count(raw: object, default: int, lo: int, hi: int, what: str) -> int:
+    """A whole number in ``lo``-``hi``, as the console's API takes it (api/schemas.py):
+    2 and 2.0 are 2, and 1.5 is refused rather than quietly read as 1."""
     if raw in (None, ""):
         return default
     try:
-        n = int(float(str(raw).strip()))
-    except (ValueError, OverflowError):
+        n = float(str(raw).strip())
+    except ValueError:
         raise ValueError(f"{what} has to be a number") from None
+    if not math.isfinite(n) or not n.is_integer():
+        raise ValueError(f"{what} has to be a whole number")
     if not lo <= n <= hi:
         raise ValueError(f"{what} has to be {lo}-{hi}")
-    return n
+    return int(n)
 
 
 async def _source(ctx: ToolContext, target: str) -> KBSource | str:

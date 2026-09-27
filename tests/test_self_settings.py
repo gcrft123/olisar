@@ -497,7 +497,15 @@ class KnowledgeActions(_Db):
     async def test_bad_input_adds_nothing(self):
         self.assertIn("http", await self.action("kb_add_page", target="wiki.example"))
         self.assertIn("depth", await self.action("kb_add_site", target="https://a.b", depth="9"))
+        for pages in ("1.5", "nan", "inf", "lots"):
+            with self.subTest(pages=pages):
+                out = await self.action("kb_add_site", target="https://a.b", pages=pages)
+                self.assertIn("Not added: pages has to be a", out)
         self.assertIsNone(await self.source(1))
+
+    async def test_a_whole_number_written_as_a_decimal_is_fine(self):
+        await self.action("kb_add_site", target="https://a.b", depth="2.0", pages="40")
+        self.assertEqual((await self.source(1)).crawl_depth, 2)
 
     async def test_schedule_refresh_and_remove(self):
         await self.action("kb_add_page", target="https://a.example")
