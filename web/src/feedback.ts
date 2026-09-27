@@ -17,6 +17,10 @@ export type FeedbackPrefill = {
   message?: string
   /** Start with "Add bot logs" turned on. The reporter can still turn it off. */
   logs?: boolean
+  /** The logs to attach, as the reporter was reading them, in place of the ones the server
+   *  attaches itself. The server panel's Logs pane shows the VM's, which the backend this
+   *  form posts to (the desktop app's own) would otherwise swap for its own buffer. */
+  logText?: string
   /** Don't offer bot logs at all: the sender isn't this install's operator (a refused sign-in),
    *  and the server drops them for that sender anyway. */
   noLogs?: boolean
