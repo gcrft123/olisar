@@ -49,12 +49,21 @@ if [ "$1" = "compose" ]; then
     up)   touch "$STATE_DIR/running"; echo "$(cat "$STATE_DIR/generation" 2>/dev/null || echo 0)" > /dev/null; exit 0 ;;
     stop) rm -f "$STATE_DIR/running"; exit 0 ;;
     logs) echo "fake container log line"; exit 0 ;;
+    exec)
+      # `compose exec -T olisar <cmd…>` runs in the container, whose data directory is
+      # $STUB_DIR/data here.
+      shift; [ "$1" = "-T" ] && shift; shift
+      mkdir -p "$STATE_DIR/data"
+      set -- "${@//\/var\/lib\/olisar/$STATE_DIR/data}"
+      "$@"; exit $? ;;
     *) exit 0 ;;
   esac
 fi
 
 case "$1" in
   pull)
+    # What the console could read while the pull ran.
+    [ -f "$STATE_DIR/data/updating.json" ] && cp "$STATE_DIR/data/updating.json" "$STATE_DIR/updating_during_pull.json"
     [ -f "$STATE_DIR/pull_fails" ] && { echo "manifest unknown" >&2; exit 1; }
     exit 0 ;;
   inspect)
@@ -264,6 +273,52 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertEqual(self.last_update()["status"], "pull-failed")
         self.assertEqual(self.deployed_ref(), f"{IMAGE}@{OLD_DIGEST}")
+
+    # ── telling the console ──────────────────────────────────────────────────
+    def marked_during_pull(self) -> dict | None:
+        p = self.stub_dir / "updating_during_pull.json"
+        return json.loads(p.read_text("utf-8")) if p.exists() else None
+
+    def marker_left(self) -> bool:
+        return (self.stub_dir / "data" / "updating.json").exists()
+
+    def test_the_console_is_told_while_the_pull_runs(self) -> None:
+        """The old container serves the console through the pull, so that's when it has to
+        be able to say "Updating…"."""
+        self.write_compose(OLD_DIGEST)
+        self.set_running(True)
+        self.set_health("healthy")
+        r = self.run_script("--tag", TAG)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        marked = self.marked_during_pull()
+        self.assertIsNotNone(marked)
+        self.assertEqual(marked["tag"], TAG)
+        self.assertRegex(marked["at"], r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$")
+
+    def test_the_marker_is_gone_after_every_ending(self) -> None:
+        """Left behind, it would keep the console saying "Updating…" for a VM that isn't."""
+        endings = {
+            "updated": lambda: self.set_health("healthy"),
+            "rolled back": lambda: self.set_health("unhealthy"),
+            "pull failed": lambda: (self.stub_dir / "pull_fails").touch(),
+        }
+        for name, arrange in endings.items():
+            with self.subTest(name):
+                (self.stub_dir / "pull_fails").unlink(missing_ok=True)
+                (self.stub_dir / "updating_during_pull.json").unlink(missing_ok=True)
+                self.write_compose(OLD_DIGEST)
+                self.set_running(True)
+                arrange()
+                self.run_script("--tag", TAG)
+                self.assertIsNotNone(self.marked_during_pull())
+                self.assertFalse(self.marker_left())
+
+    def test_a_stopped_server_has_no_console_to_tell(self) -> None:
+        self.write_compose(OLD_DIGEST)
+        self.set_running(False)
+        self.run_script("--tag", TAG)
+        self.assertIsNone(self.marked_during_pull())
+        self.assertFalse(self.marker_left())
 
     def test_compose_keeps_the_env_file_and_data_volume(self) -> None:
         """The compose file is regenerated on every run — it must not drop the operator's

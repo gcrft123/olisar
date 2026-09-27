@@ -963,7 +963,7 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   )
 }
 
-type BotPowerState = 'unknown' | 'online' | 'holding' | 'stopping' | 'starting' | 'limited' | 'offline' | 'refused'
+type BotPowerState = 'unknown' | 'online' | 'holding' | 'stopping' | 'starting' | 'updating' | 'limited' | 'offline' | 'refused'
 
 // What the closed sheet shows for each state BotPower reports: a badge in DESIGN.md's Badge
 // vocabulary, and how the sheet's edge lights up. No glow for a bot switched off or a state
@@ -973,6 +973,7 @@ const BOT_BADGE: Record<BotPowerState, { tone: BadgeTone; glyph: BadgeGlyph; wor
   online: { tone: 'success', glyph: { icon: 'play-circle' }, word: 'Online', glow: 'steady' },
   holding: { tone: 'success', glyph: { icon: 'play-circle' }, word: 'Online', glow: 'steady' },
   starting: { tone: 'info', glyph: { busy: true }, word: 'Starting…', glow: 'slide' },
+  updating: { tone: 'info', glyph: { busy: true }, word: 'Updating…', glow: 'slide' },
   stopping: { tone: 'info', glyph: { busy: true }, word: 'Stopping…', glow: 'slide' },
   limited: { tone: 'warning', glyph: { icon: 'danger-circle' }, word: 'Rate-limited', glow: 'breathe' },
   offline: { tone: 'warning', glyph: { icon: 'stop-circle' }, word: 'Offline' },
@@ -1117,7 +1118,11 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
   )
 }
 
-type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean; error?: BotError | null }
+type BotState = {
+  available: boolean; running: boolean; ready: boolean; can_power: boolean; error?: BotError | null
+  /** While the VM's update script moves this install onto a release (olisar/updates.py). */
+  updating?: { to: string } | null
+}
 const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
 
 // Operator-only control to take the Discord bot offline (and back). Powering down is a
@@ -1154,7 +1159,10 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   if (st && st.available && st.can_power) seen.current = true
   const known = !!st && seen.current
 
-  const busy = phase === 'stopping' || phase === 'starting'
+  // The VM is being moved onto a release. The backend goes away partway through, and `st`
+  // keeps this answer until it's back, so this holds through the restart as well.
+  const updating = !!st?.updating
+  const busy = phase === 'stopping' || phase === 'starting' || updating
   const online = !!st?.running && !!st?.ready && !busy
   const starting = phase === 'starting' || (!!st?.running && !st?.ready && phase !== 'stopping')
   const offline = !st?.running && !busy
@@ -1163,11 +1171,12 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   // clears on its own — neither healthy nor broken.
   const limited = online && exhausted
   const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
-    : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
+    : updating ? 'updating' : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
   // Stopped on its own, not switched off: Discord refused it (intents, token) or it crashed.
   const refused = offline && !!st?.error
   const label = phase === 'holding' ? 'Keep holding…'
     : phase === 'stopping' ? 'Powering down…'
+    : updating ? 'Updating…'
     : starting ? 'Starting up…'
     : limited ? 'Offline: rate-limited'
     : online ? 'Bot online'
@@ -1243,6 +1252,7 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   }
 
   const hint = phase === 'holding' ? 'release to cancel'
+    : updating ? `to ${st.updating?.to}`
     : limited ? 'hold to power down'
     : online ? 'hold to power down'
     : refused ? (st.error?.kind === 'intents' ? 'intents off, tap to fix' : 'tap to try again')

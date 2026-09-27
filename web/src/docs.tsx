@@ -365,8 +365,10 @@ volume on the VM, not in any cloud. The full reference is in
 
 The desktop app keeps the two in step. Whenever it starts up on a newer version than the server —
 which is what every launch after the app updates itself looks like — it applies that release to the
-VM as well, and the control panel says **Updating…** while it does. If the new version fails to
-start, the previous one is restored automatically. Your data is kept either way.
+VM as well, and the control panel says **Updating…** while it does. So does the server's own
+console, in the drawer at the bottom of its sidebar, and it can't be reached for a minute or so
+while the new version starts. If the new version fails to start, the previous one is restored
+automatically. Your data is kept either way.
 
 The server follows the app's [update channel](#settings). On **Beta**, it runs the betas
 too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a

@@ -19,12 +19,13 @@ import logging
 import os
 import sys
 import tomllib
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
 import aiohttp
 
-from olisar.versioning import display, is_beta, is_newer, parse
+from olisar.versioning import display, is_beta, is_newer, parse, same_version
 
 log = logging.getLogger("olisar.updates")
 
@@ -73,6 +74,35 @@ def current_version() -> str:
         except Exception:
             continue
     return UNKNOWN_VERSION
+
+
+# ── an update in progress ───────────────────────────────────────────────────
+# The VM's update script (deploy/olisar-update.sh, `mark_updating`) leaves this in the running
+# container's data directory while it pulls and applies a release, and takes it away when it
+# finishes. /api/bot/status passes it on, so the console says "Updating…".
+UPDATING_FILE = "updating.json"
+# Longer than a pull and a health gate take. A file older than this was left by a run that
+# couldn't clean up after itself (no container was up at the end), not a run in progress.
+UPDATING_STALE_AFTER = timedelta(minutes=30)
+
+
+def updating() -> dict | None:
+    """The release the VM is moving this install onto, while it does: ``{"to": "2.1"}``.
+
+    None when nothing is updating, and also once the new version is the one answering: the
+    new container starts on the same volume a little before the script can remove the file."""
+    from olisar.runtime.paths import data_dir
+
+    try:
+        data = json.loads((data_dir() / UPDATING_FILE).read_text("utf-8"))
+        tag = str(data.get("tag") or "")
+        at = datetime.fromisoformat(str(data["at"]).replace("Z", "+00:00"))
+        age = datetime.now(timezone.utc) - at
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+    if not tag or same_version(tag, current_version()) or age > UPDATING_STALE_AFTER:
+        return None
+    return {"to": display(tag)}
 
 
 # ── channel ──────────────────────────────────────────────────────────────────
