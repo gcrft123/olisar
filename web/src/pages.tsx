@@ -165,7 +165,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
                   undefined,
                   [
                     'I said:', messages[i - 1]?.role === 'user' ? messages[i - 1].content : '(nothing)',
-                    '', 'Olisar replied:', m.content, '', 'What I expected instead:',
+                    '', `${botName()} replied:`, m.content, '', 'What I expected instead:',
                   ].join('\n'),
                 ))}>Report</button>
               )}

@@ -622,7 +622,9 @@ export function SetupWizard(
       ? { label: 'Continue', run: next, off: redirectPending }
       : mode === 'server'
         ? { label: deploying ? 'Deploying…' : 'Deploy to server', run: deployServer, off: deploying || done || (sharing && shareBusy) }
-        : { label: saving ? 'Saving…' : 'Finish & start Olisar', run: finish, off: saving }
+        // Starts the bot, not the app, which is already running. "the bot" rather than its
+        // name: the button doesn't wrap, and a Discord name can be 32 characters, no spaces.
+        : { label: saving ? 'Saving…' : 'Finish & start the bot', run: finish, off: saving }
 
   // "Connect to existing server" goes with the screen it was on, and Back comes home to the
   // first step. Either way focus would drop to the page: land on the address the connect
@@ -924,8 +926,8 @@ export function SetupWizard(
             <Field
               label="Gemini API key"
               desc={mode === 'server'
-                ? <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
-                : <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
+                ? <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
+                : <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text field="s-gemini" invalid={geminiCheck.state === 'bad' || flagged === 's-gemini'} value={gemini}
                 onChange={edit('s-gemini', setGemini)} placeholder="AQ.…" mono />
