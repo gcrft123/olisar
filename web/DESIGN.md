@@ -964,19 +964,24 @@ A single metric: an eyebrow, a big mono number, and a delta or caption under it.
 
 ### Callout (Resend-style, no eyebrow)
 
-A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn.
+A colored border + dark tinted fill + a left icon. Tones: `tip`→ok, `note`/`info`→accent, `warning`→warn, `danger`→danger.
+
+The glyph follows the tone, never the message: `tip` takes `check`, `note`/`info` take `info`, `warning` and `danger` take `warn`, all 17px Bold. A callout whose tone changes with its state (checking, then failed) changes its glyph with it. While something is running, the glyph is a `.spinner` and the tone is `note`. A callout's own action goes under its text in `.callout-actions`, never beside it.
 
 ```css
-.callout { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
+.callout { display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px; border-radius: var(--radius);
   font-size: 13.5px; line-height: 1.6;
   border: 1px solid color-mix(in srgb, var(--cc) 34%, transparent);
   background: color-mix(in srgb, var(--cc) 9%, var(--panel));
-  color: color-mix(in srgb, var(--cc) 24%, var(--text)); }
-.callout .ic { color: var(--cc); margin-top: 1px; }
+  color: color-mix(in srgb, var(--cc) 22%, var(--text)); }
+.callout .ic { color: var(--cc); margin-top: 2px; }  /* centres the 17px glyph on the first line */
+.callout-title { font-weight: 600; color: var(--text); margin-bottom: 3px; }
+.callout-actions { margin-top: 10px; }
 .callout a { color: var(--cc); text-decoration: underline; text-underline-offset: 2px; }
 .callout .linklike { color: var(--cc); }  /* an inline action ("Set a PIN") reads as a link */
 .callout.warning { --cc: var(--warn); }
-.callout.note    { --cc: var(--accent); }
+.callout.danger  { --cc: var(--danger); }
+.callout.note, .callout.info { --cc: var(--accent); }
 .callout.tip     { --cc: var(--ok); }
 ```
 
