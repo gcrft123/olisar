@@ -719,7 +719,9 @@ const INDEX_OPTS = [
 
 // What a row's settings actually mean, in a sentence, derived from the two controls beside
 // it. The mode legend answers this once at the top of the page and then scrolls out of
-// view; this answers it per channel, where the decision is made.
+// view; this answers it per channel, where the decision is made. `proactive` is whether the
+// bot speaks up on its own at all: switched on *and* at a level other than off, which is how
+// the bot reads it (bot/cogs/proactive.py) and how Behavior shows it.
 function channelEffect(mode: string, indexed: boolean, proactive: boolean): string {
   if (mode === 'off') return 'Ignored entirely.'
   const parts: string[] = []
@@ -873,7 +875,7 @@ export function Channels() {
                   <div className="list-row" key={c.channel_id}>
                     <div className="grow">
                       <div className="title">#{c.name} {c.kind === 'forum' && <span className="tag">forum</span>}</div>
-                      <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled)}</div>
+                      <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled && pro.level !== 'off')}</div>
                     </div>
                     <div className="chan-ctl mode">
                       <Select value={c.mode} options={MODE_OPTS} onChange={(v) => patchRow(c.channel_id, { mode: v })}
