@@ -396,15 +396,17 @@ async def serve_instance(
     # Auto-start the Funnel when the operator enabled it, or in a headless server
     # deployment given a Tailscale auth key — so a cloud VM publishes its …ts.net URL
     # without the loopback-only /api/tunnel/enable call.
-    # On a server the key lives in the VM's .env, which is where the control panel replaces
-    # a dead one. A copy in the database (a local→server move carries the local one over)
-    # would otherwise shadow it, and the new key would never be tried.
+    # On a server the key and the device name live in the VM's .env, which is where the
+    # control panel replaces a dead key or renames the device. A copy in the database (a
+    # local→server move carries the local one over) would otherwise shadow them, and the
+    # new value would never be tried.
     token = (settings.tunnel_token if settings.headless else "") or await runtime_config.tunnel_token()
+    node = (settings.tunnel_node if settings.headless else "") or await runtime_config.tunnel_node()
     tunnel_error = ""
     if await runtime_config.tunnel_enabled() or (settings.headless and token):
         ok, msg = await tunnel.start(
             token,
-            await runtime_config.tunnel_node() or "olisar",
+            node or "olisar",
             runtime_config.listen_url(),
             str(tailscale_state_dir()),
         )
