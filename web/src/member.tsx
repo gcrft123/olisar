@@ -553,10 +553,10 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
                   <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
                   <div className="callout-body">
                     Paused until <b className="mono">{fmtWhen(s!.pause_until!).day}, {fmtWhen(s!.pause_until!).time}</b>
+                    <div className="callout-actions">
+                      <button onClick={() => patch({ pause_hours: 0 }, { pause_until: null })}>Resume now</button>
+                    </div>
                   </div>
-                  <button className="btn ghost" onClick={() => patch({ pause_hours: 0 }, { pause_until: null })}>
-                    Resume now
-                  </button>
                 </div>
               )}
             </div>
