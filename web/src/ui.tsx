@@ -768,7 +768,7 @@ export function SaveDock(props: {
 // and we render React nodes (no dangerouslySetInnerHTML).
 function inline(text: string, key: string, onLink?: (id: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
+  const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
@@ -776,6 +776,7 @@ function inline(text: string, key: string, onLink?: (id: string) => void): React
     if (m.index > last) nodes.push(text.slice(last, m.index))
     const t = m[0]
     if (t.startsWith('**')) nodes.push(<strong key={key + i}>{t.slice(2, -2)}</strong>)
+    else if (t.startsWith('*')) nodes.push(<em key={key + i}>{t.slice(1, -1)}</em>)
     else if (t.startsWith('`')) nodes.push(<code key={key + i}>{t.slice(1, -1)}</code>)
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!
