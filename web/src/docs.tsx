@@ -1864,9 +1864,9 @@ re-publish overwrites in place, so people who already installed it won't be prom
 
 **Yank** pulls a version — or the whole extension — from the catalog. It stops appearing for everyone;
 anyone who already installed it sees a *Removed from marketplace* note but it keeps working. If an extension
-you **installed** from the marketplace is later yanked, it automatically **reverts to a plain local
-extension** — it drops the Marketplace label, keeps the capabilities you granted, and becomes publishable
-again, so you can keep using it or re-list it under your own handle.
+you **installed** from the marketplace is later yanked, it **stays installed as an imported extension**. It
+drops the Marketplace label and gets no more updates, and it keeps the capabilities you granted. It's still
+someone else's code, so it keeps the limits on third-party code too (see [Security & trust](#ext-security)).
 
 ## The verified badge
 

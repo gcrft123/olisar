@@ -528,8 +528,9 @@ whether the key in use works, not only that one is set.
 
 A value that's **applied** rather than checked gets its button on the same line: the server
 panel's replacement Tailscale key, whose button recreates the container on it and waits for the
-answer, and the device name under Settings → Remote access, whose **Rename** moves the console to a
-new address. The input takes the room and the button keeps its width. This isn't a Test button; the
+answer, the device name under Settings → Remote access, whose **Rename** moves the console to a
+new address, and the auth key the same pane asks for when no key is stored (a bot set up for this
+machine alone), whose **Turn on** starts the funnel with it. The input takes the room and the button keeps its width. This isn't a Test button; the
 press does the work, and what it found comes back as a toast. A press that breaks something people
 rely on (the rename retires the old address) asks first, in a warning Dialog that names the result.
 
@@ -1109,6 +1110,13 @@ and the skip link stays focusable behind the dialog. Render the overlay through 
 disables itself — and refcount the flag, because two stacked dialogs closing in sequence must not
 re-enable the page under the one still open.
 
+**So a dialog has to stack above everything it disables.** Anything in the app root that paints
+over the backdrop is inert with the rest of the page: it covers the dialog and swallows the clicks
+meant for it, and only Escape gets out. The backdrop sits at `z-index: 140`, above the narrow-width
+rail (130) and its backdrop (120), which Settings opens from, and the test chat drawer (101). Only
+what must stay usable over a dialog goes higher: toasts (200), the skip link (300), tooltips (400)
+and the update screen (500).
+
 ### Guarding unsaved work
 
 If the system's promise is "nothing is applied until you press Save", then every route out of a
@@ -1182,9 +1190,10 @@ Bot power, the web link, who's signed in, and Settings / Log out live in an iOS-
 
 - **Shape.** `--panel`, a `--border` hairline on three sides, `--radius` top corners, inset 8px from the rail's edges. The body's 5px padding plus the border lands its content on the rail's 14px column. The grabber is a 36×5 pill in `--border-strong`, brightening to `--text-3` on hover and focus.
 - **Layering.** The rail's content scrolls in `.sidebar-scroll`, which stops `--foot-peek` above the bottom, so the sheet stays put however far the rail is scrolled. The sheet sits in a layer over the whole rail that clips it (`overflow: clip`, not `hidden`, so nothing can scroll it into view) and lets pointers through everywhere but the sheet and an open scrim. Open, it rises over the nav, with `rgba(0,0,0,.45)` over the rest of the rail and an upward shadow, since it's floating now.
+- **Power.** Only the operator gets the power button. Any other admin sees the same row with the button drawn as a status light (`.botpower.readonly`, not focusable, no hover), and the closed row's badge reads the same for everyone.
 - **Badge.** `BOT_BADGE` in `App.tsx` maps each state `BotPower` reports onto the Badge table: `success` with `play-circle` for online, `info` with the spinner for starting, updating and stopping, `warning` with `danger-circle` for rate-limited, `warning` with `stop-circle` for switched off (the table has Offline as `warning`), `danger` with `close-circle` for refused, and `neutral` with `minus-circle` for unknown.
 - **Updating.** Only a VM's own console sees it: `deploy/olisar-update.sh` leaves `updating.json` in the container's data directory for the length of a run, and `/api/bot/status` reports it as `updating: { to }`. It reads as Starting does. The backend drops out while the new container starts, and `BotPower` keeps its last answer through that, so the drawer says Updating until the new version answers.
-- **Edge glow.** Closed, the sheet's edge takes the badge's color: a border brightest along the top and faded out down the sides by `--foot-peek`, a 5% tint, and a halo thrown up onto the rail at 45% alpha. It sits behind the head's content (`z-index: -1` in the sheet, which is `isolation: isolate`) and fades out as the sheet opens. A bot switched off, or a state nobody knows, gets none, so the edge only lights when there's something to say. While the bot starts, updates or stops, a soft light slides back and forth along the top edge, its center kept between 15% and 85% so it clears the corners. While it's rate-limited, the glow breathes. Both ease in and out, since they oscillate. Under reduced motion the slide becomes a slow breath and the breath slows to 4.8s.
+- **Edge glow.** Closed, the sheet's edge takes the badge's color: a border brightest along the top and faded out down the sides by `--foot-peek`, a 5% tint, and a halo thrown up onto the rail at 45% alpha. It sits behind the head's content (`z-index: -1` in the sheet, which is `isolation: isolate`) and fades out as the sheet opens. A bot switched off, or a state nobody knows, gets none, so the edge only lights when there's something to say. While the bot starts, updates or stops, a stretch of the border lights up and runs back and forth along it, from the foot of one side, around both top corners, to the foot of the other, running out as it passes each end. It's a dash of an SVG stroke laid on the border's centerline (`--glow-path` and `--glow-len`, traced by FootSheet from the sheet's measured width and radius and re-traced on resize), so it is the line and bends with it. A soft shape moved along the edge reads as a blob however it's steered; the line doesn't. Three strokes share one position (`--trace`, a registered number animated 0 to 1): a 96px halo, 12px wide at 40% and blurred 6px, which is most of what you see, plus a faint 1px tail (18%) and core (32%) that keep it on the line. Kept dim and soft, a glow rather than a lit wire: it says the bot is busy, not that anything needs attention. Each pass takes 1.4s, easing in and out at the ends. While it's rate-limited, the glow breathes. Both ease in and out, since they oscillate. Under reduced motion the slide becomes a slow breath and the breath slows to 4.8s.
 - **Motion.** `transform` only, `.42s var(--ease-sheet)`. Opening cross-fades the status row into the bot's card in the same place (the body is pulled up 26px under the grabber). Whichever is leaving goes first and fast; the one arriving waits `--dur-fast`, so they never sit on top of each other at half strength. Under reduced motion the sheet snaps, and the cross-fade is all that moves.
 - **Drag.** Only the head drags (`touch-action: none`); the body holds the press-and-hold power button. The sheet follows the pointer 1:1 with transitions off, and past either end it gives like an iOS overscroll, damped to 24px at most. A `::after` in the sheet's color fills the gap under it when it's pulled past open. Letting go settles on whichever end the release velocity projects to, so a short flick opens it. A velocity sampled more than 80ms before release counts as zero. Divide pointer deltas by `uiScale()`: the pointer moves in window pixels, and the sheet is measured inside the zoomed root.
 - **Dismiss.** Tap the head, tap the scrim, drag it down, or press Escape. Escape stops there, so the narrow-width rail (which also closes on Escape) stays open.
@@ -1308,6 +1317,13 @@ the difference between an operator who can answer "did that run?" and one who ca
   .act-when { grid-column: 1 / -1; }
 }
 ```
+
+**Show what it replaced.** An entry that kept its old values (`before`: a persona or behavior
+save, the PIN requirement, anything changed by asking the bot in chat) gets a **Details**
+disclosure under its line, `.act-detail`, with each changed field's Before and After as an
+eyebrow-tagged pair; one without shows its values alone. Long values scroll inside their row
+and stay selectable, because an overwritten system prompt is copied back from here. A change
+made from Discord chat says so on its own line, "Via Discord chat", in the receipt style.
 
 Two copy rules. **Translate the action names** — a stored `set_channel_indexing` is an internal
 identifier, and an operator reading their own history should not have to decode it. And **state

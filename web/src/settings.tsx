@@ -2,10 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { botName } from './botname'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds, usePoll } from './ui'
+import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, serverDate, useDraft, useFieldIds, usePoll } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
-import { BotMenu, BotsPane, useBots } from './bots'
+import { BotMenu, BotsPane, deviceNameFor, useBots } from './bots'
 import { RedirectRow } from './setup'
 import { SCALES, getScale, setScale } from './theme'
 import { openFeedback, registerFeedbackHost, type FeedbackPrefill } from './feedback'
@@ -67,10 +67,13 @@ export function clearPendingReport(): void {
 
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
 // gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
-// `prefill` opens it pre-filled from whatever screen sent the operator here.
+// `prefill` opens it pre-filled from whatever screen sent the operator here. `operator` is
+// false for a signed-in admin who isn't the operator: the tool PIN is install-wide, so it's
+// shown to them but isn't theirs to change. `noLogs` is for a sender the server attaches no
+// logs for (a refused sign-in): nothing here offers to send them.
 export function SettingsModal(
-  { onClose, sections, initialSection, report, prefill }:
-  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill },
+  { onClose, sections, initialSection, report, prefill, operator, noLogs }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill; operator?: boolean; noLogs?: boolean },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
   // so an unfiltered modal must not offer both, and the same goes for the server panel's
@@ -132,13 +135,13 @@ export function SettingsModal(
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
           {section === 'bots' && <BotsPane Head={Head} />}
-          {section === 'logs' && <Logs onReport={hasFeedback ? () => goFeedback({ category: 'Bug report', logs: true }) : undefined} />}
-          {section === 'security' && <Security />}
+          {section === 'logs' && <Logs onReport={hasFeedback && !noLogs ? (logText) => goFeedback({ category: 'Bug report', logs: true, logText }) : undefined} />}
+          {section === 'security' && <Security canEdit={operator !== false} />}
           {section === 'remote' && <Remote />}
           {section === 'server-remote' && <ServerRemote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
-          {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
+          {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={noLogs ? { ...fb.prefill, noLogs: true } : fb.prefill} />}
         </div>
     </Modal>
   )
@@ -150,7 +153,7 @@ export function SettingsModal(
 // were out of reach exactly when something was wrong.
 export const PRE_CONSOLE_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']
 
-export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: SectionId[] }) {
+export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS, noLogs }: { sections?: SectionId[]; noLogs?: boolean }) {
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<SectionId | undefined>(undefined)
   return (
@@ -159,7 +162,7 @@ export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: 
       <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setPane(undefined); setOpen(true) }}>
         <Icon.settings size={16} />
       </button>
-      {open && <SettingsModal sections={sections} initialSection={pane} onClose={() => setOpen(false)} />}
+      {open && <SettingsModal sections={sections} initialSection={pane} noLogs={noLogs} onClose={() => setOpen(false)} />}
     </>
   )
 }
@@ -168,7 +171,7 @@ export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: 
 // Bot / Funnel are read from the server VM over SSH (server-hosting mode); This app is the
 // local backend's own log buffer. Bot/Funnel return an "only for server-hosted bots" note
 // when there's no VM configured.
-function Logs({ onReport }: { onReport?: () => void }) {
+function Logs({ onReport }: { onReport?: (logText?: string) => void }) {
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
   const [source, setSource] = useState<'vm' | 'local'>('vm')
@@ -214,7 +217,9 @@ function Logs({ onReport }: { onReport?: () => void }) {
           Nobody opens the logs when things are fine, so the way to report what they show sits
           beside them, and arrives with "Add bot logs" already on. */}
       <div className="act-toolbar">
-        {onReport && <button className="ghost" onClick={onReport}>Send with a bug report</button>}
+        {/* The VM's logs go as shown: the server would attach this backend's own instead,
+            which on the desktop app's server panel is the control panel, not the bot. */}
+        {onReport && <button className="ghost" onClick={() => onReport(source === 'vm' ? text : undefined)}>Send with a bug report</button>}
         <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh logs" onClick={load}>
           <Icon.refresh size={15} />
         </button>
@@ -265,11 +270,11 @@ function reportDraft(r: { prompt?: string; when?: string; server?: string; chann
   // Same shape the Activity ledger uses: no seconds, no year. This is "which reply",
   // not a timestamp anyone reads back digit by digit.
   const when = r.when
-    ? new Date(r.when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? serverDate(r.when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
   const where = [place, when && `on ${when}`].filter(Boolean).join(' ')
   return [
-    `Olisar drew a blank${where ? ' ' + where : ''}.`,
+    `${botName()} drew a blank${where ? ' ' + where : ''}.`,
     '',
     'What I asked:',
     r.prompt || '(nothing recorded)',
@@ -284,7 +289,10 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
   const [message, setMessage] = useState(prefill?.message ?? '')
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
-  const [logsAttached, setLogsAttached] = useState(!!prefill?.logs)
+  const [logsAttached, setLogsAttached] = useState(!!prefill?.logs && !prefill?.noLogs)
+  // Logs handed over by the screen that opened this form (the server panel's VM logs). While
+  // set, "Add bot logs" attaches these rather than asking the server for its own.
+  const [logText, setLogText] = useState(prefill?.logText ?? '')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   // The parked failure this report is about, once the server confirms it's ours to claim.
@@ -340,13 +348,15 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
     if (!message.trim()) { toast('Add a message first.', 'warning'); return }
     setBusy(true)
     try {
-      const r = await api.sendFeedback({
+      const body = {
         category, message: message.trim(), email: email.trim(),
-        include_logs: logsAttached, attachments: files,
+        include_logs: logsAttached && !logText && !prefill?.noLogs, attachments: files,
+        logs: logsAttached ? logText : '',
         // Which logs to attach, not whether: the toggle above decides that. Ignored by the
         // server once the parked failure has expired or if it was never ours.
         report_token: claimed ? report || '' : '',
-      })
+      }
+      const r = await api.sendFeedback(body)
       if (r && r.emailed === false) toast('Sent, but the email didn’t go through. The team will still see it.', 'warning')
       else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
       // Filed. A refresh or a second visit in this tab shouldn't reopen it.
@@ -372,7 +382,7 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
           {/* Clears the claimed report too: the next message is a fresh one, and it must
               not quietly ship the previous failure's logs under it. */}
           <button className="ghost" onClick={() => {
-            setDone(false); setMessage(''); setFiles([]); setLogsAttached(false)
+            setDone(false); setMessage(''); setFiles([]); setLogsAttached(false); setLogText('')
             setClaimed(null); setClaimError(''); prefilled.current = ''
           }}>Send another</button>
         </div>
@@ -575,7 +585,7 @@ function PinInput(props: { value: string; onChange: (v: string) => void; label: 
   )
 }
 
-function Security() {
+function Security({ canEdit }: { canEdit: boolean }) {
   const [data, setData] = useState<any>(null)
   const [pin, setPin] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -645,12 +655,16 @@ function Security() {
               <div className="status-line">{isSet ? 'PIN set' : 'No PIN set'}</div>
               {isSet && (
                 <span className="settings-muted">
-                  {`Last changed ${data.updated_at ? new Date(data.updated_at).toLocaleString() : 'recently'}`}
+                  {`Last changed ${data.updated_at ? serverDate(data.updated_at).toLocaleString() : 'recently'}`}
                 </span>
               )}
             </div>
           </div>
 
+          {/* One PIN for the whole install, so it's the operator's to set: the API refuses
+              anyone else, and a form that could only fail isn't offered. */}
+          {!canEdit && <p className="settings-foot">Only the bot’s operator can set or change the PIN.</p>}
+          {canEdit && <>
           <div className="settings-subhead">{isSet ? 'Change the PIN' : 'Set a PIN'}</div>
           {/* Entered twice because it's masked, four characters long, and the first place a
               typo would show up is a prompt in Discord that won't accept it. */}
@@ -674,6 +688,7 @@ function Security() {
               {isSet ? 'Change PIN' : 'Set PIN'}
             </button>
           </div>
+          </>}
         </>
       )}
     </>
@@ -685,6 +700,13 @@ function Remote() {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Turning it on without a stored key: the key and the device name to use.
+  const [authKey, setAuthKey] = useState('')
+  const [node, setNode] = useState<string | null>(null)
+  // The stored key was refused (expired, revoked): ask for another rather than offer a
+  // switch that will fail the same way again.
+  const [keyRefused, setKeyRefused] = useState(false)
+  const bot = useBots().current
   const load = (notify = false) => {
     setErr(null)
     api.getRemote()
@@ -698,10 +720,16 @@ function Remote() {
   // A headless server deployment (Docker / cloud VM) starts the funnel automatically from
   // its env-configured Tailscale key — it's always on and can't be driven from the console.
   const headless = !!st?.headless
-  // The funnel can only be toggled when the bundled helper is present; flipping it on
-  // re-uses the auth key saved during first-run setup (no key → the backend tells us). Only
-  // from the operator's machine: an admin signed in over the funnel would be refused.
+  // The funnel can only be toggled when the bundled helper is present. Only from the
+  // operator's machine: an admin signed in over the funnel would be refused.
   const canToggle = !!st?.available && !!st?.helper && !headless && !!st?.local
+  // Turning it on reuses the auth key stored when it was last on. Only shared hosting asks
+  // for one in setup, so a bot set up for this machine alone has none, and the switch could
+  // only fail ("a Tailscale auth key is required") with nowhere to give one. Ask for it here.
+  const askKey = canToggle && !st?.running && (!st?.has_key || keyRefused)
+  // The device name setup would have given it: the stored one, else this bot's own name for
+  // any bot but the first, so two bots' addresses don't collide.
+  const nodeShown = node ?? (st?.node || (bot && bot.id !== 'default' ? deviceNameFor(bot.name) : 'olisar'))
   const tunnelChanged = () => {
     load()
     window.dispatchEvent(new Event('olisar:tunnel-changed'))  // refresh the sidebar card now
@@ -715,6 +743,20 @@ function Remote() {
       tunnelChanged()
     } catch (e: any) {
       toast(e?.message || 'Could not change remote access', 'danger')
+      if (on) setKeyRefused(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const turnOn = async () => {
+    setBusy(true)
+    try {
+      await api.enableTunnel({ auth_key: authKey.trim(), hostname: nodeShown.trim() })
+      toast('Remote access on', 'success')
+      setAuthKey(''); setKeyRefused(false)
+      tunnelChanged()
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t turn on remote access', 'danger')
     } finally {
       setBusy(false)
     }
@@ -735,18 +777,33 @@ function Remote() {
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button className="ghost icon-btn sm" onClick={() => load(true)} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
-              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
+              {canToggle && !askKey && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
             </div>
           </div>
           {headless ? (
             <p className="settings-foot">
               Your server manages remote access, so it’s always on and can’t be turned off from here.
             </p>
+          ) : askKey ? (
+            <>
+              <Field label="Device name" desc="The first part of the console’s address.">
+                <Text value={nodeShown} onChange={setNode} placeholder="olisar" mono />
+              </Field>
+              <Field
+                label="Tailscale auth key"
+                desc={<>Create one at <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noreferrer">Tailscale → Settings → Keys</a>. It’s stored on this machine and only handed to Tailscale.</>}
+              >
+                <div className="key-swap">
+                  <Text value={authKey} onChange={setAuthKey} placeholder="tskey-auth-…" mono />
+                  <button disabled={busy || !authKey.trim()} onClick={turnOn}>{busy ? 'Connecting…' : 'Turn on'}</button>
+                </div>
+              </Field>
+            </>
           ) : canToggle && (
             <p className="settings-foot">
               {st?.running
                 ? 'Turning it off closes the public link. You can still reach the console from this machine.'
-                : 'Turning it on publishes the console using the Tailscale key from setup.'}
+                : 'Turning it on publishes the console with the Tailscale key it used last time.'}
             </p>
           )}
           {canToggle && st?.running && isWeb && (
@@ -766,7 +823,7 @@ function Remote() {
                   ? <Badge icon="user-circle">Operator</Badge>
                   : <Badge icon="user-circle">Admin</Badge>}
                 <span className="umeta">{u.guild_count} server{u.guild_count === 1 ? '' : 's'}</span>
-                <span className="umeta">{u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</span>
+                <span className="umeta">{u.last_login ? serverDate(u.last_login).toLocaleString() : 'never'}</span>
               </div>
             ))}
           </div>
@@ -903,7 +960,11 @@ type Channel = 'stable' | 'beta'
 function Updates() {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
-  const [canSelfUpdate, setCanSelfUpdate] = useState(false)
+  // Whether pressing the button installs the update in place. It takes an app that can replace
+  // itself *and* a release with an installer for this platform: without one the desktop app
+  // opens the release page instead (desktop/updater.js installUpdate), so the button has to
+  // say Download, not "Install & restart".
+  const [inPlace, setInPlace] = useState(false)
   const [installing, setInstalling] = useState(false)
   const [channel, setChannel] = useState<Channel | null>(null)
   const du = desktopUpdates()
@@ -917,7 +978,7 @@ function Updates() {
       du ? du.check().catch(() => null) : Promise.resolve(null),
     ])
       .then(([backend, desk]: [any, any]) => {
-        setData(backend); if (desk) setCanSelfUpdate(!!desk.canSelfUpdate)
+        setData(backend); if (desk) setInPlace(!!desk.canSelfUpdate && !!desk.available?.hasInstaller)
         if (backend?.channel) setChannel(backend.channel)
         if (notify) {
           if (backend?.error) toast(backend.error, 'danger')
@@ -980,28 +1041,34 @@ function Updates() {
             hands focus back here, which a disabled button can't take. */}
         {data?.available && du && (
           <button className="primary" onClick={install}>
-            <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (canSelfUpdate ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
+            <Icon.update size={15} weight="Bold" /> {installing ? 'Installing…' : (inPlace ? `Install ${data.latest} & restart` : `Download ${data.latest}`)}
           </button>
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
-      <div className="settings-subhead">Channel</div>
-      <div className="settings-row">
-        {channel === null ? <span className="settings-muted">…</span> : (
-          <Segmented
-            className="useg"
-            ariaLabel="Update channel"
-            value={channel}
-            onChange={pickChannel}
-            options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
-          />
+      {/* Only where the desktop app is. It reads the channel before each check and carries a
+          server-hosted VM onto the release it installs, so the app decides. Anywhere else (a
+          VM's own console, a remote browser) the picker wrote a file nothing acted on. The API
+          takes it only from the operator or someone at the machine, which the bridge means. */}
+      {!!du && <>
+        <div className="settings-subhead">Channel</div>
+        <div className="settings-row">
+          {channel === null ? <span className="settings-muted">…</span> : (
+            <Segmented
+              className="useg"
+              ariaLabel="Update channel"
+              value={channel}
+              onChange={pickChannel}
+              options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
+            />
+          )}
+        </div>
+        {channel === 'stable' && isBeta(data?.current) && (
+          <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
         )}
-      </div>
-      {channel === 'stable' && isBeta(data?.current) && (
-        <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
-      )}
+      </>}
       {!du && (
-        <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
+        <p className="settings-foot">Updates are installed from the Olisar desktop app, which also picks the channel.</p>
       )}
     </>
   )

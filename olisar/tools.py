@@ -60,9 +60,10 @@ class DiscordActions(Protocol):
         components: object, ext_key: str, home_guild_id: int,
     ) -> str: ...
     # Ask the channel to confirm a gated tool call with the 4-digit PIN, and wait for the
-    # answer. Returns one of the outcome constants in olisar.toolpin.
+    # answer. `details` says what the call would do. Returns one of the outcome constants
+    # in olisar.toolpin.
     async def request_pin(
-        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
     ) -> str: ...
     # React to the message that triggered this reply and end the turn without sending
     # anything. Returns a success string, or a refusal when there's no message to react
@@ -70,13 +71,23 @@ class DiscordActions(Protocol):
     async def acknowledge(self, emoji: str) -> str: ...
 
 
-# The lookup tools, as opposed to the ones that change something. Two rules lean on the
-# distinction: the pipeline's per-reply call cap (a model left alone re-queries these with
-# reworded arguments until the iteration budget is gone), and `acknowledge` (a reply that
-# searched for something owes an answer, so silence is refused once one of these has run).
+# The search tools the pipeline caps per reply: a model left alone re-queries these with
+# reworded arguments until the iteration budget is gone.
 LOOKUP_TOOLS = frozenset(
     {"search_messages", "recall_memory", "query_knowledge", "web_search"}
 )
+
+# The tools that change something and report only whether they did. These are the only
+# ones that may come before a silent `acknowledge`, since all that's left to say after one
+# is "done". Anything else (a search, a catch-up, a presence check, the settings read, any
+# extension's tool) returns something the person asked to hear, so silence after it is
+# refused. A list of what's allowed rather than of what isn't, so a new tool starts out
+# owing an answer.
+ACTION_TOOLS = frozenset({
+    "send_dm", "send_to_channel", "remember", "remember_server_fact", "add_reminder",
+    "cancel_reminder", "set_status", "react", "generate_image", "set_dm_indexing",
+    "change_setting", "settings_action",
+})
 
 
 @dataclass
@@ -103,8 +114,17 @@ class ToolContext:
     # action, so "rename yourself and rewrite your bio" asks once rather than per call.
     pin_approved: set = field(default_factory=set)
     # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
-    # silence after a lookup; nothing else depends on the ordering yet.
+    # silence after anything but an action; nothing else depends on the ordering yet.
     tools_run: list = field(default_factory=list)
+    # The calls the model made in the turn now being run (olisar.pipeline._run_tool_loop).
+    # They all run before anyone checks for silence, so `acknowledge` won't share one.
+    batch: list = field(default_factory=list)
+    # Calls this reply that didn't go through: an action that reported a failure or
+    # errored, or any call the PIN gate refused. Silence after one would hide it.
+    failed: list = field(default_factory=list)
+    # How many audited changes the settings tools have made. A settings write that didn't
+    # add one didn't change anything (execute_tool reads it to tell success from refusal).
+    settings_writes: int = 0
     # The emoji Olisar reacted with instead of replying — set only once the reaction has
     # actually landed. Non-empty means this turn is over and nothing gets sent, so it must
     # never be set optimistically: a failed reaction that still silenced the reply would be
@@ -113,12 +133,21 @@ class ToolContext:
     # Set once open_settings has run. From then on the reply also declares the settings
     # write tools (see with_settings_tools), which are left out until then to save tokens.
     settings_open: bool = False
+    # False when this reply mustn't reach the settings tools at all (see
+    # without_settings_tools). They aren't declared then, and a call that names one anyway
+    # is refused.
+    settings_allowed: bool = True
+    # False for a reply nobody addressed to Olisar (a proactive chime-in). Search and
+    # recall then go by what @everyone can open rather than by the person it answers; see
+    # olisar.message_links.channel_filter.
+    addressed: bool = True
 
     def readable(self) -> ChannelFilter:
-        """The channels this reply's asker can open, for filtering search and recall."""
+        """The channels this reply's asker can open, for filtering search and recall. For a
+        reply nobody asked for, what @everyone can open."""
         return channel_filter(
-            self.actions, guild_id=self.cfg_guild, requester_id=self.user_id,
-            here=self.channel_id,
+            self.actions, guild_id=self.cfg_guild,
+            requester_id=self.user_id if self.addressed else 0, here=self.channel_id,
         )
 
 
@@ -404,8 +433,9 @@ _ACK_DECLARATIONS = [
             "write is a confirmation: 'done', 'got it', 'sent', 'noted', 'written down', "
             "\"i'll remember that\". Call this instead of writing one. Also use it when "
             "their message needs no answer at all: 'thanks', 'sounds good', an FYI. It ENDS "
-            "the reply, so call it last and write nothing alongside it. Never use it to "
-            "duck a question, and never to avoid saying that something failed."
+            "the reply, so call it last, on its own once the other tools' results are back, "
+            "and write nothing alongside it. Never use it to duck a question, and never to "
+            "avoid saying that something failed."
         ),
         parameters=_obj(
             {"emoji": _str("one emoji to react with, e.g. 👍 or 🔥 — defaults to 👍")}, []
@@ -437,6 +467,17 @@ def with_settings_tools(tools: list) -> list:
         return tools
     return [
         types.Tool(function_declarations=[*declared, *self_settings.WRITE_DECLARATIONS])
+    ]
+
+
+def without_settings_tools(tools: list) -> list:
+    """``tools`` minus every settings tool, read included, for a reply that mustn't see or
+    change the server's settings. Pair it with ``ToolContext.settings_allowed = False``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    return [
+        types.Tool(
+            function_declarations=[d for d in declared if d.name not in self_settings.TOOL_NAMES]
+        )
     ]
 
 
@@ -482,6 +523,27 @@ def _summarize(text: str, limit: int = 200) -> str:
 # How ``DiscordActions.set_status`` opens a success, so the status can be recorded only
 # once Discord took it.
 STATUS_OK = "status set to:"
+# How the other Discord actions open a success (bot/actions.py). Anything else they return
+# is prose about why it didn't happen.
+DM_OK = "sent a DM to"
+POSTED_OK = "Posted your message in"
+REACT_OK = "reacted with"
+
+# How each action's result opens when it went through (the settings writes are judged by
+# whether they wrote an audit row instead; see execute_tool). Any other result, like a
+# refusal or an error, is a failure, and `acknowledge` won't let silence follow one.
+_ACTION_DONE: dict[str, tuple[str, ...]] = {
+    "send_dm": (DM_OK,),
+    "send_to_channel": (POSTED_OK,),
+    "react": (REACT_OK,),
+    "set_status": (STATUS_OK,),
+    "generate_image": ("Posted the image",),
+    "remember": ("Saved",),
+    "remember_server_fact": ("Added to the server glossary", "Already in the glossary"),
+    "add_reminder": ("Reminder set",),
+    "cancel_reminder": ("Cancelled reminder",),
+    "set_dm_indexing": ("Okay", "Done"),
+}
 
 
 async def _note_activity(ctx: ToolContext, **row) -> None:
@@ -516,16 +578,28 @@ _ACK_AFTER_LOOKUP = (
     "You looked something up this turn ({tools}), so a reaction isn't an answer — you owe "
     "them what you found, or a plain admission that you found nothing. Reply normally."
 )
+_ACK_IN_BATCH = (
+    "Not reacted: acknowledge has to be a call on its own, and you made it alongside "
+    "{tools}, whose results you hadn't seen yet. Read them and answer in words."
+)
+_ACK_AFTER_FAILURE = (
+    "Not reacted: {tools} didn't go through this turn, and a reaction would hide that. "
+    "Answer in words and say plainly what didn't work."
+)
 
 
 async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     """React to the message being answered and mark the turn finished, or explain why not.
 
-    Three ways this refuses, and all three exist because the failure they prevent looks
+    Five ways this refuses, and all of them exist because the failure they prevent looks
     identical from the channel — Olisar read the message and did nothing:
 
     * nothing to react to (the ``/ask`` path builds ``BotActions``, which has no message);
-    * a lookup ran this turn, so a reaction would be the answer going missing;
+    * it shares a model turn with other calls, which all run before the reply is checked
+      for silence, so a DM that failed or a search result would go unsaid;
+    * an action didn't go through earlier in the reply (``ctx.failed``);
+    * something other than an action ran this turn (``ACTION_TOOLS``), so a reaction would
+      be the answer going missing;
     * the reaction itself didn't land, which is the one case where silence would also hide
       the reason it didn't.
 
@@ -533,7 +607,12 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     """
     if ctx.actions is None:
         return _ACK_NO_SURFACE
-    used = [name for name in ctx.tools_run if name in LOOKUP_TOOLS]
+    if len(ctx.batch) > 1:
+        others = [n for n in ctx.batch if n != "acknowledge"] or ["another acknowledge"]
+        return _ACK_IN_BATCH.format(tools=", ".join(dict.fromkeys(others)))
+    if ctx.failed:
+        return _ACK_AFTER_FAILURE.format(tools=", ".join(dict.fromkeys(ctx.failed)))
+    used = [n for n in ctx.tools_run if n not in ACTION_TOOLS and n != "acknowledge"]
     if used:
         return _ACK_AFTER_LOOKUP.format(tools=", ".join(dict.fromkeys(used)))
     picked = first_emoji(emoji) or DEFAULT_ACK_EMOJI
@@ -556,6 +635,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return await ext_handler(args, ctx)
         except Exception:
             log.exception("extension tool %s failed", name)
+            await _recover_session(ctx)
             return f"the {name} feature hit an error — tell the user you couldn't run it."
     try:
         if name == "recall_memory":
@@ -839,6 +919,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return f"Cancelled reminder #{rid}."
 
         if name in self_settings.TOOL_NAMES:
+            if not ctx.settings_allowed:
+                return "Settings aren't available here. Answer without them."
             return await self_settings.run(name, args, ctx)
 
         if name == "set_dm_indexing":
@@ -856,10 +938,27 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         return f"Unknown tool: {name}"
     except Exception:
         log.exception("tool %s failed", name)
+        await _recover_session(ctx)
         return f"Tool {name} errored."
 
 
-async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:
+async def _recover_session(ctx: ToolContext) -> None:
+    """Roll back a session a failed tool left unusable (a flush or commit that raised).
+
+    Left as it was, the next thing to touch it raised PendingRollbackError: the PIN gate on
+    the model's next call, then the reply's own commit, and no reply was sent at all. Only
+    a session in that state is rolled back. One that's still usable is left alone, so what
+    earlier calls in this reply added (a remembered fact, a reminder) still gets saved."""
+    session = ctx.session
+    if session is None or session.is_active:
+        return
+    try:
+        await session.rollback()
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't roll back after a failed tool")
+
+
+async def _confirm_with_pin(name: str, args: dict, ctx: ToolContext) -> str:
     """Put a PIN prompt in the channel and wait for it. Returns an ``olisar.toolpin``
     outcome; anything but ``APPROVED`` means the call doesn't run.
 
@@ -883,6 +982,7 @@ async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:
         guild_id=ctx.cfg_guild,
         user_id=ctx.user_id,
         timeout=float(state.timeout_sec),
+        details=toolpin.describe(name, args),
     )
 
 
@@ -892,14 +992,27 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
     action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
     if action and action not in ctx.pin_approved:
-        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, ctx)
+        outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, args, ctx)
         if outcome != toolpin.APPROVED:
             ctx.pin_denied[action] = outcome
+            ctx.failed.append(name)
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)
             return toolpin.denial_note(name, outcome)
         ctx.pin_approved.add(action)
     # Recorded after the PIN gate, so a call that never ran doesn't count as one that did.
     ctx.tools_run.append(name)
+    writes = ctx.settings_writes
     result = await _dispatch(name, args, ctx)
     log.info("tool result: %s -> %s", name, _summarize(result))
+    if name in ACTION_TOOLS and not _went_through(name, result, ctx.settings_writes > writes):
+        ctx.failed.append(name)
     return result
+
+
+def _went_through(name: str, result: str, wrote_settings: bool) -> bool:
+    """Whether an action tool's call did what it was asked. The settings writes add an
+    audit row for every change they make, so that's their test; the rest report success
+    in a fixed form (``_ACTION_DONE``)."""
+    if name in self_settings.TOOL_NAMES:
+        return wrote_settings
+    return str(result or "").startswith(_ACTION_DONE.get(name, ()))

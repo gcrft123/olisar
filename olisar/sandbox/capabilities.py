@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar import runtime_keys
 from olisar.db.models import ExtensionKV, ExtensionState, KBSource, KBSourceType, KBStatus, utcnow
 from olisar.memory.facts import upsert_facts
+from olisar.message_links import ChannelFilter
 from olisar.persona import strip_breaks
 
 log = logging.getLogger("olisar.sandbox.capabilities")
@@ -123,6 +124,13 @@ class Invocation:
     # First-party (built-in or locally-authored) vs. third-party (imported/marketplace).
     # Third-party code is barred from the host's configured secrets regardless of grants.
     trusted: bool = False
+    # For a run someone set off (a slash command, a button click, a tool in a reply to
+    # them): which channels that person can open, the same check message search uses
+    # (olisar.message_links.channel_filter). None for runs nobody invoked, such as a
+    # member-join hook.
+    readable: ChannelFilter | None = None
+    # A tool running in a reply to a DM.
+    in_dm: bool = False
     # Host-side blob store (shared with the Discord bridge for FileOut blobId resolution).
     blobs: dict[str, BlobRecord] = field(default_factory=dict)
     blob_seq: int = 0
@@ -585,7 +593,12 @@ async def _generate(inv: Invocation, opts: dict) -> str:
     by ``pipeline.channel_task_prompt`` from the channel's transcript, name and topic and
     the server's standing memory. That is first-party only, like host.secret. The model
     will repeat what it was shown if asked, so a third-party extension holding ``fetch``
-    could have it read out a staff channel and send the text anywhere."""
+    could have it read out a staff channel and send the text anywhere.
+
+    For the same reason, when someone set the run off (a command, a button, a tool in a
+    reply to them) the channel has to be one they can open, and a DM can't name one: a
+    member mustn't get a staff channel read back to them by asking for it. A hook nobody
+    invoked, like Welcome's member join, writes for the channel the operator configured."""
     _require(inv, "model.generate")
     opts = opts or {}
     task = str(opts.get("task") or "").strip()
@@ -609,11 +622,16 @@ async def _generate(inv: Invocation, opts: dict) -> str:
                 "host.generate can't take a channelId here — writing from a channel's "
                 "conversation is limited to built-in and locally-authored extensions"
             )
+        if inv.in_dm:
+            raise PermissionError_("host.generate can't take a channelId in a DM")
         if inv.session is None:
             raise RuntimeError("channel context isn't available here")
         from olisar.pipeline import channel_task_prompt
 
         channel_id, name, topic = await _guild_channel(inv, channel_ref)
+        # Refused like a channel that doesn't exist, so asking can't confirm one is there.
+        if inv.readable is not None and channel_id not in await inv.readable({channel_id}):
+            raise ValueError(f"there's no channel {channel_ref} in this server")
         system, contents = await channel_task_prompt(
             inv.session, guild_id=inv.guild_id, channel_id=channel_id,
             channel_name=name, channel_topic=topic, task=task, runtime_note=note,

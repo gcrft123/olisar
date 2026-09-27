@@ -20,6 +20,7 @@ const https = require('https')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
 const { spawn, execFile } = require('child_process')
 const { app, dialog, shell, Notification } = require('electron')
 
@@ -32,7 +33,9 @@ let available = null        // the newest update found, or null
 let notifiedVersion = null  // suppress repeat background prompts for the same version
 let installing = false      // an update download/swap is in progress
 let progress = null         // what the window's update screen shows, or null when there's none
-let abortDownload = null    // calls off the download, the one step that can be undone
+let abortDownload = null    // calls off the download, the one step the screen's Cancel reaches
+let abortInstall = null     // calls off the whole install, until it commits (see abandonInstall)
+let installRun = null       // settles once the running install has finished or been put back
 let getMainWindow = () => null
 let showWindow = () => {}   // main.js: show the dashboard window, creating it if it's gone
 let stopBackend = async () => {}  // main.js: stop the backend (and every bot) and wait for it
@@ -163,6 +166,10 @@ async function fetchUpdate() {
     downloadUrl: asset ? asset.browser_download_url : (rel.html_url || RELEASES_PAGE),
     pageUrl: rel.html_url || RELEASES_PAGE,
     hasInstaller: !!asset,
+    // What the installer should be, per GitHub: its size, and "sha256:<hex>" (assets uploaded
+    // before GitHub started recording digests have none). The download is checked against both.
+    size: (asset && asset.size) || 0,
+    digest: (asset && asset.digest) || null,
   }
 }
 
@@ -171,7 +178,8 @@ async function fetchUpdate() {
 function getAvailableUpdate() { return available }
 function isInstalling() { return installing }
 function getProgress() { return progress }
-// Past the download there's no going back: the bots are stopping and the app is about to quit.
+// Once the bots are stopping there's no going back: the swap script or the installer has been
+// handed the update and the app is about to quit. Until then a quit calls it off.
 function isCommitted() { return !!progress && (progress.phase === 'shutdown' || progress.phase === 'restart') }
 function openDownload() { shell.openExternal(available ? available.downloadUrl : RELEASES_PAGE) }
 
@@ -204,8 +212,14 @@ async function checkForUpdates({ interactive = false } = {}) {
     }
     return null
   }
+  // In the background, a build that installs updates itself waits for the release's installer
+  // before it says anything. A release seen mid-upload used to be toasted as a download, which
+  // used up the version's one toast, so the install toast never came once the .dmg landed.
   if (interactive) promptInstall(update)
-  else if (notifiedVersion !== update.version) { notifiedVersion = update.version; toastUpdate(update) }
+  else if (notifiedVersion !== update.version && (update.hasInstaller || !canSelfUpdate())) {
+    notifiedVersion = update.version
+    toastUpdate(update)
+  }
   return update
 }
 
@@ -286,10 +300,22 @@ function step(phase, extra = {}) {
   report({ ...progress, phase, ...extra })
 }
 
-// The screen's Cancel. Only the download can be called off; after it, the install is
-// underway and stopping halfway would leave nothing to fall back on.
+// The screen's Cancel. Only the download can be called off from there; after it, the screen
+// shows the install through.
 function cancelInstall() {
   if (progress && progress.phase === 'download' && abortDownload) abortDownload()
+}
+
+// Quitting calls off an install that hasn't committed, Unpack included, and waits while it puts
+// things back: the copy stopped, the disk image detached, the half-made copy of the new app and
+// the temp files removed. A quit mid-Unpack used to exit partway through the copy and leave all
+// of that behind, or let the copy finish and start the swap script, which then reopened the app
+// that had just been quit. Returns a promise that settles once the install is undone, or null
+// when there's nothing to call off.
+function abandonInstall() {
+  if (!installing || isCommitted() || !abortInstall) return null
+  abortInstall()
+  return installRun
 }
 
 // The screen's way back to the console after a failure.
@@ -297,14 +323,19 @@ function dismissFailure() {
   if (progress && progress.phase === 'failed') report(null)
 }
 
-function execFileP(cmd, args) {
-  return new Promise((resolve, reject) =>
-    execFile(cmd, args, { maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
+// Aborting `signal` kills the command and rejects with an AbortError, once it has exited.
+function execFileP(cmd, args, signal) {
+  return new Promise((resolve, reject) => {
+    const child = execFile(cmd, args, { maxBuffer: 1 << 20, signal }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
       // The message repeats the whole command line; what went wrong is stderr's last line.
       err.detail = String(stderr || '').trim().split('\n').pop() || undefined
-      reject(err)
-    }))
+      // Node reports the abort as soon as it sends the kill. Waiting for the exit means a copy
+      // being called off has stopped writing before its half-made output is removed.
+      if (err.name === 'AbortError' && child.exitCode === null && child.signalCode === null) child.once('exit', () => reject(err))
+      else reject(err)
+    })
+  })
 }
 
 // ── what went wrong, in words ───────────────────────────────────────────────
@@ -368,6 +399,50 @@ function downloadFile(url, dest, onProgress, signal, redirects = 0) {
   })
 }
 
+function sha256(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    fs.createReadStream(file)
+      .on('error', reject)
+      .on('data', (c) => hash.update(c))
+      .on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+// Content-Length only catches a download cut short when the server sends one. A response that
+// ends by closing the connection has none, so cut off early it looked finished, and a file
+// damaged on the way looked fine too. So the file has to be the one the release lists: the
+// same size, and the same SHA-256 when GitHub has one. Anything else is deleted.
+async function verifyDownload(file, { size, digest }) {
+  const corrupted = (why) => {
+    try { fs.rmSync(file, { force: true }) } catch { /* ignore */ }
+    return plain(`The download was corrupted (${why}).`)
+  }
+  const got = fs.statSync(file).size
+  if (size && got !== size) throw corrupted(`${got} bytes of ${size}`)
+  const want = /^sha256:([0-9a-f]{64})$/i.exec(String(digest || ''))
+  if (want && (await sha256(file)) !== want[1].toLowerCase()) throw corrupted("its SHA-256 doesn't match the release's")
+}
+
+// What a called-off install throws, and the only error installUpdate reports as a cancel.
+const cancelled = () => Object.assign(new Error('The update was cancelled.'), { name: 'AbortError' })
+
+// The download step, the one the screen's Cancel reaches: fetching the installer and checking
+// it. Once the last chunk is in, the request is over and aborting it does nothing, so a Cancel
+// pressed at 100% used to be ignored and the install carried on. It's checked here when the
+// step settles instead, and wins over however the step ended: the install stops either way.
+async function download(update, dest, onDownload, signal) {
+  try {
+    await downloadFile(update.downloadUrl, dest, onDownload, signal)
+    await verifyDownload(dest, update)
+  } catch (err) {
+    if (!signal.aborted) throw err
+  } finally {
+    abortDownload = null
+  }
+  if (signal.aborted) throw cancelled()
+}
+
 // The detached script that, once this process exits, swaps the new app over the old one
 // and relaunches. Backs up the old bundle and rolls back if the move fails.
 function swapScript({ pid, newApp, target, staging, tmpRoot }) {
@@ -403,16 +478,20 @@ open "$TARGET" 2>/dev/null || true
 // or { ok: false, reason } while it's still running: 'cancelled', 'failed', 'busy', or
 // 'manual' when this build can only open the download.
 async function installUpdate(update) {
-  if (installing) return { ok: false, reason: 'busy' }
+  // Nor while the app quits: a notification clicked meanwhile would start one the quit
+  // wouldn't wait for.
+  if (installing || app.isQuitting) return { ok: false, reason: 'busy' }
   if (!canSelfUpdate() || !update || !update.hasInstaller) {
     shell.openExternal(update ? update.downloadUrl : RELEASES_PAGE)
     return { ok: false, reason: 'manual' }
   }
 
   installing = true
+  let settle
+  installRun = new Promise((resolve) => { settle = resolve })
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'olisar-upd-'))
   const ctrl = new AbortController()
-  abortDownload = () => ctrl.abort()
+  abortDownload = abortInstall = () => ctrl.abort()
   report({
     phase: 'download', steps: STEPS, version: update.version,
     current: displayVersion(app.getVersion()), received: 0, total: 0,
@@ -435,10 +514,12 @@ async function installUpdate(update) {
     return { ok: true }
   } catch (err) {
     installing = false
-    abortDownload = null
+    abortDownload = abortInstall = null
     setProgress(-1)
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch { /* ignore */ }
-    if (ctrl.signal.aborted) { report(null); return { ok: false, reason: 'cancelled' } }
+    // Only a cancel is a cancel. A step that fails after the download is a failure, even if a
+    // Cancel was pressed along the way.
+    if (err && err.name === 'AbortError') { report(null); return { ok: false, reason: 'cancelled' } }
     step('failed', {
       failedAt: progress ? progress.phase : 'download',
       error: describeFailure(err, progress ? progress.phase : 'download'),
@@ -446,13 +527,14 @@ async function installUpdate(update) {
     })
     showWindow()
     return { ok: false, reason: 'failed' }
+  } finally {
+    settle()
   }
 }
 
 // Every bot runs from the backend binary an update replaces, and each takes a moment to sign
 // out of Discord. The window stays up meanwhile, on the screen's "Shut down" step.
 async function shutDown() {
-  abortDownload = null
   step('shutdown')
   setProgress(2)
   await stopBackend()
@@ -460,10 +542,10 @@ async function shutDown() {
 
 // Windows: download the NSIS installer and run it. electron-builder's installer closes the
 // running app, installs over it, and relaunches. The temp file is left in place because the
-// installer executes from it (the OS reaps temp later).
+// installer executes from it; a later launch clears it (cleanUpLeftovers).
 async function _applyWindows(update, tmpRoot, onDownload, signal) {
   const installer = path.join(tmpRoot, 'OlisarSetup.exe')
-  await downloadFile(update.downloadUrl, installer, onDownload, signal)
+  await download(update, installer, onDownload, signal)
   // Let every bot go first, or Windows holds the files the installer is replacing open.
   await shutDown()
   spawn(installer, [], { detached: true, stdio: 'ignore' }).unref()
@@ -481,21 +563,27 @@ async function _applyMac(update, tmpRoot, onDownload, signal) {
   const staging = path.join(path.dirname(appPath), `.olisar-update-${Date.now()}`)
   let mounted = false
   try {
-    await downloadFile(update.downloadUrl, dmgPath, onDownload, signal)
-    abortDownload = null
+    await download(update, dmgPath, onDownload, signal)
     step('unpack')
     setProgress(2) // indeterminate while we swap
     fs.mkdirSync(mountPoint, { recursive: true })
+    // A quit (abandonInstall) can still call the install off here. hdiutil is left to finish
+    // either way, since one killed mid-attach can leave the image mounted with nothing to say
+    // so; the copy, the long part, is killed outright. `signal` is checked after each.
     await execFileP('hdiutil', ['attach', dmgPath, '-nobrowse', '-noverify', '-mountpoint', mountPoint])
     mounted = true
+    if (signal.aborted) throw cancelled()
     const srcApp = path.join(mountPoint, 'Olisar.app')
     if (!fs.existsSync(srcApp)) throw plain("The downloaded update doesn't contain Olisar.app.")
     fs.mkdirSync(staging, { recursive: true })
-    await execFileP('cp', ['-R', srcApp, staging]) // staging/Olisar.app
+    await execFileP('cp', ['-R', srcApp, staging], signal) // staging/Olisar.app
     await execFileP('hdiutil', ['detach', mountPoint, '-force']).catch(() => {})
     mounted = false
+    if (signal.aborted) throw cancelled()
     const newApp = path.join(staging, 'Olisar.app')
     if (!fs.existsSync(newApp)) throw plain("Couldn't copy the new version into place.")
+    // From here the install is committed: the script is started, and shutDown moves the screen
+    // to its "Shut down" step before anything else can run, so a quit no longer calls it off.
     const scriptPath = path.join(tmpRoot, 'swap.sh')
     fs.writeFileSync(scriptPath, swapScript({ pid: process.pid, newApp, target: appPath, staging, tmpRoot }), { mode: 0o755 })
     spawn('/bin/bash', [scriptPath], { detached: true, stdio: 'ignore' }).unref()
@@ -508,9 +596,46 @@ async function _applyMac(update, tmpRoot, onDownload, signal) {
   await shutDown()
 }
 
+// ── leftovers ───────────────────────────────────────────────────────────────
+// An install that fails or is called off removes its temp dir (olisar-upd-*: the download and,
+// on macOS, the disk image's mount point) and the staged copy of the new app (.olisar-update-*
+// next to this one), and on macOS the swap script removes both once it's done. One cut off by
+// a crash, a force quit or a power cut leaves them, the image possibly still mounted, and on
+// Windows the installer runs from the temp dir, so it stays too. main.js calls this at launch
+// to clear them. Anything newer than STALE_MS is left alone, since a swap script or installer
+// that's still running owns it; nothing else can be mid-install, as only one Olisar runs at a time.
+const STALE_MS = 10 * 60 * 1000
+
+// A mount point is on a different device from the directory that holds it.
+function isMountPoint(dir) {
+  try { return fs.statSync(dir).dev !== fs.statSync(path.dirname(dir)).dev } catch { return false }
+}
+
+async function cleanUpLeftovers() {
+  const found = []
+  const collect = (parent, prefix) => {
+    let names = []
+    try { names = fs.readdirSync(parent) } catch { return }
+    for (const name of names) if (name.startsWith(prefix)) found.push(path.join(parent, name))
+  }
+  collect(os.tmpdir(), 'olisar-upd-')
+  const appPath = currentAppPath()
+  if (appPath) collect(path.dirname(appPath), '.olisar-update-')
+  const cutoff = Date.now() - STALE_MS
+  for (const dir of found) {
+    try { if (fs.statSync(dir).mtimeMs > cutoff) continue } catch { continue }
+    const mnt = path.join(dir, 'mnt')
+    if (isMountPoint(mnt)) {
+      try { await execFileP('hdiutil', ['detach', mnt, '-force']) } catch { /* checked below */ }
+      if (isMountPoint(mnt)) continue // never delete into a mounted image; next launch tries again
+    }
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* next launch tries again */ }
+  }
+}
+
 module.exports = {
   init, checkForUpdates, getAvailableUpdate, openDownload, installUpdate, isInstalling, canSelfUpdate, displayVersion,
-  getProgress, isCommitted, cancelInstall, dismissFailure,
+  getProgress, isCommitted, cancelInstall, abandonInstall, dismissFailure, cleanUpLeftovers,
 }
 // Exported for unit tests only.
-module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile, describeFailure }
+module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile, verifyDownload, describeFailure }

@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { botName, setBotName } from './botname'
-import { Modal, confirmDialog, toast } from './overlays'
+import { Modal, confirmDialog, fromToasts, toast } from './overlays'
 import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, ApiKeys, Docs,
@@ -16,7 +16,7 @@ import { SHAPE } from './form'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
-import { Badge, PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
+import { Badge, PageBoundary, copyText, currentPageActions, hasDraft, hasUnsavedChanges, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 import { uiScale } from './theme'
@@ -204,7 +204,8 @@ export default function App() {
   // is hand-rolled, so it has to do the same work itself.
   useEffect(() => {
     if (!navOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    // Escape on a focused toast closes the toast, not the drawer under it.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !fromToasts(e)) setNavOpen(false) }
     const wide = window.matchMedia('(min-width: 861px)')
     const onWide = () => { if (wide.matches) setNavOpen(false) }
     const main = document.getElementById('console-main')
@@ -566,7 +567,9 @@ export default function App() {
         )}
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} invite={invite} />
-        <GetStarted guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
+        {/* Keyed by server: another server is another list, and nothing from this one's
+            (a step still folding away, a fetch in flight) may land on it. */}
+        <GetStarted key={current.id} guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -623,6 +626,7 @@ export default function App() {
           initialSection={settingsPane}
           report={report}
           prefill={feedbackPrefill}
+          operator={isOperator}
           onClose={() => {
             setSettingsOpen(false); setSettingsPane(undefined); setFeedbackPrefill(undefined)
             // Closing the sheet is a decision about this report. Reopening Settings later
@@ -793,7 +797,9 @@ function AccessDenied() {
   return (
     <div className="login">
       <div className="box wide">
-        <ScreenCorners />
+        {/* The server attaches no logs to feedback from a refused sign-in (none of this
+            install's logs are theirs), so the gear's Feedback doesn't offer them either. */}
+        <ScreenCorners noLogs />
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>
@@ -878,7 +884,13 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   // invite, or copy it for whoever manages the other server.
   const actions = invite?.available ? [
     { key: 'add', label: 'Add to a server', ic: Icon.add, run: () => { window.open(invite.url, '_blank', 'noopener'); setOpen(false) } },
-    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: () => { navigator.clipboard?.writeText(invite.url); toast('Invite link copied', 'success'); setOpen(false) } },
+    // The link goes in the failure toast, which stays up and can be selected, so it can
+    // still be copied by hand.
+    { key: 'copy', label: 'Copy invite link', ic: Icon.copy, run: async () => {
+      setOpen(false)
+      if (await copyText(invite.url)) toast('Invite link copied', 'success')
+      else toast(`Couldn’t copy the invite link: ${invite.url}`, 'danger')
+    } },
   ] : []
   // Roving focus starts on the server you're already on, so the list opens where you are.
   const optRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -1016,6 +1028,33 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
   }, [open])
   useInert(body, !open)
 
+  // The light that runs while the bot starts or stops is a stretch of the border itself: a dash
+  // of a stroke laid along the border's centerline, from the foot of the left side, around both
+  // top corners, to the foot of the right. Being the line, it bends with the corners. The path
+  // needs lengths, so it's traced from the glow's box (which covers the sheet's border), along
+  // with its length for the dash, and traced again on a resize.
+  const glow = useRef<HTMLSpanElement>(null)
+  const haloId = 'foot-halo' + useId().replace(/:/g, '')
+  useLayoutEffect(() => {
+    const el = glow.current
+    if (!el) return
+    const trace = () => {
+      const w = el.offsetWidth
+      const cs = getComputedStyle(el)
+      const h = 0.5  // half the 1px border
+      const r = Math.max(h, parseFloat(cs.borderTopLeftRadius) || 0)
+      const peek = parseFloat(cs.getPropertyValue('--foot-peek')) || 49
+      const a = `A ${r - h} ${r - h} 0 0 1`
+      el.style.setProperty('--glow-path',
+        `path('M ${h} ${peek} L ${h} ${r} ${a} ${r} ${h} L ${w - r} ${h} ${a} ${w - h} ${r} L ${w - h} ${peek}')`)
+      el.style.setProperty('--glow-len', String(2 * (peek - r) + Math.PI * (r - h) + (w - 2 * r)))
+    }
+    trace()
+    const ro = new ResizeObserver(trace)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     dragged.current = false
     if (e.button !== 0 || !sheet.current) return
@@ -1094,7 +1133,17 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
             <Badge tone={badge.tone} {...badge.glyph}>{badge.word}</Badge>
           </span>
         </button>
-        <span className="foot-glow" aria-hidden="true"><span className="foot-glow-in" /></span>
+        <span ref={glow} className="foot-glow" aria-hidden="true">
+          <span className="foot-glow-in" />
+          <svg className="foot-trace">
+            <filter id={haloId} x="-50%" y="-200%" width="200%" height="500%">
+              <feGaussianBlur stdDeviation="6" />
+            </filter>
+            <path className="foot-trace-halo" filter={`url(#${haloId})`} />
+            <path className="foot-trace-tail" />
+            <path className="foot-trace-core" />
+          </svg>
+        </span>
         <div ref={body} id={bodyId} className="foot-body">
           <BotPower onStatus={setBot} />
           <WebLink tunnel={tunnel} />
@@ -1157,7 +1206,10 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
       .catch(() => {})
   }, 15000)
 
-  if (st && st.available && st.can_power) seen.current = true
+  // Any admin gets the state; only the operator gets the switch. Waiting for a reply that
+  // could power the bot left every other admin on "Bot status unknown" for good, although
+  // /api/bot/status tells them whether it's running.
+  if (st && st.available) seen.current = true
   const known = !!st && seen.current
 
   // The VM is being moved onto a release. The backend goes away partway through, and `st`
@@ -1206,6 +1258,25 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
     )
   }
 
+  // Someone who can see the bot but not power it: the same row, with nothing to press.
+  if (!st.can_power) {
+    const note = updating ? `to ${st.updating?.to}`
+      : refused ? 'the operator can reconnect it'
+      : offline ? 'the operator can start it' : ' '
+    return (
+      <div className={'botpower readonly ' + cls + (refused ? ' refused' : '')} role="status">
+        <span className="power-btn" aria-hidden="true">
+          <svg className="power-ring" viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /></svg>
+          <Icon.bolt size={17} weight="Bold" />
+        </span>
+        <div className="botpower-text">
+          <div className="bp-status">{label}</div>
+          <div className="bp-hint">{note}</div>
+        </div>
+      </div>
+    )
+  }
+
   const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null } }
 
   async function powerDown() {
@@ -1247,6 +1318,24 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   }
   const endHold = () => { clearHold(); setPhase((p) => (p === 'holding' ? 'idle' : p)) }
   const onPointerDown = () => { didPowerDown.current = false; if (online) startHold() }
+  // The keyboard holds the same way. Enter and Space on an online bot fired a click, which
+  // does nothing there, so powering down was out of reach without a pointer. Now the first
+  // keydown starts the hold (a held key repeats; the repeats are ignored and must not click)
+  // and letting go or leaving the button cancels it. Off or refused, the key still clicks.
+  const holdKey = (e: React.KeyboardEvent) => e.key === ' ' || e.key === 'Enter'
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!holdKey(e)) return
+    if (e.repeat) { e.preventDefault(); return }
+    didPowerDown.current = false
+    if (!online) return
+    e.preventDefault()
+    startHold()
+  }
+  const onKeyUp = (e: React.KeyboardEvent) => {
+    if (!holdKey(e) || phase !== 'holding') return
+    e.preventDefault()
+    endHold()
+  }
   const onClick = () => {
     if (didPowerDown.current) { didPowerDown.current = false; return }  // swallow the post-hold release
     if (offline) powerUp()
@@ -1269,6 +1358,9 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
         onPointerUp={endHold}
         onPointerLeave={endHold}
         onPointerCancel={endHold}
+        onKeyDown={onKeyDown}
+        onKeyUp={onKeyUp}
+        onBlur={endHold}
         onClick={onClick}
       >
         <svg className="power-ring" viewBox="0 0 44 44" aria-hidden="true">
@@ -1312,11 +1404,11 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
     window.addEventListener('olisar:saved', bump)
     return () => window.removeEventListener('olisar:saved', bump)
   }, [])
-  // Another server is another list: nothing it shows was finished on screen.
-  useEffect(() => {
-    seen.current = null
-    setSpeaks(null); setGone(new Set()); setLeaving(new Set())
-  }, [guild])
+  // A step's fold-away outlives the render that started it, so it's cleared when the list
+  // goes (the list is keyed by server). Left running, a step finished just before switching
+  // servers hid the same step on the next server 1.7 seconds later.
+  const timers = useRef<number[]>([])
+  useEffect(() => () => { timers.current.forEach(clearTimeout) }, [])
   useEffect(() => {
     let alive = true
     api.getChannels()
@@ -1353,10 +1445,10 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
     if (!finished.length) return
     setLeaving((l) => new Set([...l, ...finished]))
     // Not cleared on re-render: the step has to finish going once it has started.
-    setTimeout(() => {
+    timers.current.push(window.setTimeout(() => {
       setGone((g) => new Set([...g, ...finished]))
       setLeaving((l) => new Set([...l].filter((k) => !finished.includes(k))))
-    }, STEP_LEAVE_MS)
+    }, STEP_LEAVE_MS))
   }, [doneState])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = items.filter((i) => !gone.has(i.key))
@@ -1415,11 +1507,9 @@ function WebLink({ tunnel }: { tunnel: TunnelInfo | null }) {
 
   const host = url.replace(/^https:\/\//, '')
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    } catch { /* clipboard blocked — the link is still selectable */ }
+    if (!(await copyText(url))) { toast(`Couldn’t copy the link: ${url}`, 'danger'); return }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1600)
   }
 
   return (

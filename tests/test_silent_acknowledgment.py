@@ -33,6 +33,7 @@ from olisar.memory.writer import ACK_MARKER
 from olisar.pipeline import _ALL_TOOL_KEYS, _CORE_TOOL_KEYS, _run_tool_loop, render_tools_note
 from olisar.tools import (
     ACK_OK,
+    ACTION_TOOLS,
     DEFAULT_ACK_EMOJI,
     LOOKUP_TOOLS,
     SANDBOX_TOOL_NAMES,
@@ -161,10 +162,136 @@ class NotAfterALookup(unittest.TestCase):
         asyncio.run(_acknowledge("👍", ctx))
         self.assertEqual(ctx.silent, "👍")
 
+    def test_everything_but_an_action_blocks_silence(self):
+        """The list used to name four search tools, so a catch-up, a presence check, the
+        settings read or any extension's tool could end in a reaction and no answer."""
+        for tool in ("catchup", "list_reminders", "get_user_status", "who_is_in_voice",
+                     "open_settings", "roll_dice"):
+            with self.subTest(tool=tool):
+                ctx = _ctx(_actions(f"{ACK_OK} 👍"), tools_run=["send_dm", tool, "acknowledge"])
+                self.assertIn(tool, asyncio.run(_acknowledge("👍", ctx)))
+                self.assertEqual(ctx.silent, "")
+
+    def test_the_actions_are_real_tools(self):
+        """A misspelt name here would quietly refuse silence after that action."""
+        from olisar import self_settings, tools
+
+        declared = {d.name for d in tools._DECLARATIONS}
+        declared |= {d.name for d in self_settings.WRITE_DECLARATIONS}
+        self.assertLessEqual(ACTION_TOOLS, declared)
+        self.assertFalse(ACTION_TOOLS & LOOKUP_TOOLS)
+
     def test_the_reaction_is_never_attempted_after_a_lookup(self):
         actions = _actions(f"{ACK_OK} 👍")
         asyncio.run(_acknowledge("👍", _ctx(actions, tools_run=["web_search"])))
         actions.acknowledge.assert_not_awaited()
+
+
+class OnItsOwn(unittest.TestCase):
+    """Every call in one model turn runs before the loop looks at ``ctx.silent``, so an
+    acknowledge next to other calls went silent over their results: a DM that failed got a
+    reaction and no word of it, and a search in the same turn was run and never said."""
+
+    def test_refused_when_it_shares_a_turn(self):
+        actions = _actions(f"{ACK_OK} 👍")
+        ctx = _ctx(actions)
+        ctx.batch = ["send_dm", "acknowledge"]
+        result = asyncio.run(_acknowledge("👍", ctx))
+        self.assertIn("send_dm", result)
+        self.assertEqual(ctx.silent, "")
+        actions.acknowledge.assert_not_awaited()
+
+    def _loop(self, first_turn, *, dm_result="sent a DM to mika"):
+        """One model turn making ``first_turn``'s calls, then one answering in words."""
+        client = MagicMock()
+        resp = _resp_with_calls(*first_turn)
+        client.generate_with_tools = AsyncMock(side_effect=[resp, MagicMock(text="in words")])
+        actions = _actions(f"{ACK_OK} 👍")
+        actions.send_dm = AsyncMock(return_value=dm_result)
+        ctx = _ctx(actions)
+        search = AsyncMock(return_value="rook posted the invite link")
+        with patch("olisar.pipeline.get_gemini", return_value=client), patch(
+            "olisar.tools.search_messages", new=search
+        ), patch(
+            "olisar.pipeline._complete_truncated", new=AsyncMock(side_effect=lambda *a: a[-1])
+        ):
+            out = asyncio.run(_run_tool_loop([], "sys", None, ctx, blank_fallback="blank"))
+        return out, ctx, actions, search
+
+    def test_a_failed_dm_next_to_it_gets_words_not_a_reaction(self):
+        out, ctx, actions, _ = self._loop(
+            [_call("send_dm", message="hi"), _call("acknowledge", emoji="👍")],
+            dm_result="can't DM mika — their DMs are closed to me",
+        )
+        self.assertEqual((out, ctx.silent), ("in words", ""))
+        actions.acknowledge.assert_not_awaited()
+
+    def test_a_search_next_to_it_still_gets_answered(self):
+        out, ctx, actions, search = self._loop(
+            [_call("acknowledge", emoji="👍"), _call("search_messages", query="invite")]
+        )
+        search.assert_awaited_once()
+        self.assertEqual((out, ctx.silent), ("in words", ""))
+        actions.acknowledge.assert_not_awaited()
+
+
+class NotAfterAFailure(unittest.TestCase):
+    """An action that didn't go through, earlier in the reply, owes the person a word."""
+
+    def _run(self, name: str, result: str, *, writes: bool = False):
+        from olisar.tools import execute_tool
+
+        ctx = _ctx(_actions(f"{ACK_OK} 👍"))
+
+        async def dispatch(_name, _args, c):
+            if writes:
+                c.settings_writes += 1
+            return result
+
+        with patch("olisar.tools._dispatch", new=dispatch), patch(
+            "olisar.tools.toolpin.gate", new=AsyncMock(return_value="")
+        ):
+            asyncio.run(execute_tool(name, {}, ctx))
+        return ctx
+
+    def test_a_reported_failure_is_recorded_and_blocks_silence(self):
+        ctx = self._run("send_dm", "can't DM mika — their DMs are closed to me")
+        self.assertEqual(ctx.failed, ["send_dm"])
+        self.assertIn("send_dm", asyncio.run(_acknowledge("👍", ctx)))
+        self.assertEqual(ctx.silent, "")
+
+    def test_a_success_is_not(self):
+        for name, result in [
+            ("send_dm", "sent a DM to mika"),
+            ("send_to_channel", "Posted your message in #general."),
+            ("remember", "Saved to memory: likes trains"),
+            ("add_reminder", "Reminder set for 2026-09-28 09:00 UTC: stand-up"),
+        ]:
+            with self.subTest(name=name):
+                self.assertEqual(self._run(name, result).failed, [])
+
+    def test_a_settings_write_counts_only_if_it_changed_something(self):
+        self.assertEqual(self._run("change_setting", "name: Olisar → Rook.", writes=True).failed, [])
+        refused = self._run("change_setting", "context_message_limit not changed: out of range.")
+        self.assertEqual(refused.failed, ["change_setting"])
+
+    def test_every_action_has_a_way_to_tell(self):
+        from olisar import self_settings
+        from olisar.tools import _ACTION_DONE
+
+        self.assertEqual(set(_ACTION_DONE) | (self_settings.TOOL_NAMES - {"open_settings"}),
+                         set(ACTION_TOOLS))
+
+    def test_a_call_the_pin_refused_blocks_silence(self):
+        from olisar import toolpin
+        from olisar.tools import execute_tool
+
+        ctx = _ctx(_actions(f"{ACK_OK} 👍"))
+        with patch("olisar.tools.toolpin.gate", new=AsyncMock(return_value="react")), patch(
+            "olisar.tools._confirm_with_pin", new=AsyncMock(return_value=toolpin.REFUSED)
+        ):
+            asyncio.run(execute_tool("react", {"emoji": "👍"}, ctx))
+        self.assertEqual(ctx.failed, ["react"])
 
 
 class TheLoopStopsThere(unittest.TestCase):

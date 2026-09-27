@@ -10,6 +10,7 @@ reconnecting only restarts a bot Discord will now let in.
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -106,6 +107,42 @@ class ConnectWatchdogTests(unittest.IsolatedAsyncioTestCase):
         sup, bot, inspect = await self._watch(["members"], ready=True)
         inspect.assert_not_awaited()
         bot.close.assert_not_awaited()
+
+    async def test_asks_again_when_discord_cant_answer(self) -> None:
+        """One failed lookup (rate limited, a 5xx, a blip) used to end the watch, and the
+        bot went on identifying until Discord reset its token."""
+        sup = BotSupervisor()
+        sup.connect_grace = 0
+        sup.ask_again_after = (0, 0)
+        bot = SimpleNamespace(is_ready=lambda: False, is_closed=lambda: False, close=AsyncMock())
+        inspect = AsyncMock(side_effect=[
+            OSError("429"), RuntimeError("502"), OSError("reset"),
+            {"id": "1500", "intents_missing": ["members"]},
+        ])
+        with patch("olisar.discord_app.inspect", inspect):
+            await asyncio.wait_for(sup._watch_connect(bot, "tok"), 5)
+        self.assertEqual(inspect.await_count, 4)
+        bot.close.assert_awaited_once()
+        self.assertEqual(sup._error["missing"], ["members"])
+
+    async def test_stops_asking_once_the_bot_is_in_or_stopped(self) -> None:
+        for field in ("ready", "closed"):
+            sup = BotSupervisor()
+            sup.connect_grace = 0
+            sup.ask_again_after = (0,)
+            state = {"ready": False, "closed": False}
+            bot = SimpleNamespace(
+                is_ready=lambda: state["ready"], is_closed=lambda: state["closed"], close=AsyncMock(),
+            )
+
+            async def unavailable(_token, field=field):
+                state[field] = True  # it gets there while Discord can't be asked
+                raise OSError("503")
+
+            with patch("olisar.discord_app.inspect", unavailable):
+                await asyncio.wait_for(sup._watch_connect(bot, "tok"), 5)
+            bot.close.assert_not_awaited()
+            self.assertIsNone(sup._error, field)
 
 
 if __name__ == "__main__":

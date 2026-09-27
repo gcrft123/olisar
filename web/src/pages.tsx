@@ -4,10 +4,10 @@ import { api } from './api'
 import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
-import { Modal, confirmDialog, promptDialog, toast } from './overlays'
+import { Modal, confirmDialog, fromToasts, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
-import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
+import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, serverDate, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
 
 export function PageHead(props: { icon: IconName; title: string; sub?: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -165,7 +165,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
                   undefined,
                   [
                     'I said:', messages[i - 1]?.role === 'user' ? messages[i - 1].content : '(nothing)',
-                    '', 'Olisar replied:', m.content, '', 'What I expected instead:',
+                    '', `${botName()} replied:`, m.content, '', 'What I expected instead:',
                   ].join('\n'),
                 ))}>Report</button>
               )}
@@ -229,7 +229,8 @@ function TestChatDrawer() {
     return () => { obs.disconnect(); mq.removeEventListener('change', check) }
   }, [])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    // Escape on a focused toast closes the toast, not the drawer under it.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !fromToasts(e)) setOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -262,7 +263,8 @@ function TestChatDrawer() {
     const first = el?.querySelector<HTMLElement>('textarea, input, button')
     ;(first ?? el)?.focus()
     const onTab = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || !el) return
+      // Tab in the toast stack walks the toasts, as it does over a Modal.
+      if (e.key !== 'Tab' || !el || fromToasts(e)) return
       const items = [...el.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')]
         .filter((n) => n.offsetParent !== null || n === document.activeElement)
       if (!items.length) return
@@ -340,7 +342,15 @@ export function Behavior() {
   const { data: models } = modelsQ
   const proEd = useEditable<any>(api.getProactivity)
   const saver = useSaver(async () => {
-    const cfg = configEd.data
+    // Only what this page edits. GET /api/config also carries the Access page's settings,
+    // and sending them back put this tab's copy over whatever was saved there since it
+    // loaded: an admin enabling the PIN on Access had it turned off again by a Behavior save
+    // open in another tab.
+    const {
+      pin_actions: _pin, allowed_role_ids: _allow, blocked_role_ids: _block,
+      member_portal_enabled: _portal, member_portal_show_persona: _portalPersona,
+      remote_access_configured: _remote, ...cfg
+    } = configEd.data
     await api.putConfig({
       ...cfg,
       name_triggers: typeof cfg.name_triggers === 'string'
@@ -565,7 +575,10 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
   // is "This channel's mode is **{mode}**." — and printing the asterisks made the preview
   // wrong on five of fourteen replies. A preview that is 95% faithful is worse than none,
   // because the 5% is the part nobody thinks to check.
-  const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|`[^`\n]+`|~~[^~]+~~)/g)
+  //
+  // `__x__` is underline in Discord, not bold, and a slot can sit inside it: `[^_]` alone
+  // stopped at the first underscore of `{user_name}` and the pair never matched.
+  const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__(?:\{[a-z_]+\}|[^_])+?__|`[^`\n]+`|~~[^~]+~~)/g)
   // A slot inside bold or italics is still a slot: "**{mode}**" rendered as bold text alone.
   const slots = (s: string) => s.split(/(\{[a-z_]+\})/gi).map((seg, i) =>
     /^\{[a-z_]+\}$/i.test(seg) ? <span className="dcp-slot" key={i}>{seg}</span> : seg)
@@ -586,7 +599,7 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
               ? parts.map((seg, i) => {
                   if (/^\{[a-z_]+\}$/i.test(seg)) return <span className="dcp-slot" key={i}>{seg}</span>
                   if (/^\*\*[^*]+\*\*$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
-                  if (/^__[^_]+__$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
+                  if (/^__(?:\{[a-z_]+\}|[^_])+__$/i.test(seg)) return <u key={i}>{slots(seg.slice(2, -2))}</u>
                   if (/^\*[^*\n]+\*$/.test(seg)) return <i key={i}>{slots(seg.slice(1, -1))}</i>
                   if (/^~~[^~]+~~$/.test(seg)) return <s key={i}>{slots(seg.slice(2, -2))}</s>
                   if (/^`[^`\n]+`$/.test(seg)) return <code className="dcp-code" key={i}>{seg.slice(1, -1)}</code>
@@ -711,7 +724,9 @@ const INDEX_OPTS = [
 
 // What a row's settings actually mean, in a sentence, derived from the two controls beside
 // it. The mode legend answers this once at the top of the page and then scrolls out of
-// view; this answers it per channel, where the decision is made.
+// view; this answers it per channel, where the decision is made. `proactive` is whether the
+// bot speaks up on its own at all: switched on *and* at a level other than off, which is how
+// the bot reads it (bot/cogs/proactive.py) and how Behavior shows it.
 function channelEffect(mode: string, indexed: boolean, proactive: boolean): string {
   if (mode === 'off') return 'Ignored entirely.'
   const parts: string[] = []
@@ -865,7 +880,7 @@ export function Channels() {
                   <div className="list-row" key={c.channel_id}>
                     <div className="grow">
                       <div className="title">#{c.name} {c.kind === 'forum' && <span className="tag">forum</span>}</div>
-                      <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled)}</div>
+                      <div className="meta">{channelEffect(c.mode, c.indexed !== false, !!pro?.enabled && pro.level !== 'off')}</div>
                     </div>
                     <div className="chan-ctl mode">
                       <Select value={c.mode} options={MODE_OPTS} onChange={(v) => patchRow(c.channel_id, { mode: v })}
@@ -1333,6 +1348,65 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
   )
 }
 
+// An audit value as the console would show it, not as JSON: a switch reads On or Off, a
+// list is its items, and nothing is "(empty)" rather than a blank line.
+function actValue(v: unknown): string {
+  if (v === null || v === undefined || v === '') return '(empty)'
+  if (typeof v === 'boolean') return v ? 'On' : 'Off'
+  if (typeof v === 'number') return v.toLocaleString()
+  if (Array.isArray(v)) return v.length ? v.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ') : '(none)'
+  if (typeof v === 'object') return JSON.stringify(v)
+  return String(v)
+}
+
+const plainObject = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null
+
+// The counts a destructive action leaves: `{counts: {...}}`, or clear_memory's own flat map of
+// numbers. Either is a receipt, not a change to show field by field.
+function countsOf(after: unknown): Record<string, unknown> | null {
+  const a = plainObject(after)
+  if (!a) return null
+  const nested = plainObject(a.counts)
+  if (nested) return nested
+  const values = Object.values(a)
+  return values.length && values.every((v) => typeof v === 'number') ? a : null
+}
+
+// What an entry changed, collapsed under its line. A save that wrote over something (a
+// system prompt rewritten from chat, a PIN requirement switched off) keeps what it replaced
+// as `before`, and this is the one place an operator can read it back and put it back.
+function ActDetail({ before, after }: { before: unknown; after: unknown }) {
+  const b = plainObject(before)
+  // A flat map of counts is all receipt; nested ones sit beside other values worth showing.
+  const all = plainObject(after)
+  const a = all && countsOf(all) === all && !b ? null : all
+  const keys = [...new Set([...Object.keys(b ?? {}), ...Object.keys(a ?? {})])].filter((k) => k !== 'counts')
+  if (!keys.length) return null
+  const name = (k: string) => { const t = k.replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1) }
+  return (
+    <details className="act-detail">
+      <summary>
+        <span className="disclosure-chev" aria-hidden="true">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 6l6 6-6 6" /></svg>
+        </span>
+        Details
+      </summary>
+      <dl className="act-diff">
+        {keys.map((k) => (
+          <div key={k}>
+            <dt>{name(k)}</dt>
+            {b ? <>
+              <dd><span className="act-tag">Before</span><span className="act-text">{k in b ? actValue(b[k]) : '(empty)'}</span></dd>
+              <dd><span className="act-tag">After</span><span className="act-text">{a && k in a ? actValue(a[k]) : '(empty)'}</span></dd>
+            </> : <dd className="solo"><span className="act-text">{actValue(a?.[k])}</span></dd>}
+          </div>
+        ))}
+      </dl>
+    </details>
+  )
+}
+
 // The counts a destructive action reports are the most consequential receipt in the
 // product, and until now they existed for 3.6 seconds inside a toast. record_audit has
 // been writing them to audit_log all along; this reads it back.
@@ -1345,14 +1419,16 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   const entries: any[] = data?.entries ?? []
   const when = (ts: string | null) => {
     if (!ts) return ''
-    const d = new Date(ts)
+    const d = serverDate(ts)
     return isNaN(+d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
   // clear_memory stores its deleted-row counts in `after`; other actions carry other
-  // shapes, so render whatever numbers are there rather than assuming a schema.
+  // shapes, so render whatever numbers are there rather than assuming a schema. Only the
+  // fixture nested them under `counts`: the real clear_memory stores the map itself, so its
+  // receipt never showed.
   const receipt = (after: any): string => {
-    const counts = after?.counts
-    if (!counts || typeof counts !== 'object') return ''
+    const counts = countsOf(after)
+    if (!counts) return ''
     return Object.entries(counts)
       .filter(([, v]) => typeof v === 'number' && v > 0)
       .map(([k, v]) => `${(v as number).toLocaleString()} ${k}`)
@@ -1369,6 +1445,10 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
       <span className="act-what">
         {e.label}
         {receipt(e.after) && <span className="act-receipt">{receipt(e.after)}</span>}
+        {/* A member asked the bot to change it, from Discord. Otherwise it's a console change,
+            and nothing in the row said which. */}
+        {e.via === 'chat' && <span className="act-receipt">Via Discord chat</span>}
+        <ActDetail before={e.before} after={e.after} />
       </span>
       <span className="act-who">{e.actor}</span>
     </div>
@@ -1680,9 +1760,9 @@ function span(ms: number): string {
 // question a schedule creates — whether the thing is actually running.
 function sourceMeta(s: any): string {
   const bits = [String(s.type), `${s.chunks} chunks`]
-  const checked = s.last_checked_at ? Date.parse(s.last_checked_at) : NaN
+  const checked = s.last_checked_at ? serverDate(s.last_checked_at).getTime() : NaN
   if (Number.isFinite(checked)) bits.push(`checked ${span(Date.now() - checked)} ago`)
-  const next = s.refresh_hours > 0 && s.next_refresh_at ? Date.parse(s.next_refresh_at) : NaN
+  const next = s.refresh_hours > 0 && s.next_refresh_at ? serverDate(s.next_refresh_at).getTime() : NaN
   if (Number.isFinite(next)) {
     const due = next - Date.now()
     bits.push(due <= 0 ? 'next read due' : `next read in ${span(due)}`)
@@ -2656,9 +2736,10 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   // Per-marketplace-extension update/yank status, and per-authored-extension publish
   // status (is it live, are there unpushed local changes). Fetched once; few extensions.
   const reloadPubStatus = () => { api.marketplacePublished().then(setPubStatus).catch(() => {}) }
-  // A yanked/removed marketplace extension is reverted to a local one server-side (so it
-  // loses the Marketplace label and can be re-published). When that happens, drop its stale
-  // marketplace status and refresh the catalog + publish status so the change shows.
+  // A yanked/removed marketplace extension is kept server-side as an imported one: it loses
+  // the Marketplace label but stays untrusted third-party code, under the same limits as any
+  // import. When that happens, drop its stale marketplace status and refresh the catalog +
+  // publish status so the change shows.
   const reloadMktStatus = () => api.marketplaceInstalled().then((s: Record<string, any>) => {
     const detached = Object.keys(s).filter((k) => s[k]?.detached)
     if (detached.length) {
@@ -3056,7 +3137,8 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
-  try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) } catch { return '—' }
+  const d = serverDate(iso)
+  return isNaN(+d) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 export function Members() {

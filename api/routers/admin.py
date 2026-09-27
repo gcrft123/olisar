@@ -161,12 +161,17 @@ async def put_persona(body: PersonaIn, gctx: GuildContext = Depends(require_guil
         if p is None:
             p = Persona(guild_id=gctx.guild_id)
             session.add(p)
+        # What each changed field held before, so the Activity log can show it and an
+        # overwritten system prompt can be put back. A chat edit records the same.
+        changed = {k: v for k, v in data.items() if getattr(p, k, None) != v}
+        before = {k: getattr(p, k, None) for k in changed}
         _apply(p, data)
         p.updated_by = gctx.admin.discord_user_id
-        await record_audit(
-            session, actor=gctx.admin.discord_user_id, action="update_persona",
-            target_type="persona", target_id=gctx.guild_id, after=data,
-        )
+        if changed:
+            await record_audit(
+                session, actor=gctx.admin.discord_user_id, action="update_persona",
+                target_type="persona", target_id=gctx.guild_id, before=before, after=changed,
+            )
     # The profile bio is the bot's bot-wide Application Description (About Me), so it
     # can only be driven by one persona — the home/target guild's. Apply it live when
     # that guild's persona is saved; other guilds keep the field as a stored draft.
@@ -231,17 +236,17 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
         }
 
 
+def _same(old, new) -> bool:
+    """Whether a stored config value already equals the submitted one. Role ids are stored
+    as ints by older rows and strings by newer ones, so lists compare element-wise as text."""
+    if isinstance(old, list) and isinstance(new, list):
+        return [str(v) for v in old] == [str(v) for v in new]
+    return old == new
+
+
 @router.put("/config")
 async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_admin)):
     data = body.model_dump(exclude_unset=True)
-    # The member portal is for people who are not at this machine, and the console is
-    # loopback-only until remote access is configured. Enabling it without that produces a
-    # door whose URL no member can open, so refuse rather than store a setting that lies.
-    if data.get("member_portal_enabled") and not await runtime_config.remote_access_configured():
-        raise HTTPException(
-            status_code=400,
-            detail="turn on remote access first — members can't reach a loopback-only console",
-        )
     pin_actions = data.pop("pin_actions", None)
     if pin_actions is not None:
         unknown = sorted(set(pin_actions) - set(toolpin.ACTIONS))
@@ -252,23 +257,45 @@ async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_
         if c is None:
             c = GuildConfig(guild_id=gctx.guild_id)
             session.add(c)
-        if pin_actions is not None:
-            # Its own audit entry, with what it replaced: switching the PIN off for an
-            # action is a security change, and "Changed behavior settings" would bury it.
-            before = sorted(c.pin_actions or [])
-            c.pin_actions = sorted(set(pin_actions))
-            await record_audit(
-                session, actor=gctx.admin.discord_user_id, action="set_pin_actions",
-                target_type="guild_config", target_id=gctx.guild_id,
-                before={"pin_actions": before}, after={"pin_actions": c.pin_actions},
+        # Only what actually changes is written and audited. Pages send more than they edit
+        # (a stale tab sends everything it loaded), and applying a field that was already
+        # stored rewrote whatever another admin had saved there in the meantime, and logged a
+        # change nobody made: every Behavior save said "Changed what needs the PIN".
+        changed = {k: v for k, v in data.items() if not _same(getattr(c, k, None), v)}
+        # The member portal is for people who are not at this machine, and the console is
+        # loopback-only until remote access is configured. Enabling it without that produces
+        # a door whose URL no member can open, so refuse rather than store a setting that
+        # lies. Only when it's being turned on: re-sending a stored True isn't a new door.
+        if changed.get("member_portal_enabled") and not await runtime_config.remote_access_configured():
+            raise HTTPException(
+                status_code=400,
+                detail="turn on remote access first — members can't reach a loopback-only console",
             )
-        if data:
-            _apply(c, data)
+        touched = False
+        if pin_actions is not None:
+            before = sorted(c.pin_actions or [])
+            after = sorted(set(pin_actions))
+            if after != before:
+                # Its own audit entry, with what it replaced: switching the PIN off for an
+                # action is a security change, and "Changed behavior settings" would bury it.
+                c.pin_actions = after
+                touched = True
+                await record_audit(
+                    session, actor=gctx.admin.discord_user_id, action="set_pin_actions",
+                    target_type="guild_config", target_id=gctx.guild_id,
+                    before={"pin_actions": before}, after={"pin_actions": after},
+                )
+        if changed:
+            before = {k: getattr(c, k, None) for k in changed}
+            _apply(c, changed)
+            touched = True
             await record_audit(
                 session, actor=gctx.admin.discord_user_id, action="update_config",
-                target_type="guild_config", target_id=gctx.guild_id, after=data,
+                target_type="guild_config", target_id=gctx.guild_id,
+                before=before, after=changed,
             )
-        c.version = (c.version or 1) + 1
+        if touched:
+            c.version = (c.version or 1) + 1
     return {"ok": True}
 
 

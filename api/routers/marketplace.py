@@ -200,23 +200,26 @@ async def install(
 
 # ── updates & revocation ────────────────────────────────────────────────────
 async def _detach_from_marketplace(keys: list[str], actor: int | None) -> None:
-    """A yanked/removed marketplace extension reverts to a plain *local* extension: it keeps
-    working and its granted capabilities, but sheds its 'Marketplace' provenance so it stops
-    advertising a marketplace link it no longer has — and becomes publishable again, so the
-    operator can re-list it under their own handle."""
+    """A yanked/removed marketplace extension becomes a plain *imported* extension: it keeps
+    working with its granted capabilities, but sheds its 'Marketplace' provenance so it stops
+    advertising a marketplace link it no longer has.
+
+    It must never become ``local``: that's the trusted origin (host secrets, member-join
+    hooks, reading a channel's conversation), and a publisher can yank their own listing
+    whenever they like. The code is still someone else's, so it stays untrusted."""
     changed = False
     async with session_scope() as session:
         for key in keys:
             pkg = await session.get(ExtensionPackage, key)
             if pkg is None or pkg.origin != "marketplace":
                 continue
-            pkg.origin = "local"
+            pkg.origin = "imported"
             pkg.marketplace_ref = None
             changed = True
             await record_audit(
                 session, actor=actor, action="detach_extension",
                 target_type="extension_package", target_id=key,
-                after={"origin": "local", "reason": "yanked from marketplace"},
+                after={"origin": "imported", "reason": "yanked from marketplace"},
             )
     if changed:
         user_registry.invalidate()
@@ -226,8 +229,8 @@ async def _detach_from_marketplace(keys: list[str], actor: int | None) -> None:
 async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
     """For every marketplace-installed extension, report whether a newer version is
     available or it's been yanked — so the catalog can surface Update / Removed. An
-    extension that's been yanked (or fully removed) is detached back to a local extension
-    so it loses the Marketplace label and can be re-published."""
+    extension that's been yanked (or fully removed) is detached to an imported extension
+    so it loses the Marketplace label (and stays untrusted)."""
     _operator(admin)
     async with session_scope() as session:
         rows = [
@@ -264,7 +267,7 @@ async def installed(admin: AdminUser = Depends(require_admin)) -> dict:
             "yanked": yanked,
         }
         if yanked:
-            entry["detached"] = True  # reverting to local (below); UI should reload the catalog
+            entry["detached"] = True  # becoming imported (below); UI should reload the catalog
             detach.append(key)
         out[key] = entry
     if detach:

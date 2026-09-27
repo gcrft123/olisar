@@ -12,6 +12,12 @@ where that traffic goes, and every bot keeps running. It answers ``/api/bots`` i
 list, create/rename/delete, and the operations that involve two bots, like lending one bot's VM
 to another.
 
+The active bot is one setting for every console open at once: the desktop window and any
+browser tab. So each answer names the bot it came from (``X-Olisar-Bot``), a console page
+sends back the bot it loaded with, and a write from a page loaded for another bot is refused
+with 409, which reloads that page onto the bot now on screen, rather than landing in a bot
+the page isn't showing.
+
 Forwarding is transparent on purpose. A worker sees the operator's own Host header and cookies,
 and no forwarding headers for a loopback client, so it behaves exactly as it did when the
 console talked to it directly:
@@ -31,10 +37,13 @@ happens to show.
 from __future__ import annotations
 
 import asyncio
+import base64
 import collections
 import contextlib
+import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -42,7 +51,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import urlsplit
 
 import httpx
@@ -52,7 +61,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from api.trust import LOOPBACK, require_local_request
+from api.trust import (
+    LOOPBACK,
+    SAFE_METHODS,
+    ConsoleGuard,
+    loopback_origin_regex,
+    require_local_request,
+)
 from olisar.runtime import profiles
 from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import home_dir, web_dist_dir
@@ -61,6 +76,8 @@ from olisar.runtime.server import WORKER_PORT_MARKER
 log = logging.getLogger("olisar.gateway")
 
 INTERNAL_HEADER = "x-olisar-gateway"
+# Which bot a console page is showing: sent on each of our answers, and back on each request.
+BOT_HEADER = "x-olisar-bot"
 
 # Sign-in round trips that finish in the operator's browser: the start sets the cookie, the
 # callback follows it back to the bot that started.
@@ -389,32 +406,85 @@ class Pool:
 # ── upgrading from one bot at a time ──────────────────────────────────────────
 
 
-def _tunnel_enabled(db: Path) -> bool:
-    """Whether a bot's database has remote access turned on (read-only, stdlib sqlite)."""
+def _read_only_uri(db: PurePath) -> str:
+    """``db`` as a SQLite URI that opens it read-only. Percent-encoded: in a bare
+    ``file:{path}``, a ``#`` or ``?`` in the path (``Olisar #2``) ends it, and SQLite opens, and
+    creates, a writable database at what's left. On Windows it's ``file:///C:/…``."""
+    return (db if db.is_absolute() else Path(db).absolute()).as_uri() + "?mode=ro"
+
+
+def _remote_access(db: Path) -> tuple[bool, str]:
+    """Whether a bot's database has remote access turned on, and the public host it last had
+    (read-only, stdlib sqlite)."""
     if not db.is_file():
-        return False
+        return False, ""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        con = sqlite3.connect(_read_only_uri(db), uri=True, timeout=5)
     except sqlite3.Error:
-        return False
+        return False, ""
     try:
-        row = con.execute("SELECT tunnel_enabled FROM app_config WHERE id = 1").fetchone()
-        return bool(row and row[0])
+        try:
+            row = con.execute(
+                "SELECT tunnel_enabled, tunnel_hostname FROM app_config WHERE id = 1"
+            ).fetchone()
+        except sqlite3.OperationalError:  # a database from before the host was kept
+            row = con.execute("SELECT tunnel_enabled, '' FROM app_config WHERE id = 1").fetchone()
+        return bool(row and row[0]), str((row and row[1]) or "").lower()
     except sqlite3.Error:
-        return False
+        return False, ""
     finally:
         con.close()
 
 
-def adopt_shared_tailscale() -> str | None:
+def _tunnel_enabled(db: Path) -> bool:
+    return _remote_access(db)[0]
+
+
+def _node_name(state_dir: Path) -> tuple[str, str] | None:
+    """The host name a Tailscale node was last started under and its tailnet's domain (``""``
+    when that can't be read), from the state tsnet keeps: a JSON map of keys to base64 values,
+    the current profile's preferences among them. Best effort; None when it can't be read."""
+    try:
+        store = json.loads((state_dir / "tailscaled.state").read_text("utf-8"))
+
+        def value(key: str) -> bytes:
+            return base64.b64decode(store[key])
+
+        current = value("_current-profile").decode()
+        host = str(json.loads(value(current)).get("Hostname") or "").lower()
+        domain = ""
+        with contextlib.suppress(Exception):
+            for p in json.loads(value("_profiles")).values():
+                if p.get("Key") == current:
+                    domain = str((p.get("NetworkProfile") or {}).get("MagicDNSName") or "").lower()
+    except Exception:  # noqa: BLE001 — not tsnet's layout, or not readable: no answer
+        return None
+    return (host, domain.strip(".")) if host else None
+
+
+def _was_called(public_host: str, node: tuple[str, str]) -> bool:
+    """Whether ``public_host`` (``name.tailnet.ts.net``) is the node's: its name, or its name
+    with the -1, -2… Tailscale adds when the tailnet already has one."""
+    label, _, domain = public_host.partition(".")
+    host, node_domain = node
+    if node_domain and domain and domain.strip(".") != node_domain:
+        return False
+    return label == host or re.fullmatch(rf"{re.escape(host)}-\d+", label) is not None
+
+
+def adopt_shared_tailscale(last_active: str | None = None) -> str | None:
     """Hand the install's Tailscale node to the bot that was actually using it.
 
     When bots ran one at a time they shared one node (``home_dir()/tailscale``), which is the
     original bot's directory. Now each bot has its own, and two bots can't run one node at
-    once. If the original bot never turned remote access on but exactly one other bot did, that
-    node is the other bot's web address — its OAuth redirect is registered against it — so move
-    it into that bot's directory rather than let the bot come up as a new device. Returns the
-    bot it went to, if any. Runs before any bot starts, so nothing holds the node open."""
+    once. If the original bot never turned remote access on, the node is another bot's web
+    address — its OAuth redirect is registered against it — so move it into that bot's
+    directory rather than let the bot come up as a new device. When several had remote access
+    on, one bot keeps it and the rest get devices of their own, and which one doesn't change
+    from launch to launch: the bot that was on screen when this version was first launched
+    (``last_active``, the one that last ran, and so last named the node), else the one whose
+    public address is the node's name, else the oldest. Returns the bot it went to, if any.
+    Runs before any bot starts, so nothing holds the node open."""
     shared = home_dir() / "tailscale"
     if not shared.is_dir():
         return None
@@ -422,47 +492,36 @@ def adopt_shared_tailscale() -> str | None:
     legacy = next((p["id"] for p in bots if p.get("legacy")), None)
     if legacy and _tunnel_enabled(profiles.db_path_for(legacy)):
         return None  # the original bot's own, as it always was
-    candidates = [
-        p["id"] for p in bots
-        if not p.get("legacy")
-        and _tunnel_enabled(profiles.db_path_for(p["id"]))
-        and not (profiles.data_dir_for(p["id"]) / "tailscale").exists()
-    ]
-    if len(candidates) != 1:
-        return None  # nobody, or no way to tell whose: each gets a node of its own
-    target = profiles.data_dir_for(candidates[0]) / "tailscale"
+    candidates = []
+    for p in bots:
+        if p.get("legacy") or (profiles.data_dir_for(p["id"]) / "tailscale").exists():
+            continue
+        enabled, public_host = _remote_access(profiles.db_path_for(p["id"]))
+        if enabled:
+            candidates.append((p, public_host))
+    if not candidates:
+        return None
+    chosen = next((p["id"] for p, _ in candidates if p["id"] == last_active), None)
+    if chosen is None:
+        node = _node_name(shared)
+        named = [p for p, host in candidates if node and host and _was_called(host, node)]
+        order = {p["id"]: i for i, p in enumerate(bots)}
+        oldest = min(
+            named or [p for p, _ in candidates],
+            key=lambda p: (str(p.get("created_at") or ""), order[p["id"]]),
+        )
+        chosen = oldest["id"]
+    target = profiles.data_dir_for(chosen) / "tailscale"
     try:
         shutil.move(str(shared), str(target))
     except OSError as exc:
-        log.warning("couldn't hand the Tailscale node to bot %s: %s", candidates[0], exc)
+        log.warning("couldn't hand the Tailscale node to bot %s: %s", chosen, exc)
         return None
-    log.info("moved the shared Tailscale node to bot %s, which was using it", candidates[0])
-    return candidates[0]
+    log.info("moved the shared Tailscale node to bot %s, which was using it", chosen)
+    return chosen
 
 
 # ── forwarding ─────────────────────────────────────────────────────────────────
-
-
-def _foreign_origin(request: Request) -> bool:
-    """A browser request that changes something, sent by a page that isn't this console.
-
-    Any website the operator has open can send a simple POST to 127.0.0.1 (``no-cors``), and a
-    body-less one — reset a bot, reconnect the server's bot — gets through without CORS ever being
-    asked. Browsers stamp those with the page's Origin, and the console's own pages are always
-    on loopback, so anything else is refused before it reaches a bot. Requests with no Origin
-    (the desktop shell, curl) aren't from a web page and pass."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
-        return False
-    origin = request.headers.get("origin")
-    if origin is None:
-        return False
-    host = (urlsplit(origin).hostname or "").lower()
-    return host not in LOOPBACK
-
-
-def require_console_origin(request: Request) -> None:
-    if _foreign_origin(request):
-        raise HTTPException(status_code=403, detail="not from this console")
 
 
 def _request_headers(request: Request) -> list[tuple[str, str]]:
@@ -534,6 +593,7 @@ async def forward(request: Request, worker: Worker) -> Response:
         for k, v in resp.headers.multi_items()
         if k.lower() not in _HOP_BY_HOP
     ]
+    out.raw_headers.append((BOT_HEADER.encode(), worker.profile_id.encode()))
     if request.url.path in _ROUTE_START:
         out.raw_headers.append((
             b"set-cookie",
@@ -563,6 +623,24 @@ async def internal(worker: Worker, method: str, path: str, *, json: dict | None 
         detail = data.get("detail") if isinstance(data, dict) else None
         raise HTTPException(status_code=r.status_code, detail=detail or "that bot refused the request")
     return data if isinstance(data, dict) else {}
+
+
+def shown_elsewhere(request: Request, profile_id: str) -> bool:
+    """A write from a console page loaded for a bot other than ``profile_id``, the one it would
+    land in. Pages that don't say (the desktop shell, a console without a gateway) pass, as do
+    reads: a page can show what it likes, as long as it can't change a bot it isn't showing."""
+    if request.method in SAFE_METHODS:
+        return False
+    shown = request.headers.get(BOT_HEADER)
+    return bool(shown) and shown != profile_id
+
+
+def _switched(profile_id: str) -> dict:
+    """The body and headers of the answer to a write from a page showing another bot."""
+    return {
+        "detail": "This window was showing another bot. Reloading onto the one on screen.",
+        "headers": {BOT_HEADER: profile_id},
+    }
 
 
 # ── the app ────────────────────────────────────────────────────────────────────
@@ -595,7 +673,7 @@ class ShareIn(BaseModel):
 def _bots_router(pool: Pool) -> APIRouter:
     router = APIRouter(
         prefix="/api/bots", tags=["bots"],
-        dependencies=[Depends(require_local_request), Depends(require_console_origin)],
+        dependencies=[Depends(require_local_request)],
     )
 
     def need(profile_id: str) -> Worker:
@@ -624,14 +702,16 @@ def _bots_router(pool: Pool) -> APIRouter:
         return out
 
     @router.get("")
-    async def list_bots() -> dict:
+    async def list_bots(response: Response) -> dict:
         items = profiles.list()
         views = await asyncio.gather(*(view(p) for p in items))
+        response.headers[BOT_HEADER] = profiles.active_id()
         return {"profiles": views, "active_id": profiles.active_id(), "default_id": profiles.default_id()}
 
     @router.get("/active")
-    async def active_bot() -> dict:
+    async def active_bot(response: Response) -> dict:
         p = profiles.active()
+        response.headers[BOT_HEADER] = p["id"]
         return {**(await view(p)), "active_id": p["id"]}
 
     @router.post("")
@@ -704,11 +784,13 @@ def _bots_router(pool: Pool) -> APIRouter:
         return await internal(need(profile_id), "GET", "/api/server/pubkey", timeout=30.0)
 
     @router.post("/share-server")
-    async def share_server(body: ShareIn) -> dict:
+    async def share_server(body: ShareIn, request: Request) -> dict:
         """Get a bot ready to deploy onto the VM another bot already runs on, so the operator
         doesn't set up a server twice: that bot lets the new bot's SSH key in, and hands back
         the host and what the new install should reuse (Tailscale key, who may sign in)."""
         to_id = body.to_id or profiles.active_id()
+        if not body.to_id and shown_elsewhere(request, to_id):
+            raise HTTPException(status_code=409, **_switched(to_id))
         if body.from_id == to_id:
             raise HTTPException(status_code=400, detail="pick a different bot's server")
         source, target = need(body.from_id), need(to_id)
@@ -744,15 +826,21 @@ def _bots_router(pool: Pool) -> APIRouter:
 def create_app(pool: Pool) -> FastAPI:
     app = FastAPI(title="Olisar Gateway")
     app.state.pool = pool
-    # Same rule as the bot's own API: admit the dev Vite server on any loopback port. Its
-    # headers replace (not duplicate) the ones a forwarded response already carries.
+    # The console is this server, so CORS only admits it under its other loopback names: a
+    # page on any other port (a local dev server) is not the console and can't read what the
+    # bots answer. These headers replace (not duplicate) the ones a forwarded response carries.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"http://(127\.0\.0\.1|localhost)(:\d+)?",
+        allow_origin_regex=loopback_origin_regex(urlsplit(pool.console_url).port or 80),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[BOT_HEADER],
     )
+    # Outermost: a page that rebound its own name to loopback (``is_rebound``), and a write
+    # from any page but the console's own (``is_foreign_origin``), are refused here, before
+    # they can read a bot's answers, reset a bot, or reach one.
+    app.add_middleware(ConsoleGuard)
     app.include_router(_bots_router(pool))
 
     def target(request: Request) -> Worker | None:
@@ -784,11 +872,12 @@ def create_app(pool: Pool) -> FastAPI:
     @app.api_route("/api/{rest:path}", methods=methods)
     @app.api_route("/auth/{rest:path}", methods=methods)
     async def to_bot(request: Request, rest: str = "") -> Response:
-        if _foreign_origin(request):
-            return JSONResponse({"detail": "not from this console"}, status_code=403)
         worker = target(request)
         if worker is None:
             return JSONResponse({"detail": "No bot is selected."}, status_code=503)
+        if shown_elsewhere(request, worker.profile_id):
+            switched = _switched(worker.profile_id)
+            return JSONResponse({"detail": switched["detail"]}, status_code=409, headers=switched["headers"])
         if worker.state == "failed":  # no point holding the request for a bot that keeps failing
             return JSONResponse({"detail": "This bot couldn't start."}, status_code=503)
         if not await worker.wait_ready(60.0):
@@ -804,8 +893,12 @@ def create_app(pool: Pool) -> FastAPI:
 
 async def run(host: str, port: int) -> None:
     """Serve the console and run every bot until SIGINT/SIGTERM, then stop them all."""
+    last_active = profiles.active_id()  # the bot on screen when the app last ran
     profiles.set_active(profiles.default_id())  # the console opens on the launch default
-    adopt_shared_tailscale()
+    # A deletion that stopped partway goes first: the original bot's Tailscale node, say,
+    # mustn't be handed to another bot, and nothing of a deleted bot should start again.
+    profiles.finish_deletions()
+    adopt_shared_tailscale(last_active)
 
     # Each bot logs its own requests; the gateway's copy of every line would only double them.
     logging.getLogger("httpx").setLevel(logging.WARNING)

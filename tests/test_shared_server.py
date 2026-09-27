@@ -8,6 +8,7 @@ between "add a bot next to that one" and "overwrite that one's configuration". T
 way to check it is to let ``olisar.runtime.remote`` do what it does on a real VM, so this starts
 an SSH server in-process (asyncssh), backed by a throwaway home directory, with ``docker``,
 ``sudo`` and ``curl`` stubbed on PATH — and runs the real ``deploy/olisar-update.sh`` behind it.
+The app's own GitHub and Discord lookups are patched too, so nothing leaves the machine.
 
 Covered: the first bot deploys into ``~/olisar`` as it always has; a second bot can't get in
 until the first lets its key in; once in, it deploys alongside rather than over the first,
@@ -28,6 +29,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import asyncssh
@@ -38,17 +40,23 @@ from olisar.runtime import remote
 
 HERE = Path(__file__).resolve().parent
 
-# A docker that remembers nothing but logs where it was called from — enough for the update
-# script to "pull", pin a digest, start and pass its health gate. A container it brings up
-# publishes the backend's state.json from its .env: a Tailscale key with "dead" in it is one
-# Tailscale refuses, so that bot's console gets no address, and otherwise the address starts
-# with the device name.
+# A docker that logs where it was called from and remembers only which tag each image was
+# pulled as — enough for the update script to "pull", pin a digest, start and pass its health
+# gate, and for the status probe to read the release a bot runs (every tag is its own image,
+# labeled with that tag, as CI labels them). A container it brings up publishes the backend's
+# state.json from its .env: a Tailscale key with "dead" in it is one Tailscale refuses, so
+# that bot's console gets no address, and otherwise the address starts with the device name.
 DOCKER_STUB = r"""#!/usr/bin/env bash
 echo "$PWD|docker $*" >> "$STUB_LOG"
+IMAGES="$(dirname "$STUB_LOG")/images"  # one file per digest, holding the tag pulled as it
+mkdir -p "$IMAGES"
+digest_of() { printf '%s' "$1" | shasum -a 256 | cut -c1-64; }
+pinned() { grep -m1 'image:' docker-compose.yml 2>/dev/null | awk '{print $2}'; }
 case "$1" in
   compose)
     case "$2" in
       ps) [ -f stopped.stub ] || echo "cid-$(basename "$PWD")" ;;
+      images) pinned ;;
       up)
         if grep -q '^TAILSCALE_AUTH=.*dead' .env 2>/dev/null; then
           printf '{"public_url": "http://127.0.0.1:8000", "tunnel_error": "tsnet.Up: backend: invalid key: API key does not exist"}\n' > state.json.stub
@@ -57,6 +65,10 @@ case "$1" in
           printf '{"public_url": "https://%s.example.ts.net"}\n' "${node:-$(basename "$PWD")}" > state.json.stub
         fi ;;
     esac
+    exit 0 ;;
+  pull)
+    tag="${2##*:}"
+    echo "$tag" > "$IMAGES/$(digest_of "$tag")"
     exit 0 ;;
   exec)
     case "$*" in
@@ -70,12 +82,25 @@ case "$1" in
   inspect)
     case "$3" in
       *State.StartedAt*) echo 'running|healthy|2026-09-26T08:15:02.123456789Z|"2026-09-26T09:14:32.4Z""2026-09-26T09:15:02.5Z"' ;;
+      *Config.Image*) echo "|$(pinned)" ;;
       *State.Status*) echo running ;;
       *State.Health*) echo healthy ;;
     esac
     exit 0 ;;
   image)
-    [ "$2" = "inspect" ] && echo "ghcr.io/gcrft123/olisar@sha256:$(printf 'a%.0s' $(seq 1 64))"
+    [ "$2" = "inspect" ] || exit 0
+    # docker image inspect --format <fmt> <ref>, the ref by tag or by digest
+    case "$5" in
+      *@sha256:*) digest="${5##*@sha256:}" ;;
+      *) digest="$(digest_of "${5##*:}")" ;;
+    esac
+    tag="$(cat "$IMAGES/$digest" 2>/dev/null)"
+    case "$4" in
+      *revision*) echo "$tag||ghcr.io/gcrft123/olisar@sha256:$digest" ;;  # the status probe
+      *image.version*) echo "$tag" ;;
+      *RepoDigests*) echo "ghcr.io/gcrft123/olisar@sha256:$digest" ;;
+      *) echo "sha256:$digest" ;;
+    esac
     exit 0 ;;
 esac
 exit 0
@@ -164,6 +189,29 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         spawn = mock.patch.object(remote, "spawn_autoupdate", lambda: None)
         spawn.start()
         self.addCleanup(spawn.stop)
+        # Nothing here leaves the machine. GitHub's newest release on the app's channel is
+        # ``self.release`` (None: GitHub couldn't be asked), and naming the installs for the
+        # operator to pick from doesn't ask Discord.
+        self.release: str | None = "v9.9.9"
+        self.channel = "stable"
+
+        async def newest_release(chan=None):
+            return {"tag": self.release, "url": "", "published_at": None} if self.release else None
+
+        async def name_installs(installs):
+            return [{"dir": i["dir"], "name": i.get("node") or i["dir"]} for i in installs]
+
+        for patcher in (
+            mock.patch.object(remote.updates, "newest_release", newest_release),
+            mock.patch.object(remote.updates, "channel", lambda: self.channel),
+            mock.patch.object(remote, "_name_installs", name_installs),
+            # ``as_bot`` sets the profile id the way a gateway worker is started with one.
+            mock.patch.dict(os.environ),
+            # Every test's VM is 127.0.0.1, so a token read in one mustn't answer for the next.
+            mock.patch.dict(remote._vm_tokens, clear=True),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.dbs = root / "bots"
         self.dbs.mkdir()
 
@@ -317,6 +365,204 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
             await remote.autoupdate()
         self.assertEqual(script.read_text(), remote._asset(remote.UPDATE_SCRIPT))
 
+    async def test_an_update_with_no_release_to_pin_changes_nothing(self) -> None:
+        """GitHub couldn't be asked. The script would fall back to GitHub's latest release on
+        its own, which is stable and may be older than the server, so it isn't run; nor is the
+        run recorded as settled, so the next launch tries again."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        synced = (await remote._load()).server_synced_version
+        self.release = None
+        self.log.write_text("")
+        with mock.patch.object(remote, "current_version", lambda: "99.0.0"):
+            result = await remote.autoupdate()
+        self.assertEqual(result["status"], "no-release")
+        self.assertFalse(result["ok"])
+        self.assertNotIn("docker pull", self.log.read_text())
+        self.assertEqual((await remote._load()).server_synced_version, synced)
+
+    def pinned_tag(self, app_dir: str = "olisar") -> str:
+        return json.loads((self.home / app_dir / "versions.json").read_text())["tag"]
+
+    def pulls(self) -> list[str]:
+        lines = self.log.read_text().splitlines() if self.log.exists() else []
+        return [ln.split("docker pull ", 1)[1] for ln in lines if "docker pull" in ln]
+
+    async def test_a_redeploy_leaves_a_server_on_a_newer_release_than_the_app_s_channel(self) -> None:
+        """Re-running setup (or moving a bot onto its server) pinned whatever the app's channel
+        offered: switched from beta to stable, that put the server back on the older stable
+        release. It stays on its beta, and the redeploy's new .env still reaches it."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        self.release, self.channel = "v2.1.beta-1", "beta"
+        self.assertTrue((await remote.deploy("127.0.0.1", "tester", self.env_file("111")))["ok"])
+        self.assertEqual(self.pinned_tag(), "v2.1.beta-1")
+
+        self.release, self.channel = "v2.0", "stable"
+        self.log.write_text("")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("111", node="everest"))
+        self.assertTrue(again["ok"], again)
+        self.assertIn("2.1.beta-1", again["log"])
+        self.assertEqual(self.pinned_tag(), "v2.1.beta-1")
+        self.assertEqual(self.pulls(), ["ghcr.io/gcrft123/olisar:v2.1.beta-1"])  # its own tag
+        self.assertIn("compose up -d", self.log.read_text())
+        self.assertEqual((await remote.status())["url"], "https://everest.example.ts.net")  # the new .env
+        # Not "synced": nothing reconciled this server with the app's channel.
+        self.assertEqual((await remote._load()).server_synced_version, "")
+
+    async def test_a_redeploy_with_no_release_to_pin_keeps_the_server_s_own(self) -> None:
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.release = None
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("111", node="everest"))
+        self.assertTrue(again["ok"], again)
+        self.assertEqual(self.pinned_tag(), "v9.9.9")
+        self.assertEqual((await remote.status())["url"], "https://everest.example.ts.net")
+        self.assertEqual((await remote._load()).server_synced_version, "")
+
+    async def test_a_first_deploy_with_no_release_to_pin_is_refused(self) -> None:
+        """Untagged, the script would take GitHub's latest release, off the app's channel."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        self.release = None
+        dep = await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.assertFalse(dep["ok"])
+        self.assertIn("GitHub", dep["error"])
+        self.assertFalse((self.home / "olisar" / ".env").exists())  # nothing written
+        self.assertEqual(self.pulls(), [])
+        self.assertNotEqual((await remote._load()).hosting_mode, "server")
+
+    def unmark(self, app_dir: str = "olisar") -> None:
+        """What an install deployed before 2.0 looks like: no owner mark."""
+        (self.home / app_dir / ".olisar-owner").unlink()
+
+    def installs(self) -> list[str]:
+        return sorted(p.name for p in self.home.iterdir() if p.name.startswith("olisar"))
+
+    async def test_an_install_from_before_2_0_is_marked_by_the_app_s_next_launch(self) -> None:
+        """Only a deploy or an adoption used to mark an install, and a VM upgraded in place
+        never has either. A reset and a setup onto a new Discord application afterwards then
+        found no install of its own and left the old one running beside a second."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await remote.autoupdate()  # at launch, whether or not there's a release to apply
+        self.assertEqual((self.home / "olisar" / ".olisar-owner").read_text(), remote.owner_of(await remote._load()))
+
+        await runtime_config.save(hosting_mode="local", server_host="", configured=False)  # a reset
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_the_launch_never_marks_over_another_bot_s_mark(self) -> None:
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        (self.home / "olisar" / ".olisar-owner").write_text("0" * 32)
+        await remote.autoupdate()
+        self.assertEqual((self.home / "olisar" / ".olisar-owner").read_text(), "0" * 32)
+
+    async def test_an_unmarked_install_this_bot_runs_as_is_redeployed_in_place(self) -> None:
+        """The install the bot remembers, unmarked: a redeploy onto another Discord application
+        (no reset) or one after a reset replaces it rather than adding a second."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+
+        self.unmark()
+        await runtime_config.save(hosting_mode="local", server_host="", configured=False)  # a reset
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("444"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_a_bot_from_before_2_0_redeploys_over_its_own_install(self) -> None:
+        """No mark, and a blank ``server_app_dir`` (every bot had one before one VM could run
+        several), while the bot still points at this VM: its install is ``~/olisar``."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await runtime_config.save(server_app_dir="")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_a_new_bot_never_takes_an_unmarked_install(self) -> None:
+        """A blank ``server_app_dir`` is also every bot that never deployed, so it says nothing
+        about an unmarked ``~/olisar`` on a VM the bot isn't pointed at."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await self.as_bot("beta")
+        self.authorize(await remote.public_key())
+        second = await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
+        self.assertEqual(second["app_dir"], "olisar-beta")
+        self.assertEqual(self.read_env("olisar")["DISCORD_CLIENT_ID"], "111")
+
+    async def test_two_machines_bots_with_one_profile_id_each_get_their_own_install(self) -> None:
+        """Every bot from before one app could run several is profile "default", on every
+        machine, so two machines' bots added to one VM both claimed ~/olisar-default and the
+        second overwrote the first."""
+        await self.as_bot("first")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        for machine, client_id in (("machine1", "222"), ("machine2", "333")):
+            await self.as_bot(machine)
+            os.environ["OLISAR_PROFILE_ID"] = "default"
+            self.authorize(await remote.public_key())
+            self.assertTrue((await remote.deploy("127.0.0.1", "tester", self.env_file(client_id)))["ok"])
+        installs = self.installs()
+        self.assertEqual(len(installs), 3, installs)
+        self.assertEqual(self.read_env("olisar-default")["DISCORD_CLIENT_ID"], "222")
+        [second] = [d for d in installs if d not in ("olisar", "olisar-default")]
+        self.assertEqual(self.read_env(second)["DISCORD_CLIENT_ID"], "333")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], second)  # and finds its own again
+
+    async def test_the_bot_token_is_read_again_after_a_redeploy(self) -> None:
+        """The panel's Discord checks and "Turn on and restart" use the VM's bot token, kept
+        once read. A redeploy onto another Discord application (a reset) left them acting on
+        the old application; so did adopting an install."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-111")
+        await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-333")
+
+        remote._vm_tokens["127.0.0.1/olisar"] = "token-from-before"
+        self.assertTrue((await remote.connect("127.0.0.1", "tester"))["ok"])
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-333")
+
+    async def test_a_token_discord_refuses_is_read_from_the_vm_again(self) -> None:
+        """Rotated by hand on the VM: the kept copy is the one Discord refuses."""
+        from olisar import discord_app
+
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        remote._vm_tokens["127.0.0.1/olisar"] = "token-rotated-away"
+        seen = []
+
+        async def inspect(token):
+            seen.append(token)
+            if token != "token-111":
+                raise discord_app.BadToken()
+            return {"id": "111", "name": "Alpha", "avatar": "", "redirect_uris": [], "intents_missing": []}
+
+        with mock.patch.object(discord_app, "inspect", inspect):
+            check = await remote.discord_check("https://olisar.example.ts.net")
+        self.assertTrue(check["ok"], check)
+        self.assertEqual(seen, ["token-rotated-away", "token-111"])
+        self.assertEqual(remote._vm_tokens["127.0.0.1/olisar"], "token-111")
+
     async def test_status_and_activity_come_from_the_bot_s_own_container(self) -> None:
         """The probe's start and healthcheck times, and the activity feed read from inside the
         container — or, on an image from before the feed, an empty one rather than an error."""
@@ -426,6 +672,40 @@ class PureHelpersTests(unittest.TestCase):
         # The owner mark wins over the application: a bot reset onto a new app keeps its dir.
         marked = [{"dir": "olisar", "client_id": "111", "owner": "abc"}, {"dir": "olisar-b", "client_id": "222"}]
         self.assertEqual(remote.choose_app_dir(marked, client_id="999", own="olisar-x", owner="abc"), "olisar")
+
+    def test_choose_app_dir_prefers_the_install_the_bot_remembers(self) -> None:
+        unmarked = [{"dir": "olisar", "client_id": "111", "owner": ""}, {"dir": "olisar-b", "client_id": "999"}]
+        pick = functools.partial(remote.choose_app_dir, client_id="999", own="olisar-x", owner="abc")
+        self.assertEqual(pick(unmarked, remembered="olisar"), "olisar")  # over the app's other install
+        self.assertEqual(pick(unmarked, remembered=""), "olisar-b")
+        self.assertEqual(pick(unmarked, remembered="olisar-gone"), "olisar-b")
+        # Another bot's now: its mark says so.
+        theirs = [{"dir": "olisar", "client_id": "111", "owner": "def"}]
+        self.assertEqual(pick(theirs, remembered="olisar"), "olisar-x")
+
+    def test_choose_app_dir_never_takes_another_bot_s_directory_as_its_own(self) -> None:
+        taken = [
+            {"dir": "olisar", "client_id": "1", "owner": "x"},
+            {"dir": "olisar-default", "client_id": "2", "owner": "y"},
+        ]
+        got = remote.choose_app_dir(taken, client_id="3", own="olisar-default", owner="z")
+        self.assertRegex(got, r"^olisar-default[0-9a-f]{4}$")
+        self.assertTrue(remote.valid_app_dir(got))
+        # Still a valid directory name when the id is already as long as one can be.
+        longest = "olisar-" + "a" * 32
+        got = remote.choose_app_dir(taken + [{"dir": longest, "client_id": "4"}], client_id="3", own=longest)
+        self.assertTrue(remote.valid_app_dir(got), got)
+        self.assertNotIn(got, {"olisar", "olisar-default", longest})
+
+    def test_remembered_app_dir(self) -> None:
+        def cfg(app_dir: str, host: str) -> SimpleNamespace:
+            return SimpleNamespace(server_app_dir=app_dir, server_host=host)
+
+        self.assertEqual(remote.remembered_app_dir(cfg("olisar-b", ""), "1.2.3.4"), "olisar-b")  # kept by a reset
+        self.assertEqual(remote.remembered_app_dir(cfg("", "1.2.3.4"), "1.2.3.4"), "olisar")  # before 2.0
+        self.assertEqual(remote.remembered_app_dir(cfg("", "5.6.7.8"), "1.2.3.4"), "")
+        self.assertEqual(remote.remembered_app_dir(cfg("", ""), "1.2.3.4"), "")  # never deployed
+        self.assertEqual(remote.remembered_app_dir(None, "1.2.3.4"), "")
 
     def test_pick_volume(self) -> None:
         names = ["olisar_olisar-data", "olisar-b_olisar-data", "other"]

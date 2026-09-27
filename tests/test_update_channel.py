@@ -113,12 +113,24 @@ class HoldTests(unittest.TestCase):
         self.assertEqual(result["status"], "no-release")
         self.assertFalse(result["ok"])
 
-    def test_an_unresolved_stable_lets_the_script_find_it(self) -> None:
-        """Today's behavior: the VM asks GitHub itself, which is right for stable."""
-        self.assertIsNone(hold(target=None, server="v1.5.0", channel="stable"))
+    def test_an_unresolved_stable_does_not_let_the_script_pick(self) -> None:
+        """Without --tag the script takes GitHub's latest release with no look at what the
+        server runs: a beta the app put there would go back to the older stable release. So
+        nothing runs, and ``no-release`` leaves the next launch to try again."""
+        for server in ("v2.1.beta-1", "v1.5.0", ""):
+            with self.subTest(server=server):
+                result = hold(target=None, server=server, channel="stable")
+                self.assertEqual(result["status"], "no-release")
+                self.assertFalse(result["ok"])
+                self.assertIn("newest release", result["message"])
 
     def test_an_unreadable_server_runs(self) -> None:
         self.assertIsNone(hold(target="v2.0", server="", channel="stable"))
+
+    def test_a_server_label_that_is_not_a_release_does_not_hold(self) -> None:
+        """Digits in an odd label would otherwise read as a version far ahead of any release."""
+        self.assertIsNone(hold(target="v2.0", server="sha-abc123", channel="stable"))
+        self.assertIsNone(hold(target="v2.0", server="main", channel="stable"))
 
 
 if __name__ == "__main__":

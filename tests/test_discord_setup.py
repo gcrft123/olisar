@@ -204,6 +204,21 @@ class SetupErrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self._status(aiohttp.ClientConnectionError()), 502)
         self.assertEqual(await self._status(discord_app.DiscordUnavailable(500)), 502)
 
+    async def test_a_rate_limit_is_neither_and_says_so(self) -> None:
+        self.assertEqual(await self._status(discord_app.DiscordUnavailable(429)), 503)
+
+    async def test_a_failure_never_logs_the_request_headers(self) -> None:
+        import aiohttp
+        req = aiohttp.RequestInfo(
+            url=__import__("yarl").URL("https://discord.com/api/v10/applications/@me"), method="GET",
+            headers=__import__("multidict").CIMultiDictProxy(__import__("multidict").CIMultiDict(
+                {"Authorization": "Bot SECRET-TOKEN"})),
+            real_url=__import__("yarl").URL("https://discord.com/api/v10/applications/@me"),
+        )
+        with self.assertLogs("olisar.api.setup", level="WARNING") as logs:
+            await self._status(aiohttp.TooManyRedirects(req, ()))
+        self.assertNotIn("SECRET-TOKEN", "\n".join(logs.output))
+
 
 class InviteEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def _invite(self, app: dict | None, *, operator: bool) -> dict:
@@ -224,3 +239,30 @@ class InviteEndpointTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OperatorIdsTest(unittest.TestCase):
+    """Who owns the bot's application is who operates the console, API keys included."""
+
+    def test_a_user_owned_app_is_operated_by_its_owner(self) -> None:
+        app = {"owner": {"id": "11"}}
+        self.assertEqual(discord_app._extract_owner_ids(app), {11})
+
+    def test_only_accepted_team_members_who_can_see_the_secrets_count(self) -> None:
+        member = lambda uid, state, role: {  # noqa: E731
+            "membership_state": state, "role": role, "user": {"id": str(uid)},
+        }
+        app = {
+            "owner": {"id": "900"},  # a team's app lists the team itself as its owner
+            "team": {
+                "owner_user_id": "1",
+                "members": [
+                    member(1, 2, "admin"),
+                    member(2, 2, "developer"),
+                    member(3, 1, "developer"),   # invited, never accepted
+                    member(4, 2, "read_only"),   # can't see the token or secret
+                    {"membership_state": 2, "permissions": ["*"], "user": {"id": "5"}},  # no role field
+                ],
+            },
+        }
+        self.assertEqual(discord_app._extract_owner_ids(app), {900, 1, 2, 5})

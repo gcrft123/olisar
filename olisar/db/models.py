@@ -673,6 +673,19 @@ class ToolPin(Base):
     )
 
 
+class ToolPinFailure(Base):
+    """One wrong tool PIN entry, kept for ``olisar.toolpin.LOCK_WINDOW``. A prompt's own
+    three tries reset with every new prompt, so these are what stop someone asking again
+    for three more. Pruned as new ones land, and cleared when the PIN is changed."""
+
+    __tablename__ = "tool_pin_failure"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)  # who typed it
+    guild_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class SigningIdentity(Base):
     """This bot's Ed25519 publisher identity, used to sign the ``.olx`` bundles it
     exports. Single row (id=1), created lazily on first export. The private key never
@@ -796,6 +809,10 @@ class KBSource(Base):
     max_pages: Mapped[int] = mapped_column(Integer, default=50)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Only ever read from public addresses. Set on sources a member added from chat, which
+    # are crawled with that guard on every request (olisar.knowledge.crawler); what an
+    # operator adds from the console may be on their own network, and stays readable.
+    public_only: Mapped[bool] = mapped_column(Boolean, default=False)
     last_ingested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -1023,6 +1040,9 @@ class GeminiUsage(Base):
     # doing so. A model can be refused before Olisar's own count reaches its limit: the quota
     # is per Google Cloud project, and anything else on the project draws on it too.
     exhausted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Which API key was refused: a short one-way fingerprint (rate_limiter.key_id), never the
+    # key. The quota belongs to the key's project, so another key's refusal doesn't apply.
+    exhausted_key: Mapped[str | None] = mapped_column(String(16), nullable=True)
     quota_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 

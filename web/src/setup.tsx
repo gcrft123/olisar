@@ -6,7 +6,8 @@ import { FeedbackButton } from './settings'
 import { logTail, reportBody } from './feedback'
 import { SHAPE } from './form'
 import { handOff, Pane, shake, useForm, usePulseOn, useShell } from './onboarding'
-import { Badge, Field, Segmented, Select, Text, usePoll } from './ui'
+import { Badge, Field, Segmented, Select, Text, copyText, usePoll } from './ui'
+import { toast } from './overlays'
 
 export type SetupPrefill = {
   discord_token?: string
@@ -42,7 +43,10 @@ export function Cb({ file, code }: { file: string; code: string }) {
           className="cb-copy"
           aria-label="Copy"
           data-tip={done ? 'Copied' : 'Copy'}
-          onClick={() => { navigator.clipboard?.writeText(code); setDone(true); setTimeout(() => setDone(false), 1400) }}
+          onClick={async () => {
+            if (!(await copyText(code))) { toast('Couldn’t copy. Select the text to copy it yourself.', 'danger'); return }
+            setDone(true); setTimeout(() => setDone(false), 1400)
+          }}
         >
           <CopyGlyph copied={done} />
         </button>
@@ -223,7 +227,10 @@ function ArrivingLine({ id, children }: { id: string; children: ReactNode }) {
 export function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false)
   return (
-    <button className="ghost" onClick={() => { navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}>
+    <button className="ghost" onClick={async () => {
+      if (!(await copyText(text))) { toast(`Couldn’t copy it: ${text}`, 'danger'); return }
+      setDone(true); setTimeout(() => setDone(false), 1200)
+    }}>
       {done ? <><Icon.check size={13} weight="Bold" /> Copied</> : label}
     </button>
   )
@@ -331,8 +338,13 @@ export function SetupWizard(
   )
   const [tunnelAuthKey, setTunnelAuthKey] = useState(pf.tunnel_token || '')
   const [provisioning, setProvisioning] = useState(false)
-  const [tunnelDone, setTunnelDone] = useState(false)
-  const [tunnelUrl, setTunnelUrl] = useState('')
+  // Remote access may already be on: the wizard can be opened again on an install that had
+  // it. Starting from "off" meant nothing here ever turned it off, so finishing as Local
+  // left this machine published.
+  const [tunnelDone, setTunnelDone] = useState(!!status.tunnel_enabled)
+  const [tunnelUrl, setTunnelUrl] = useState(
+    status.tunnel_enabled && /^https:\/\//.test(status.local_url) ? status.local_url : '',
+  )
   const [tunnelErr, setTunnelErr] = useState('')
 
   // Server-hosting extras (collected on the Deploy step).
@@ -426,13 +438,18 @@ export function SetupWizard(
     return () => { alive = false }
   }, [cur, sharing, source])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Remote access turned on for shared hosting and then abandoned for another choice was
+  // left running, publishing this machine for a setup that no longer wanted it. Every way
+  // out of the wizard that isn't shared hosting turns it off: picking another choice,
+  // finishing, and connecting to an existing server instead.
+  async function dropTunnel() {
+    if (!tunnelDone) return
+    setTunnelDone(false); setTunnelUrl('')
+    await api.disableTunnel().catch(() => {})
+  }
+
   function pickMode(m: Mode) {
-    // Remote access turned on for shared hosting and then abandoned for another choice was
-    // left running, publishing this machine for a setup that no longer wanted it.
-    if (m !== 'tunnel' && tunnelDone) {
-      api.disableTunnel().catch(() => {})
-      setTunnelDone(false); setTunnelUrl('')
-    }
+    if (m !== 'tunnel') void dropTunnel()
     setMode(m)
   }
 
@@ -552,6 +569,7 @@ export function SetupWizard(
         discord_client_secret: secret.trim(),
         target_guild_id: guildId,
       })
+      if (mode !== 'tunnel') await dropTunnel()
       finished()
     } catch (e: any) {
       setErr(e?.message || 'Save failed.')
@@ -599,7 +617,7 @@ export function SetupWizard(
       const r = await api.serverConnect({
         host: serverHost.trim(), user: serverUser.trim() || 'ubuntu', app_dir: installDir || undefined,
       })
-      if (r?.ok) { finished(); return }
+      if (r?.ok) { await dropTunnel(); finished(); return }
       if (r?.choose?.length) { setInstalls(r.choose); setInstallDir(r.choose[0].dir); setDeployErr('') }
       else { setDeployErr(r?.error || 'Couldn’t connect to that VM.') }
     } catch (e: any) {
@@ -615,7 +633,9 @@ export function SetupWizard(
       ? { label: 'Continue', run: next, off: redirectPending }
       : mode === 'server'
         ? { label: deploying ? 'Deploying…' : 'Deploy to server', run: deployServer, off: deploying || done || (sharing && shareBusy) }
-        : { label: saving ? 'Saving…' : 'Finish & start Olisar', run: finish, off: saving }
+        // Starts the bot, not the app, which is already running. "the bot" rather than its
+        // name: the button doesn't wrap, and a Discord name can be 32 characters, no spaces.
+        : { label: saving ? 'Saving…' : 'Finish & start the bot', run: finish, off: saving }
 
   // "Connect to existing server" goes with the screen it was on, and Back comes home to the
   // first step. Either way focus would drop to the page: land on the address the connect
@@ -917,8 +937,8 @@ export function SetupWizard(
             <Field
               label="Gemini API key"
               desc={mode === 'server'
-                ? <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
-                : <>Powers everything Olisar says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
+                ? <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
+                : <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text field="s-gemini" invalid={geminiCheck.state === 'bad' || flagged === 's-gemini'} value={gemini}
                 onChange={edit('s-gemini', setGemini)} placeholder="AQ.…" mono />

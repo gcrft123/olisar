@@ -29,6 +29,19 @@ export function setMemberCsrf(token: string | null): void {
   memberCsrf = token
 }
 
+// The bot this page was loaded for. On the desktop app one console address serves every bot,
+// and switching bots in another window (a browser tab, say) changes where this one's requests
+// go. The gateway names the bot behind each answer; the first one pins this page to it, and
+// every request says so, so a save made here can't land in a bot this page isn't showing. The
+// gateway answers such a write with 409, naming the bot now on screen, and the page reloads
+// onto it. Nothing names a bot without a gateway, so a VM's console never sends it.
+const BOT_HEADER = 'X-Olisar-Bot'
+let shownBot: string | null = null
+
+function botHeaders(): Record<string, string> {
+  return shownBot ? { [BOT_HEADER]: shownBot } : {}
+}
+
 // `timeoutMs` is opt-in — most calls have none (deploy/reindex legitimately run for minutes),
 // but SSH-backed reads (server status/pubkey/logs) pass a short timeout so a wedged/unreachable
 // backend surfaces as an error instead of hanging the UI forever.
@@ -39,7 +52,7 @@ export function setMemberCsrf(token: string | null): void {
 // cancel is the operator's own doing and must not be reported as a failure.
 async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}): Promise<any> {
   const { timeoutMs, signal: callerSignal, ...init } = opts
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', ...botHeaders() }
   if (currentGuild) headers['X-Guild-Id'] = currentGuild
   // Sent on every member call rather than only the mutating ones: the server ignores it on
   // safe methods, and a per-call opt-in is a thing a future route can forget.
@@ -74,6 +87,12 @@ async function req(path: string, opts: RequestInit & { timeoutMs?: number } = {}
   } finally {
     if (timer) clearTimeout(timer)
     callerSignal?.removeEventListener('abort', onCallerAbort)
+  }
+  const answeredBy = res.headers.get(BOT_HEADER)
+  if (answeredBy && shownBot === null) shownBot = answeredBy
+  if (res.status === 409 && answeredBy && answeredBy !== shownBot) {
+    window.location.reload()
+    return new Promise(() => {})  // the page is going away; don't report the refused save
   }
   if (res.status === 401) { onUnauthorized?.(); throw new Unauthorized('not authenticated') }
   if (!res.ok) {
@@ -409,6 +428,7 @@ export const api = {
     const res = await fetch(BASE + '/api/member/export', {
       credentials: 'include',
       headers: {
+        ...botHeaders(),
         ...(currentGuild ? { 'X-Guild-Id': currentGuild } : {}),
         ...(memberCsrf ? { 'X-CSRF-Token': memberCsrf } : {}),
       },
