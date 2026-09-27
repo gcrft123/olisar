@@ -21,6 +21,7 @@ addressed by IP, so there's no prior known-hosts entry to pin.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import logging
@@ -989,6 +990,10 @@ def parse_probe(out: str) -> dict:
         # the backend published a reason, which only left its loopback origin behind.
         "console_error": tunnel_problem(tunnel_error) if running and not url else "",
         "logs": logs.strip()[-4000:],
+        # Whether the Discord bot inside the container is up. None when the file doesn't say
+        # (an image from before the console's power button was reported): the panel treats
+        # that as up, so an older server isn't shown as powered down.
+        "bot_running": published.get("bot_running") if isinstance(published.get("bot_running"), bool) else None,
     }
 
 
@@ -1299,6 +1304,95 @@ async def power(action: str) -> dict:
         return {"ok": False, "error": str(exc)}
     conn.close()
     return {"ok": True, "running": action != "stop"}
+
+
+# Ask the running container to start its Discord bot. The console's power button does this
+# in-process; from the desktop the only way in is loopback, which ``docker exec`` can reach
+# and the funnel cannot. The program is base64'd so it can ride on the same stdin as the
+# shell script that launches it (``bash -s``), and python is in the image.
+_BOT_ON_PY = """
+import json, urllib.error, urllib.request
+req = urllib.request.Request(
+    "http://127.0.0.1:8000/api/bot/local",
+    data=b'{"on": true}',
+    headers={"Content-Type": "application/json"},
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        body = json.loads(resp.read().decode() or "{}")
+except urllib.error.HTTPError as exc:
+    print(json.dumps({"ok": False, "status": exc.code}))
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": str(exc)}))
+else:
+    print(json.dumps({"ok": True, "running": bool(body.get("running"))}))
+"""
+
+
+def _bot_on_script(app_dir: str = APP_DIR) -> str:
+    payload = base64.b64encode(_BOT_ON_PY.encode()).decode()
+    return (
+        "set +e\n"
+        f"cd ~/{app_dir} 2>/dev/null || {{ echo '{{\"ok\":false,\"error\":\"No Olisar install on the server.\"}}'; exit 0; }}\n"
+        "CID=$(sudo docker compose ps -q 2>/dev/null | head -1)\n"
+        "[ -n \"$CID\" ] || { echo '{\"ok\":false,\"error\":\"The server is not running.\"}'; exit 0; }\n"
+        f"printf '%s' '{payload}' | base64 -d | sudo docker exec -i \"$CID\" python -\n"
+    )
+
+
+def parse_bot_on(stdout: str, stderr: str = "") -> dict:
+    """What the container answered when asked to turn the bot on. Pure, for the tests.
+
+    A 404 is an image from before this route existed. The panel says so and points at the
+    console, which can still turn the bot on.
+    """
+    for line in reversed((stdout or "").strip().splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            answer = json.loads(line)
+        except ValueError:
+            break
+        if not isinstance(answer, dict):
+            break
+        if answer.get("status") == 404:
+            return {
+                "ok": False,
+                "error": "This server needs an update before the bot can be turned on from here. Open the console to turn it on.",
+            }
+        if answer.get("ok") is False:
+            detail = str(answer.get("error") or "").strip()
+            return {"ok": False, "error": detail or "Couldn't turn the bot on."}
+        return {"ok": True, "running": bool(answer.get("running", True))}
+    detail = " ".join((stderr or stdout or "").split())[-300:]
+    return {"ok": False, "error": detail or "Couldn't turn the bot on."}
+
+
+async def turn_bot_on() -> dict:
+    """Start the Discord bot inside the running container. The container stays up.
+
+    This is the console's power-on, reached over SSH. It does not ``docker compose up``:
+    that boots a stopped server, which is ``power('up')``.
+    """
+    cfg = await _load()
+    if not (cfg and cfg.server_host):
+        return {"ok": False, "error": "No server configured yet."}
+    try:
+        conn = await _connect(cfg.server_host, cfg.server_ssh_user or "ubuntu")
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"Couldn't reach the VM: {exc}"}
+    try:
+        r = await asyncio.wait_for(
+            conn.run("bash -s", input=_bot_on_script(app_dir_of(cfg)), check=False),
+            timeout=40,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc) or "Couldn't reach the VM."}
+    finally:
+        conn.close()
+    return parse_bot_on(r.stdout or "", r.stderr or "")
 
 
 async def logs(which: str = "bot", tail: int = 200) -> dict:

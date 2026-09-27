@@ -1685,6 +1685,12 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
    the console's 34px, as the sign-in screen's call to action is. */
 .onb-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
 .onb-actions button { height: 38px; padding: 0 18px; font-size: 13.5px; }
+/* The three-dot menu on the server panel. The shared menu stretches to its parent; here the
+   parent is a square button, so the menu takes its own width and hangs off the button's edge. */
+.srv-more { position: relative; flex: none; }
+.srv-more .icon-btn { width: 38px; height: 38px; padding: 0; }
+.srv-more .server-menu { left: auto; right: 0; width: max-content; min-width: 148px; }
+.srv-more .server-menu-item { height: 34px; padding: 0 8px; font-size: 13px; }
 .onb-actions .btn-discord.cta { width: auto; height: 38px; padding: 0 18px 0 16px; font-size: 13.5px; }
 
 /* The stage. The form sits right of centre and runs off the window's edge. Its canvas is a
@@ -1712,6 +1718,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
      the other way out sits under it. */
   .onb-actions { flex-direction: column; align-items: stretch; gap: 6px; }
   .onb-actions button, .onb-actions .btn-discord.cta { width: 100%; }
+  .onb-actions .srv-more { width: auto; align-self: flex-start; }
+  .onb-actions .srv-more .icon-btn { width: 38px; }
 }
 
 /* The rail: the logo, then settings, then the docs. It sits above the docs drawer, which
