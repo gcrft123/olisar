@@ -23,7 +23,7 @@ import { uiScale } from './theme'
 // Settings as the first-run frame offers it: setup and sign-in, then the server panel, which
 // also reads the VM's logs.
 const FIRST_RUN_SECTIONS: SectionId[] = ['general', 'bots', 'updates', 'desktop', 'feedback']
-const SERVER_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']
+const SERVER_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'server-remote', 'updates', 'desktop', 'feedback']
 
 const NAV: { id: string; label: string; ic: IconName }[] = [
   { id: 'persona', label: 'Persona', ic: 'persona' },
