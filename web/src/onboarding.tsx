@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createForm, type Form } from './form'
 import { Icon } from './icons'
-import { fromToasts } from './overlays'
+import { fromToasts, restoreFocus } from './overlays'
 import { Docs } from './pages'
 import { SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
@@ -71,7 +71,7 @@ export function Onboarding({ sections, children }: { sections: SectionId[]; chil
   // drop focus to the page: it goes back to the button that opens the docs.
   const closeDocs = () => {
     const drawer = document.getElementById('onb-docs')
-    if (drawer?.contains(document.activeElement)) root.current?.querySelector<HTMLElement>('[aria-controls="onb-docs"]')?.focus()
+    if (drawer?.contains(document.activeElement)) restoreFocus(root.current?.querySelector<HTMLElement>('[aria-controls="onb-docs"]') ?? null)
     setDocs(null)
   }
   const shell: Shell = {

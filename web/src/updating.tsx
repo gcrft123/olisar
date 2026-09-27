@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createForm, SHAPE, type Form, type Mood } from './form'
 import { CheckMark, CloseX, Icon } from './icons'
-import { toast } from './overlays'
+import { restoreFocus, toast } from './overlays'
 import { hasDraft, hasUnsavedChanges } from './ui'
 import { isNewer } from './version'
 
@@ -146,7 +146,7 @@ function Screen({ p, du }: { p: Progress; du: DesktopUpdates }) {
   // It goes back to wherever it was (the Install button, most often) when the screen does.
   useLayoutEffect(() => {
     const was = document.activeElement as HTMLElement | null
-    return () => { if (was?.isConnected) was.focus() }
+    return () => { restoreFocus(was) }
   }, [])
   useEffect(() => { title.current?.focus() }, [failed])
 

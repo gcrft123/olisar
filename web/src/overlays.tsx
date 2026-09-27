@@ -162,6 +162,65 @@ const escStack: symbol[] = []
 /** Matches `.modal-backdrop.closing` / `.closing > *` in index.css. */
 const EXIT_MS = 140
 
+// Enter and Space click a button. Chrome and Safari do it on keydown for Enter and on
+// keyup for Space; Firefox does both on keyup, and every browser sends the keyup to
+// whatever is focused when the key comes up. A dialog that hands focus back to its
+// trigger in the same turn gives that keyup to the trigger, so the button that opened
+// the dialog clicks again and the dialog comes straight back.
+const activatorDown = new Set<string>()
+const isActivator = (key: string) => key === 'Enter' || key === ' '
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('keydown', (e) => { if (isActivator(e.key)) activatorDown.add(e.key) }, true)
+  document.addEventListener('keyup', (e) => {
+    if (!isActivator(e.key)) return
+    // After this keyup's default action, so a click it dispatched still sees the key
+    // as down. The focus return below then knows the click already happened.
+    queueMicrotask(() => activatorDown.delete(e.key))
+  }, true)
+}
+
+/** Focus `el` once an Enter or Space that is still down has come up, so that key's
+ *  keyup can't click it. A pointer or Escape close has no such key and focuses now. */
+export function restoreFocus(el: HTMLElement | null) {
+  if (!el) return
+  const go = () => { if (el.isConnected) el.focus() }
+  const pending = [...activatorDown]
+  if (!pending.length) { go(); return }
+
+  let settled = false
+  const stop = () => {
+    document.removeEventListener('keyup', onUp, true)
+    window.removeEventListener('blur', onBlur)
+  }
+  const settle = () => {
+    if (settled) return
+    settled = true
+    stop()
+    // After the keyup's default action, which is the click.
+    queueMicrotask(go)
+  }
+  const onUp = (e: KeyboardEvent) => {
+    const i = pending.indexOf(e.key)
+    if (i < 0) return
+    pending.splice(i, 1)
+    if (pending.length) return
+    e.preventDefault()
+    settle()
+  }
+  // Alt-tab swallows the keyup. Don't leave focus on the page waiting for a key that
+  // isn't coming back.
+  const onBlur = () => { settle() }
+  document.addEventListener('keyup', onUp, true)
+  window.addEventListener('blur', onBlur)
+  queueMicrotask(() => {
+    if (settled) return
+    // The click that closed the dialog was itself this key's keyup. Waiting for
+    // another one would leave focus on the page.
+    if (pending.every((k) => !activatorDown.has(k))) settle()
+  })
+}
+
 // Overlays enter over .22s and used to leave on the frame they closed, because the caller
 // owns the mounting (`{open && <Thing/>}`) and React can't hold an unmount open from
 // inside the child. Rather than thread a `closing` flag through all eleven call sites —
@@ -169,7 +228,7 @@ const EXIT_MS = 140
 // the way out: a frozen, inert copy of the backdrop plays the exit and removes itself.
 //
 // It's display-only, so the things a clone loses (React handlers, focus) are things an
-// exiting dialog shouldn't have anyway — focus has already gone back to the trigger above.
+// exiting dialog shouldn't have anyway — focus goes back to the trigger, not to this.
 // Scroll offsets ARE copied: a tall Settings modal that snapped to the top for the last
 // 140ms would be a worse artifact than no animation at all.
 function playExit(back: HTMLDivElement | null) {
@@ -245,8 +304,10 @@ export function Modal(props: {
       // copies crossing. A real unmount has detached the node by the time this settles.
       queueMicrotask(() => {
         if (leaving?.isConnected) return
-        const back = returnTo.current
-        if (back?.isConnected) back.focus()
+        // Enter and Space click on keyup, and that keyup goes to whatever is focused
+        // when the key comes up. Focusing the trigger here would click it, and the
+        // dialog that just closed would open again.
+        restoreFocus(returnTo.current)
         playExit(leaving)
       })
     }
@@ -416,7 +477,7 @@ function ConfirmHost() {
             <input type="text" autoFocus value={value} autoComplete="off" spellCheck={false} aria-label={inputLabel}
               placeholder={opts.requirePhrase?.placeholder ?? 'Type the phrase to confirm'}
               onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onConfirm() } }} />
           </div>
         </>
       )}
@@ -428,7 +489,7 @@ function ConfirmHost() {
           ) : (
             <input type="text" autoFocus value={value} placeholder={opts.prompt.placeholder} aria-label={inputLabel}
               onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') onConfirm() }} />
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onConfirm() } }} />
           )}
         </div>
       )}
