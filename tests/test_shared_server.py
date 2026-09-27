@@ -8,6 +8,7 @@ between "add a bot next to that one" and "overwrite that one's configuration". T
 way to check it is to let ``olisar.runtime.remote`` do what it does on a real VM, so this starts
 an SSH server in-process (asyncssh), backed by a throwaway home directory, with ``docker``,
 ``sudo`` and ``curl`` stubbed on PATH — and runs the real ``deploy/olisar-update.sh`` behind it.
+The app's own GitHub and Discord lookups are patched too, so nothing leaves the machine.
 
 Covered: the first bot deploys into ``~/olisar`` as it always has; a second bot can't get in
 until the first lets its key in; once in, it deploys alongside rather than over the first,
@@ -165,6 +166,27 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         spawn = mock.patch.object(remote, "spawn_autoupdate", lambda: None)
         spawn.start()
         self.addCleanup(spawn.stop)
+        # Nothing here leaves the machine. GitHub's newest release on the app's channel is
+        # ``self.release`` (None: GitHub couldn't be asked), and naming the installs for the
+        # operator to pick from doesn't ask Discord.
+        self.release: str | None = "v9.9.9"
+        self.channel = "stable"
+
+        async def newest_release(chan=None):
+            return {"tag": self.release, "url": "", "published_at": None} if self.release else None
+
+        async def name_installs(installs):
+            return [{"dir": i["dir"], "name": i.get("node") or i["dir"]} for i in installs]
+
+        for patcher in (
+            mock.patch.object(remote.updates, "newest_release", newest_release),
+            mock.patch.object(remote.updates, "channel", lambda: self.channel),
+            mock.patch.object(remote, "_name_installs", name_installs),
+            # ``as_bot`` sets the profile id the way a gateway worker is started with one.
+            mock.patch.dict(os.environ),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.dbs = root / "bots"
         self.dbs.mkdir()
 
