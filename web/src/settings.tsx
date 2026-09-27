@@ -67,10 +67,12 @@ export function clearPendingReport(): void {
 
 // `sections` narrows the visible sections (default: all) — the pre-auth login/onboarding
 // gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
-// `prefill` opens it pre-filled from whatever screen sent the operator here.
+// `prefill` opens it pre-filled from whatever screen sent the operator here. `operator` is
+// false for a signed-in admin who isn't the operator: the install-wide settings (the PIN,
+// the update channel) are shown to them but aren't theirs to change.
 export function SettingsModal(
-  { onClose, sections, initialSection, report, prefill }:
-  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill },
+  { onClose, sections, initialSection, report, prefill, operator }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill; operator?: boolean },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
   // so an unfiltered modal must not offer both, and the same goes for the server panel's
@@ -133,10 +135,10 @@ export function SettingsModal(
           {section === 'activity' && <Activity />}
           {section === 'bots' && <BotsPane Head={Head} />}
           {section === 'logs' && <Logs onReport={hasFeedback ? () => goFeedback({ category: 'Bug report', logs: true }) : undefined} />}
-          {section === 'security' && <Security />}
+          {section === 'security' && <Security canEdit={operator !== false} />}
           {section === 'remote' && <Remote />}
           {section === 'server-remote' && <ServerRemote />}
-          {section === 'updates' && <Updates />}
+          {section === 'updates' && <Updates operator={operator} />}
           {section === 'desktop' && <Desktop />}
           {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
         </div>
@@ -575,7 +577,7 @@ function PinInput(props: { value: string; onChange: (v: string) => void; label: 
   )
 }
 
-function Security() {
+function Security({ canEdit }: { canEdit: boolean }) {
   const [data, setData] = useState<any>(null)
   const [pin, setPin] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -651,6 +653,10 @@ function Security() {
             </div>
           </div>
 
+          {/* One PIN for the whole install, so it's the operator's to set: the API refuses
+              anyone else, and a form that could only fail isn't offered. */}
+          {!canEdit && <p className="settings-foot">Only the bot’s operator can set or change the PIN.</p>}
+          {canEdit && <>
           <div className="settings-subhead">{isSet ? 'Change the PIN' : 'Set a PIN'}</div>
           {/* Entered twice because it's masked, four characters long, and the first place a
               typo would show up is a prompt in Discord that won't accept it. */}
@@ -674,6 +680,7 @@ function Security() {
               {isSet ? 'Change PIN' : 'Set PIN'}
             </button>
           </div>
+          </>}
         </>
       )}
     </>
@@ -900,7 +907,7 @@ const desktopUpdates = () => (window as any).olisar?.updates as
 
 type Channel = 'stable' | 'beta'
 
-function Updates() {
+function Updates({ operator }: { operator?: boolean }) {
   const [data, setData] = useState<any>(null)
   const [checking, setChecking] = useState(false)
   const [canSelfUpdate, setCanSelfUpdate] = useState(false)
@@ -985,21 +992,25 @@ function Updates() {
         )}
         <button className="ghost" onClick={() => load(true)} disabled={checking || installing}><Icon.refresh size={14} /> {checking ? 'Checking…' : 'Check again'}</button>
       </div>
-      <div className="settings-subhead">Channel</div>
-      <div className="settings-row">
-        {channel === null ? <span className="settings-muted">…</span> : (
-          <Segmented
-            className="useg"
-            ariaLabel="Update channel"
-            value={channel}
-            onChange={pickChannel}
-            options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
-          />
+      {/* The channel moves the whole install, so it's the operator's, or whoever is at the
+          machine (where the desktop app's bridge is). */}
+      {(operator !== false || !!du) && <>
+        <div className="settings-subhead">Channel</div>
+        <div className="settings-row">
+          {channel === null ? <span className="settings-muted">…</span> : (
+            <Segmented
+              className="useg"
+              ariaLabel="Update channel"
+              value={channel}
+              onChange={pickChannel}
+              options={[{ value: 'stable', label: 'Stable' }, { value: 'beta', label: 'Beta' }]}
+            />
+          )}
+        </div>
+        {channel === 'stable' && isBeta(data?.current) && (
+          <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
         )}
-      </div>
-      {channel === 'stable' && isBeta(data?.current) && (
-        <p className="settings-foot">You'll stay on v{data.current} until a newer stable release is out.</p>
-      )}
+      </>}
       {!du && (
         <p className="settings-foot">Updates are installed from the Olisar desktop app.</p>
       )}

@@ -623,6 +623,7 @@ export default function App() {
           initialSection={settingsPane}
           report={report}
           prefill={feedbackPrefill}
+          operator={isOperator}
           onClose={() => {
             setSettingsOpen(false); setSettingsPane(undefined); setFeedbackPrefill(undefined)
             // Closing the sheet is a decision about this report. Reopening Settings later

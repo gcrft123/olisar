@@ -16,6 +16,7 @@ from api.auth.deps import (
     require_admin_or_local,
     require_any_session,
     require_discord_identity,
+    require_operator,
 )
 from api.auth.oauth import DENIED_COOKIE, denied_identity
 from api.auth.sessions import COOKIE_NAME, MEMBER_COOKIE_NAME
@@ -33,6 +34,17 @@ log = logging.getLogger("olisar.api.settings")
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
+async def require_operator_or_local(
+    request: Request,
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+) -> AdminUser | None:
+    """``require_admin_or_local`` for what's install-wide: someone at the machine, or the
+    operator. Manage Server on one server doesn't reach a setting every server shares."""
+    if is_local_request(request):
+        return None
+    return await require_operator(await require_admin(request, olisar_session))
+
+
 @router.get("/logs")
 async def get_logs(lines: int = 500, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
     """Recent backend log lines (bot + API), newest last."""
@@ -48,10 +60,11 @@ async def get_updates(_: AdminUser | None = Depends(require_admin_or_local)) -> 
 
 @router.put("/updates/channel")
 async def put_update_channel(
-    body: UpdateChannelIn, _: AdminUser | None = Depends(require_admin_or_local)
+    body: UpdateChannelIn, _: AdminUser | None = Depends(require_operator_or_local)
 ) -> dict:
     """Follow stable or beta releases. The desktop shell reads the same file before each
-    check, so the tray and the in-app installer switch with it."""
+    check, so the tray and the in-app installer switch with it. The operator's to change:
+    it moves the whole install, and a server-hosted VM with it."""
     return {"channel": updates.set_channel(body.channel)}
 
 
@@ -239,13 +252,16 @@ async def get_pin(_: AdminUser = Depends(require_admin)) -> dict:
 
 
 @router.put("/pin")
-async def put_pin(body: ToolPinIn, admin: AdminUser = Depends(require_admin)) -> dict:
+async def put_pin(body: ToolPinIn, admin: AdminUser = Depends(require_operator)) -> dict:
     """Set or change the PIN, the wait, or both.
 
-    Changing it doesn't ask for the current one. Everyone who can reach this endpoint can
-    already rewrite the persona, read the audit log and wipe the bot's memory, so a
-    current-PIN challenge here would buy nothing and would lock out an operator who
-    forgot four digits — with no recovery path that isn't "edit the database".
+    The operator's alone: there is one PIN for the whole install, so Manage Server on one
+    server mustn't be able to change or remove what confirms actions on every other.
+
+    Changing it doesn't ask for the current one. The operator can already rewrite the
+    persona, read the audit log and wipe the bot's memory, so a current-PIN challenge here
+    would buy nothing and would lock out an operator who forgot four digits — with no
+    recovery path that isn't "edit the database".
     """
     if body.pin is None and body.timeout_sec is None:
         raise HTTPException(status_code=400, detail="nothing to change")
@@ -267,7 +283,7 @@ async def put_pin(body: ToolPinIn, admin: AdminUser = Depends(require_admin)) ->
 
 
 @router.delete("/pin")
-async def delete_pin(admin: AdminUser = Depends(require_admin)) -> dict:
+async def delete_pin(admin: AdminUser = Depends(require_operator)) -> dict:
     """Remove the PIN. Anything gated then has no way to be confirmed, so it won't run."""
     async with session_scope() as session:
         await toolpin.clear_pin(session)
