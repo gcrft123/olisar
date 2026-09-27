@@ -421,9 +421,9 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   stroke-dasharray: var(--dash) calc(var(--glow-len, 0) * 2px);
   stroke-dashoffset: calc(var(--dash) / 2 - var(--trace) * var(--glow-len, 0) * 1px);
 }
-.foot-trace-halo { --dash: 56px; stroke-width: 5px; opacity: 0.6; }
-.foot-trace-tail { --dash: 72px; stroke-width: 1.5px; opacity: 0.45; }
-.foot-trace-core { --dash: 28px; stroke-width: 1.5px; stroke: color-mix(in srgb, var(--glow) 55%, var(--text)); }
+.foot-trace-halo { --dash: 88px; stroke-width: 6px; opacity: 0.32; }
+.foot-trace-tail { --dash: 104px; stroke-width: 1.25px; opacity: 0.3; }
+.foot-trace-core { --dash: 44px; stroke-width: 1.25px; opacity: 0.8; stroke: color-mix(in srgb, var(--glow) 80%, var(--text)); }
 .foot-sheet[data-glow-motion="slide"] .foot-trace {
   opacity: 1; animation: foot-trace 2.4s ease-in-out infinite alternate;
 }
