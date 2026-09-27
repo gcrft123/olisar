@@ -206,6 +206,8 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
             mock.patch.object(remote, "_name_installs", name_installs),
             # ``as_bot`` sets the profile id the way a gateway worker is started with one.
             mock.patch.dict(os.environ),
+            # Every test's VM is 127.0.0.1, so a token read in one mustn't answer for the next.
+            mock.patch.dict(remote._vm_tokens, clear=True),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -430,6 +432,43 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((self.home / "olisar" / ".env").exists())  # nothing written
         self.assertEqual(self.pulls(), [])
         self.assertNotEqual((await remote._load()).hosting_mode, "server")
+
+    async def test_the_bot_token_is_read_again_after_a_redeploy(self) -> None:
+        """The panel's Discord checks and "Turn on and restart" use the VM's bot token, kept
+        once read. A redeploy onto another Discord application (a reset) left them acting on
+        the old application; so did adopting an install."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-111")
+        await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-333")
+
+        remote._vm_tokens["127.0.0.1/olisar"] = "token-from-before"
+        self.assertTrue((await remote.connect("127.0.0.1", "tester"))["ok"])
+        self.assertEqual(await remote._vm_token(await remote._load()), "token-333")
+
+    async def test_a_token_discord_refuses_is_read_from_the_vm_again(self) -> None:
+        """Rotated by hand on the VM: the kept copy is the one Discord refuses."""
+        from olisar import discord_app
+
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        remote._vm_tokens["127.0.0.1/olisar"] = "token-rotated-away"
+        seen = []
+
+        async def inspect(token):
+            seen.append(token)
+            if token != "token-111":
+                raise discord_app.BadToken()
+            return {"id": "111", "name": "Alpha", "avatar": "", "redirect_uris": [], "intents_missing": []}
+
+        with mock.patch.object(discord_app, "inspect", inspect):
+            check = await remote.discord_check("https://olisar.example.ts.net")
+        self.assertTrue(check["ok"], check)
+        self.assertEqual(seen, ["token-rotated-away", "token-111"])
+        self.assertEqual(remote._vm_tokens["127.0.0.1/olisar"], "token-111")
 
     async def test_status_and_activity_come_from_the_bot_s_own_container(self) -> None:
         """The probe's start and healthcheck times, and the activity feed read from inside the

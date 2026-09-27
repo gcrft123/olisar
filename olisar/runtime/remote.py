@@ -373,6 +373,7 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         # process list / shell history the way an inline command would.
         await _run(conn, f"mkdir -p ~/{app_dir}", timeout=30)
         await conn.run(f"cat > ~/{app_dir}/.env", input=env_text, check=True)
+        _forget_vm_token(host, app_dir)
         await _run(conn, f"chmod 600 ~/{app_dir}/.env", timeout=30)
         await _mark_owner(conn, app_dir, owner)
         await _install_managed(conn, app_dir)
@@ -474,6 +475,7 @@ async def connect(host: str, user: str, app_dir: str = "") -> dict:
     except Exception as exc:  # noqa: BLE001 — adoption must still succeed
         log.warning("could not reconcile managed files on %s: %s", host, exc)
     conn.close()
+    _forget_vm_token(host, app_dir)
     await runtime_config.save(
         server_host=host, server_ssh_user=user, server_app_dir=app_dir,
         hosting_mode="server", configured=True,
@@ -527,8 +529,13 @@ _PUBKEY_RE = re.compile(r"^ssh-(ed25519|rsa) [A-Za-z0-9+/=]{16,}( [A-Za-z0-9@._-
 # The VM's bot token, read once from its .env and kept for this process: the app hands the
 # token to the VM when it deploys and keeps no copy, and checking the VM's sign-in address
 # against the Discord app needs it. Keyed by host and install, so a reconnect elsewhere
-# reads again.
+# reads again. A deploy or an adoption of that install forgets it (the .env may name another
+# Discord application now), and so does Discord refusing it (rotated by hand on the VM).
 _vm_tokens: dict[str, str] = {}
+
+
+def _forget_vm_token(host: str, app_dir: str) -> None:
+    _vm_tokens.pop(f"{host}/{app_dir}", None)
 
 
 async def _vm_token(cfg: AppConfig) -> str:
@@ -542,6 +549,23 @@ async def _vm_token(cfg: AppConfig) -> str:
         if env.get("DISCORD_TOKEN"):
             _vm_tokens[key] = env["DISCORD_TOKEN"]
     return _vm_tokens.get(key, "")
+
+
+async def _vm_app(cfg: AppConfig, read) -> dict:
+    """``read`` (``discord_app.inspect`` or ``prepare``) with the VM's bot token. A token
+    Discord refuses may only be the copy kept here, so that one is read from the VM again,
+    once, before the refusal stands."""
+    from olisar import discord_app
+
+    token = await _vm_token(cfg)
+    try:
+        return await read(token)
+    except discord_app.BadToken:
+        _forget_vm_token(cfg.server_host, app_dir_of(cfg))
+        fresh = await _vm_token(cfg)
+        if not fresh or fresh == token:
+            raise
+        return await read(fresh)
 
 
 async def discord_check(public_url: str = "") -> dict:
@@ -561,10 +585,9 @@ async def discord_check(public_url: str = "") -> dict:
     url = (public_url or "").rstrip("/")
     redirect = f"{url}/auth/callback" if url.startswith("https://") else ""
     try:
-        token = await _vm_token(cfg)
-        if not token:
+        if not await _vm_token(cfg):
             return {"ok": False, "error": "Couldn't read the bot token on the server."}
-        app = await discord_app.inspect(token)
+        app = await _vm_app(cfg, discord_app.inspect)
     except Exception as exc:  # noqa: BLE001 (SSH or Discord; either way the panel just can't tell)
         return {"ok": False, "error": str(exc) or type(exc).__name__}
     return {
@@ -590,8 +613,7 @@ async def reconnect() -> dict:
     if not (cfg and cfg.server_host):
         return {"ok": False, "error": "No server configured yet."}
     try:
-        token = await _vm_token(cfg)
-        app = await discord_app.prepare(token)
+        app = await _vm_app(cfg, discord_app.prepare)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc) or type(exc).__name__}
     if app["intents_missing"]:
