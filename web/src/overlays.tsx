@@ -3,11 +3,11 @@
 // anywhere by the exported toast() / confirmDialog() / promptDialog() helpers.
 // These replace the native alert/confirm/prompt, which break the calm aesthetic.
 
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Toast, type ToastManagerAddOptions, type ToastObject } from '@base-ui/react/toast'
 import { Icon, CloseX, type IconName } from './icons'
-import { rectScale } from './theme'
+import { rectScale, uiScale } from './theme'
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 // Base UI's Toast owns the behaviour: the newest three stack in the corner with the older
@@ -445,14 +445,96 @@ function ConfirmHost() {
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────
 // One delegated, portal-rendered tooltip for any element carrying data-tip="…"
-// (or a native title, which is migrated to data-tip so the OS tooltip never shows).
-// Fixed-positioned so it's never clipped by an overflow:hidden modal; flips below
-// the target when there's no room above. Monaco owns its own hovers, so it's skipped.
+// (or a native title, which is migrated to data-tip so the OS tooltip never shows),
+// with a shortcut chip from data-tip-kbd="…". Fixed-positioned so it's never clipped
+// by an overflow:hidden modal; flips below the target when there's no room above, and
+// stays inside the window with its stem still on the target. Monaco owns its own
+// hovers, so it's skipped.
+//
+// It behaves like React Bits' Warm Tooltip, with the whole console as one group. The
+// first tooltip waits TIP_COLD_DELAY and pops out of its trigger. While one is showing,
+// and for TIP_WARM_WINDOW after it closes, the next skips the wait: from a tooltip still
+// on screen it glides across, its label sliding the way it moved. Keyboard focus shows
+// it at once, since that's someone stepping through the controls to learn what they are.
+const TIP_COLD_DELAY = 400
+const TIP_WARM_WINDOW = 300
+// Long enough to cross the gap between two toolbar buttons without it starting to close.
+const TIP_GRACE = 80
+// --dur-fast: closing, and one label swapping for the next.
+const TIP_FAST = 120
+const TIP_GAP = 8          // trigger to tooltip
+const TIP_GAP_SIDE = 10    // beside a rail button
+const TIP_EDGE = 8         // kept clear of the window's edge
+const TIP_RADIUS = 8       // --radius-xs
+const TIP_STEM = 5         // how far the stem reaches out, and half its width at the edge
+// The stem's center keeps this far from the tooltip's ends, clear of the rounded corners.
+const TIP_STEM_INSET = TIP_RADIUS + TIP_STEM + 1
+// Outer edge to label: the 1px outline plus 9px / 5px of padding.
+const TIP_PAD_X = 10
+const TIP_PAD_Y = 6
+
+type TipSide = 'top' | 'bottom' | 'right'
+type TipLabel = { key: number; text: string; kbd: string | null }
+type Tip = TipLabel & {
+  side: TipSide
+  // The point the stem touches, in the tooltip's own (zoomed) CSS space.
+  x: number
+  y: number
+  // How it got here: popped out after the wait, straight in (warm, or from the keyboard),
+  // or across from the tooltip before it.
+  arrive: 'cold' | 'warm' | 'move'
+  closing: boolean
+  // The label on its way out while this one comes in, and which way they travel.
+  swap: (TipLabel & { dx: number; dy: number }) | null
+}
+
+const clampTo = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), Math.max(lo, hi))
+// Along an edge `len` long. A one-line tooltip beside the rail is shorter than two insets, and
+// there the middle is the only place for the stem.
+const stemAt = (v: number, len: number) =>
+  len < TIP_STEM_INSET * 2 ? len / 2 : clampTo(v, TIP_STEM_INSET, len - TIP_STEM_INSET)
+
+// The tooltip's outline: body and stem as ONE path, filled and stroked once. The stem used to
+// be a second shape (a bordered diamond) laid against the body's CSS border, and the two only
+// met cleanly when the browser happened to rasterize both onto the same subpixel; one stroke
+// has no joint to come apart. Centered half a pixel in, so the 1px stroke sits where a 1px
+// border would. For a given side every path has the same commands, so CSS can tween `d`
+// from one tooltip to the next on a glide.
+function tipPath(side: TipSide, w: number, h: number, at: number): string {
+  const o = 0.5, r = TIP_RADIUS - o, R = w - o, B = h - o, s = TIP_STEM
+  const arc = (x: number, y: number) => `A${r} ${r} 0 0 1 ${x} ${y}`
+  const stemUp = side === 'bottom' ? `H${at - s}L${at} ${o - s}L${at + s} ${o}` : ''
+  const stemDown = side === 'top' ? `H${at + s}L${at} ${B + s}L${at - s} ${B}` : ''
+  const stemLeft = side === 'right' ? `V${at + s}L${o - s} ${at}L${o} ${at - s}` : ''
+  return `M${o + r} ${o}${stemUp}H${R - r}${arc(R, o + r)}V${B - r}${arc(R - r, B)}`
+    + `${stemDown}H${o + r}${arc(o, B - r)}${stemLeft}V${o + r}${arc(o + r, o)}Z`
+}
+
+function TipText({ label, labelRef }: { label: TipLabel; labelRef?: React.Ref<HTMLSpanElement> }) {
+  return (
+    <span ref={labelRef} className="tooltip-label">
+      {label.text}
+      {label.kbd && <kbd className="tooltip-kbd">{label.kbd}</kbd>}
+    </span>
+  )
+}
+
 function TooltipHost() {
-  const [tip, setTip] = useState<{ text: string; x: number; y: number; below: boolean; right?: boolean } | null>(null)
+  const [tip, setTip] = useState<Tip | null>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const shapeRef = useRef<SVGPathElement>(null)
+
   useEffect(() => {
-    let current: Element | null = null
-    const hide = () => { current = null; setTip(null) }
+    let hovered: Element | null = null   // the tip-carrying element under the pointer
+    let shown: Element | null = null     // the element the tooltip is naming
+    let phase: 'closed' | 'open' | 'closing' = 'closed'
+    let byKey = false                    // opened from the keyboard, so it also closes at once
+    let warmUntil = 0
+    let key = 0
+    let openTimer = 0, leaveTimer = 0, closeTimer = 0
+    const warm = () => phase !== 'closed' || performance.now() < warmUntil
+
     const textOf = (el: Element): string | null => {
       let t = el.getAttribute('data-tip')
       if (!t && el.hasAttribute('title')) {
@@ -470,78 +552,185 @@ function TooltipHost() {
       }
       return t || null
     }
-    // Pops up instantly on hover (no delay), per the design system.
-    const show = (el: Element) => {
-      if (el.closest('.monaco-editor')) return
-      const text = textOf(el)
-      if (!text) return
-      current = el
+
+    // Where the stem touches, and which side of the target the tooltip takes.
+    const anchor = (el: Element): { side: TipSide; x: number; y: number } => {
       const r = el.getBoundingClientRect()
-      // `left`/`top` below are read back in the zoomed coordinate space, so divide out
-      // however much zoom the rect already carries — see rectScale(). Getting this from
-      // --ui-scale instead was right in the browser (Chromium 128+) and wrong in the
-      // desktop app (Chromium 126), where it threw the tip left of its target.
+      // `x`/`y` are read back in the zoomed coordinate space, so divide out however much
+      // zoom the rect already carries — see rectScale(). Getting this from --ui-scale
+      // instead was right in the browser (Chromium 128+) and wrong in the desktop app
+      // (Chromium 126), where it threw the tip left of its target.
       const k = rectScale()
       // Beside a rail's buttons (`data-tip-side="right"`), where above or below would cover
       // the next button. Not on a phone, where the rail is a bar across the top.
       if (el.getAttribute('data-tip-side') === 'right' && window.innerWidth > 560) {
-        setTip({ text, x: Math.round((r.right + 10) / k), y: Math.round((r.top + r.height / 2) / k), below: false, right: true })
-        return
+        return { side: 'right', x: Math.round((r.right + TIP_GAP_SIDE) / k), y: Math.round((r.top + r.height / 2) / k) }
       }
       const below = r.top < 52 * k   // a CSS-px threshold, compared against a rect
-      setTip({
-        text,
+      return {
+        side: below ? 'bottom' : 'top',
         x: Math.round((r.left + r.width / 2) / k),
-        y: Math.round((below ? r.bottom + 8 : r.top - 8) / k),
-        below,
-      })
-    }
-    const onOver = (e: Event) => {
-      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
-      if (el && el !== current) show(el)
-    }
-    const onOut = (e: MouseEvent) => {
-      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
-      if (el && el === current) {
-        const to = e.relatedTarget as Node | null
-        if (to && el.contains(to)) return   // moved onto a child — keep showing
-        hide()
+        y: Math.round((below ? r.bottom + TIP_GAP : r.top - TIP_GAP) / k),
       }
     }
-    // Keyboard focus only. A click fires mousedown (which hides) and then focusin, so
+
+    const open = (el: Element, how: 'cold' | 'warm' | 'key') => {
+      clearTimeout(openTimer); clearTimeout(leaveTimer); clearTimeout(closeTimer)
+      const text = el.isConnected ? textOf(el) : null
+      if (!text) return
+      const was = phase === 'closed' ? null : shown
+      shown = el; phase = 'open'; byKey = how === 'key'
+      if (was === el) { setTip((t) => t && { ...t, closing: false }); return }
+      const at = anchor(el)
+      const label = { key: ++key, text, kbd: el.getAttribute('data-tip-kbd') }
+      setTip((t) => {
+        // Still on screen on the same side: glide over, the labels sliding the way it goes.
+        if (t && was && how !== 'key' && t.side === at.side) {
+          const across = at.side === 'right'
+          const d = Math.sign(across ? at.y - t.y : at.x - t.x) || 1
+          return { ...label, ...at, arrive: 'move', closing: false,
+            swap: { key: t.key, text: t.text, kbd: t.kbd, dx: across ? 0 : d, dy: across ? d : 0 } }
+        }
+        return { ...label, ...at, arrive: how === 'cold' ? 'cold' : 'warm', closing: false, swap: null }
+      })
+    }
+
+    const finish = () => { clearTimeout(closeTimer); phase = 'closed'; shown = null; setTip(null) }
+    const close = (now: boolean) => {
+      clearTimeout(openTimer)
+      if (phase === 'closed') return
+      if (now || byKey) { clearTimeout(leaveTimer); warmUntil = performance.now() + TIP_WARM_WINDOW; finish(); return }
+      if (phase === 'closing') return
+      clearTimeout(leaveTimer)
+      leaveTimer = window.setTimeout(() => {
+        phase = 'closing'
+        warmUntil = performance.now() + TIP_WARM_WINDOW
+        setTip((t) => t && { ...t, closing: true })
+        closeTimer = window.setTimeout(finish, TIP_FAST)
+      }, TIP_GRACE)
+    }
+
+    const tipOf = (e: Event) => (e.target as Element)?.closest?.('[data-tip],[title]') ?? null
+    const onOver = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') return
+      const el = tipOf(e)
+      if (el === hovered) return   // a move onto one of its own children
+      hovered = el
+      if (!el || e.buttons !== 0 || el.closest('.monaco-editor')) return
+      textOf(el)   // migrate a title now, before the OS tooltip can show during the wait
+      clearTimeout(openTimer)
+      if (warm()) open(el, 'warm')
+      else openTimer = window.setTimeout(() => open(el, 'cold'), TIP_COLD_DELAY)
+    }
+    const onOut = (e: PointerEvent) => {
+      const el = tipOf(e)
+      if (!el || el !== hovered) return
+      const to = e.relatedTarget as Node | null
+      if (to && el.contains(to)) return   // moved onto a child — keep showing
+      hovered = null
+      clearTimeout(openTimer)
+      if (el === shown) close(false)
+    }
+    // A press closes it, and `hovered` stays put so it won't reopen until the pointer
+    // leaves and comes back.
+    const onDown = () => close(false)
+    // Keyboard focus only. A click fires pointerdown (which closes) and then focusin, so
     // showing on every focus made the tip blink back the instant you pressed the button
     // it belongs to. :focus-visible is exactly the "focused, but not by pointer" test.
     const onFocus = (e: Event) => {
-      const el = (e.target as Element)?.closest?.('[data-tip],[title]')
-      if (el && el.matches(':focus-visible')) show(el)
+      const el = tipOf(e)
+      if (el && el.matches(':focus-visible') && !el.closest('.monaco-editor')) open(el, 'key')
     }
-    document.addEventListener('mouseover', onOver, true)
-    document.addEventListener('mouseout', onOut as EventListener, true)
-    document.addEventListener('focusin', onFocus)
-    document.addEventListener('focusout', hide)
-    document.addEventListener('mousedown', hide, true)
-    window.addEventListener('scroll', hide, true)
-    // Escape closes dialogs, taking the hovered control with it — but mouseout never fires
-    // for an element that was removed, so the tip outlived the button it named ("Close (Esc)"
+    const onBlur = (e: Event) => { if (shown && shown.contains(e.target as Node)) close(true) }
+    // Escape closes dialogs, taking the hovered control with it — but pointerout never fires
+    // for an element that was removed, so the tip outlived the button it named ("Close"
     // hanging over the page after the modal went away).
-    document.addEventListener('keydown', hide, true)
-    const gone = new MutationObserver(() => { if (current && !current.isConnected) hide() })
+    const onKey = () => close(true)
+    const onGone = () => close(true)
+    const onHidden = () => { if (document.visibilityState === 'hidden') close(true) }
+    document.addEventListener('pointerover', onOver, true)
+    document.addEventListener('pointerout', onOut, true)
+    document.addEventListener('pointerdown', onDown, true)
+    document.addEventListener('focusin', onFocus)
+    document.addEventListener('focusout', onBlur)
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('visibilitychange', onHidden)
+    window.addEventListener('scroll', onGone, true)
+    window.addEventListener('resize', onGone)
+    const gone = new MutationObserver(() => {
+      if (hovered && !hovered.isConnected) hovered = null
+      if (shown && !shown.isConnected) close(true)
+    })
     gone.observe(document.body, { childList: true, subtree: true })
     return () => {
-      document.removeEventListener('mouseover', onOver, true)
-      document.removeEventListener('mouseout', onOut as EventListener, true)
+      clearTimeout(openTimer); clearTimeout(leaveTimer); clearTimeout(closeTimer)
+      document.removeEventListener('pointerover', onOver, true)
+      document.removeEventListener('pointerout', onOut, true)
+      document.removeEventListener('pointerdown', onDown, true)
       document.removeEventListener('focusin', onFocus)
-      document.removeEventListener('focusout', hide)
-      document.removeEventListener('mousedown', hide, true)
-      window.removeEventListener('scroll', hide, true)
-      document.removeEventListener('keydown', hide, true)
+      document.removeEventListener('focusout', onBlur)
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('visibilitychange', onHidden)
+      window.removeEventListener('scroll', onGone, true)
+      window.removeEventListener('resize', onGone)
       gone.disconnect()
     }
   }, [])
+
+  // Size the box from its label and place it before it paints: centered on the target,
+  // pushed back inside the window if it would cross the edge, with the stem moved along
+  // it to stay on the target. On a glide, CSS carries the box and the stem to the new values.
+  useLayoutEffect(() => {
+    const box = boxRef.current, label = labelRef.current
+    if (!tip || !box || !label) return
+    // offsetWidth is element-local, so it needs no zoom correction; the window does.
+    const w = label.offsetWidth + TIP_PAD_X * 2
+    const h = label.offsetHeight + TIP_PAD_Y * 2
+    const s = uiScale()
+    let left: number, top: number, at: number
+    if (tip.side === 'right') {
+      left = tip.x
+      top = Math.round(clampTo(tip.y - h / 2, TIP_EDGE, window.innerHeight / s - TIP_EDGE - h))
+      at = stemAt(tip.y - top, h)
+    } else {
+      left = Math.round(clampTo(tip.x - w / 2, TIP_EDGE, window.innerWidth / s - TIP_EDGE - w))
+      top = tip.side === 'top' ? tip.y - h : tip.y
+      at = stemAt(tip.x - left, w)
+    }
+    box.style.left = `${left}px`
+    box.style.top = `${top}px`
+    box.style.width = `${w}px`
+    box.style.height = `${h}px`
+    box.style.setProperty('--tip-at', `${at}px`)
+    shapeRef.current?.setAttribute('d', tipPath(tip.side, w, h, at))
+  }, [tip?.key, tip?.side, tip?.x, tip?.y])
+
+  // The outgoing label is only there for the length of the swap.
+  const swapping = !!tip?.swap
+  useEffect(() => {
+    if (!swapping) return
+    const k = tip!.key
+    const t = window.setTimeout(() => setTip((p) => (p && p.key === k ? { ...p, swap: null } : p)), TIP_FAST)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tip?.key, swapping])
+
   if (!tip) return null
+  const travel = tip.swap ? ({ '--dx': tip.swap.dx, '--dy': tip.swap.dy } as React.CSSProperties) : undefined
   return createPortal(
-    <div className={'tooltip' + (tip.right ? ' right' : tip.below ? ' below' : '')} style={{ left: tip.x, top: tip.y }} role="tooltip">
-      {tip.text}
+    <div ref={boxRef} className="tooltip" role="tooltip" data-side={tip.side} data-arrive={tip.arrive}
+      data-closing={tip.closing ? '' : undefined}>
+      <svg className="tooltip-shape" aria-hidden="true"><path ref={shapeRef} /></svg>
+      <span className="tooltip-clip">
+        {tip.swap && (
+          <span key={tip.swap.key} className="tooltip-layer out" style={travel} aria-hidden="true">
+            <TipText label={tip.swap} />
+          </span>
+        )}
+        <span key={tip.key} className={'tooltip-layer' + (tip.swap ? ' in' : '')} style={travel}>
+          <TipText label={tip} labelRef={labelRef} />
+        </span>
+      </span>
     </div>,
     document.body,
   )
