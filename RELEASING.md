@@ -186,11 +186,12 @@ to the release, not `/releases/latest`. So a release is never seen half-built. P
 whichever build finished first used to put it live minutes before the rest: v2.0.beta-4 was up
 for two minutes without its `.dmg` and five without its server image.
 
-If a build fails, the release stays a draft and nothing ships. Fix the cause and use **Re-run
-failed jobs** on the same run; `publish` runs after them. The draft is on the
-[Releases](https://github.com/gcrft123/olisar/releases) page for maintainers meanwhile, and a
-title or notes written into it before it goes live are kept. Delete the draft only if you're
-abandoning the tag; a re-run reuses it rather than opening a second one.
+If a build fails, the release stays a draft and nothing ships. For a flake (a notarization
+timeout, a runner hiccup), use **Re-run failed jobs** on the same run; `publish` runs after
+them, and the re-run reuses the draft rather than opening a second one. A failure that needs a
+code change needs a new tag, so delete that tag's draft and cut the next version. The draft is on
+the [Releases](https://github.com/gcrft123/olisar/releases) page for maintainers meanwhile, and a
+title or notes written into it before it goes live are kept.
 
 Both jobs build with `--publish never` and upload with `gh`. electron-builder can only
 publish to a tag spelled `v` + the package.json version (`v2.0.0-beta.1`), which isn't the
