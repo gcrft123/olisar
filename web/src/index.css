@@ -1757,15 +1757,16 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .onb .onb-act-row .grow { flex: 1; min-width: 0; }
 .onb .onb-act-row .err { margin-top: 0; }
 .onb .onb-act-row + .field, .onb .err-help + .field { margin-top: 22px; }
-.onb .redirect-box {
+.redirect-box {
   background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: 9px 11px; font-family: var(--mono); font-size: 12px; word-break: break-all;
   display: flex; align-items: center; gap: 10px; justify-content: space-between;
 }
 /* The URL takes what's left and breaks anywhere; its Copy / Added never shrinks or breaks.
    `break-all` on the box reached into the pill, so a long URL split "Added" over two lines. */
-.onb .redirect-box > span:first-child { flex: 1; min-width: 0; }
-.onb .redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+.redirect-box > span:first-child { flex: 1; min-width: 0; }
+.redirect-box > :not(:first-child) { flex: none; white-space: nowrap; word-break: normal; }
+.redirect-box + .check-line { margin-top: 8px; }
 .onb .redirect-list { display: grid; gap: 8px; }
 /* A live-checked field's result (bot token, client secret, Gemini key), tucked up under its
    input the way a description sits under its label. It replaced a Test button beside it. */
@@ -1858,10 +1859,11 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .srv-hint.danger { color: var(--danger); }
 .srv-hint b { color: inherit; font-weight: 600; }
 .srv-hint.warning .linklike, .srv-hint.danger .linklike { color: inherit; }
-/* A key and the button that applies it, on one line: the panel's Tailscale key swap. */
-.onb .key-swap { display: flex; align-items: center; gap: 8px; }
-.onb .key-swap input { flex: 1; min-width: 0; }
-.onb .key-swap button { flex: none; }
+/* A value and the button that applies it, on one line: the panel's Tailscale key swap, and
+   the device name under Remote access. */
+.key-swap { display: flex; align-items: center; gap: 8px; }
+.key-swap input { flex: 1; min-width: 0; }
+.key-swap button { flex: none; }
 .srv-redirect.leaving { animation: srv-leave var(--dur-slow) var(--ease-out) forwards; }
 @keyframes srv-leave { to { opacity: 0; } }
 
@@ -2899,6 +2901,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .status-card .dot.warn { background: var(--text-3); }
 .status-line { font-weight: 600; font-size: 13.5px; }
 .status-card a { color: var(--accent); font-size: 12.5px; }
+.status-card + .field { margin-top: 20px; }
 .userlist { display: flex; flex-direction: column; gap: 1px; }
 .userrow { display: flex; align-items: center; gap: 12px; padding: 8px 4px; border-bottom: 1px solid var(--border); font-size: 13px; }
 .userrow:last-child { border-bottom: none; }
