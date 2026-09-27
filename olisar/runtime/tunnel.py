@@ -11,6 +11,15 @@ The sidecar prints one machine-readable line we parse:
   ``OLISAR_FUNNEL_URL=https://...``   on success
   ``OLISAR_FUNNEL_ERROR=<reason>``    on failure (e.g. Funnel not enabled — the reason
                                        includes Tailscale's enable URL)
+
+The helper is a process of its own, and nothing ties it to ours: the sidecar never reads its
+stdin, so it can't notice we're gone, and it outlives a backend that exits without stopping it
+(killed outright, or cut short by the worker's shutdown deadline). An orphan keeps the bot's
+node and its public address, serving a port nobody listens on. So the helper's PID is kept in
+its state directory (one per bot), and a backend starting up stops a helper still holding that
+directory before it starts its own; a backend about to exit abruptly stops its own first
+(``kill_helpers``). The helper gets a stdin pipe of its own, which closes whenever this process
+ends, for a sidecar that learns to exit on EOF.
 """
 
 from __future__ import annotations
@@ -21,12 +30,19 @@ import logging
 import os
 import re
 import shutil
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 log = logging.getLogger("olisar.tunnel")
 
 _START_TIMEOUT = 100  # seconds to wait for the funnel to come up
+PIDFILE = "olisar-funnel.pid"  # in the helper's state directory
+
+# Helpers this process started and hasn't stopped yet, for ``kill_helpers``.
+_live: set[int] = set()
 
 # A Tailscale device name Tailscale keeps as typed: one DNS label, since it becomes the first
 # part of the console's address.
@@ -69,12 +85,88 @@ def funnel_helper_path() -> str | None:
     return shutil.which("olisar-funnel")
 
 
+def _command_line(pid: int) -> str | None:
+    """What process ``pid`` is running, or None if there's no such process."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).stdout
+            return out if f'"{pid}"' in out else None
+        out = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+        return out or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _is_helper_for(command: str, state_dir: str) -> bool:
+    if os.name == "nt":  # tasklist names the image, not its arguments
+        return "olisar-funnel" in command.lower()
+    return f"--state {state_dir}" in command
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _kill(pids: list[int], grace: float) -> None:
+    """Terminate each of ``pids``, and kill any still there ``grace`` seconds later."""
+    for pid in pids:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGTERM)
+    if os.name == "nt":  # SIGTERM is TerminateProcess there: already gone
+        return
+    deadline = time.monotonic() + grace
+    left = list(pids)
+    while left and time.monotonic() < deadline:
+        time.sleep(0.1)
+        left = [pid for pid in left if _alive(pid)]
+    for pid in left:
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def reap_stale_helper(state_dir: str) -> int | None:
+    """Stop a helper an earlier backend left running on ``state_dir`` (this bot's Tailscale
+    node), and return its PID. Blocking; only ever called before we start a helper of our own,
+    so a helper found there isn't ours."""
+    pidfile = Path(state_dir) / PIDFILE
+    try:
+        pid = int(pidfile.read_text("utf-8").split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    command = _command_line(pid) if pid > 0 and pid not in _live else None
+    found = pid if command and _is_helper_for(command, str(state_dir)) else None
+    if found is not None:
+        log.warning("stopping a Tailscale helper left running by an earlier start (pid %d)", pid)
+        _kill([pid], grace=3.0)
+    with contextlib.suppress(OSError):
+        pidfile.unlink()
+    return found
+
+
+def kill_helpers() -> None:
+    """Stop every helper this process started. Safe from any thread and without the event
+    loop: the last thing a backend does before it exits without its usual cleanup."""
+    _kill(sorted(_live), grace=1.0)
+    _live.clear()
+
+
 class FunnelManager:
     """Owns at most one ``olisar-funnel`` sidecar process and the public URL it reports."""
 
     def __init__(self) -> None:
         self._proc: asyncio.subprocess.Process | None = None
         self._url: str = ""
+        self._pidfile: Path | None = None
 
     @property
     def running(self) -> bool:
@@ -96,6 +188,8 @@ class FunnelManager:
         if not exe:
             return False, "the Tailscale helper isn't bundled with this build"
         Path(state_dir).mkdir(parents=True, exist_ok=True)
+        # Two helpers can't run one node: one that outlived an earlier backend goes first.
+        await asyncio.to_thread(reap_stale_helper, state_dir)
         env = {**os.environ}
         if auth_key:
             env["TS_AUTHKEY"] = auth_key
@@ -103,6 +197,8 @@ class FunnelManager:
             self._proc = await asyncio.create_subprocess_exec(
                 exe, "--hostname", hostname or "olisar", "--target", target,
                 "--state", state_dir,
+                # Its own pipe, not ours: it closes when this process ends, however it ends.
+                stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
@@ -110,6 +206,12 @@ class FunnelManager:
         except Exception as exc:  # noqa: BLE001 — surface to the caller
             log.exception("failed to launch the funnel helper")
             return False, f"failed to launch the helper: {exc}"
+        _live.add(self._proc.pid)
+        self._pidfile = Path(state_dir) / PIDFILE
+        try:
+            self._pidfile.write_text(f"{self._proc.pid}\n", "utf-8")
+        except OSError as exc:
+            log.warning("couldn't record the Tailscale helper's pid: %s", exc)
 
         try:
             async with asyncio.timeout(_START_TIMEOUT):
@@ -146,7 +248,16 @@ class FunnelManager:
 
     async def stop(self) -> None:
         proc, self._proc, self._url = self._proc, None, ""
-        if proc is None or proc.returncode is not None:
+        pidfile, self._pidfile = self._pidfile, None
+        if proc is None:
+            return
+        _live.discard(proc.pid)
+        if pidfile is not None:
+            # Only if it's still ours: a later backend may already have recorded its own.
+            with contextlib.suppress(OSError, ValueError, IndexError):
+                if int(pidfile.read_text("utf-8").split()[0]) == proc.pid:
+                    pidfile.unlink()
+        if proc.returncode is not None:
             return
         with contextlib.suppress(ProcessLookupError):
             proc.terminate()

@@ -28,6 +28,20 @@ log = logging.getLogger("olisar.runtime")
 
 # The first line a worker prints: the gateway reads its private port from it.
 WORKER_PORT_MARKER = "OLISAR_WORKER_PORT="
+# How long a worker whose gateway has gone gets to shut down before it just exits.
+SHUTDOWN_DEADLINE = 20.0
+
+
+def _exit_now() -> None:
+    """Leave without the usual cleanup, but not without stopping the Tailscale helper, which
+    would otherwise keep this bot's node and public address for a port nobody serves."""
+    import os
+
+    from olisar.runtime.tunnel import kill_helpers
+
+    with contextlib.suppress(Exception):
+        kill_helpers()
+    os._exit(0)
 
 
 async def _describe_failure(exc: Exception, token: str) -> dict:
@@ -327,7 +341,7 @@ async def run_worker(profile_id: str) -> None:
             while os.read(fd, 4096):
                 pass
         loop.call_soon_threadsafe(stop.set)
-        threading.Timer(20.0, os._exit, (0,)).start()
+        threading.Timer(SHUTDOWN_DEADLINE, _exit_now).start()
 
     threading.Thread(target=watch_parent, name="olisar-parent-watch", daemon=True).start()
 
@@ -400,92 +414,97 @@ async def serve_instance(
     app.state.bot_supervisor = BotSupervisor(profile_id)
 
     from olisar.runtime.paths import tailscale_state_dir
-    from olisar.runtime.tunnel import FunnelManager
+    from olisar.runtime.tunnel import FunnelManager, reap_stale_helper
 
     tunnel = FunnelManager()
     app.state.tunnel = tunnel  # /api/tunnel control + tray toggle
-    # Auto-start the Funnel when the operator enabled it, or in a headless server
-    # deployment given a Tailscale auth key — so a cloud VM publishes its …ts.net URL
-    # without the loopback-only /api/tunnel/enable call.
-    # On a server the key and the device name live in the VM's .env, which is where the
-    # control panel replaces a dead key or renames the device. A copy in the database (a
-    # local→server move carries the local one over) would otherwise shadow them, and the
-    # new value would never be tried.
-    token = (settings.tunnel_token if settings.headless else "") or await runtime_config.tunnel_token()
-    node = (settings.tunnel_node if settings.headless else "") or await runtime_config.tunnel_node()
-    tunnel_error = ""
-    if await runtime_config.tunnel_enabled() or (settings.headless and token):
-        ok, msg = await tunnel.start(
-            token,
-            node or "olisar",
-            runtime_config.listen_url(),
-            str(tailscale_state_dir()),
-        )
-        if ok and msg.startswith("http"):
-            # Persist so public_base_url() / the OAuth redirect resolve to the public
-            # …ts.net host. The headless auto-start never goes through /api/tunnel/enable
-            # (which is what normally records this), so the console would otherwise keep
-            # seeing the loopback URL — Remote access stuck on "Starting…", sidebar "off".
-            # NB: a distinct name — must NOT shadow the `host` bind address passed to uvicorn.
-            funnel_host = msg.replace("https://", "").replace("http://", "").rstrip("/")
-            await runtime_config.save(tunnel_enabled=True, tunnel_hostname=funnel_host)
-        elif not ok:
-            log.warning("Funnel auto-start skipped: %s", msg)
-            tunnel_error = msg
-
-    # Publish what only this process knows (public URL + self-check results) so an
-    # out-of-band reader doesn't have to grep our logs for it. In a server deployment
-    # that reader is the desktop control panel, over `docker exec … cat`. A failed funnel
-    # publishes its reason: the URL beside it is then the loopback one, or a stale …ts.net
-    # host from a boot where the funnel did come up, and neither reaches the console.
-    from olisar.runtime import state
-
-    state.write(
-        public_url=await runtime_config.public_base_url(),
-        tunnel_error=tunnel_error,
-        vec_ok=vec_ok,
-        sandbox_ok=sandbox_ok,
-        transpile_ok=transpile_ok,
-        signing_ok=signing_ok,
-    )
-
-    # Trust X-Forwarded-* from the Tailscale Funnel sidecar (a local-only reverse proxy
-    # in front of this server) so the OAuth flow sees the real public host/scheme.
-    config = uvicorn.Config(
-        app, host=host, port=listen_port, loop="asyncio", log_config=None,
-        proxy_headers=True, forwarded_allow_ips="127.0.0.1",
-    )
-    server = uvicorn.Server(config)
-    # Electron/the parent process owns lifecycle — don't let uvicorn grab the signals.
-    server.install_signal_handlers = lambda: None
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        with contextlib.suppress(NotImplementedError):  # SIGTERM is absent on Windows
-            loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
-
     stopper: asyncio.Task | None = None
-    if stop is not None:
-        async def _stop_when_told() -> None:
-            await stop.wait()
-            server.should_exit = True
-
-        stopper = asyncio.create_task(_stop_when_told(), name="olisar-stop-watch")
-
-    await start_bot(app)
-
-    # Server hosting: this install is the control panel for a bot running on the operator's
-    # VM. If we've come up ahead of that VM — which is what every launch after the app
-    # updated itself looks like — bring the VM onto the newest release too. This replaced
-    # the daily systemd timer the VM used to run: the client is the side that knows a
-    # release exists, so it's the side that applies it.
-    if await runtime_config.hosting_mode() == "server":
-        from olisar.runtime import remote
-
-        remote.spawn_autoupdate()
-
-    log.info("backend listening on %s", runtime_config.listen_url())
+    # From here on, whatever stops us stops the Tailscale helper too: a failure on the way up
+    # included, which would otherwise leave it holding this bot's node.
     try:
+        # A helper an earlier run of this bot left behind keeps its node even with remote
+        # access now off, and nothing else would ever stop it.
+        await asyncio.to_thread(reap_stale_helper, str(tailscale_state_dir()))
+        # Auto-start the Funnel when the operator enabled it, or in a headless server
+        # deployment given a Tailscale auth key — so a cloud VM publishes its …ts.net URL
+        # without the loopback-only /api/tunnel/enable call.
+        # On a server the key and the device name live in the VM's .env, which is where the
+        # control panel replaces a dead key or renames the device. A copy in the database (a
+        # local→server move carries the local one over) would otherwise shadow them, and the
+        # new value would never be tried.
+        token = (settings.tunnel_token if settings.headless else "") or await runtime_config.tunnel_token()
+        node = (settings.tunnel_node if settings.headless else "") or await runtime_config.tunnel_node()
+        tunnel_error = ""
+        if await runtime_config.tunnel_enabled() or (settings.headless and token):
+            ok, msg = await tunnel.start(
+                token,
+                node or "olisar",
+                runtime_config.listen_url(),
+                str(tailscale_state_dir()),
+            )
+            if ok and msg.startswith("http"):
+                # Persist so public_base_url() / the OAuth redirect resolve to the public
+                # …ts.net host. The headless auto-start never goes through /api/tunnel/enable
+                # (which is what normally records this), so the console would otherwise keep
+                # seeing the loopback URL — Remote access stuck on "Starting…", sidebar "off".
+                # NB: a distinct name — must NOT shadow the `host` bind address passed to uvicorn.
+                funnel_host = msg.replace("https://", "").replace("http://", "").rstrip("/")
+                await runtime_config.save(tunnel_enabled=True, tunnel_hostname=funnel_host)
+            elif not ok:
+                log.warning("Funnel auto-start skipped: %s", msg)
+                tunnel_error = msg
+
+        # Publish what only this process knows (public URL + self-check results) so an
+        # out-of-band reader doesn't have to grep our logs for it. In a server deployment
+        # that reader is the desktop control panel, over `docker exec … cat`. A failed funnel
+        # publishes its reason: the URL beside it is then the loopback one, or a stale …ts.net
+        # host from a boot where the funnel did come up, and neither reaches the console.
+        from olisar.runtime import state
+
+        state.write(
+            public_url=await runtime_config.public_base_url(),
+            tunnel_error=tunnel_error,
+            vec_ok=vec_ok,
+            sandbox_ok=sandbox_ok,
+            transpile_ok=transpile_ok,
+            signing_ok=signing_ok,
+        )
+
+        # Trust X-Forwarded-* from the Tailscale Funnel sidecar (a local-only reverse proxy
+        # in front of this server) so the OAuth flow sees the real public host/scheme.
+        config = uvicorn.Config(
+            app, host=host, port=listen_port, loop="asyncio", log_config=None,
+            proxy_headers=True, forwarded_allow_ips="127.0.0.1",
+        )
+        server = uvicorn.Server(config)
+        # Electron/the parent process owns lifecycle — don't let uvicorn grab the signals.
+        server.install_signal_handlers = lambda: None
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            with contextlib.suppress(NotImplementedError):  # SIGTERM is absent on Windows
+                loop.add_signal_handler(sig, lambda: setattr(server, "should_exit", True))
+
+        if stop is not None:
+            async def _stop_when_told() -> None:
+                await stop.wait()
+                server.should_exit = True
+
+            stopper = asyncio.create_task(_stop_when_told(), name="olisar-stop-watch")
+
+        await start_bot(app)
+
+        # Server hosting: this install is the control panel for a bot running on the operator's
+        # VM. If we've come up ahead of that VM — which is what every launch after the app
+        # updated itself looks like — bring the VM onto the newest release too. This replaced
+        # the daily systemd timer the VM used to run: the client is the side that knows a
+        # release exists, so it's the side that applies it.
+        if await runtime_config.hosting_mode() == "server":
+            from olisar.runtime import remote
+
+            remote.spawn_autoupdate()
+
+        log.info("backend listening on %s", runtime_config.listen_url())
         await server.serve(sockets=[sock] if sock is not None else None)
     finally:
         if stopper is not None:
