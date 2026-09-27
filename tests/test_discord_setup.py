@@ -204,6 +204,21 @@ class SetupErrorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self._status(aiohttp.ClientConnectionError()), 502)
         self.assertEqual(await self._status(discord_app.DiscordUnavailable(500)), 502)
 
+    async def test_a_rate_limit_is_neither_and_says_so(self) -> None:
+        self.assertEqual(await self._status(discord_app.DiscordUnavailable(429)), 503)
+
+    async def test_a_failure_never_logs_the_request_headers(self) -> None:
+        import aiohttp
+        req = aiohttp.RequestInfo(
+            url=__import__("yarl").URL("https://discord.com/api/v10/applications/@me"), method="GET",
+            headers=__import__("multidict").CIMultiDictProxy(__import__("multidict").CIMultiDict(
+                {"Authorization": "Bot SECRET-TOKEN"})),
+            real_url=__import__("yarl").URL("https://discord.com/api/v10/applications/@me"),
+        )
+        with self.assertLogs("olisar.api.setup", level="WARNING") as logs:
+            await self._status(aiohttp.TooManyRedirects(req, ()))
+        self.assertNotIn("SECRET-TOKEN", "\n".join(logs.output))
+
 
 class InviteEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def _invite(self, app: dict | None, *, operator: bool) -> dict:
