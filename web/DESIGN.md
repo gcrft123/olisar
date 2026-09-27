@@ -528,8 +528,9 @@ whether the key in use works, not only that one is set.
 
 A value that's **applied** rather than checked gets its button on the same line: the server
 panel's replacement Tailscale key, whose button recreates the container on it and waits for the
-answer, and the device name under Settings → Remote access, whose **Rename** moves the console to a
-new address. The input takes the room and the button keeps its width. This isn't a Test button; the
+answer, the device name under Settings → Remote access, whose **Rename** moves the console to a
+new address, and the auth key the same pane asks for when no key is stored (a bot set up for this
+machine alone), whose **Turn on** starts the funnel with it. The input takes the room and the button keeps its width. This isn't a Test button; the
 press does the work, and what it found comes back as a toast. A press that breaks something people
 rely on (the rename retires the old address) asks first, in a warning Dialog that names the result.
 

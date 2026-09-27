@@ -5,7 +5,7 @@ import { Icon, CloseX, type IconName } from './icons'
 import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, serverDate, useDraft, useFieldIds, usePoll } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
-import { BotMenu, BotsPane, useBots } from './bots'
+import { BotMenu, BotsPane, deviceNameFor, useBots } from './bots'
 import { RedirectRow } from './setup'
 import { SCALES, getScale, setScale } from './theme'
 import { openFeedback, registerFeedbackHost, type FeedbackPrefill } from './feedback'
@@ -700,6 +700,13 @@ function Remote() {
   const [data, setData] = useState<any>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Turning it on without a stored key: the key and the device name to use.
+  const [authKey, setAuthKey] = useState('')
+  const [node, setNode] = useState<string | null>(null)
+  // The stored key was refused (expired, revoked): ask for another rather than offer a
+  // switch that will fail the same way again.
+  const [keyRefused, setKeyRefused] = useState(false)
+  const bot = useBots().current
   const load = (notify = false) => {
     setErr(null)
     api.getRemote()
@@ -713,10 +720,16 @@ function Remote() {
   // A headless server deployment (Docker / cloud VM) starts the funnel automatically from
   // its env-configured Tailscale key — it's always on and can't be driven from the console.
   const headless = !!st?.headless
-  // The funnel can only be toggled when the bundled helper is present; flipping it on
-  // re-uses the auth key saved during first-run setup (no key → the backend tells us). Only
-  // from the operator's machine: an admin signed in over the funnel would be refused.
+  // The funnel can only be toggled when the bundled helper is present. Only from the
+  // operator's machine: an admin signed in over the funnel would be refused.
   const canToggle = !!st?.available && !!st?.helper && !headless && !!st?.local
+  // Turning it on reuses the auth key stored when it was last on. Only shared hosting asks
+  // for one in setup, so a bot set up for this machine alone has none, and the switch could
+  // only fail ("a Tailscale auth key is required") with nowhere to give one. Ask for it here.
+  const askKey = canToggle && !st?.running && (!st?.has_key || keyRefused)
+  // The device name setup would have given it: the stored one, else this bot's own name for
+  // any bot but the first, so two bots' addresses don't collide.
+  const nodeShown = node ?? (st?.node || (bot && bot.id !== 'default' ? deviceNameFor(bot.name) : 'olisar'))
   const tunnelChanged = () => {
     load()
     window.dispatchEvent(new Event('olisar:tunnel-changed'))  // refresh the sidebar card now
@@ -730,6 +743,20 @@ function Remote() {
       tunnelChanged()
     } catch (e: any) {
       toast(e?.message || 'Could not change remote access', 'danger')
+      if (on) setKeyRefused(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const turnOn = async () => {
+    setBusy(true)
+    try {
+      await api.enableTunnel({ auth_key: authKey.trim(), hostname: nodeShown.trim() })
+      toast('Remote access on', 'success')
+      setAuthKey(''); setKeyRefused(false)
+      tunnelChanged()
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t turn on remote access', 'danger')
     } finally {
       setBusy(false)
     }
@@ -750,18 +777,33 @@ function Remote() {
             </div>
             <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
               <button className="ghost icon-btn sm" onClick={() => load(true)} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
-              {canToggle && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
+              {canToggle && !askKey && <Toggle value={!!st?.running} onChange={toggle} disabled={busy} ariaLabel="Remote access" />}
             </div>
           </div>
           {headless ? (
             <p className="settings-foot">
               Your server manages remote access, so it’s always on and can’t be turned off from here.
             </p>
+          ) : askKey ? (
+            <>
+              <Field label="Device name" desc="The first part of the console’s address.">
+                <Text value={nodeShown} onChange={setNode} placeholder="olisar" mono />
+              </Field>
+              <Field
+                label="Tailscale auth key"
+                desc={<>Create one at <a href="https://login.tailscale.com/admin/settings/keys" target="_blank" rel="noreferrer">Tailscale → Settings → Keys</a>. It’s stored on this machine and only handed to Tailscale.</>}
+              >
+                <div className="key-swap">
+                  <Text value={authKey} onChange={setAuthKey} placeholder="tskey-auth-…" mono />
+                  <button disabled={busy || !authKey.trim()} onClick={turnOn}>{busy ? 'Connecting…' : 'Turn on'}</button>
+                </div>
+              </Field>
+            </>
           ) : canToggle && (
             <p className="settings-foot">
               {st?.running
                 ? 'Turning it off closes the public link. You can still reach the console from this machine.'
-                : 'Turning it on publishes the console using the Tailscale key from setup.'}
+                : 'Turning it on publishes the console with the Tailscale key it used last time.'}
             </p>
           )}
           {canToggle && st?.running && isWeb && (
