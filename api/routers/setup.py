@@ -96,8 +96,15 @@ async def _ask_discord(call: Awaitable[T]) -> T:
         return await call
     except discord_app.BadToken:
         raise HTTPException(status_code=400, detail="Discord rejected that bot token")
-    except (aiohttp.ClientError, asyncio.TimeoutError, discord_app.DiscordUnavailable) as exc:
-        log.warning("Discord call failed during setup: %r", exc)
+    except discord_app.DiscordUnavailable as exc:
+        log.warning("Discord answered HTTP %s during setup", exc.args[0] if exc.args else "?")
+        if exc.args and exc.args[0] == 429:
+            raise HTTPException(status_code=503, detail="Discord is rate-limiting requests — wait a minute and try again")
+        raise HTTPException(status_code=502, detail="couldn't reach Discord — check your connection")
+    except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+        # The class name only: an aiohttp error's repr can carry the request's headers,
+        # and with them the bot token or client secret.
+        log.warning("Discord call failed during setup: %s", type(exc).__name__)
         raise HTTPException(status_code=502, detail="couldn't reach Discord — check your connection")
 
 
@@ -136,6 +143,8 @@ async def check_gemini(body: SetupKeyIn) -> dict:
         raise HTTPException(status_code=400, detail="key is required")
     try:
         return {"ok": await key_checks.gemini(key)}
+    except key_checks.RateLimited:
+        raise HTTPException(status_code=503, detail="Google is rate-limiting checks — wait a minute and try again")
     except key_checks.Unreachable:
         raise HTTPException(status_code=502, detail="couldn't reach Google — check your connection")
 
