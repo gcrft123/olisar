@@ -29,6 +29,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import asyncssh
@@ -433,6 +434,78 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.pulls(), [])
         self.assertNotEqual((await remote._load()).hosting_mode, "server")
 
+    def unmark(self, app_dir: str = "olisar") -> None:
+        """What an install deployed before 2.0 looks like: no owner mark."""
+        (self.home / app_dir / ".olisar-owner").unlink()
+
+    def installs(self) -> list[str]:
+        return sorted(p.name for p in self.home.iterdir() if p.name.startswith("olisar"))
+
+    async def test_an_install_from_before_2_0_is_marked_by_the_app_s_next_launch(self) -> None:
+        """Only a deploy or an adoption used to mark an install, and a VM upgraded in place
+        never has either. A reset and a setup onto a new Discord application afterwards then
+        found no install of its own and left the old one running beside a second."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await remote.autoupdate()  # at launch, whether or not there's a release to apply
+        self.assertEqual((self.home / "olisar" / ".olisar-owner").read_text(), remote.owner_of(await remote._load()))
+
+        await runtime_config.save(hosting_mode="local", server_host="", configured=False)  # a reset
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_the_launch_never_marks_over_another_bot_s_mark(self) -> None:
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        (self.home / "olisar" / ".olisar-owner").write_text("0" * 32)
+        await remote.autoupdate()
+        self.assertEqual((self.home / "olisar" / ".olisar-owner").read_text(), "0" * 32)
+
+    async def test_an_unmarked_install_this_bot_runs_as_is_redeployed_in_place(self) -> None:
+        """The install the bot remembers, unmarked: a redeploy onto another Discord application
+        (no reset) or one after a reset replaces it rather than adding a second."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+
+        self.unmark()
+        await runtime_config.save(hosting_mode="local", server_host="", configured=False)  # a reset
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("444"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_a_bot_from_before_2_0_redeploys_over_its_own_install(self) -> None:
+        """No mark, and a blank ``server_app_dir`` (every bot had one before one VM could run
+        several), while the bot still points at this VM: its install is ``~/olisar``."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await runtime_config.save(server_app_dir="")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], "olisar")
+        self.assertEqual(self.installs(), ["olisar"])
+
+    async def test_a_new_bot_never_takes_an_unmarked_install(self) -> None:
+        """A blank ``server_app_dir`` is also every bot that never deployed, so it says nothing
+        about an unmarked ``~/olisar`` on a VM the bot isn't pointed at."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.unmark()
+        await self.as_bot("beta")
+        self.authorize(await remote.public_key())
+        second = await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
+        self.assertEqual(second["app_dir"], "olisar-beta")
+        self.assertEqual(self.read_env("olisar")["DISCORD_CLIENT_ID"], "111")
+
     async def test_the_bot_token_is_read_again_after_a_redeploy(self) -> None:
         """The panel's Discord checks and "Turn on and restart" use the VM's bot token, kept
         once read. A redeploy onto another Discord application (a reset) left them acting on
@@ -579,6 +652,26 @@ class PureHelpersTests(unittest.TestCase):
         # The owner mark wins over the application: a bot reset onto a new app keeps its dir.
         marked = [{"dir": "olisar", "client_id": "111", "owner": "abc"}, {"dir": "olisar-b", "client_id": "222"}]
         self.assertEqual(remote.choose_app_dir(marked, client_id="999", own="olisar-x", owner="abc"), "olisar")
+
+    def test_choose_app_dir_prefers_the_install_the_bot_remembers(self) -> None:
+        unmarked = [{"dir": "olisar", "client_id": "111", "owner": ""}, {"dir": "olisar-b", "client_id": "999"}]
+        pick = functools.partial(remote.choose_app_dir, client_id="999", own="olisar-x", owner="abc")
+        self.assertEqual(pick(unmarked, remembered="olisar"), "olisar")  # over the app's other install
+        self.assertEqual(pick(unmarked, remembered=""), "olisar-b")
+        self.assertEqual(pick(unmarked, remembered="olisar-gone"), "olisar-b")
+        # Another bot's now: its mark says so.
+        theirs = [{"dir": "olisar", "client_id": "111", "owner": "def"}]
+        self.assertEqual(pick(theirs, remembered="olisar"), "olisar-x")
+
+    def test_remembered_app_dir(self) -> None:
+        def cfg(app_dir: str, host: str) -> SimpleNamespace:
+            return SimpleNamespace(server_app_dir=app_dir, server_host=host)
+
+        self.assertEqual(remote.remembered_app_dir(cfg("olisar-b", ""), "1.2.3.4"), "olisar-b")  # kept by a reset
+        self.assertEqual(remote.remembered_app_dir(cfg("", "1.2.3.4"), "1.2.3.4"), "olisar")  # before 2.0
+        self.assertEqual(remote.remembered_app_dir(cfg("", "5.6.7.8"), "1.2.3.4"), "")
+        self.assertEqual(remote.remembered_app_dir(cfg("", ""), "1.2.3.4"), "")  # never deployed
+        self.assertEqual(remote.remembered_app_dir(None, "1.2.3.4"), "")
 
     def test_pick_volume(self) -> None:
         names = ["olisar_olisar-data", "olisar-b_olisar-data", "other"]
