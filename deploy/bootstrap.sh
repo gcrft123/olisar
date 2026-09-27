@@ -29,7 +29,7 @@ if $SUDO docker compose version >/dev/null 2>&1; then DC="docker compose"; else 
 
 mkdir -p "$DIR"; cd "$DIR"
 say "Fetching the updater…"
-# The updater owns the compose file: it resolves the newest release, pins that image by
+# The updater owns the compose file: it resolves the newest stable release, pins that image by
 # digest, applies it health-gated, and rolls back if it doesn't come up. Installing it here
 # means a hand-bootstrapped VM behaves exactly like one the desktop app deployed.
 curl -fsSL "$REPO_RAW/olisar-update.sh" -o olisar-update.sh
@@ -102,8 +102,9 @@ Next steps:
 
 Manage it later with:  cd $DIR && $DC logs -f   |   $DC restart   |   ./olisar-update.sh
 (Updates: the desktop app applies them whenever it starts up on a newer build than this
-VM. Without the app, run ./olisar-update.sh — it pulls the newest release, health-checks
-it, and rolls back if it doesn't come up.)
+VM. Without the app, run ./olisar-update.sh — it pulls the newest stable release,
+health-checks it, and rolls back if it doesn't come up. It never moves this server to an
+older release than the one it runs; --force does.)
 EOF
 else
   echo "Couldn't read the public URL yet. Check logs:  cd $DIR && $DC logs -f"
