@@ -2736,9 +2736,10 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
   // Per-marketplace-extension update/yank status, and per-authored-extension publish
   // status (is it live, are there unpushed local changes). Fetched once; few extensions.
   const reloadPubStatus = () => { api.marketplacePublished().then(setPubStatus).catch(() => {}) }
-  // A yanked/removed marketplace extension is reverted to a local one server-side (so it
-  // loses the Marketplace label and can be re-published). When that happens, drop its stale
-  // marketplace status and refresh the catalog + publish status so the change shows.
+  // A yanked/removed marketplace extension is kept server-side as an imported one: it loses
+  // the Marketplace label but stays untrusted third-party code, under the same limits as any
+  // import. When that happens, drop its stale marketplace status and refresh the catalog +
+  // publish status so the change shows.
   const reloadMktStatus = () => api.marketplaceInstalled().then((s: Record<string, any>) => {
     const detached = Object.keys(s).filter((k) => s[k]?.detached)
     if (detached.length) {
