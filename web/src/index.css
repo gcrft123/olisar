@@ -565,7 +565,9 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 }
 .botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
-.botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.botpower.offline:not(.readonly) .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+/* A co-admin's view: the operator's switch, drawn as a status light rather than a control. */
+.botpower.readonly .power-btn { cursor: default; }
 /* Stopped on its own: Discord refused it or it crashed. Red, because it won't come back
    without the operator, unlike a bot switched off on purpose. */
 .botpower.refused .power-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border-strong)); }
