@@ -556,6 +556,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return await ext_handler(args, ctx)
         except Exception:
             log.exception("extension tool %s failed", name)
+            await _recover_session(ctx)
             return f"the {name} feature hit an error — tell the user you couldn't run it."
     try:
         if name == "recall_memory":
@@ -856,7 +857,24 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         return f"Unknown tool: {name}"
     except Exception:
         log.exception("tool %s failed", name)
+        await _recover_session(ctx)
         return f"Tool {name} errored."
+
+
+async def _recover_session(ctx: ToolContext) -> None:
+    """Roll back a session a failed tool left unusable (a flush or commit that raised).
+
+    Left as it was, the next thing to touch it raised PendingRollbackError: the PIN gate on
+    the model's next call, then the reply's own commit, and no reply was sent at all. Only
+    a session in that state is rolled back. One that's still usable is left alone, so what
+    earlier calls in this reply added (a remembered fact, a reminder) still gets saved."""
+    session = ctx.session
+    if session is None or session.is_active:
+        return
+    try:
+        await session.rollback()
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't roll back after a failed tool")
 
 
 async def _confirm_with_pin(name: str, ctx: ToolContext) -> str:

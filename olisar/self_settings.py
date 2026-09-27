@@ -274,6 +274,12 @@ def _hint(f: _Field) -> str:
 # ── Parsing a value ─────────────────────────────────────────────────────────
 
 
+# The most any whole-number key without its own maximum takes. Past anything one of them
+# could mean (a billion seconds is 31 years), and well inside the 64-bit column: "1e20" used
+# to parse, then overflow the column at commit and take the reply down with it.
+_INT_CEILING = 1_000_000_000
+
+
 def _number(f: _Field, value: str) -> int | float:
     try:
         n = float(value.strip())
@@ -284,6 +290,8 @@ def _number(f: _Field, value: str) -> int | float:
     if f.kind == "int":
         if not n.is_integer():
             raise ValueError("it has to be a whole number")
+        if f.hi is None and n > _INT_CEILING:
+            raise ValueError(f"that's too big; the most it takes is {_INT_CEILING:,}")
         n = int(n)
     if (f.lo is not None and n < f.lo) or (f.hi is not None and n > f.hi):
         raise ValueError(f"out of range{_hint(f)}")
