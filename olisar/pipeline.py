@@ -6,7 +6,9 @@ it. The caller handles Discord I/O (typing, sending, recording the reply).
 
 from __future__ import annotations
 
+import ast
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -20,15 +22,19 @@ from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.memory.retriever import recall
+from olisar.memory.writer import ACK_MARKER
 from olisar.message_links import channel_filter, link_ids, strip_unoffered_links
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, render_message
 from olisar.persona import (
     DEFAULT_PERSONA_NAME,
     DEFAULT_SYSTEM_PROMPT,
     DEFAULT_TONE_NOTES,
+    SPLIT_MARKER,
     build_system_prompt,
+    split_messages,
     strip_breaks,
 )
+from olisar.proactivity import first_emoji
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
     LOOKUP_TOOLS,
@@ -322,6 +328,162 @@ def _response_text(resp) -> str:
         return ""
 
 
+# A tool call the model typed as its reply instead of making it. The fallback models do
+# this: a bot sent `react(emoji="🔥")` to a channel as a whole reply, and Flash 3 preview
+# answers an emoji-only message with `[reacted 🔥]`, the transcript's own marker for a
+# reaction, more often than not. Gemini's older tool-code form wraps the same call as
+# `print(default_api.react(emoji="🔥"))` inside a ```tool_code fence.
+#
+# The model is asked again with this rule added to its instructions, and the conversation
+# left as it was. Telling it in the conversation read as the person it was talking to
+# complaining, and it apologised to them: "my bad. thumb slipped", "no tool calls from me".
+TYPED_CALL_RULE = (
+    "Whatever you write is posted to the channel exactly as written, so never write out a "
+    "tool call or a `[reacted …]` line: a tool only runs when you call it. To react, call "
+    "the tool; otherwise reply in words. Don't mention tools or this rule."
+)
+_MARKER_HEAD, _MARKER_TAIL = ACK_MARKER.split("{emoji}")
+# The marker opening a piece, with whatever the model wrote after it on the same line.
+_MARKER_RE = re.compile(
+    re.escape(_MARKER_HEAD) + r"(\S+?)" + re.escape(_MARKER_TAIL) + r"\s*(.*)", re.DOTALL
+)
+# ...and the marker without its brackets, as a whole piece: "reacted 🔥".
+_BARE_MARKER_RE = re.compile(re.escape(_MARKER_HEAD.strip("[ ")) + r"\s+(\S+)", re.IGNORECASE)
+_TOOL_FENCE_RE = re.compile(r"`{3}\s*tool_(?:code|call)\s*")
+_REACTION_TOOLS = frozenset({"react", "acknowledge"})
+
+
+def _declared(tools: list) -> set[str]:
+    return {d.name for t in tools for d in (t.function_declarations or [])}
+
+
+def _typed_call(text: str, names: set[str]) -> tuple[str, dict] | None:
+    """``text`` as a tool call the model typed instead of making, or None.
+
+    Read as a Python expression, since that's the shape Gemini writes calls in, and
+    ``ast`` parses one without running it. Only a bare call (or ``default_api.``'s) to a
+    tool this reply declares, with literal keyword arguments, counts, so a line of code in
+    an ordinary answer doesn't."""
+    text = text.strip().strip("`").strip()
+    # Not only SyntaxError: a long run of unary minus signs is a MemoryError in the parser,
+    # and literal_eval raises TypeError for an unhashable set. Anything that fails is prose.
+    try:
+        node = ast.parse(text, mode="eval").body
+    except Exception:  # noqa: BLE001
+        return None
+    if (
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "print" and len(node.args) == 1 and not node.keywords
+    ):
+        node = node.args[0]
+    if not isinstance(node, ast.Call) or node.args:
+        return None
+    func = node.func
+    if isinstance(func, ast.Name):
+        name = func.id
+    elif (
+        isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name)
+        and func.value.id == "default_api"
+    ):
+        name = func.attr
+    else:
+        return None
+    if name not in names:
+        return None
+    try:
+        args = {kw.arg: ast.literal_eval(kw.value) for kw in node.keywords}
+    except Exception:  # noqa: BLE001
+        return None
+    return None if None in args else (name, args)
+
+
+def _split_typed_calls(text: str, names: set[str]) -> tuple[list[tuple[str, dict]], str]:
+    """The tool calls typed out in ``text``, and the text left without them.
+
+    A call is the whole reply, a line to itself, or a piece of a line between [[break]]
+    markers. The reaction marker also counts when words follow it on its line; they stay.
+    Without its brackets it only counts alone, since "reacted to that" is a sentence.
+    Lines inside an ordinary code fence are left alone, since that's an answer showing
+    code. Only a ```tool_code fence is read, the form Gemini leaks calls in, and the fence
+    goes with them."""
+    whole = _typed_call(text, names)  # also catches a call spread over several lines
+    if whole:
+        return [whole], ""
+    calls: list[tuple[str, dict]] = []
+    kept: list[str] = []
+    fence = ""  # "tool" or "code" while inside one
+    for line in text.split("\n"):
+        if line.strip().startswith("```"):
+            opening = not fence
+            if opening:
+                fence = "tool" if _TOOL_FENCE_RE.fullmatch(line.strip()) else "code"
+            was_tool = fence == "tool"
+            if not opening:
+                fence = ""
+            if not was_tool:
+                kept.append(line)
+            continue
+        if fence == "code":
+            kept.append(line)
+            continue
+        pieces = []
+        for piece in line.split(SPLIT_MARKER):
+            call = _typed_call(piece, names)
+            if call:
+                calls.append(call)
+                continue
+            marker = _MARKER_RE.match(piece.strip())
+            if marker:
+                calls.append(("acknowledge", {"emoji": marker.group(1)}))
+                piece = marker.group(2)
+            bare = _BARE_MARKER_RE.fullmatch(piece.strip().strip("*_"))
+            if bare and first_emoji(bare.group(1)) == bare.group(1):
+                calls.append(("acknowledge", {"emoji": bare.group(1)}))
+                continue
+            pieces.append(piece)
+        kept.append(SPLIT_MARKER.join(pieces))
+    rest = "\n".join(kept)
+    # What split_messages would send. Nothing, when all that's left is break markers.
+    return calls, (rest.strip() if split_messages(rest) else "")
+
+
+async def _settle_typed_calls(text: str, ctx: ToolContext, tools: list) -> str | None:
+    """``text`` ready to send once any tool call typed out in it is dealt with, or None
+    when the model has to be asked again. A turn it ended with a reaction instead comes
+    back as ``""`` with ``ctx.silent`` set, as when the model calls ``acknowledge``.
+
+    A reaction typed as the whole reply is made through ``acknowledge``, with that tool's
+    refusals, and only where the server has it on and nothing but a reaction has run this
+    turn: after a lookup or an action, a reaction could stand in for a result or a failure,
+    and the model is better asked again, where calling acknowledge gets its checks. A
+    typed ``[reacted 👍]`` after a real ``react`` call is the model saying that was all.
+
+    A reaction typed next to words is made with ``react``, and the words are sent. A call
+    to a tool that already ran this turn is the model describing it, and is dropped. Any
+    other call is asked again, because the words around it may say it happened, and it
+    didn't."""
+    names = _declared(tools)
+    calls, rest = _split_typed_calls(text, names)
+    if not calls:
+        return text
+    log.warning("the model typed a tool call as its reply; not sending it: %r", text[:300])
+    if any(name not in _REACTION_TOOLS and name not in ctx.tools_run for name, _ in calls):
+        return None
+    reactions = [str(args.get("emoji") or "") for name, args in calls if name in _REACTION_TOOLS]
+    if not reactions:
+        return rest
+    if rest:
+        emoji = first_emoji(reactions[-1])
+        if emoji and "react" in names:
+            await execute_tool("react", {"emoji": emoji}, ctx)
+        return rest
+    if set(ctx.tools_run) <= _REACTION_TOOLS and "acknowledge" in names:
+        await execute_tool("acknowledge", {"emoji": reactions[-1]}, ctx)
+        if ctx.silent:
+            return ""
+    return None
+
+
 def _fallback_when_synthesis_fails(blank_fallback: str, gathered: list[str]) -> str:
     """Last resort when both synthesis and the forced final answer fail.
 
@@ -471,11 +633,19 @@ async def _run_tool_loop(
         )
         calls = _function_calls(resp)
         if not calls:
-            text = _response_text(resp)
+            text = await _settle_typed_calls(_response_text(resp), ctx, tools)
+            if text is None:
+                if TYPED_CALL_RULE not in system_instruction:
+                    system_instruction += "\n\n" + TYPED_CALL_RULE
+                continue
+            if ctx.silent:
+                return ""
             if text:
-                return await _complete_truncated(
+                full = await _complete_truncated(
                     client, contents, system_instruction, model, tools, resp, text
                 )
+                # A continuation is the model writing too, and can hold a typed call.
+                return full if full == text else _split_typed_calls(full, _declared(tools))[1]
             break  # no calls and no text — go force a final answer
 
         contents.append(resp.candidates[0].content)  # the model's tool-call turn
@@ -525,8 +695,13 @@ async def _run_tool_loop(
             # change them from the next call on.
             tools = with_settings_tools(tools)
 
-    # Budget spent (or an empty turn) — force a plain-text final answer.
+    # Budget spent (or an empty turn) — force a plain-text final answer. Barred from calling
+    # tools, or given none, the model is likelier still to type one out.
     answer = await _force_final_answer(client, contents, system_instruction, model, tools)
+    if answer:
+        answer = await _settle_typed_calls(answer, ctx, tools)
+    if ctx.silent:
+        return ""
     if answer:
         return answer
 
