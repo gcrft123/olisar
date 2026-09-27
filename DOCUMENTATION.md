@@ -332,7 +332,7 @@ Launch Olisar. The wizard asks one thing per step and ticks each one off as soon
    and UEX on the Star Citizen extension's page.
 7. **Deploy** (server hosting only) — create the VM, enter its IP, and Olisar installs itself onto it over SSH.
 
-Click **Finish & start Olisar**. The bot connects and the window reloads to **Continue with Discord**; sign in
+Click **Finish & start the bot**. The bot connects and the window reloads to **Continue with Discord**; sign in
 with the account that owns the bot's application, or any account with *Manage Server* on a server it's in.
 A **Get started** list under the server switcher then shows what's left: a channel for Olisar to reply in
 (they all start off) and, if you skipped it, the Gemini key.
@@ -2013,9 +2013,9 @@ re-publish overwrites in place, so people who already installed it won't be prom
 
 **Yank** pulls a version — or the whole extension — from the catalog. It stops appearing for everyone;
 anyone who already installed it sees a *Removed from marketplace* note but it keeps working. If an extension
-you **installed** from the marketplace is later yanked, it automatically **reverts to a plain local
-extension** — it drops the Marketplace label, keeps the capabilities you granted, and becomes publishable
-again, so you can keep using it or re-list it under your own handle.
+you **installed** from the marketplace is later yanked, it **stays installed as an imported extension**. It
+drops the Marketplace label and gets no more updates, and it keeps the capabilities you granted. It's still
+someone else's code, so it keeps the limits on third-party code too (see [Security & trust](#security-trust)).
 
 #### The verified badge
 
