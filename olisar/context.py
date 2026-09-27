@@ -41,6 +41,23 @@ CONTEXT_NOTE = (
     "did; it is not something you wrote, so never type it."
 )
 
+# The bottom turn of a transcript with nobody to answer (build_task_contents): an
+# extension's request, sitting where a new message would.
+TASK_HEADING = "── Your task ──"
+
+# Folded into the system instruction alongside that transcript. Without it the request reads
+# as one more line of the channel, and the model answers whoever spoke last instead.
+CHANNEL_TASK_NOTE = (
+    "Nobody has addressed you this time. One of this server's extensions is asking you to "
+    "write something for {channel}, and its request is the last turn, under "
+    f'"{TASK_HEADING}": it comes from the extension, not from anyone in the channel.'
+)
+CHANNEL_TASK_HISTORY_NOTE = (
+    " Everything above it is what's been said in the channel lately. Treat that as the room "
+    "you're writing into, not a conversation waiting on your answer, and don't reply to it "
+    "unless the request asks you to."
+)
+
 REPLY_SNIPPET_MAX = 300  # how much of the replied-to message to quote inline
 HISTORY_SNIPPET_MAX = 120  # …and how much for an older line, which matters less
 CHANNEL_TOPIC_MAX = 300  # how much of a channel topic to pass through
@@ -247,13 +264,83 @@ async def build_contents(
     silence longer than ``GAP_SECONDS`` is marked ``— 3 hours later —``. Both are there
     so the transcript reads as what a channel actually is: several strands at once, with
     holes in it — not one continuous conversation where every line answers the last."""
+    contents, recent_ids, previous = await build_history(
+        session,
+        channel_id=channel_id,
+        bot_user_id=bot_user_id,
+        exclude_message_id=current_message_id,
+        recent_window=recent_window,
+        own_name=own_name,
+    )
+    # The message being answered is "now", so a gap before it says whether the visible
+    # history is a live conversation or one that ended hours ago.
+    _append(
+        contents,
+        "user",
+        f"{silence_before_now(previous)}{current_display_name}{_reply_tag(reply_to)}: {current_text}",
+    )
+    # Attach the new message's images to that same user turn (it's contents[-1]). A note
+    # (e.g. for a GIF flattened to its first frame) rides just after its image so the model
+    # knows what it's actually looking at.
+    for data, mime, note in current_images or []:
+        contents[-1].parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=data)))
+        if note:
+            contents[-1].parts.append(types.Part(text=f"(The image just above is {note}.)"))
+
+    return contents, recent_ids
+
+
+async def build_task_contents(
+    session: AsyncSession,
+    *,
+    channel_id: int,
+    task: str,
+    recent_window: int | None = None,
+    own_name: str = DEFAULT_PERSONA_NAME,
+) -> tuple[list, bool]:
+    """``contents`` for writing into a channel when no message asked for it: the channel's
+    recent transcript, the same one a reply there would see, with ``task`` at the bottom
+    under ``TASK_HEADING`` where the new message would go. Also returns whether the channel
+    had any history, since the notes that explain a transcript only belong when there is one.
+
+    Olisar's own lines are recognized by their missing author name (``is_own_message``),
+    so no bot user id is needed."""
+    contents, _, last_at = await build_history(
+        session,
+        channel_id=channel_id,
+        bot_user_id=0,
+        recent_window=recent_window,
+        own_name=own_name,
+    )
+    had_history = bool(contents)
+    _append(contents, "user", f"{silence_before_now(last_at)}{TASK_HEADING}\n{task}")
+    return contents, had_history
+
+
+async def build_history(
+    session: AsyncSession,
+    *,
+    channel_id: int,
+    bot_user_id: int,
+    exclude_message_id: int = 0,
+    recent_window: int | None = None,
+    own_name: str = DEFAULT_PERSONA_NAME,
+) -> tuple[list, set[int], datetime | None]:
+    """The channel's recent messages as Gemini ``contents``, the ids included, and when the
+    last of them was sent (``None`` when there's nothing stored for the channel).
+
+    The transcript half of :func:`build_contents`, which adds the message being answered
+    on top. It stands alone for a turn with no message behind it — an extension writing
+    into a channel (``host.generate`` with a ``channelId``) — so that turn sees the room
+    exactly the way a reply there would. ``exclude_message_id`` keeps the message being
+    answered out of its own history; the other arguments are ``build_contents``'s."""
     window = max(1, min(recent_window or RECENT_WINDOW, 100))
     rows = (
         await session.scalars(
             select(Message)
             .where(
                 Message.channel_id == channel_id,
-                Message.message_id != current_message_id,
+                Message.message_id != exclude_message_id,
             )
             .order_by(Message.created_at.desc())
             .limit(window)
@@ -289,23 +376,13 @@ async def build_contents(
         tag = _reply_tag(targets.get(m.reply_to_message_id or 0), HISTORY_SNIPPET_MAX)
         _append(contents, "user", f"{gap}{speaker}{tag}: {m.content}")
 
-    # The message being answered is "now", so a gap before it says whether the visible
-    # history is a live conversation or one that ended hours ago.
-    gap = ""
-    if previous is not None:
-        elapsed = (datetime.now(timezone.utc) - previous).total_seconds()
-        if elapsed >= GAP_SECONDS:
-            gap = f"— {_elapsed(elapsed)} —\n"
-    _append(
-        contents, "user", f"{gap}{current_display_name}{_reply_tag(reply_to)}: {current_text}"
-    )
-    # Attach the new message's images to that same user turn (it's contents[-1]). A note
-    # (e.g. for a GIF flattened to its first frame) rides just after its image so the model
-    # knows what it's actually looking at.
-    for data, mime, note in current_images or []:
-        contents[-1].parts.append(types.Part(inline_data=types.Blob(mime_type=mime, data=data)))
-        if note:
-            contents[-1].parts.append(types.Part(text=f"(The image just above is {note}.)"))
+    return contents, {m.message_id for m in rows}, previous
 
-    recent_ids = {m.message_id for m in rows}
-    return contents, recent_ids
+
+def silence_before_now(last_at: datetime | None) -> str:
+    """The ``— 3 hours later —`` line for a turn happening now, when the channel's last
+    message (``last_at``) is more than ``GAP_SECONDS`` old; otherwise ''."""
+    if last_at is None:
+        return ""
+    elapsed = (datetime.now(timezone.utc) - last_at).total_seconds()
+    return f"— {_elapsed(elapsed)} —\n" if elapsed >= GAP_SECONDS else ""

@@ -550,11 +550,42 @@ async def _persona_system(inv: Invocation) -> str:
     )
 
 
+_CHANNEL_REF = re.compile(r"<#(\d+)>|(\d+)")
+
+
+async def _guild_channel(inv: Invocation, ref: str) -> tuple[int, str, str]:
+    """``(id, name, topic)`` of a channel in the invocation's own server, given its id or a
+    ``<#id>`` mention. Read from the roster the bot mirrors (``GuildChannelInfo``), which
+    is also what the settings pane's channel picker offers. A thread reports its own name
+    and its parent's topic, as ``bot.content.channel_identity`` does for a live reply."""
+    from olisar.db.models import GuildChannelInfo
+
+    m = _CHANNEL_REF.fullmatch(str(ref or "").strip())
+    if m is None:
+        raise ValueError("channelId must be a channel id or a <#id> mention")
+    row = await inv.session.get(GuildChannelInfo, int(m.group(1) or m.group(2)))
+    # Another server's channel is refused exactly like one that doesn't exist, so an
+    # extension can't use the error to learn what the bot can see elsewhere.
+    if row is None or row.guild_id != inv.guild_id:
+        raise ValueError(f"there's no channel {ref} in this server")
+    topic = row.topic or ""
+    if row.kind == "thread" and row.parent_id:
+        parent = await inv.session.get(GuildChannelInfo, row.parent_id)
+        topic = (parent.topic if parent is not None else "") or ""
+    return row.channel_id, row.name or "", topic
+
+
 async def _generate(inv: Invocation, opts: dict) -> str:
     """Generate text in the server's persona voice. Spends the *installing operator's* own
     model quota (their Gemini key), so it's operator-grantable for any extension — they
     consent to the cost at install. Bounded by _GENERATE_MAX_TOKENS and the model rate
-    limiter. (Unlike host.secret, which stays first-party — it would leak the host's keys.)"""
+    limiter. (Unlike host.secret, which stays first-party — it would leak the host's keys.)
+
+    ``channelId`` writes as if the bot had been called in that channel: the prompt is built
+    by ``pipeline.channel_task_prompt`` from the channel's transcript, name and topic and
+    the server's standing memory. That is first-party only, like host.secret. The model
+    will repeat what it was shown if asked, so a third-party extension holding ``fetch``
+    could have it read out a staff channel and send the text anywhere."""
     _require(inv, "model.generate")
     opts = opts or {}
     task = str(opts.get("task") or "").strip()
@@ -565,17 +596,36 @@ async def _generate(inv: Invocation, opts: dict) -> str:
     except (TypeError, ValueError):
         max_tokens = 600
     max_tokens = max(1, min(max_tokens, _GENERATE_MAX_TOKENS))
-    system = await _persona_system(inv)
     note = str(opts.get("systemNote") or "").strip()
-    if note:
-        system = system + "\n\n── For this generation ──\n" + note
+    channel_ref = str(opts.get("channelId") or "").strip()
 
     from google.genai import types
 
     from olisar.gemini.client import get_gemini
 
+    if channel_ref:
+        if not inv.trusted:
+            raise PermissionError_(
+                "host.generate can't take a channelId here — writing from a channel's "
+                "conversation is limited to built-in and locally-authored extensions"
+            )
+        if inv.session is None:
+            raise RuntimeError("channel context isn't available here")
+        from olisar.pipeline import channel_task_prompt
+
+        channel_id, name, topic = await _guild_channel(inv, channel_ref)
+        system, contents = await channel_task_prompt(
+            inv.session, guild_id=inv.guild_id, channel_id=channel_id,
+            channel_name=name, channel_topic=topic, task=task, runtime_note=note,
+        )
+    else:
+        system = await _persona_system(inv)
+        if note:
+            system = system + "\n\n── For this generation ──\n" + note
+        contents = [types.Content(role="user", parts=[types.Part(text=task)])]
+
     result = await get_gemini().generate(
-        contents=[types.Content(role="user", parts=[types.Part(text=task)])],
+        contents=contents,
         system_instruction=system, max_output_tokens=max_tokens,
         source="extension",
     )

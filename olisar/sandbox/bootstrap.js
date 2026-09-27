@@ -52,7 +52,8 @@
     embed: function (spec) { return { __embed: true, spec: spec || {} }; },
     log: cap("log", "write"),
     // Generate text in the server's persona voice (trusted extensions only). Resolves to
-    // the generated string. opts: { task, maxTokens?, systemNote? }.
+    // the generated string. opts: { task, maxTokens?, systemNote?, channelId? } — with a
+    // channelId the host writes as if called in that channel (its history, name and topic).
     generate: function (opts) { return request("generate", "run", [opts || {}]); },
     // Files: read (base64 into sandbox), ingest (host blobId — prefer for large files),
     // from (create a host blob from sandbox text/base64). Attachment methods only work
