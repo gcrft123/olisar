@@ -315,7 +315,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
    with the nav column above: 8 + the 1px border + the body's 5 is the rail's 14. Closed,
    only --foot-peek of it is above the rail's bottom edge. */
 .foot-sheet {
-  position: absolute; left: 8px; right: 8px; bottom: 0;
+  position: absolute; left: 8px; right: 8px; bottom: 0; isolation: isolate;
   max-height: calc(100% - 40px);
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border); border-bottom: 0;
@@ -340,7 +340,8 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
    never sit on top of each other at half strength. */
 .foot-layer[data-dragging] .foot-status { opacity: calc(1 - var(--foot-open) * 3); }
 
-/* The grabber, and under it the bot's status with its dot in the nav's icon column. */
+/* The grabber, and under it the bot's status: a bolt in the nav's icon column, "Bot" in its
+   label column, and the badge at the end of the row. */
 .foot-head {
   flex: none; width: 100%; height: 48px; padding: 7px 15px 0;
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 7px;
@@ -367,16 +368,55 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   transition: opacity var(--dur-mid) var(--ease-out) var(--dur-fast);
 }
 .foot-layer.open .foot-status { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
-.foot-status .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; }
+.foot-status .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; color: var(--text-3); }
+.foot-status .badge { margin-left: auto; }
 .foot-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.foot-label.limited { color: var(--warn); }
-.foot-label.refused { color: var(--danger); }
-/* The same colors the power button takes for each state. */
-.foot-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
-.foot-dot.online { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
-.foot-dot.limited { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
-.foot-dot.starting { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.foot-dot.refused, .foot-dot.holding, .foot-dot.stopping { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+
+/* The closed sheet's edge in the badge's color, thrown faintly onto the rail above it: a halo
+   and a tint (::before), and a border that's brightest along the top and fades down the sides
+   (::after, a masked gradient, since border-image ignores the radius). Behind the head's
+   content, and gone once the sheet opens. The outer span shows and hides it; the inner one
+   carries the breathing, so the two opacities don't fight. */
+.foot-glow {
+  position: absolute; inset: -1px -1px 0; z-index: -1; border-radius: inherit;
+  pointer-events: none; opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.foot-sheet[data-glow] .foot-glow { opacity: 1; }
+.foot-layer.open .foot-glow { opacity: 0; }
+.foot-layer[data-dragging] .foot-glow { opacity: calc(1 - var(--foot-open) * 3); transition: none; }
+.foot-sheet[data-glow="success"] { --glow: var(--ok); }
+.foot-sheet[data-glow="info"] { --glow: var(--info); }
+.foot-sheet[data-glow="warning"] { --glow: var(--warn); }
+.foot-sheet[data-glow="danger"] { --glow: var(--danger); }
+.foot-glow-in { position: absolute; inset: 0; border-radius: inherit; }
+.foot-glow-in::before, .foot-glow-in::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.foot-glow-in::before {
+  background: linear-gradient(color-mix(in srgb, var(--glow) 5%, transparent), transparent var(--foot-peek));
+  box-shadow: 0 -10px 22px -12px color-mix(in srgb, var(--glow) 45%, transparent);
+}
+.foot-glow-in::after {
+  padding: 1px;
+  /* Faded out by the bottom of what shows while closed, not the bottom of the whole sheet. */
+  background: linear-gradient(color-mix(in srgb, var(--glow) 42%, var(--border)), var(--border) var(--foot-peek));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* Starting or stopping: a light slides back and forth along the top edge. An oscillation
+   eases at both ends, so this is ease-in-out rather than the file's --ease-out. */
+.foot-glow::before {
+  content: ''; position: absolute; top: -8px; left: 0; width: 40%; height: 16px;
+  border-radius: 50%; opacity: 0;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 40%, transparent), transparent);
+}
+.foot-sheet[data-glow-motion="slide"] .foot-glow::before {
+  opacity: 1; animation: foot-glow-slide 1.6s ease-in-out infinite alternate;
+}
+/* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
+.foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
+/* Its center runs from 15% to 85% of the edge, clear of the rounded corners. */
+@keyframes foot-glow-slide { from { transform: translateX(-12.5%); } to { transform: translateX(162.5%); } }
+@keyframes foot-glow-breathe { 50% { opacity: 0.3; } }
 
 /* Pulled up under the grabber, over the status row: opening cross-fades the row into the
    bot's card in the same place, the way a mini-player turns into the full one. Closed, it's
@@ -393,8 +433,11 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .foot-layer[data-dragging] .foot-body { opacity: calc((var(--foot-open) - 0.25) * 2); transition: none; }
 @media (prefers-reduced-motion: reduce) {
   /* Nothing travels: the sheet is where it's going at once, and the cross-fade is all
-     that moves. */
+     that moves. The sliding light becomes a slow breath, and the breath slows. */
   .foot-sheet { transition: none; }
+  .foot-sheet[data-glow-motion="slide"] .foot-glow::before { animation: none; opacity: 0; }
+  .foot-sheet[data-glow-motion] .foot-glow-in { animation: foot-glow-breathe 4.8s ease-in-out infinite; }
+  .foot-sheet[data-glow-motion="steady"] .foot-glow-in { animation: none; }
 }
 .who { font-size: 12px; color: var(--text-2); padding: 2px 10px; line-height: 1.45; }
 .who b { color: var(--text); font-weight: 600; }

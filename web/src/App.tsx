@@ -15,7 +15,7 @@ import { SHAPE } from './form'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
-import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
+import { Badge, PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll, type BadgeGlyph, type BadgeTone } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
 import { uiScale } from './theme'
@@ -963,7 +963,22 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   )
 }
 
-type BotSummary = { tone: string; label: string }
+type BotPowerState = 'unknown' | 'online' | 'holding' | 'stopping' | 'starting' | 'limited' | 'offline' | 'refused'
+
+// What the closed sheet shows for each state BotPower reports: a badge in DESIGN.md's Badge
+// vocabulary, and how the sheet's edge lights up. No glow for a bot switched off or a state
+// nobody knows, so the edge only speaks when there's something to say. Holding is still up,
+// until the hold completes.
+const BOT_BADGE: Record<BotPowerState, { tone: BadgeTone; glyph: BadgeGlyph; word: string; glow?: 'steady' | 'slide' | 'breathe' }> = {
+  online: { tone: 'success', glyph: { icon: 'play-circle' }, word: 'Online', glow: 'steady' },
+  holding: { tone: 'success', glyph: { icon: 'play-circle' }, word: 'Online', glow: 'steady' },
+  starting: { tone: 'info', glyph: { busy: true }, word: 'Starting…', glow: 'slide' },
+  stopping: { tone: 'info', glyph: { busy: true }, word: 'Stopping…', glow: 'slide' },
+  limited: { tone: 'warning', glyph: { icon: 'danger-circle' }, word: 'Rate-limited', glow: 'breathe' },
+  offline: { tone: 'warning', glyph: { icon: 'stop-circle' }, word: 'Offline' },
+  refused: { tone: 'danger', glyph: { icon: 'close-circle' }, word: 'Can’t connect', glow: 'steady' },
+  unknown: { tone: 'neutral', glyph: { icon: 'minus-circle' }, word: 'Unknown' },
+}
 
 // How far a drag gives past either end, damped the way iOS damps an overscroll: less the
 // further it's pulled, and never more than `max`.
@@ -971,14 +986,15 @@ const rubber = (x: number, max = 24) => (1 - 1 / (x * 0.55 / max + 1)) * max
 
 // Bot power, the web link and the account, in a sheet at the foot of the rail. Laid out in
 // the rail they took a third of its height, and at 800px they pushed Settings and Log out
-// below the fold. Closed, the sheet is a grabber and the bot's status; tap it or drag it up
-// for the rest. It stays mounted while closed, so it slides rather than pops and the bot's
+// below the fold. Closed, the sheet is a grabber and the bot's status, which its edge lights
+// up in the status's color; tap it or drag it up for the rest. It stays mounted while closed, so it slides rather than pops and the bot's
 // status keeps polling.
 function FootSheet({ me, tunnel, onSettings, onLogout }: {
   me: any; tunnel: TunnelInfo | null; onSettings: () => void; onLogout: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [bot, setBot] = useState<BotSummary>({ tone: 'unknown', label: 'Bot status unknown' })
+  const [bot, setBot] = useState<BotPowerState>('unknown')
+  const badge = BOT_BADGE[bot]
   const layer = useRef<HTMLDivElement>(null)
   const sheet = useRef<HTMLDivElement>(null)
   const head = useRef<HTMLButtonElement>(null)
@@ -1049,6 +1065,8 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
       <div
         ref={sheet}
         className="foot-sheet"
+        data-glow={badge.glow ? badge.tone : undefined}
+        data-glow-motion={badge.glow}
         onKeyDown={(e) => {
           // Stopped here so the narrow-width rail, which also closes on Escape, stays open.
           if (e.key !== 'Escape' || !open) return
@@ -1069,10 +1087,12 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
         >
           <span className="foot-grabber" aria-hidden="true" />
           <span className="foot-status">
-            <span className="ic" aria-hidden="true"><span className={'foot-dot ' + bot.tone} /></span>
-            <span className={'foot-label ' + bot.tone}>{bot.label}</span>
+            <span className="ic" aria-hidden="true"><Icon.bolt size={18} /></span>
+            <span className="foot-label">Bot</span>
+            <Badge tone={badge.tone} {...badge.glyph}>{badge.word}</Badge>
           </span>
         </button>
+        <span className="foot-glow" aria-hidden="true"><span className="foot-glow-in" /></span>
         <div ref={body} id={bodyId} className="foot-body">
           <BotPower onStatus={setBot} />
           <WebLink tunnel={tunnel} />
@@ -1103,7 +1123,7 @@ const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches 
 // Operator-only control to take the Discord bot offline (and back). Powering down is a
 // deliberate press-and-hold — a ring fills around the button and only fires if you keep
 // holding — so it can't be hit by accident. Powering on is a single tap.
-function BotPower({ onStatus }: { onStatus?: (s: BotSummary) => void }) {
+function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   const [st, setSt] = useState<BotState | null>(null)
   const [phase, setPhase] = useState<'idle' | 'holding' | 'stopping' | 'starting'>('idle')
   const hold = useRef<number | null>(null)
@@ -1154,9 +1174,8 @@ function BotPower({ onStatus }: { onStatus?: (s: BotSummary) => void }) {
     : refused ? 'Can’t connect' : 'Bot offline'
 
   // The sheet this sits in is closed most of the time, and its closed row carries this.
-  const tone = !known ? 'unknown' : refused ? 'refused' : cls
-  const summary = !known ? 'Bot status unknown' : label
-  useEffect(() => { onStatus?.({ tone, label: summary }) }, [tone, summary])  // eslint-disable-line react-hooks/exhaustive-deps
+  const state: BotPowerState = !known ? 'unknown' : refused ? 'refused' : cls
+  useEffect(() => { onStatus?.(state) }, [state])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Returning null deleted the bot-status control from the sidebar whenever the backend was
   // unreachable — the one moment an operator most wants to know the bot's state, answered by
