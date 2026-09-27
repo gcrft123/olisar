@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usage · Olisar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* The console's tokens, copied from web/src/index.css. */
+  :root {
+    color-scheme: dark;
+    --bg: #020203; --bg-sidebar: #040405; --panel: #08080a; --bg-inset: #0f0f12; --input-bg: #0f0f12;
+    --border: #26262a; --border-strong: #323237;
+    --text: #ededee; --text-2: #9d9da7; --text-3: #7f7f8a;
+    --accent: #5b9cf6; --accent-soft: rgba(91, 156, 246, 0.16);
+    --accent-violet: #8a8af2; --accent-blue: #5b9cf6; --accent-teal: #2dd4bf;
+    --accent-green: #43cf8e; --accent-amber: #e0a458; --accent-rose: #f2728a;
+    --ok: #43cf8e; --ok-soft: rgba(67, 207, 142, 0.14); --ok-border: rgba(67, 207, 142, 0.34);
+    --danger: #ff6369; --danger-soft: rgba(255, 99, 105, 0.13); --danger-border: rgba(255, 99, 105, 0.34);
+    --warn: #e3a13a; --warn-soft: rgba(227, 161, 58, 0.14); --warn-border: rgba(227, 161, 58, 0.34);
+    --info: #5fc4f2; --neutral: #9d9da7;
+    --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --radius: 16px; --radius-sm: 12px; --radius-xs: 8px; --radius-pill: 999px;
+    --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+    --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+    --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+    --dur-fast: .12s; --dur-mid: .16s; --dur-slow: .3s;
+    /* The console's default interface size. */
+    --ui-scale: 1.1;
+    zoom: var(--ui-scale);
+    --vh: calc(100vh / var(--ui-scale));
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: var(--font-sans); font-size: 13.5px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-wrap: break-word;
+  }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: none; box-shadow: var(--ring); }
+  * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+  svg { display: block; }
+  .mono { font-family: var(--font-mono); }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── The console's shell: rail + main column ─────────────────────────── */
+  .shell { display: grid; grid-template-columns: 244px minmax(0, 1fr); min-height: 100%; }
+  .sidebar {
+    --foot-peek: 49px; border-right: 1px solid var(--border); background: var(--bg-sidebar);
+    position: sticky; top: 0; height: var(--vh); display: flex; flex-direction: column;
+    padding-bottom: var(--foot-peek); overflow: clip;
+  }
+  .sidebar-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 14px 12px; display: flex; flex-direction: column; gap: 2px; }
+  .bot-switch { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin-bottom: 12px; border-radius: var(--radius-sm); }
+  .bot-av { width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center; flex: none;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 14px; }
+  .bot-switch-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+  .bot-switch-text .name { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+  .bot-switch-text .sub { font-size: 11px; font-weight: 500; color: var(--text-3); }
+  .chev { color: var(--text-3); flex: none; width: 14px; height: 14px; }
+  .chev svg { width: 14px; height: 14px; }
+  .server-switch { display: flex; align-items: center; gap: 8px; margin: 2px 0 16px; padding: 5px 8px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--input-bg); font-size: 13px; font-weight: 500; }
+  .server-icon { width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; flex: none;
+    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; }
+  .server-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 26px; }
+  .search-trigger { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 5px 0 11px; margin-bottom: 14px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-sm); color: var(--text-3); font-size: 13px; }
+  .search-trigger svg { width: 16px; height: 16px; }
+  .search-trigger kbd { margin-left: auto; }
+  kbd { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); line-height: 1.6; padding: 1px 6px;
+    border: 1px solid var(--border-strong); border-radius: var(--radius-xs); background: var(--bg-inset); white-space: nowrap; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: var(--radius-sm);
+    color: var(--text-2); font-size: 13.5px; text-decoration: none; user-select: none; }
+  .nav-item:hover { background: var(--bg-inset); color: var(--text); }
+  .nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
+  .nav-item .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; }
+  .nav-item .ic svg { width: 19px; height: 19px; }
+  .nav-rule { height: 1px; background: var(--border); margin: 10px 10px 9px; }
+  /* The closed foot sheet, as built: the bolt, "Bot" and the status badge, with the edge glow. */
+  .foot-sheet { position: absolute; left: 8px; right: 8px; bottom: 0; height: var(--foot-peek); isolation: isolate;
+    background: var(--panel); border: 1px solid var(--border); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }
+  .foot-sheet::before { content: ''; position: absolute; inset: -1px -1px 0; z-index: -1; border-radius: inherit;
+    border: 1px solid color-mix(in srgb, var(--glow) 42%, transparent); border-bottom: 0;
+    background: color-mix(in srgb, var(--glow) 5%, transparent);
+    box-shadow: 0 -6px 18px -8px color-mix(in srgb, var(--glow) 45%, transparent);
+    -webkit-mask-image: linear-gradient(#000, transparent var(--foot-peek)); mask-image: linear-gradient(#000, transparent var(--foot-peek)); }
+  .foot-sheet.breathe::before { animation: breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: 0.45; } }
+  .foot-grabber { width: 36px; height: 5px; border-radius: 3px; background: var(--border-strong); margin: 7px auto 0; }
+  .foot-status { display: flex; align-items: center; gap: 10px; padding: 6px 14px 0 15px; color: var(--text-2); font-size: 13px; font-weight: 500; }
+  .foot-status .ic { width: 19px; height: 19px; display: grid; place-items: center; color: var(--text-3); }
+  .foot-status .ic svg { width: 18px; height: 18px; }
+  .foot-status .badge { margin-left: auto; }
+
+  .main { padding: 40px 44px 110px; width: 100%; max-width: 1180px; margin: 0 auto; min-width: 0; }
+  .head-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+  .title-row { display: flex; align-items: center; gap: 11px; }
+  .title-ic { width: 34px; height: 34px; border-radius: var(--radius-sm); flex: none; display: grid; place-items: center;
+    background: var(--bg-inset); border: 1px solid var(--border); }
+  .title-ic svg { width: 18px; height: 18px; }
+  .title-row h1 { font-size: 22px; }
+  .btn { height: 34px; padding: 0 14px; display: inline-flex; align-items: center; gap: 7px; font-weight: 550; font-size: 13px;
+    border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text-2); cursor: pointer;
+    transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out); }
+  .btn:hover { background: var(--bg-inset); color: var(--text); }
+  .btn svg { width: 16px; height: 16px; }
+
+  /* ── Badge (web/src/index.css, whole-pixel rounding left out) ─────────── */
+  .badge {
+    --ink: var(--text-2); --badge-fill: color-mix(in srgb, var(--ink) 14%, var(--bg-inset)); --badge-h: 22px; --badge-bw: 1px;
+    display: inline-flex; align-items: center; flex: none; height: var(--badge-h); padding: 0 7px 0 0;
+    border: var(--badge-bw) solid transparent; border-radius: var(--radius-pill);
+    background:
+      linear-gradient(var(--badge-fill), var(--badge-fill)) padding-box,
+      linear-gradient(color-mix(in srgb, var(--ink) 52%, var(--bg-inset)), color-mix(in srgb, var(--ink) 34%, var(--bg-inset)) 50%,
+        color-mix(in srgb, var(--ink) 22%, var(--bg-inset))) border-box;
+    color: var(--ink); font-size: 12px; font-weight: 500; line-height: 1; white-space: nowrap; vertical-align: middle;
+  }
+  .badge.info { --ink: var(--info); } .badge.success { --ink: var(--ok); }
+  .badge.warning { --ink: var(--warn); } .badge.danger { --ink: var(--danger); }
+  .badge-ic { flex: none; display: block; width: var(--badge-h); height: var(--badge-h); margin: calc(-1 * var(--badge-bw)); }
+  .badge-disc { fill: currentColor; opacity: 0.2; }
+  .ring-track { fill: none; stroke: currentColor; stroke-width: 1.5; opacity: 0.3; }
+  .ring-arc { transform-origin: 12px 12px; animation: spin 0.8s linear infinite; }
+  .ring-arc circle { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 15.71 47.12; stroke-linecap: round; }
+  .badge .num { font-family: var(--font-mono); font-size: 11.5px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+
+  /* ── Section (the flat group), stacked ───────────────────────────────── */
+  .section { border-top: 1px solid var(--border); padding: 28px 0; }
+  .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .section-head h2 { font-size: 15px; }
+  .useg { display: inline-flex; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 4px; }
+  .useg button { font-size: 12px; color: var(--text-2); background: none; border: 0; padding: 5px 12px; border-radius: var(--radius-xs); cursor: pointer; }
+  .useg button:hover { color: var(--text); }
+  .useg button[aria-checked="true"] { background: var(--panel); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); font-weight: 500; }
+  .useg button:focus-visible { box-shadow: var(--ring); }
+  .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); line-height: 1.4; }
+
+  .callout { display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px; border-radius: var(--radius); font-size: 13.5px; line-height: 1.6;
+    border: 1px solid color-mix(in srgb, var(--cc) 34%, transparent); background: color-mix(in srgb, var(--cc) 9%, var(--panel));
+    color: color-mix(in srgb, var(--cc) 22%, var(--text)); margin-bottom: 22px; }
+  .callout .ic { color: var(--cc); margin-top: 2px; flex: none; }
+  .callout .ic svg { width: 17px; height: 17px; }
+  .callout.warning { --cc: var(--warn); } .callout.danger { --cc: var(--danger); }
+
+  /* ── 1 + 2 · What's left, and what's replying ────────────────────────── */
+  /* Two readings of right now, side by side and split by a hairline, over the one bar they
+     share: the chain, drawn to scale, what's left of it in the accent. */
+  .now { border-top: 1px solid var(--border); display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+  .now-left { padding: 26px 32px 26px 0; min-width: 0; }
+  .now-right { padding: 26px 0 26px 32px; border-left: 1px solid var(--border); min-width: 0; display: flex; flex-direction: column; }
+  .now .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 22px; }
+  .hero-num { font-size: 60px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; margin-top: 12px;
+    font-variant-numeric: proportional-nums; transition: opacity var(--dur-slow) var(--ease-out); }
+  .hero-num.zero { color: var(--text-3); }
+  .hero-sub { color: var(--text-2); margin-top: 12px; font-size: 13.5px; }
+  .hero-sub b { color: var(--text); font-weight: 500; }
+  .cur-name { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; margin-top: 16px; overflow-wrap: anywhere; }
+  .cur-name.none { color: var(--text-2); }
+  .cur-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+  .stale .hero-num, .stale .cur-name, .stale .side-limits, .stale .pace,
+  .chain.stale tbody { opacity: 0.55; }
+
+  .now-foot { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 14px 32px; flex-wrap: wrap; padding: 18px 0 20px; border-top: 1px solid var(--border); }
+  .pace { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); }
+  .pace svg { width: 16px; height: 16px; flex: none; }
+  .pace.ok svg { color: var(--ok); }
+  .pace.warn { color: var(--warn); } .pace.danger { color: var(--danger); }
+  .side-limits { display: flex; gap: 10px 28px; flex-wrap: wrap; }
+  .side { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text-2); }
+  .side .v { font-family: var(--font-mono); font-size: 11.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .side .v s { text-decoration: none; color: var(--text-3); }
+
+  .mini { position: relative; width: 72px; height: 6px; border-radius: 3px; background: var(--bg-inset); box-shadow: inset 0 0 0 1px var(--border); flex: none; }
+  .mini i { position: absolute; inset: 0; border-radius: 3px; background: var(--accent); clip-path: inset(0 0 0 var(--used)); transition: clip-path .5s var(--ease-out); }
+
+  /* ── The chain ───────────────────────────────────────────────────────── */
+  .chain { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  .chain th, .chain td { padding: 10px 0; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; font-weight: 400; }
+  .chain tbody tr:last-child > * { border-bottom: 0; }
+  .chain thead th { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); padding: 0 0 9px; }
+  .chain .c-rank { width: 34px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+  .chain .c-status { width: 196px; }
+  .chain .c-today { width: 250px; }
+  .chain tbody tr { transition: background var(--dur-fast) var(--ease-out); }
+  .chain tbody tr.hl > * { background: var(--bg-inset); }
+  .chain tbody tr.hl > :first-child { border-radius: var(--radius-xs) 0 0 var(--radius-xs); }
+  .chain tbody tr.hl > :last-child { border-radius: 0 var(--radius-xs) var(--radius-xs) 0; }
+  .chain tbody th.c-rank { padding-left: 2px; }
+  .chain tbody td.c-today { padding-right: 8px; }
+  .chain tr.cur .c-rank { color: var(--accent); }
+  .m-name { font-weight: 500; }
+  .chain tr.cur .m-name { font-weight: 600; }
+  .chain tr.gone .m-name { color: var(--text-2); font-weight: 400; }
+  .m-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+  .m-status { display: none; }
+  .st { display: flex; align-items: center; gap: 8px; }
+  .st .when { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+  .today { display: flex; align-items: center; gap: 14px; }
+  .today .mini { flex: 1; width: auto; min-width: 48px; overflow: hidden; }
+  /* Quota Google says is gone although Olisar never counted it: something else on the project. */
+  .today .mini .seg-lost { position: absolute; inset: 0 0 0 var(--used); border-radius: 0 3px 3px 0;
+    background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-3) 42%, transparent) 0 1.5px, transparent 1.5px 5px); }
+  .mini.out i { clip-path: inset(0 0 0 100%); }
+  .today .v { width: 92px; flex: none; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .today .v s { text-decoration: none; font-size: 11.5px; color: var(--text-3); }
+  .left-v { font-size: 13px; color: var(--text); }
+  .chain tr.gone .left-v { color: var(--text-3); }
+
+  /* ── 3 · By feature ─────────────────────────────────────────────────── */
+  .feat { display: grid; grid-template-columns: 184px minmax(0, 1fr); gap: 44px; align-items: center; }
+  .donut { display: block; overflow: visible; }
+  .donut-track { stroke: var(--bg-inset); fill: none; }
+  .donut-seg { fill: none; stroke: currentColor; transition: opacity var(--dur-fast) var(--ease-out), stroke-width var(--dur-fast) var(--ease-out); }
+  .donut.hover .donut-seg:not(.hl) { opacity: 0.28; }
+  .donut-total { fill: var(--text); font-family: var(--font-sans); font-size: 26px; font-weight: 600; letter-spacing: -0.03em; }
+  .donut-sub { fill: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .legend { display: flex; flex-direction: column; min-width: 0; }
+  .lg { display: grid; grid-template-columns: 10px minmax(120px, 170px) minmax(0, 1fr) 62px 40px; align-items: center; gap: 12px;
+    padding: 7px 8px; margin: 0 -8px; border-radius: var(--radius-xs); font-size: 13px; cursor: default; }
+  .lg.hl { background: var(--bg-inset); }
+  .lg .sw { width: 10px; height: 10px; border-radius: 3px; background: currentColor; }
+  .lg .nm { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lg .bar { height: 6px; border-radius: 3px; background: currentColor; transform-origin: left; transition: transform .4s var(--ease-out); }
+  .lg .val { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
+  .lg .pc { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
+  .lg-parts { padding: 0 0 4px 22px; font-size: 12px; color: var(--text-3); line-height: 1.7; }
+  .lg-parts .mono { font-size: 11.5px; color: var(--text-2); }
+  .lg-parts .sep { margin: 0 7px; }
+  /* The chart hues, in the order that clears the colorblind check on this ground. */
+  .c0 { color: var(--accent-blue); } .c1 { color: var(--accent-amber); } .c2 { color: var(--accent-teal); }
+  .c3 { color: var(--accent-rose); } .c4 { color: var(--accent-violet); } .c5 { color: var(--text-3); }
+
+  /* ── 4 · Stats ───────────────────────────────────────────────────────── */
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kpi { min-width: 0; padding: 4px 24px 6px; border-left: 1px solid var(--border); }
+  .kpi:first-child { border-left: 0; padding-left: 0; }
+  .kpi:last-child { padding-right: 0; }
+  .kpi .big { font-size: 26px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; margin-top: 10px; white-space: nowrap; }
+  .kpi .big s { text-decoration: none; color: var(--text-3); font-size: 17px; font-weight: 500; letter-spacing: 0; }
+  .kpi .cap { font-size: 12px; color: var(--text-2); margin-top: 7px; }
+  .days-head { display: flex; align-items: baseline; gap: 10px; margin: 34px 0 6px; }
+  .days-head h3 { font-size: 13.5px; font-weight: 600; }
+  .days-head span { color: var(--text-3); font-size: 12.5px; }
+  .chartbox { width: 100%; min-width: 0; }
+  .days-chart .grid { stroke: var(--border); }
+  .days-chart .axis { fill: var(--text-3); font-family: var(--font-mono); font-size: 11px; }
+  .days-chart .axis.on { fill: var(--text); }
+  .days-chart .limit { stroke: var(--danger); stroke-opacity: 0.55; }
+  .days-chart .limit-txt { fill: var(--danger); fill-opacity: 0.9; font-family: var(--font-mono); font-size: 11px; }
+  .days-chart .bar { fill: color-mix(in srgb, var(--text-3) 55%, var(--bg)); transition: fill var(--dur-fast) var(--ease-out); }
+  .days-chart .bar.today { fill: var(--accent); }
+  .days-chart .bar.ranout { fill: color-mix(in srgb, var(--warn) 70%, var(--bg)); }
+  .days-chart .col:hover .bar, .days-chart .col.hl .bar { fill: var(--text-2); }
+  .days-chart .col:hover .bar.today, .days-chart .col.hl .bar.today { fill: #8dbaf9; }
+  .days-chart .tag { fill: var(--text); font-family: var(--font-mono); font-size: 11px; }
+  .days-chart .hit { fill: transparent; }
+
+  /* ── Chart tooltip ──────────────────────────────────────────────────── */
+  .ctip { position: fixed; z-index: 400; pointer-events: none; padding: 7px 10px; border-radius: var(--radius-xs);
+    background: var(--panel); border: 1px solid var(--border-strong); box-shadow: var(--shadow-pop); font-size: 12px; line-height: 1.45;
+    opacity: 0; transform: translateY(3px); transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out); max-width: 260px; }
+  .ctip.on { opacity: 1; transform: none; }
+  .ctip b { display: block; font-family: var(--font-mono); font-weight: 500; font-size: 12.5px; color: var(--text); }
+  .ctip span { color: var(--text-2); }
+
+  /* ── Preview strip (not part of the design) ─────────────────────────── */
+  .preview { position: fixed; right: 16px; bottom: 16px; z-index: 300; display: flex; align-items: center; gap: 10px;
+    padding: 4px 4px 4px 12px; border-radius: var(--radius); background: var(--panel); border: 1px dashed var(--border-strong); box-shadow: var(--shadow-pop); }
+  .preview .useg { border: 0; background: transparent; padding: 0; }
+
+  /* ── Narrow widths ──────────────────────────────────────────────────── */
+  @media (max-width: 1180px) {
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
+    .kpi:nth-child(3) { border-left: 0; padding-left: 0; }
+    .kpi:nth-child(2) { padding-right: 0; }
+    .chain .c-status { width: 150px; }
+    .chain .m-id { display: none; }
+  }
+  @media (max-width: 960px) {
+    .shell { grid-template-columns: minmax(0, 1fr); }
+    .sidebar { display: none; }
+    .main { padding: 28px 20px 110px; }
+    .now { grid-template-columns: minmax(0, 1fr); }
+    .now-right { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 22px; }
+    .now-left { padding-right: 0; }
+    .feat { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 24px; }
+    .legend { width: 100%; }
+    .chain .c-today { width: 150px; }
+    .today .mini { display: none; }
+    .preview { position: static; margin: 0 20px 24px; overflow-x: auto; box-shadow: none; }
+  }
+  @media (max-width: 620px) {
+    .hero-num { font-size: 48px; }
+    .chain .c-status { display: none; }
+    .m-status { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+    .m-status .when { font-size: 12px; color: var(--text-3); }
+    .chain .c-rank { width: 26px; }
+    .chain .c-today { width: 96px; }
+    .lg { grid-template-columns: 10px minmax(0, 1fr) 58px 36px; }
+    .lg .bar { display: none; }
+    .kpis { grid-template-columns: minmax(0, 1fr); }
+    .kpi, .kpi:nth-child(n) { border-left: 0; padding: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ring-arc { animation-duration: 1.6s; }
+    .mini i, .lg .bar, .ctip { transition-duration: 0s; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="sidebar" aria-label="Console">
+    <div class="sidebar-scroll">
+      <div class="bot-switch">
+        <span class="bot-av" aria-hidden="true">R</span>
+        <span class="bot-switch-text"><span class="name">Red Nebula bot</span><span class="sub">Online</span></span>
+        <span class="chev" data-icon="chevron"></span>
+      </div>
+      <div class="server-switch">
+        <span class="server-icon" aria-hidden="true">R</span>
+        <span class="server-name">Red Nebula Industries</span>
+        <span class="chev" data-icon="chevron"></span>
+      </div>
+      <div class="search-trigger"><span data-icon="search"></span>Search<kbd>⌘K</kbd></div>
+      <div id="nav"></div>
+    </div>
+    <div class="foot-sheet" aria-hidden="true">
+      <div class="foot-grabber"></div>
+      <div class="foot-status"><span class="ic" data-icon="bolt"></span>Bot<span id="foot-badge"></span></div>
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <div class="head-row">
+      <div class="title-row"><span class="title-ic" data-icon="usage"></span><h1>Usage</h1></div>
+      <button class="btn" type="button"><span data-icon="docs"></span>Docs</button>
+    </div>
+
+    <div id="stale-callout"></div>
+
+    <!-- 1 + 2 -->
+    <section class="now" id="now" aria-label="Right now">
+      <div class="now-left">
+        <div class="top"><span class="eyebrow">Left today</span></div>
+        <div class="hero-num" id="hero-num">–</div>
+        <div class="hero-sub" id="hero-sub"></div>
+      </div>
+      <div class="now-right">
+        <div class="top"><span class="eyebrow">Replying with</span><span id="live-badge"></span></div>
+        <div class="cur-name" id="cur-name"></div>
+        <div class="cur-id" id="cur-id"></div>
+      </div>
+      <div class="now-foot">
+        <div class="pace" id="pace" role="status"></div>
+        <div class="side-limits" id="side-limits"></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-head"><h2>Fallback chain</h2></div>
+      <table class="chain" id="chain">
+        <thead>
+          <tr>
+            <th scope="col" class="c-rank"><span class="visually-hidden">Position</span></th>
+            <th scope="col">Model</th>
+            <th scope="col" class="c-status">Status</th>
+            <th scope="col" class="c-today">Left today</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- 3 -->
+    <section class="section">
+      <div class="section-head">
+        <h2>By feature</h2>
+        <div class="useg" id="range" role="radiogroup" aria-label="Range"></div>
+      </div>
+      <div class="feat">
+        <svg class="donut" id="donut" width="184" height="184" viewBox="0 0 184 184" role="img"></svg>
+        <div class="legend" id="legend"></div>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section class="section">
+      <div class="section-head"><h2>Stats</h2></div>
+      <div class="kpis" id="kpis"></div>
+      <div class="days-head"><h3>Requests per day</h3><span>last 14 days</span></div>
+      <div class="chartbox" id="days-box"></div>
+      <div class="visually-hidden" id="days-table"></div>
+    </section>
+  </main>
+</div>
+
+<div class="ctip" id="ctip" role="presentation"></div>
+
+<div class="preview" aria-label="Preview">
+  <span class="eyebrow">Preview</span>
+  <div class="useg" id="scenes" role="radiogroup" aria-label="Preview state"></div>
+</div>
+
+<script>
+// ── Solar glyphs, rendered from @solar-icons/react's own path data ──────────
+const ICONS = {"persona":"<circle cx=\"12\" cy=\"9\" r=\"3\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M17.9691 20C17.81 17.1085 16.9247 15 11.9999 15C7.07521 15 6.18991 17.1085 6.03076 20\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","behavior":"<path d=\"M9.5 14C11.1569 14 12.5 15.3431 12.5 17C12.5 18.6568 11.1569 20 9.5 20C7.84315 20 6.5 18.6568 6.5 17C6.5 15.3431 7.84315 14 9.5 14Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M14.5 3.99998C12.8431 3.99998 11.5 5.34312 11.5 6.99998C11.5 8.65683 12.8431 9.99998 14.5 9.99998C16.1569 9.99998 17.5 8.65683 17.5 6.99998C17.5 5.34312 16.1569 3.99998 14.5 3.99998Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M15 16.9585L22 16.9585\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M9 6.9585L2 6.9585\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M2 16.9585L4 16.9585\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M22 6.9585L20 6.9585\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","messages":"<path d=\"M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M8 10.5H16\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M8 14H13.5\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","channels":"<path d=\"M10 3L5 21\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><path d=\"M19 3L14 21\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><path d=\"M22 9H4\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><path d=\"M20 16H2\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path>","access":"<path d=\"M3 10.4167C3 7.21907 3 5.62028 3.37752 5.08241C3.75503 4.54454 5.25832 4.02996 8.26491 3.00079L8.83772 2.80472C10.405 2.26824 11.1886 2 12 2C12.8114 2 13.595 2.26824 15.1623 2.80472L15.7351 3.00079C18.7417 4.02996 20.245 4.54454 20.6225 5.08241C21 5.62028 21 7.21907 21 10.4167C21 10.8996 21 11.4234 21 11.9914C21 17.6294 16.761 20.3655 14.1014 21.5273C13.38 21.8424 13.0193 22 12 22C10.9807 22 10.62 21.8424 9.89856 21.5273C7.23896 20.3655 3 17.6294 3 11.9914C3 11.4234 3 10.8996 3 10.4167Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M11.5 16H12.5C13.0523 16 13.5 15.5523 13.5 15V13.5987C14.3967 13.0799 15 12.1104 15 11C15 9.34315 13.6569 8 12 8C10.3431 8 9 9.34315 9 11C9 12.1104 9.6033 13.0799 10.5 13.5987V15C10.5 15.5523 10.9477 16 11.5 16Z\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"></path>","knowledge":"<path d=\"M4 8C4 5.17157 4 3.75736 4.87868 2.87868C5.75736 2 7.17157 2 10 2H14C16.8284 2 18.2426 2 19.1213 2.87868C20 3.75736 20 5.17157 20 8V16C20 18.8284 20 20.2426 19.1213 21.1213C18.2426 22 16.8284 22 14 22H10C7.17157 22 5.75736 22 4.87868 21.1213C4 20.2426 4 18.8284 4 16V8Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M19.8978 16H7.89778C6.96781 16 6.50282 16 6.12132 16.1022C5.08604 16.3796 4.2774 17.1883 4 18.2235\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M8 7H16\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M8 10.5H13\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M13 16V19.5309C13 19.8065 13 19.9443 12.9051 20C12.8103 20.0557 12.6806 19.9941 12.4211 19.8708L11.1789 19.2808C11.0911 19.2391 11.0472 19.2182 11 19.2182C10.9528 19.2182 10.9089 19.2391 10.8211 19.2808L9.57889 19.8708C9.31943 19.9941 9.18971 20.0557 9.09485 20C9 19.9443 9 19.8065 9 19.5309V16.45\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","members":"<circle cx=\"9\" cy=\"6\" r=\"4\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M15 9C16.6569 9 18 7.65685 18 6C18 4.34315 16.6569 3 15 3\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><ellipse cx=\"9\" cy=\"17\" rx=\"7\" ry=\"4\" stroke=\"currentColor\" stroke-width=\"1.5\"></ellipse><path d=\"M18 14C19.7542 14.3847 21 15.3589 21 16.5C21 17.5293 19.9863 18.4229 18.5 18.8704\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","extensions":"<path d=\"M10.0128 21.9673L9.86335 22.7023H9.86335L10.0128 21.9673ZM16.0342 20.4846C15.6622 20.6668 15.5084 21.116 15.6906 21.488C15.8728 21.86 16.3221 22.0138 16.6941 21.8316L16.0342 20.4846ZM10.1622 21.2324C5.93808 20.3736 2.75 16.6065 2.75 12.0832H1.25C1.25 17.3253 4.94577 21.7025 9.86335 22.7023L10.1622 21.2324ZM2.75 12.0832C2.75 6.92275 6.89721 2.75 12 2.75V1.25C6.05709 1.25 1.25 6.10606 1.25 12.0832H2.75ZM12 2.75C17.1028 2.75 21.25 6.92275 21.25 12.0832H22.75C22.75 6.10606 17.9429 1.25 12 1.25V2.75ZM12.75 20.1498V15.1082H11.25V20.1498H12.75ZM21.25 12.0832C21.25 15.7797 19.1208 18.9726 16.0342 20.4846L16.6941 21.8316C20.2798 20.0752 22.75 16.369 22.75 12.0832H21.25ZM9.86335 22.7023C11.5214 23.0394 12.75 21.618 12.75 20.1498H11.25C11.25 20.909 10.6697 21.3355 10.1622 21.2324L9.86335 22.7023Z\" fill=\"currentColor\"></path><path d=\"M9 11.8C9 11.3582 9.35817 11 9.8 11H14.2C14.6418 11 15 11.3582 15 11.8V12C15 13.6569 13.6569 15 12 15C10.3431 15 9 13.6569 9 12V11.8Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M13.5 11V9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M10.5 11V9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","keys":"<path d=\"M18.9771 5.02291L19.5074 4.49258V4.49258L18.9771 5.02291ZM18.9771 14.7904L19.5074 15.3207L18.9771 14.7904ZM7.14558 12.6684L6.61525 12.138L6.61525 12.138L7.14558 12.6684ZM3.43349 16.3804L3.96382 16.9108L3.96382 16.9108L3.43349 16.3804ZM7.61956 20.5665L7.08923 20.0362L7.08923 20.0362L7.61956 20.5665ZM11.3319 16.8541L10.8016 16.3238L11.3319 16.8541ZM3.00906 17.5904L2.26365 17.6732L3.00906 17.5904ZM3.24113 19.679L2.49572 19.7618L2.49572 19.7618L3.24113 19.679ZM4.32101 20.7589L4.23819 21.5043H4.23819L4.32101 20.7589ZM6.4096 20.9909L6.49242 20.2455H6.49242L6.4096 20.9909ZM3.52408 20.2677L4.05441 19.7374L4.05441 19.7374L3.52408 20.2677ZM3.73229 20.4759L3.20196 21.0062L3.20196 21.0063L3.73229 20.4759ZM7.40432 11.6311L6.67789 11.8177H6.67789L7.40432 11.6311ZM12.3689 16.5957L12.1823 17.3221L12.3689 16.5957ZM7.63832 17.063C7.34382 16.7717 6.86895 16.7743 6.57767 17.0688C6.2864 17.3633 6.28901 17.8382 6.58351 18.1294L7.63832 17.063ZM13.1161 10.8839C12.628 10.3957 12.628 9.60427 13.1161 9.11612L12.0555 8.05546C10.9815 9.1294 10.9815 10.8706 12.0555 11.9445L13.1161 10.8839ZM14.8839 10.8839C14.3957 11.372 13.6043 11.372 13.1161 10.8839L12.0555 11.9445C13.1294 13.0185 14.8706 13.0185 15.9445 11.9445L14.8839 10.8839ZM14.8839 9.11612C15.372 9.60427 15.372 10.3957 14.8839 10.8839L15.9445 11.9445C17.0185 10.8706 17.0185 9.1294 15.9445 8.05546L14.8839 9.11612ZM15.9445 8.05546C14.8706 6.98151 13.1294 6.98151 12.0555 8.05546L13.1161 9.11612C13.6043 8.62796 14.3957 8.62796 14.8839 9.11612L15.9445 8.05546ZM18.4468 5.55324C20.8511 7.95756 20.8511 11.8557 18.4468 14.2601L19.5074 15.3207C22.4975 12.3306 22.4975 7.48269 19.5074 4.49258L18.4468 5.55324ZM19.5074 4.49258C16.5173 1.50247 11.6694 1.50247 8.67928 4.49258L9.73994 5.55324C12.1443 3.14892 16.0424 3.14892 18.4468 5.55324L19.5074 4.49258ZM6.61525 12.138L2.90316 15.8501L3.96382 16.9108L7.67591 13.1987L6.61525 12.138ZM8.14989 21.0968L9.39029 19.8564L8.32963 18.7958L7.08923 20.0362L8.14989 21.0968ZM9.39029 19.8564L11.8623 17.3845L10.8016 16.3238L8.32963 18.7958L9.39029 19.8564ZM2.26365 17.6732L2.49572 19.7618L3.98654 19.5962L3.75447 17.5076L2.26365 17.6732ZM4.23819 21.5043L6.32678 21.7364L6.49242 20.2455L4.40384 20.0135L4.23819 21.5043ZM2.99375 20.798L3.20196 21.0062L4.26263 19.9456L4.05441 19.7374L2.99375 20.798ZM4.40384 20.0135C4.35042 20.0075 4.30062 19.9836 4.26262 19.9456L3.20196 21.0063C3.48081 21.2851 3.84626 21.4607 4.23819 21.5043L4.40384 20.0135ZM2.49572 19.7618C2.53926 20.1537 2.7149 20.5192 2.99375 20.798L4.05441 19.7374C4.01641 19.6994 3.99248 19.6496 3.98654 19.5962L2.49572 19.7618ZM7.08923 20.0362C6.93242 20.193 6.71283 20.27 6.49242 20.2455L6.32678 21.7364C7.00007 21.8112 7.67087 21.5759 8.14989 21.0968L7.08923 20.0362ZM2.90316 15.8501C2.42414 16.3291 2.18884 16.9999 2.26365 17.6732L3.75447 17.5076C3.72999 17.2872 3.80701 17.0676 3.96382 16.9108L2.90316 15.8501ZM8.13075 11.4446C7.60655 9.4033 8.14412 7.14906 9.73994 5.55324L8.67928 4.49258C6.69321 6.47865 6.02725 9.28401 6.67789 11.8177L8.13075 11.4446ZM18.4468 14.2601C16.8509 15.8559 14.5967 16.3934 12.5554 15.8693L12.1823 17.3221C14.716 17.9728 17.5214 17.3068 19.5074 15.3207L18.4468 14.2601ZM11.8623 17.3845C11.9181 17.3287 12.0324 17.2836 12.1823 17.3221L12.5554 15.8693C11.9675 15.7183 11.2845 15.8409 10.8016 16.3238L11.8623 17.3845ZM7.67591 13.1987C8.15857 12.716 8.28182 12.0329 8.13075 11.4446L6.67789 11.8177C6.7163 11.9672 6.67127 12.082 6.61525 12.138L7.67591 13.1987ZM9.38736 18.7929L7.63832 17.063L6.58351 18.1294L8.33255 19.8593L9.38736 18.7929Z\" fill=\"currentColor\"></path>","usageBold":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M3.46447 3.46447C2 4.92893 2 7.28595 2 12C2 16.714 2 19.0711 3.46447 20.5355C4.92893 22 7.28595 22 12 22C16.714 22 19.0711 22 20.5355 20.5355C22 19.0711 22 16.714 22 12C22 7.28595 22 4.92893 20.5355 3.46447C19.0711 2 16.714 2 12 2C7.28595 2 4.92893 2 3.46447 3.46447ZM17 12.25C17.4142 12.25 17.75 12.5858 17.75 13V18C17.75 18.4142 17.4142 18.75 17 18.75C16.5858 18.75 16.25 18.4142 16.25 18V13C16.25 12.5858 16.5858 12.25 17 12.25ZM12.75 6C12.75 5.58579 12.4142 5.25 12 5.25C11.5858 5.25 11.25 5.58579 11.25 6V18C11.25 18.4142 11.5858 18.75 12 18.75C12.4142 18.75 12.75 18.4142 12.75 18V6ZM7 8.25C7.41421 8.25 7.75 8.58579 7.75 9V18C7.75 18.4142 7.41421 18.75 7 18.75C6.58579 18.75 6.25 18.4142 6.25 18V9C6.25 8.58579 6.58579 8.25 7 8.25Z\" fill=\"currentColor\"></path>","usage":"<path d=\"M2 12C2 7.28595 2 4.92893 3.46447 3.46447C4.92893 2 7.28595 2 12 2C16.714 2 19.0711 2 20.5355 3.46447C22 4.92893 22 7.28595 22 12C22 16.714 22 19.0711 20.5355 20.5355C19.0711 22 16.714 22 12 22C7.28595 22 4.92893 22 3.46447 20.5355C2 19.0711 2 16.714 2 12Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M7 18V9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M12 18V6\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M17 18V13\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","docs":"<path d=\"M3 10C3 6.22876 3 4.34315 4.17157 3.17157C5.34315 2 7.22876 2 11 2H13C16.7712 2 18.6569 2 19.8284 3.17157C21 4.34315 21 6.22876 21 10V14C21 17.7712 21 19.6569 19.8284 20.8284C18.6569 22 16.7712 22 13 22H11C7.22876 22 5.34315 22 4.17157 20.8284C3 19.6569 3 17.7712 3 14V10Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path><path d=\"M8 12H16\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M8 8H16\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M8 16H13\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","search":"<circle cx=\"11.5\" cy=\"11.5\" r=\"9.5\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M18.5 18.5L22 22\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","chevron":"<path d=\"M19 9L12 15L5 9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path>","bolt":"<path d=\"M5.66953 9.91436L8.73167 5.77133C10.711 3.09327 11.7007 1.75425 12.6241 2.03721C13.5474 2.32018 13.5474 3.96249 13.5474 7.24712V7.55682C13.5474 8.74151 13.5474 9.33386 13.926 9.70541L13.946 9.72466C14.3327 10.0884 14.9492 10.0884 16.1822 10.0884C18.4011 10.0884 19.5106 10.0884 19.8855 10.7613C19.8917 10.7724 19.8977 10.7837 19.9036 10.795C20.2576 11.4784 19.6152 12.3475 18.3304 14.0857L15.2683 18.2287C13.2889 20.9067 12.2992 22.2458 11.3758 21.9628C10.4525 21.6798 10.4525 20.0375 10.4525 16.7528L10.4526 16.4433C10.4526 15.2585 10.4526 14.6662 10.074 14.2946L10.054 14.2754C9.6673 13.9117 9.05079 13.9117 7.81775 13.9117C5.59888 13.9117 4.48945 13.9117 4.1145 13.2387C4.10829 13.2276 4.10225 13.2164 4.09639 13.205C3.74244 12.5217 4.3848 11.6526 5.66953 9.91436Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path>","infoBold":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12ZM12 17.75C12.4142 17.75 12.75 17.4142 12.75 17V11C12.75 10.5858 12.4142 10.25 12 10.25C11.5858 10.25 11.25 10.5858 11.25 11V17C11.25 17.4142 11.5858 17.75 12 17.75ZM12 7C12.5523 7 13 7.44772 13 8C13 8.55228 12.5523 9 12 9C11.4477 9 11 8.55228 11 8C11 7.44772 11.4477 7 12 7Z\" fill=\"currentColor\"></path>","warnBold":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M5.31171 10.7615C8.23007 5.58716 9.68925 3 12 3C14.3107 3 15.7699 5.58716 18.6883 10.7615L19.0519 11.4063C21.4771 15.7061 22.6897 17.856 21.5937 19.428C20.4978 21 17.7864 21 12.3637 21H11.6363C6.21356 21 3.50217 21 2.40626 19.428C1.31034 17.856 2.52291 15.7061 4.94805 11.4063L5.31171 10.7615ZM12 7.25C12.4142 7.25 12.75 7.58579 12.75 8V13C12.75 13.4142 12.4142 13.75 12 13.75C11.5858 13.75 11.25 13.4142 11.25 13V8C11.25 7.58579 11.5858 7.25 12 7.25ZM12 17C12.5523 17 13 16.5523 13 16C13 15.4477 12.5523 15 12 15C11.4477 15 11 15.4477 11 16C11 16.5523 11.4477 17 12 17Z\" fill=\"currentColor\"></path>","checkBold":"<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12ZM16.0303 8.96967C16.3232 9.26256 16.3232 9.73744 16.0303 10.0303L11.0303 15.0303C10.7374 15.3232 10.2626 15.3232 9.96967 15.0303L7.96967 13.0303C7.67678 12.7374 7.67678 12.2626 7.96967 11.9697C8.26256 11.6768 8.73744 11.6768 9.03033 11.9697L10.5 13.4393L12.7348 11.2045L14.9697 8.96967C15.2626 8.67678 15.7374 8.67678 16.0303 8.96967Z\" fill=\"currentColor\"></path>","play-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M15.4137 10.941C16.1954 11.4026 16.1954 12.5974 15.4137 13.059L10.6935 15.8458C9.93371 16.2944 9 15.7105 9 14.7868L9 9.21316C9 8.28947 9.93371 7.70561 10.6935 8.15419L15.4137 10.941Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path>","minus-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M15 12H9\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","menu-dots-circle":"<path d=\"M8 12H8.00901M12.0045 12H12.0135M15.991 12H16\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path><circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle>","close-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M14.5 9.50002L9.5 14.5M9.49998 9.5L14.5 14.5\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path>","danger-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M12 7V13\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><circle cx=\"12\" cy=\"16\" r=\"1\" fill=\"currentColor\"></circle>","soundwave-circle":"<path d=\"M12 7L12 17\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M17 10L17 14\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M7 9L7 15\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\"></path><path d=\"M2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12Z\" stroke=\"currentColor\" stroke-width=\"1.5\"></path>","check-circle":"<circle cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"1.5\"></circle><path d=\"M8.5 12.5L10.5 14.5L15.5 9.5\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path>"};
+const svg = (name, size = 24, extra = '') =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" aria-hidden="true" ${extra}>${ICONS[name]}</svg>`;
+document.querySelectorAll('[data-icon]').forEach((el) => { el.innerHTML = svg(el.dataset.icon) });
+
+const NAV = [
+  ['persona', 'Persona'], ['behavior', 'Behavior'], ['messages', 'Command replies'], ['channels', 'Channels'],
+  ['access', 'Access'], ['knowledge', 'Knowledge'], ['members', 'Members'], ['extensions', 'Extensions'],
+  ['keys', 'API keys'], ['usage', 'Usage'],
+];
+document.getElementById('nav').innerHTML =
+  NAV.map(([ic, label]) => `<a class="nav-item${ic === 'usage' ? ' active' : ''}" href="#"${ic === 'usage' ? ' aria-current="page"' : ''}>
+    <span class="ic">${svg(ic === 'usage' ? 'usageBold' : ic)}</span>${label}</a>`).join('') +
+  `<div class="nav-rule"></div><a class="nav-item" href="#"><span class="ic">${svg('docs')}</span>Docs</a>`;
+
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// The console's Badge: the glyph's SVG is the pill's round end, the 24-unit icon in a 44-unit view.
+function badge(tone, icon, text, { busy = false, num = '' } = {}) {
+  const inner = busy
+    ? `<circle class="ring-track" cx="12" cy="12" r="10"/><g class="ring-arc"><circle cx="12" cy="12" r="10"/></g>`
+    : `<circle class="badge-disc" cx="12" cy="12" r="10"/>${ICONS[icon]}`;
+  return `<span class="badge ${tone}"><svg class="badge-ic" viewBox="-10 -10 44 44" fill="none" aria-hidden="true">${inner}</svg>${esc(text)}${num ? `<span class="num">${esc(num)}</span>` : ''}</span>`;
+}
+function renderFoot(R) {
+  const [tone, icon, word, glow] = S.stale ? ['neutral', 'minus-circle', 'Unknown', '']
+    : R.left === 0 ? ['warning', 'danger-circle', 'Rate-limited', 'var(--warn)']
+    : ['success', 'play-circle', 'Online', 'var(--ok)'];
+  $('foot-badge').innerHTML = badge(tone, icon, word);
+  const sheet = document.querySelector('.foot-sheet');
+  sheet.style.setProperty('--glow', glow || 'transparent');
+  sheet.classList.toggle('breathe', R.left === 0 && !S.stale);
+  document.querySelector('.bot-switch .sub').textContent = word;
+}
+
+// ── Time: Google's day runs midnight to midnight Pacific ────────────────────
+// Everything here is shown in the viewer's own zone; only the day boundary is Pacific.
+const PT = 'America/Los_Angeles';
+function ptParts(ms) {
+  const p = new Intl.DateTimeFormat('en-US', { timeZone: PT, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric' }).formatToParts(new Date(ms));
+  const g = (t) => +p.find((x) => x.type === t).value;
+  return { y: g('year'), mo: g('month') - 1, d: g('day'), h: g('hour'), mi: g('minute'), s: g('second') };
+}
+function ptWall(y, mo, d, h, mi) {
+  const guess = Date.UTC(y, mo, d, h, mi);
+  const p = ptParts(guess);
+  const off = Date.UTC(p.y, p.mo, p.d, p.h, p.mi, p.s) - guess;
+  return guess - off;
+}
+const REAL0 = Date.now();
+const TODAY_PT = ptParts(REAL0);
+const at = (hhmm, dayOffset = 0) => { const [h, m] = hhmm.split(':').map(Number); return ptWall(TODAY_PT.y, TODAY_PT.mo, TODAY_PT.d + dayOffset, h, m) };
+const DAY_START = at('00:00');
+const RESET = at('00:00', 1);
+const clock = (ms) => {
+  const s = new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return s === '12:00 AM' ? 'midnight' : s;
+};
+const span = (ms) => {
+  const m = Math.max(0, Math.round(ms / 60000));
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+};
+const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` };
+const n = (v) => Math.round(v).toLocaleString('en-US');
+const compact = (v) => (v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e4 ? Math.round(v / 1e3) + 'k' : n(v));
+
+// ── The fixture ─────────────────────────────────────────────────────────────
+// The chat chain from olisar/gemini/models.py, in order. The per-day caps are placeholders:
+// Google doesn't publish free-tier RPD in its docs any more (AI Studio shows the project's own),
+// so see the README for where the real numbers would come from.
+const CHAIN = [
+  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', rpd: 250 },
+  { id: 'gemini-flash-latest', name: 'Gemini Flash (latest)', rpd: 250 },
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash', rpd: 250 },
+  { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', rpd: 250 },
+  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash-Lite', rpd: 1000 },
+  { id: 'gemini-flash-lite-latest', name: 'Gemini Flash-Lite (latest)', rpd: 1000 },
+  { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash-Lite', rpd: 1000 },
+];
+const LITE = 4; // DEFAULT_LITE_MODEL: summaries, impressions and the glossary start here.
+
+// Fixed hue per feature, in the order that passes the CVD check as neighbors on the ring.
+const FEATURES = [
+  { key: 'conversation', label: 'Replies' },
+  { key: 'summary', label: 'Summaries' },
+  { key: 'persona', label: 'Impressions' },
+  { key: 'glossary', label: 'Glossary' },
+  { key: 'vision', label: 'Image descriptions' },
+  { key: 'other', label: 'Everything else' },
+];
+const OTHER = [
+  ['proactivity', 'Chiming in'], ['grounding', 'Web search'], ['catchup', 'Catch-up'],
+  ['extension', 'Extensions'], ['canary', 'Health checks'], ['status', 'Status'],
+];
+const SPLIT_TODAY = { conversation: 452, summary: 196, persona: 141, glossary: 88, vision: 74,
+  proactivity: 58, grounding: 45, catchup: 21, extension: 16, canary: 14, status: 9 };
+const SPLIT_7 = { conversation: 9820, summary: 4310, persona: 3050, glossary: 1920, vision: 1480,
+  proactivity: 1310, grounding: 1020, catchup: 480, extension: 350, canary: 98, status: 64 };
+const SPLIT_30 = { conversation: 41200, summary: 17650, persona: 13020, glossary: 7480, vision: 6310,
+  proactivity: 5920, grounding: 4390, catchup: 2210, extension: 1640, canary: 420, status: 270 };
+const PAST = [2610, 2980, 3120, 2840, 3390, 3710, 2950, 3060, 3240, 4000, 3380, 3150, 3290]; // 13 days before today
+
+const SCENES = {
+  fresh: {
+    label: 'Just reset', time: '00:42',
+    used: [38, 0, 0, 0, 21, 0, 3], embed: 14, web: 2,
+    peak: { v: 4, cap: 10, model: 'Gemini 3.5 Flash', at: '00:31' },
+  },
+  afternoon: {
+    label: 'Afternoon', time: '15:48',
+    used: [250, 231, 131, 12, 468, 0, 22], embed: 388, web: 45,
+    out: { 0: '11:52', 1: '14:14' }, early: [1],
+    peak: { v: 9, cap: 10, model: 'Gemini 3.5 Flash', at: '11:40' },
+  },
+  resting: {
+    label: 'Busy minute', time: '12:20',
+    used: [212, 9, 0, 0, 301, 0, 10], embed: 290, web: 31,
+    resting: { 0: 48 },
+    peak: { v: 10, cap: 10, model: 'Gemini 3.5 Flash', at: '12:19' },
+  },
+  low: {
+    label: 'Running low', time: '19:05',
+    used: [250, 250, 250, 250, 1000, 862, 610], embed: 802, web: 311,
+    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48' },
+    peak: { v: 15, cap: 15, model: 'Gemini 3.1 Flash-Lite', at: '17:41' },
+  },
+  out: {
+    label: 'All used up', time: '21:50',
+    used: [250, 250, 250, 250, 1000, 1000, 1000], embed: 941, web: 402,
+    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48', 5: '20:06', 6: '21:31' },
+    peak: { v: 15, cap: 15, model: 'Gemini 2.5 Flash-Lite', at: '21:12' },
+    ranOutToday: '21:31',
+  },
+  stale: {
+    label: 'Not responding', time: '15:48', stale: true,
+    used: [250, 231, 131, 12, 468, 0, 22], embed: 388, web: 45,
+    out: { 0: '11:52', 1: '14:14' }, early: [1],
+    peak: { v: 9, cap: 10, model: 'Gemini 3.5 Flash', at: '11:40' },
+  },
+};
+
+let S; // the live state for the scene on screen
+function load(key) {
+  const sc = SCENES[key];
+  const t = at(sc.time);
+  S = {
+    key, sc, t0: t, real0: Date.now(), stale: !!sc.stale,
+    chain: CHAIN.map((m, i) => ({
+      ...m, i, used: sc.used[i],
+      outAt: sc.out && sc.out[i] ? at(sc.out[i]) : null,
+      early: !!(sc.early && sc.early.includes(i)),
+      restUntil: sc.resting && sc.resting[i] ? t + sc.resting[i] * 1000 : null,
+    })),
+    embed: { used: sc.embed, rpd: 1000 },
+    web: { used: sc.web, rpd: 500 },
+  };
+  const total = S.chain.reduce((s, m) => s + m.used, 0);
+  const base = Object.values(SPLIT_TODAY).reduce((a, b) => a + b, 0);
+  // Today's split scales with the scene, and rounding drift lands on Replies so it sums exactly.
+  S.today = Object.fromEntries(Object.entries(SPLIT_TODAY).map(([k, v]) => [k, Math.round((v * total) / base)]));
+  S.today.conversation += total - Object.values(S.today).reduce((a, b) => a + b, 0);
+  S.tokensPer = 1420;
+  S.ydayRatio = { req: 0.918, tok: 1.04 };
+}
+const now = () => S.t0 + (Date.now() - S.real0);
+
+// ── Derived readings ────────────────────────────────────────────────────────
+function stateOf(m, t) {
+  if (m.outAt || m.used >= m.rpd) return 'out';
+  if (m.restUntil && t < m.restUntil) return 'resting';
+  return 'ok';
+}
+function reading() {
+  const t = now();
+  const chain = S.chain.map((m) => ({ ...m, state: stateOf(m, t) }));
+  const cur = chain.find((m) => m.state === 'ok') || null;
+  const capTotal = chain.reduce((s, m) => s + m.rpd, 0);
+  const usedTotal = chain.reduce((s, m) => s + m.used, 0);
+  const left = chain.reduce((s, m) => s + (m.state === 'out' ? 0 : m.rpd - m.used), 0);
+  // Today's pace: everything counted since Google's day began, spread over the hours so far.
+  const hrs = Math.max(0.25, (t - DAY_START) / 3.6e6);
+  const perHr = usedTotal / hrs;
+  const toReset = RESET - t;
+  const need = perHr * (toReset / 3.6e6);
+  const runsOutAt = perHr > 0 && need > left ? t + (left / perHr) * 3.6e6 : null;
+  return { t, chain, cur, capTotal, usedTotal, left, perHr, toReset, runsOutAt };
+}
+
+// ── 1 + 2 ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+function renderNow(R) {
+  const tone = R.left === 0 ? 'danger' : R.runsOutAt ? 'warn' : 'ok';
+  $('now').classList.toggle('stale', S.stale);
+  $('hero-num').textContent = n(R.left);
+  $('hero-num').classList.toggle('zero', R.left === 0);
+  $('hero-sub').innerHTML = `of <b>${n(R.capTotal)}</b> requests · resets at ${clock(RESET)}, in ${span(R.toReset)}`;
+
+  $('live-badge').innerHTML = S.stale
+    ? badge('warning', 'danger-circle', 'Not responding')
+    : badge('success', 'soundwave-circle', 'Live');
+  $('stale-callout').innerHTML = S.stale
+    ? `<div class="callout warning"><span class="ic">${svg('warnBold')}</span><div>Can’t reach the bot. These are the last figures it reported, not the current ones.</div></div>`
+    : '';
+
+  const cur = R.cur;
+  if (cur) {
+    $('cur-name').textContent = cur.name;
+    $('cur-name').classList.remove('none');
+    $('cur-id').textContent = cur.id;
+  } else {
+    $('cur-name').textContent = 'No model left';
+    $('cur-name').classList.add('none');
+    $('cur-id').textContent = '';
+  }
+
+  const pace = $('pace');
+  pace.className = 'pace ' + tone;
+  if (R.left === 0) {
+    pace.innerHTML = `${svg('warnBold')}<span>Olisar can’t reply until the limits reset at ${clock(RESET)}.</span>`;
+  } else if (R.runsOutAt) {
+    pace.innerHTML = `${svg('warnBold')}<span>At today’s pace, this runs out around ${clock(R.runsOutAt)}, ${span(RESET - R.runsOutAt)} before the reset.</span>`;
+  } else {
+    pace.innerHTML = `${svg('checkBold')}<span>At today’s pace, this lasts until the reset.</span>`;
+  }
+
+  const side = (label, q) => {
+    const l = q.rpd - q.used;
+    return `<div class="side"><span>${label}</span><span class="mini" style="--used:${(q.used / q.rpd) * 100}%"><i></i></span>` +
+      `<span class="v">${n(l)} <s>left of ${n(q.rpd)}</s></span></div>`;
+  };
+  $('side-limits').innerHTML = side('Memory search', S.embed) + side('Web search', S.web);
+}
+
+// ── The chain table ─────────────────────────────────────────────────────────
+function statusOf(m, R) {
+  if (m.state === 'out') {
+    return badge('danger', 'minus-circle', 'Used up') + (m.outAt ? `<span class="when">at ${clock(m.outAt)}</span>` : '');
+  }
+  if (m.state === 'resting') {
+    return badge('info', '', 'Back in', { busy: true, num: mmss(m.restUntil - R.t) });
+  }
+  if (R.cur && R.cur.i === m.i) return badge('success', 'play-circle', 'Replying');
+  return badge('neutral', 'menu-dots-circle', 'Standby');
+}
+function renderChain(R) {
+  const tbody = $('chain').tBodies[0];
+  $('chain').classList.toggle('stale', S.stale);
+  tbody.innerHTML = R.chain.map((m) => {
+    const isCur = R.cur && R.cur.i === m.i;
+    const left = m.state === 'out' ? 0 : m.rpd - m.used;
+    return `<tr data-i="${m.i}" class="${isCur ? 'cur' : ''}${m.state === 'out' ? ' gone' : ''}">
+      <th scope="row" class="c-rank">${m.i + 1}</th>
+      <td><span class="m-name">${esc(m.name)}</span><span class="m-id">${esc(m.id)}</span><div class="m-status">${statusOf(m, R)}</div></td>
+      <td class="c-status"><div class="st">${statusOf(m, R)}</div></td>
+      <td class="c-today"><div class="today"><span class="mini${m.state === 'out' ? ' out' : ''}" style="--used:${Math.min(100, (m.used / m.rpd) * 100)}%"><i></i>${m.early && m.state === 'out' ? '<b class="seg-lost"></b>' : ''}</span>
+        <span class="v"><span class="left-v">${n(left)}</span><s> / ${n(m.rpd)}</s></span></div></td>
+    </tr>`;
+  }).join('');
+  hlRow(hlIndex);
+}
+
+let hlIndex = -1;
+function hlRow(i) {
+  hlIndex = i;
+  [...$('chain').tBodies[0].rows].forEach((r, k) => r.classList.toggle('hl', k === i));
+}
+$('chain').addEventListener('pointerover', (e) => { const tr = e.target.closest('tbody tr'); if (tr) hlRow(+tr.dataset.i) });
+$('chain').addEventListener('pointerleave', () => hlRow(-1));
+
+const tip = $('ctip');
+function showTip(e, html) {
+  tip.innerHTML = html;
+  tip.classList.add('on');
+  const Z = parseFloat(getComputedStyle(document.documentElement).zoom) || 1;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX / Z + 14, y = e.clientY / Z - h - 12;
+  if (x + w > window.innerWidth / Z - 8) x = e.clientX / Z - w - 14;
+  if (y < 8) y = e.clientY / Z + 18;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+}
+const hideTip = () => tip.classList.remove('on');
+
+// ── 3 · By feature ──────────────────────────────────────────────────────────
+let range = 'today';
+const RANGES = [['today', 'Today'], ['7', '7 days'], ['30', '30 days']];
+function segmented(el, opts, value, onPick) {
+  el.innerHTML = opts.map(([v, l]) => `<button type="button" role="radio" data-v="${v}" aria-checked="${v === value}" tabindex="${v === value ? 0 : -1}">${l}</button>`).join('');
+  el.onclick = (e) => { const b = e.target.closest('button'); if (b) onPick(b.dataset.v) };
+  el.onkeydown = (e) => {
+    const step = /^Arrow(Right|Down)$/.test(e.key) ? 1 : /^Arrow(Left|Up)$/.test(e.key) ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    const i = opts.findIndex(([v]) => v === value);
+    const next = opts[(i + step + opts.length) % opts.length][0];
+    onPick(next);
+    el.querySelector(`[data-v="${next}"]`).focus();
+  };
+}
+function renderRange() {
+  segmented($('range'), RANGES, range, (v) => { range = v; renderRange(); renderFeatures() });
+}
+function featureData() {
+  const src = range === 'today' ? S.today : range === '7' ? SPLIT_7 : SPLIT_30;
+  const rows = FEATURES.map((f, i) => {
+    if (f.key === 'other') {
+      const parts = OTHER.map(([k, l]) => ({ label: l, value: src[k] || 0 })).sort((a, b) => b.value - a.value);
+      return { ...f, i, value: parts.reduce((s, p) => s + p.value, 0), parts };
+    }
+    return { ...f, i, value: src[f.key] || 0 };
+  });
+  return { rows, total: rows.reduce((s, r) => s + r.value, 0) };
+}
+let donutHl = -1;
+function renderFeatures() {
+  const { rows, total } = featureData();
+  const size = 184, c = size / 2, r = 74, sw = 16, gap = 5;
+  const C = 2 * Math.PI * r;
+  const drawable = C - rows.length * gap;
+  let cursor = 0;
+  const arcs = rows.map((row) => {
+    const len = Math.max(sw * 0.2, (row.value / (total || 1)) * drawable);
+    const a = { row, start: cursor, len };
+    cursor += len + gap;
+    return a;
+  });
+  const focus = donutHl >= 0 ? rows[donutHl] : null;
+  const scope = range === 'today' ? 'today' : `last ${range} days`;
+  const donut = $('donut');
+  donut.setAttribute('aria-label', `Requests by feature, ${scope}: ` + rows.map((x) => `${x.label} ${Math.round((x.value / total) * 100)}%`).join(', '));
+  donut.classList.toggle('hover', donutHl >= 0);
+  donut.innerHTML = `<circle class="donut-track" cx="${c}" cy="${c}" r="${r}" stroke-width="${sw}"/>` +
+    arcs.map((a) => {
+      const dash = Math.max(0.5, a.len);
+      const rot = (a.start / C) * 360 - 90;
+      return `<circle class="donut-seg c${a.row.i}${a.row.i === donutHl ? ' hl' : ''}" data-i="${a.row.i}" cx="${c}" cy="${c}" r="${r}"
+        stroke-width="${a.row.i === donutHl ? sw + 4 : sw}" stroke-dasharray="${dash} ${C - dash}" transform="rotate(${rot} ${c} ${c})"/>`;
+    }).join('') +
+    `<text class="donut-total" x="${c}" y="${c + 4}" text-anchor="middle">${n(focus ? focus.value : total)}</text>` +
+    `<text class="donut-sub" x="${c}" y="${c + 24}" text-anchor="middle">${focus ? esc(focus.label) : 'Requests'}</text>`;
+
+  const max = Math.max(...rows.map((x) => x.value), 1);
+  $('legend').innerHTML = rows.map((row) => {
+    const pct = total ? Math.round((row.value / total) * 100) : 0;
+    const main = `<div class="lg c${row.i}${row.i === donutHl ? ' hl' : ''}" data-i="${row.i}">
+      <span class="sw"></span><span class="nm">${esc(row.label)}</span>
+      <span class="bar" style="transform:scaleX(${row.value / max})"></span>
+      <span class="val">${n(row.value)}</span><span class="pc">${pct}%</span></div>`;
+    const subs = row.parts
+      ? `<div class="lg-parts" data-i="${row.i}">${row.parts.filter((p) => p.value > 0).map((p) => `${esc(p.label)} <span class="mono">${n(p.value)}</span>`).join('<span class="sep">·</span>')}</div>`
+      : '';
+    return main + subs;
+  }).join('');
+}
+function setDonutHl(i) { if (i !== donutHl) { donutHl = i; renderFeatures() } }
+$('donut').addEventListener('pointermove', (e) => { const s = e.target.closest('.donut-seg'); setDonutHl(s ? +s.dataset.i : -1) });
+$('donut').addEventListener('pointerleave', () => setDonutHl(-1));
+$('legend').addEventListener('pointermove', (e) => { const l = e.target.closest('[data-i]'); setDonutHl(l ? +l.dataset.i : -1) });
+$('legend').addEventListener('pointerleave', () => setDonutHl(-1));
+
+// ── 4 · Stats ───────────────────────────────────────────────────────────────
+function renderStats(R) {
+  const req = R.usedTotal;
+  const tok = req * S.tokensPer;
+  const pct = (a, b) => { const p = Math.round(((a - b) / b) * 100); return (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p) + '%' };
+  const pk = S.sc.peak;
+  const ranOut = S.sc.ranOutToday
+    ? { big: 'Today', cap: `at ${clock(at(S.sc.ranOutToday))}` }
+    : { big: '4 days ago', cap: `${new Date(at('21:12', -4)).toLocaleDateString([], { weekday: 'long' })} at ${clock(at('21:12', -4))}` };
+  $('kpis').innerHTML = [
+    ['Requests today', n(req), `${pct(req, req * S.ydayRatio.req)} on this time yesterday`],
+    ['Tokens today', compact(tok), `${pct(tok, tok * S.ydayRatio.tok)} on this time yesterday`],
+    ['Busiest minute', `${pk.v}<s> / ${pk.cap}</s>`, `${esc(pk.model)} at ${clock(at(pk.at))}`],
+    ['Last ran out', ranOut.big, ranOut.cap],
+  ].map(([k, big, cap]) => `<div class="kpi"><div class="eyebrow">${k}</div><div class="big">${big}</div><div class="cap">${cap}</div></div>`).join('');
+  renderDays(R);
+}
+
+let daysW = 0;
+function renderDays(R) {
+  const box = $('days-box');
+  const W = daysW || box.clientWidth || 900;
+  const H = 150, x0 = 38, x1 = W - 4, y0 = H - 22, y1 = 14;
+  const values = [...PAST, R.usedTotal];
+  const limit = R.capTotal;
+  const yMax = Math.max(limit * 1.08, ...values);
+  const yAt = (v) => y0 - (v / yMax) * (y0 - y1);
+  const slot = (x1 - x0) / values.length;
+  const bw = Math.min(24, slot * 0.56);
+  const dayMs = (k) => at('12:00', k - (values.length - 1));
+  const label = (k) => (k === values.length - 1 ? 'Today' : new Date(dayMs(k)).toLocaleDateString([], { month: 'short', day: 'numeric' }));
+  const ranOut = (k) => k === values.length - 1 ? !!S.sc.ranOutToday : values[k] >= limit;
+  const cols = values.map((v, k) => {
+    const cx = x0 + slot * (k + 0.5);
+    const top = yAt(v), h = Math.max(0, y0 - top);
+    const rr = Math.min(4, h);
+    const today = k === values.length - 1;
+    const cls = today ? 'today' : ranOut(k) ? 'ranout' : '';
+    // 4px rounded data-end, square at the baseline.
+    const d = h > 0 ? `M${cx - bw / 2} ${y0} V${top + rr} Q${cx - bw / 2} ${top} ${cx - bw / 2 + rr} ${top} H${cx + bw / 2 - rr} Q${cx + bw / 2} ${top} ${cx + bw / 2} ${top + rr} V${y0} Z` : '';
+    const stride = Math.max(1, Math.ceil(56 / slot));
+    const showLabel = today || ((values.length - 1 - k) % stride === 0 && (values.length - 1 - k) >= Math.max(1, Math.ceil(44 / slot)));
+    return `<g class="col" data-k="${k}">
+      <rect class="hit" x="${x0 + slot * k}" y="${y1}" width="${slot}" height="${y0 - y1 + 18}"/>
+      <path class="bar ${cls}" d="${d}"/>
+      ${today ? `<text class="tag" x="${Math.min(cx, x1 - 20)}" y="${top - 7}" text-anchor="middle">${n(v)}</text>` : ''}
+      ${showLabel ? `<text class="axis${today ? ' on' : ''}" x="${today ? Math.min(cx, x1 - 18) : cx}" y="${y0 + 16}" text-anchor="middle">${label(k)}</text>` : ''}
+    </g>`;
+  }).join('');
+  const ticks = [2000, 4000].filter((v) => v < yMax && Math.abs(yAt(v) - yAt(limit)) > 12);
+  box.innerHTML = `<svg class="days-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Requests per day over the last 14 days, against the daily limit of ${n(limit)}. Today so far ${n(R.usedTotal)}.">
+    ${ticks.map((v) => `<line class="grid" x1="${x0}" x2="${x1}" y1="${yAt(v)}" y2="${yAt(v)}"/><text class="axis" x="${x0 - 8}" y="${yAt(v) + 4}" text-anchor="end">${v / 1000}k</text>`).join('')}
+    <line class="grid" x1="${x0}" x2="${x1}" y1="${y0}" y2="${y0}"/>
+    <text class="axis" x="${x0 - 8}" y="${y0 + 4}" text-anchor="end">0</text>
+    <line class="limit" x1="${x0}" x2="${x1}" y1="${yAt(limit)}" y2="${yAt(limit)}" stroke-dasharray="5 4"/>
+    <text class="limit-txt" x="${x0 - 8}" y="${yAt(limit) + 4}" text-anchor="end">${compact(limit).replace(/,000$/, 'k')}</text>
+    ${cols}
+  </svg>`;
+  box.dataset.values = JSON.stringify(values);
+  $('days-table').innerHTML = `<table><caption>Requests per day, last 14 days. Daily limit ${n(limit)}.</caption>
+    <thead><tr><th scope="col">Day</th><th scope="col">Requests</th></tr></thead><tbody>` +
+    values.map((v, k) => `<tr><th scope="row">${label(k)}</th><td>${n(v)}${ranOut(k) ? ' (ran out)' : ''}</td></tr>`).join('') + `</tbody></table>`;
+  box.onpointermove = (e) => {
+    const col = e.target.closest('.col');
+    box.querySelectorAll('.col').forEach((g) => g.classList.toggle('hl', g === col));
+    if (!col) return hideTip();
+    const k = +col.dataset.k, v = values[k], today = k === values.length - 1;
+    const day = new Date(dayMs(k)).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+    showTip(e, `<b>${n(v)}${today ? ' so far' : ''}</b><span>${today ? 'Today' : day}${ranOut(k) ? ' · ran out' : ''}</span>`);
+  };
+  box.onpointerleave = () => { box.querySelectorAll('.col').forEach((g) => g.classList.remove('hl')); hideTip() };
+}
+new ResizeObserver(([e]) => {
+  const w = Math.round(e.contentRect.width);
+  if (w > 0 && w !== daysW) { daysW = w; if (S) renderDays(reading()) }
+}).observe($('days-box'));
+
+// ── Live: a request every few seconds, as the bot would make them ───────────
+function renderAll() {
+  const R = reading();
+  renderFoot(R);
+  renderNow(R);
+  renderChain(R);
+  renderFeatures();
+  renderStats(R);
+}
+function tick() {
+  if (!S.stale) {
+    const R = reading();
+    const serve = (feature, from) => {
+      const m = S.chain.slice(from).find((x) => stateOf(x, R.t) === 'ok');
+      if (!m) return;
+      m.used += 1;
+      if (m.used >= m.rpd && !m.outAt) m.outAt = now();
+      S.today[feature] = (S.today[feature] || 0) + 1;
+    };
+    const roll = Math.random();
+    if (roll < 0.62) serve('conversation', 0);
+    else if (roll < 0.8) serve('summary', LITE);
+    else if (roll < 0.9) serve('persona', LITE);
+    else serve('vision', LITE);
+    if (Math.random() < 0.4 && S.embed.used < S.embed.rpd) S.embed.used += 1;
+    renderAll();
+  }
+  clearTimeout(S.timer);
+  S.timer = setTimeout(tick, 2600 + Math.random() * 2800);
+}
+// Countdowns (a model resting, the reset) move every second without waiting for a request.
+setInterval(() => {
+  if (!S) return;
+  const R = reading();
+  const wasResting = S.chain.some((m) => m.restUntil && m.restUntil > R.t - 1000 && m.restUntil <= R.t);
+  if (wasResting) return renderAll();
+  S.chain.forEach((m) => {
+    if (m.restUntil && m.restUntil > R.t) {
+      $('chain').tBodies[0].rows[m.i].querySelectorAll('.badge .num').forEach((num) => { num.textContent = mmss(m.restUntil - R.t) });
+    }
+  });
+  $('hero-sub').innerHTML = `of <b>${n(R.capTotal)}</b> requests · resets at ${clock(RESET)}, in ${span(R.toReset)}`;
+}, 1000);
+
+function show(key) {
+  if (S) clearTimeout(S.timer);
+  load(key);
+  if ($('scenes')) segmented($('scenes'), Object.entries(SCENES).map(([k, v]) => [k, v.label]), key, (k) => {
+    show(k);
+    const u = new URL(location.href); u.searchParams.set('state', k); history.replaceState(null, '', u);
+  });
+  renderAll();
+  S.timer = setTimeout(tick, 2600);
+}
+renderRange();
+const params = new URLSearchParams(location.search);
+if (params.has('clean')) document.querySelector('.preview').remove();
+const first = params.get('state');
+show(SCENES[first] ? first : 'afternoon');
+</script>
+</body>
+</html>
