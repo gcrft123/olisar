@@ -39,7 +39,7 @@ from olisar import runtime_config, updates
 from olisar.db.engine import session_scope
 from olisar.db.models import AppConfig
 from olisar.updates import UNKNOWN_VERSION, current_version
-from olisar.versioning import display, is_newer, same_version
+from olisar.versioning import display, is_newer, parse, same_version
 
 log = logging.getLogger("olisar.remote")
 
@@ -959,7 +959,7 @@ async def _target() -> str | None:
     """The release the VM should run: the newest on this app's update channel, so a beta
     tester's server gets the betas too. The VM's script can find a release by itself, but
     only GitHub's latest, which is always stable. ``None`` when GitHub couldn't be asked or
-    has nothing on the channel."""
+    has nothing on the channel, and then the script isn't run at all (see ``hold``)."""
     try:
         rel = await updates.newest_release()
     except Exception as exc:  # noqa: BLE001 — the caller decides what "unknown" means
@@ -970,19 +970,21 @@ async def _target() -> str | None:
 
 def hold(*, target: str | None, server: str, channel: str) -> dict | None:
     """Why the VM's update script must not run, as the result it would have reported, or
-    ``None`` to run it. The script pins whatever release it's handed, so both of these
-    would move a server backwards:
+    ``None`` to run it with ``--tag target``. Both of these would move a server backwards or
+    off the app's channel:
 
-    - a beta app that couldn't resolve its release: with no ``--tag`` the script falls back
-      to GitHub's latest release, which is stable
+    - no target (GitHub couldn't be asked, or has nothing on the channel): with no ``--tag``
+      the script falls back to GitHub's latest release, which is stable and may be older
+      than the server. ``no-release`` is undecided (see ``decided``), so the next launch
+      tries again.
     - a server already past the target, which is where switching from beta to stable
-      leaves it until the next stable release overtakes the beta it's on
+      leaves it until the next stable release overtakes the beta it's on. Only a server
+      version that reads as a release counts: an odd image label mustn't pin a VM forever.
     """
     if not target:
-        if channel == "beta":
-            return {"ok": False, "status": "no-release", "message": "couldn't find the newest beta on GitHub"}
-        return None
-    if server and is_newer(server, target):
+        name = "beta" if channel == "beta" else "release"
+        return {"ok": False, "status": "no-release", "message": f"couldn't find the newest {name} on GitHub"}
+    if server and parse(server) and is_newer(server, target):
         return {
             "ok": True,
             "status": "server-ahead",
@@ -1006,11 +1008,11 @@ async def _apply_update(conn, host: str, app_dir: str, server_version: str) -> d
         # Always this build's script: one an older client left behind may predate the lock
         # that keeps two bots on the same VM from updating at once.
         await _install_managed(conn, app_dir)
-        pin = f" --tag {shlex.quote(tag)}" if tag else ""
         # Long enough to wait out another bot's update on the same VM (the script serialises
         # them) and then run this one.
         r = await asyncio.wait_for(
-            conn.run(f"bash ~/{app_dir}/{UPDATE_SCRIPT}{pin}", check=False), timeout=2400
+            conn.run(f"bash ~/{app_dir}/{UPDATE_SCRIPT} --tag {shlex.quote(tag)}", check=False),
+            timeout=2400,
         )
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         script_ok = r.exit_status == 0
