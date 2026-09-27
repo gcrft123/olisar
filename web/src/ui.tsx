@@ -467,6 +467,19 @@ export function Segmented<T extends string | number>(props: {
   )
 }
 
+/** A timestamp from the backend, as a Date. Most of the API writes a stored UTC time with
+ *  `.isoformat()`, which leaves off the offset, and `new Date()` reads an offset-less date and
+ *  time as *local*: every one of those times was off by the viewer's UTC offset, so a change
+ *  made at 11:32 PM in Chicago listed as 4:32 AM. Read those as UTC. A string that carries its
+ *  own offset or Z (Usage's, the server panel's) and a bare date are read as written. */
+export function serverDate(s: string | null | undefined): Date {
+  if (!s) return new Date(NaN)
+  const t = s.trim()
+  const hasTime = /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(t)
+  const hasZone = /(?:[zZ]|[+-]\d\d:?\d\d)$/.test(t)
+  return new Date(hasTime && !hasZone ? t.replace(' ', 'T') + 'Z' : t)
+}
+
 // A save button with status feedback, given an async save function.
 export function useSaver(save: () => Promise<void>) {
   const [busy, setBusy] = useState(false)

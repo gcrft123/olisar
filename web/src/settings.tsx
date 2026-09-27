@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { botName } from './botname'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds, usePoll } from './ui'
+import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, serverDate, useDraft, useFieldIds, usePoll } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { BotMenu, BotsPane, useBots } from './bots'
@@ -270,7 +270,7 @@ function reportDraft(r: { prompt?: string; when?: string; server?: string; chann
   // Same shape the Activity ledger uses: no seconds, no year. This is "which reply",
   // not a timestamp anyone reads back digit by digit.
   const when = r.when
-    ? new Date(r.when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? serverDate(r.when).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
     : ''
   const where = [place, when && `on ${when}`].filter(Boolean).join(' ')
   return [
@@ -655,7 +655,7 @@ function Security({ canEdit }: { canEdit: boolean }) {
               <div className="status-line">{isSet ? 'PIN set' : 'No PIN set'}</div>
               {isSet && (
                 <span className="settings-muted">
-                  {`Last changed ${data.updated_at ? new Date(data.updated_at).toLocaleString() : 'recently'}`}
+                  {`Last changed ${data.updated_at ? serverDate(data.updated_at).toLocaleString() : 'recently'}`}
                 </span>
               )}
             </div>
@@ -781,7 +781,7 @@ function Remote() {
                   ? <Badge icon="user-circle">Operator</Badge>
                   : <Badge icon="user-circle">Admin</Badge>}
                 <span className="umeta">{u.guild_count} server{u.guild_count === 1 ? '' : 's'}</span>
-                <span className="umeta">{u.last_login ? new Date(u.last_login).toLocaleString() : 'never'}</span>
+                <span className="umeta">{u.last_login ? serverDate(u.last_login).toLocaleString() : 'never'}</span>
               </div>
             ))}
           </div>
