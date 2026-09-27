@@ -128,6 +128,9 @@ async def seed_defaults() -> None:
     if not guild_id:
         print("⚠  TARGET_GUILD_ID is unset; the bot seeds each guild it joins on startup.")
         return
+    # Runs before the bot has connected, so it can't know what the bot is called: the
+    # persona starts as Olisar, and the bot's first visit renames it if nobody has edited
+    # it by then (olisar/guild_setup.py).
     async with session_scope() as session:
         await ensure_guild_defaults(session, guild_id)
     print(f"✓ seeded defaults for guild {guild_id}")
