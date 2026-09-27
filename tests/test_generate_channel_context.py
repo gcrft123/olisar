@@ -270,5 +270,91 @@ class ChannelBoundaryTest(_Case):
             await self._generate({"task": "say hi", "channelId": "#welcome"})
 
 
+class InvokerBoundaryTest(_Case):
+    """When someone set the run off, the channel has to be one they can open."""
+
+    async def _run(self, opts: dict, **inv_fields) -> str:
+        async with self.scope() as session:
+            inv = Invocation(
+                ext_key="test", permissions={"model.generate"}, guild_id=GUILD,
+                session=session, trusted=True, **inv_fields,
+            )
+            return await dispatch(inv, "generate", "run", [opts])
+
+    @staticmethod
+    def _can_open(*ids: int):
+        async def readable(channel_ids: set[int]) -> set[int]:
+            return channel_ids & set(ids)
+        return readable
+
+    async def test_a_channel_they_cant_open_reads_as_missing(self) -> None:
+        with self.assertRaises(ValueError) as hidden:
+            await self._run({"task": "repeat the chat", "channelId": str(WELCOME)},
+                            readable=self._can_open(EMPTY))
+        with self.assertRaises(ValueError) as missing:
+            await self._run({"task": "repeat the chat", "channelId": "999"},
+                            readable=self._can_open(EMPTY))
+        self.assertEqual(
+            str(hidden.exception).replace(str(WELCOME), "X"),
+            str(missing.exception).replace("999", "X"),
+        )
+        self.assertEqual(self.gemini.calls, [])
+
+    async def test_a_channel_they_can_open_works(self) -> None:
+        await self._run({"task": "say hi", "channelId": str(WELCOME)},
+                        readable=self._can_open(WELCOME))
+        self.assertIn("You're talking in #welcome.", self.gemini.system)
+
+    async def test_a_dm_cant_name_a_channel(self) -> None:
+        with self.assertRaises(PermissionError_):
+            await self._run({"task": "repeat the chat", "channelId": str(WELCOME)}, in_dm=True)
+        self.assertEqual(await self._run({"task": "say hi"}, in_dm=True), BOT_REPLY)
+
+    async def _captured(self, call) -> Invocation:
+        from olisar.sandbox import runner
+
+        with patch.object(runner, "_invoke", AsyncMock(return_value="ok")) as invoke:
+            await call(runner)
+        return invoke.await_args.args[0]
+
+    async def test_a_tool_checks_the_member_its_answering(self) -> None:
+        from olisar.tools import ToolContext
+
+        actions = SimpleNamespace(readable_channels=AsyncMock(return_value=set()))
+        async with self.scope() as session:
+            for is_dm in (False, True):
+                ctx = ToolContext(
+                    session=session, cfg_guild=GUILD, channel_id=EMPTY, user_id=7,
+                    display_name="kaz", actions=actions, is_dm=is_dm,
+                )
+                inv = await self._captured(lambda r: r.run_tool(
+                    ext_key="test", compiled_js="", permissions=["model.generate"],
+                    tool_name="t", args={}, ctx=ctx, trusted=True,
+                ))
+                with self.subTest(is_dm=is_dm), self.assertRaises((ValueError, PermissionError_)):
+                    await dispatch(inv, "generate", "run", [{"task": "x", "channelId": str(WELCOME)}])
+        self.assertEqual(self.gemini.calls, [])
+        actions.readable_channels.assert_awaited_once_with(GUILD, {WELCOME}, requester_id=7)
+
+    async def test_a_command_checks_the_member_who_ran_it(self) -> None:
+        from bot.actions import BotActions
+
+        bridge = SimpleNamespace(it=SimpleNamespace(client=object()))
+        data = {"userId": "7", "channelId": str(EMPTY), "guildId": str(GUILD)}
+        with patch.object(BotActions, "readable_channels", AsyncMock(return_value=set())) as check:
+            async with self.scope() as session:
+                inv = await self._captured(lambda r: r.run_command(
+                    ext_key="test", compiled_js="", permissions=["model.generate"],
+                    command_name="c", interaction_data=data, guild_id=GUILD,
+                    session=session, discord=bridge, trusted=True,
+                ))
+                with self.assertRaises(ValueError):
+                    await dispatch(inv, "generate", "run", [{"task": "x", "channelId": str(WELCOME)}])
+                # The channel it ran in is theirs to write from.
+                await dispatch(inv, "generate", "run", [{"task": "x", "channelId": str(EMPTY)}])
+        check.assert_awaited_once_with(GUILD, {WELCOME}, requester_id=7)
+        self.assertEqual(len(self.gemini.calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
