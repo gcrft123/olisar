@@ -17,7 +17,7 @@ A day is Google's quota day, midnight to midnight Pacific (see olisar.gemini.quo
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
@@ -29,7 +29,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageSource
 from olisar.gemini.client import get_gemini
 from olisar.gemini.models import GROUNDING_RPD, rpd_for, rpm_for
-from olisar.gemini.quota import PACIFIC, aware, day_start, next_reset, quota_day
+from olisar.gemini.quota import aware, day_start, next_reset, quota_day, quota_hour
 from olisar.gemini.rate_limiter import (
     chains_in_use,
     current_key,
@@ -46,6 +46,20 @@ DAYS_SHOWN = 14
 def _iso(value: datetime | None) -> str | None:
     stamped = aware(value)
     return stamped.isoformat() if stamped else None
+
+
+def _hour_spans(day: date) -> dict[int, tuple[datetime, timedelta]]:
+    """When each hour of Google's ``day`` began, in UTC, and how long it really lasted. A
+    wall-clock hour is usually an hour, but 1 AM lasts two the night the clocks go back
+    and 2 AM never happens the night they go forward. Pacific offsets are whole hours, so
+    stepping through the day an hour at a time lands on every local hour boundary."""
+    spans: dict[int, tuple[datetime, timedelta]] = {}
+    t, end = day_start(day), day_start(day + timedelta(days=1))
+    while t < end:
+        start, length = spans.get(quota_hour(t), (t, timedelta(0)))
+        spans[quota_hour(t)] = (start, length + timedelta(hours=1))
+        t += timedelta(hours=1)
+    return spans
 
 
 def _is_chat(model: str) -> bool:
@@ -195,15 +209,17 @@ async def summary(_: AdminUser = Depends(require_admin)):
                 out[s.source] = out.get(s.source, 0) + s.request_count
         return out
 
-    # The same stretch of yesterday: every hour before this one, and this hour's share of
-    # the one it's in.
-    local = now.astimezone(PACIFIC)
-    part = (local.minute * 60 + local.second) / 3600
+    # The same stretch of yesterday: as long since yesterday began as today has been going.
+    # Hours are wall-clock Pacific, so each counts for the real time it lasted; the hour
+    # before this cutoff counts for its share.
+    cutoff = day_start(yesterday) + (now - day_start(today))
+    spans = _hour_spans(yesterday)
     so_far = {"requests": 0.0, "tokens": 0.0}
     for h in hours:
-        if not _is_chat(h.model):
+        if not _is_chat(h.model) or h.hour not in spans:
             continue
-        weight = 1.0 if h.hour < local.hour else part if h.hour == local.hour else 0.0
+        start, length = spans[h.hour]
+        weight = min(max((cutoff - start) / length, 0.0), 1.0)
         so_far["requests"] += h.request_count * weight
         so_far["tokens"] += h.token_count * weight
 
