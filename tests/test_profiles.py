@@ -70,5 +70,59 @@ class ProfilesTests(unittest.TestCase):
         self.assertEqual(engine.current_db_path(), str(self.home / "profiles" / pid / "olisar.db"))
 
 
+class RegistryFileTests(unittest.TestCase):
+    """profiles.json is the only list of an install's bots. A file that can't be read used to
+    be replaced with a fresh one holding the original bot alone, and every other bot dropped
+    off the list (their data still on disk, the console no longer knowing they exist)."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+        os.environ["OLISAR_DATA_DIR"] = str(self.home)
+        self.addCleanup(os.environ.pop, "OLISAR_DATA_DIR", None)
+        os.environ.pop("OLISAR_HOME", None)
+        from olisar.runtime import profiles
+
+        self.profiles = profiles
+        self.second = profiles.create("Second")["id"]
+        profiles.data_dir_for(self.second)  # as its process does when it starts
+        profiles.rename("default", "Main")
+        self.registry = self.home / "profiles.json"
+
+    def names(self) -> list[str]:
+        return [p["name"] for p in self.profiles.list()]
+
+    def test_every_write_keeps_a_copy(self) -> None:
+        self.assertEqual((self.home / "profiles.json.bak").read_text(), self.registry.read_text())
+
+    def test_a_truncated_registry_falls_back_to_its_copy_and_isnt_replaced(self) -> None:
+        self.registry.write_text('{"active": "default", "profi')
+        self.assertEqual(self.names(), ["Main", "Second"])
+        self.assertEqual(self.registry.read_text(), '{"active": "default", "profi')
+        self.profiles.rename(self.second, "Renamed")  # the next change writes it whole again
+        self.assertEqual(self.names(), ["Main", "Renamed"])
+        self.assertIn('"Renamed"', self.registry.read_text())
+
+    def test_with_no_readable_copy_the_bots_on_disk_are_kept(self) -> None:
+        self.registry.write_text("")
+        (self.home / "profiles.json.bak").write_text("{nope")
+        (self.home / "olisar.db").touch()
+        self.assertEqual([p["id"] for p in self.profiles.list()], ["default", self.second])
+        self.assertEqual(self.registry.read_text(), "")  # nothing written over it
+        self.assertTrue((self.home / "profiles.json.unreadable").exists())
+
+    def test_the_file_is_on_disk_before_it_replaces_the_old_one(self) -> None:
+        from unittest import mock
+
+        order: list[str] = []
+        real_fsync, real_replace = os.fsync, os.replace
+        with mock.patch.object(os, "fsync", side_effect=lambda fd: (order.append("fsync"), real_fsync(fd))[1]), \
+                mock.patch.object(os, "replace", side_effect=lambda a, b: (order.append("replace"), real_replace(a, b))[1]):
+            self.profiles.rename(self.second, "Again")
+        self.assertEqual(order[:2], ["fsync", "replace"])
+        self.assertEqual(order.count("replace"), 2)  # the registry, then its copy
+
+
 if __name__ == "__main__":
     unittest.main()
