@@ -374,6 +374,24 @@ function downloadFile(url, dest, onProgress, signal, redirects = 0) {
   })
 }
 
+// What a called-off install throws, and the only error installUpdate reports as a cancel.
+const cancelled = () => Object.assign(new Error('The update was cancelled.'), { name: 'AbortError' })
+
+// The download step, the one the screen's Cancel reaches. Once the last chunk is in, the
+// request is over and aborting it does nothing, so a Cancel pressed at 100% used to be ignored
+// and the install carried on. It's checked here when the download settles instead, and wins
+// over however the download ended: the install stops either way.
+async function download(update, dest, onDownload, signal) {
+  try {
+    await downloadFile(update.downloadUrl, dest, onDownload, signal)
+  } catch (err) {
+    if (!signal.aborted) throw err
+  } finally {
+    abortDownload = null
+  }
+  if (signal.aborted) throw cancelled()
+}
+
 // The detached script that, once this process exits, swaps the new app over the old one
 // and relaunches. Backs up the old bundle and rolls back if the move fails.
 function swapScript({ pid, newApp, target, staging, tmpRoot }) {
@@ -444,7 +462,9 @@ async function installUpdate(update) {
     abortDownload = null
     setProgress(-1)
     try { fs.rmSync(tmpRoot, { recursive: true, force: true }) } catch { /* ignore */ }
-    if (ctrl.signal.aborted) { report(null); return { ok: false, reason: 'cancelled' } }
+    // Only a cancel is a cancel. A step that fails after the download is a failure, even if a
+    // Cancel was pressed along the way.
+    if (err && err.name === 'AbortError') { report(null); return { ok: false, reason: 'cancelled' } }
     step('failed', {
       failedAt: progress ? progress.phase : 'download',
       error: describeFailure(err, progress ? progress.phase : 'download'),
@@ -458,7 +478,6 @@ async function installUpdate(update) {
 // Every bot runs from the backend binary an update replaces, and each takes a moment to sign
 // out of Discord. The window stays up meanwhile, on the screen's "Shut down" step.
 async function shutDown() {
-  abortDownload = null
   step('shutdown')
   setProgress(2)
   await stopBackend()
@@ -469,7 +488,7 @@ async function shutDown() {
 // installer executes from it (the OS reaps temp later).
 async function _applyWindows(update, tmpRoot, onDownload, signal) {
   const installer = path.join(tmpRoot, 'OlisarSetup.exe')
-  await downloadFile(update.downloadUrl, installer, onDownload, signal)
+  await download(update, installer, onDownload, signal)
   // Let every bot go first, or Windows holds the files the installer is replacing open.
   await shutDown()
   spawn(installer, [], { detached: true, stdio: 'ignore' }).unref()
@@ -487,8 +506,7 @@ async function _applyMac(update, tmpRoot, onDownload, signal) {
   const staging = path.join(path.dirname(appPath), `.olisar-update-${Date.now()}`)
   let mounted = false
   try {
-    await downloadFile(update.downloadUrl, dmgPath, onDownload, signal)
-    abortDownload = null
+    await download(update, dmgPath, onDownload, signal)
     step('unpack')
     setProgress(2) // indeterminate while we swap
     fs.mkdirSync(mountPoint, { recursive: true })
