@@ -673,6 +673,19 @@ class ToolPin(Base):
     )
 
 
+class ToolPinFailure(Base):
+    """One wrong tool PIN entry, kept for ``olisar.toolpin.LOCK_WINDOW``. A prompt's own
+    three tries reset with every new prompt, so these are what stop someone asking again
+    for three more. Pruned as new ones land, and cleared when the PIN is changed."""
+
+    __tablename__ = "tool_pin_failure"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, index=True)  # who typed it
+    guild_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class SigningIdentity(Base):
     """This bot's Ed25519 publisher identity, used to sign the ``.olx`` bundles it
     exports. Single row (id=1), created lazily on first export. The private key never
