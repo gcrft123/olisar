@@ -44,7 +44,14 @@ from olisar.db.models import (
 )
 from olisar.guild_setup import ensure_guild_defaults
 from olisar.pipeline import _run_tool_loop
-from olisar.tools import TOOLS, ToolContext, sandbox_tools, tools_with_extensions, with_settings_tools
+from olisar.tools import (
+    TOOLS,
+    ToolContext,
+    execute_tool,
+    sandbox_tools,
+    tools_with_extensions,
+    with_settings_tools,
+)
 
 GUILD = 5001
 OTHER_GUILD = 5002
@@ -246,6 +253,8 @@ class ChangingAKey(_Db):
         for key, value in [
             ("context_message_limit", "0"),
             ("context_message_limit", "12.5"),
+            ("grounding_daily_cap", "1e20"),
+            ("proactivity.global_cooldown_sec", "1000000001"),
             ("proactivity.confidence_threshold", "nan"),
             ("default_model", "gpt-4"),
             ("blocked_mentions", "everyone, admins"),
@@ -286,6 +295,22 @@ class ChangingAKey(_Db):
     async def test_unknown_keys_and_misplaced_edits_are_refused(self):
         self.assertIn("No setting", await self.change("temperature", "2"))
         self.assertIn("only work on text", await self.change("reply_in_dms", "x", find="y"))
+
+    async def test_a_write_that_fails_at_commit_doesnt_take_the_reply_down(self):
+        """A value past the column's range raised at commit and left the session needing a
+        rollback, so the next call (and the reply's own commit) raised too."""
+        async with self.scope() as s:
+            (await s.get(GuildConfig, GUILD)).pin_actions = []
+        with patch.object(self_settings, "_number", return_value=10**20):
+            out = await execute_tool(
+                "change_setting", {"key": "grounding_daily_cap", "value": "5"}, self.ctx
+            )
+        self.assertIn("errored", out)
+        out = await execute_tool(
+            "change_setting", {"key": "grounding_daily_cap", "value": "7"}, self.ctx
+        )
+        self.assertEqual(out, "grounding_daily_cap: 100 → 7.")
+        self.assertEqual((await self.row(GuildConfig)).grounding_daily_cap, 7)
 
 
 class EditingText(_Db):
