@@ -182,6 +182,10 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 ### Changed
 
+[4d31b08] — The first tooltip waits a moment before it shows; after that, moving to another control shows its tooltip at once, gliding over from the last one.
+
+[4d31b08] — The Settings close button's tooltip shows Esc as a key.
+
 [296e0c0] — Settings → General no longer describes the Size control.
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.
@@ -347,6 +351,10 @@ Installing an update from the desktop app changed a button to "Installing…", a
 [5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
 
 ### Fixed
+
+[4d31b08] — A tooltip's arrow is part of its outline. It used to sit a fraction of a pixel off the border, poking through it or stopping short.
+
+[4d31b08] — A tooltip near the edge of the window stays inside it, with its arrow still on the control.
 
 [f3e8f10] — Publishing a beta no longer moves the server image's `latest` tag, which 2.0.beta-1 did.
 
