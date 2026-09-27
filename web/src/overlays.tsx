@@ -123,6 +123,14 @@ function ToastList() {
   return <>{toasts.map((t) => <ToastView key={t.id} item={t} close={close} />)}</>
 }
 
+/** Whether a key event happened in the toast stack. F6 moves focus there from anywhere, and
+ *  keys pressed there are the stack's own: Escape closes the toast, Tab walks the toasts. A
+ *  shell that traps Tab or closes on Escape (the Modal, the Test chat drawer, the narrow nav
+ *  drawer) leaves these alone, or Escape on a toast closes the drawer under it too. */
+export function fromToasts(e: Event): boolean {
+  return !!(e.target as Element | null)?.closest?.('.toast-viewport')
+}
+
 function ToastStack() {
   // The portal lands on <body> for the same reason the modal card does: `Overlays` renders
   // inside #root, and an open dialog marks #root inert. A toast raised from inside Settings
@@ -265,7 +273,7 @@ export function Modal(props: {
       // F6 moves focus into the toast stack, which lives outside the dialog. Keys pressed
       // there are the stack's own: Escape closes the toast, Tab walks the toasts. Trapping
       // them here closed the dialog underneath and yanked focus back out.
-      if ((e.target as Element | null)?.closest?.('.toast-viewport')) return
+      if (fromToasts(e)) return
       if (e.key === 'Escape') {
         if (escStack[escStack.length - 1] !== idRef.current) return
         e.stopPropagation()

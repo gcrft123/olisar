@@ -4,7 +4,7 @@ import { api } from './api'
 import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
-import { Modal, confirmDialog, promptDialog, toast } from './overlays'
+import { Modal, confirmDialog, fromToasts, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
 import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
@@ -229,7 +229,8 @@ function TestChatDrawer() {
     return () => { obs.disconnect(); mq.removeEventListener('change', check) }
   }, [])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    // Escape on a focused toast closes the toast, not the drawer under it.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !fromToasts(e)) setOpen(false) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -262,7 +263,8 @@ function TestChatDrawer() {
     const first = el?.querySelector<HTMLElement>('textarea, input, button')
     ;(first ?? el)?.focus()
     const onTab = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab' || !el) return
+      // Tab in the toast stack walks the toasts, as it does over a Modal.
+      if (e.key !== 'Tab' || !el || fromToasts(e)) return
       const items = [...el.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])')]
         .filter((n) => n.offsetParent !== null || n === document.activeElement)
       if (!items.length) return

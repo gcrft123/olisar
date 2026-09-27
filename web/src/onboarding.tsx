@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createForm, type Form } from './form'
 import { Icon } from './icons'
+import { fromToasts } from './overlays'
 import { Docs } from './pages'
 import { SettingsModal, useFeedbackHost, type SectionId } from './settings'
 import type { FeedbackPrefill } from './feedback'
@@ -162,7 +163,7 @@ function DocsDrawer({ section, onClose }: { section: string | null; onClose: () 
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) onClose()
+      if (e.key === 'Escape' && !fromToasts(e) && !document.querySelector('[aria-modal="true"]')) onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)

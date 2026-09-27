@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { botName, setBotName } from './botname'
-import { Modal, confirmDialog, toast } from './overlays'
+import { Modal, confirmDialog, fromToasts, toast } from './overlays'
 import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from './icons'
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, ApiKeys, Docs,
@@ -204,7 +204,8 @@ export default function App() {
   // is hand-rolled, so it has to do the same work itself.
   useEffect(() => {
     if (!navOpen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setNavOpen(false) }
+    // Escape on a focused toast closes the toast, not the drawer under it.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !fromToasts(e)) setNavOpen(false) }
     const wide = window.matchMedia('(min-width: 861px)')
     const onWide = () => { if (wide.matches) setNavOpen(false) }
     const main = document.getElementById('console-main')
