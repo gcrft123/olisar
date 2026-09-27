@@ -151,6 +151,42 @@ class ForwardingTests(unittest.IsolatedAsyncioTestCase):
             r = await c.get("/auth/callback?code=1", headers={"cookie": pinned})
         self.assertEqual(r.json()["bot"], "second")
 
+    async def test_a_window_showing_another_bot_cant_save_into_this_one(self) -> None:
+        """The desktop window is on the first bot when a browser tab switches the console to
+        the second. The window's next save must not land in the second bot: it's refused, and
+        the answer names the bot now on screen, so the window reloads onto it."""
+        async with self.client() as c:
+            loaded = await c.get("/api/echo/x")
+            shown = loaded.headers["x-olisar-bot"]
+            self.assertEqual(shown, "default")
+            self.assertEqual((await c.get("/api/bots")).headers["x-olisar-bot"], "default")
+            await c.post("/api/bots/switch", json={"id": self.second})  # the other tab
+
+            stale = {"x-olisar-bot": shown}
+            r = await c.post("/api/echo/x", content=b"save", headers=stale)
+            self.assertEqual(r.status_code, 409)
+            self.assertEqual(r.headers["x-olisar-bot"], self.second)
+            r = await c.post("/api/bots/share-server", json={"from_id": "default"}, headers=stale)
+            self.assertEqual(r.status_code, 409)
+            self.assertEqual(r.headers["x-olisar-bot"], self.second)
+
+            read = await c.get("/api/echo/x", headers=stale)  # reads pass
+            self.assertEqual((read.status_code, read.json()["bot"]), (200, "second"))
+            mine = await c.post("/api/echo/x", headers={"x-olisar-bot": self.second})
+            self.assertEqual((mine.status_code, mine.json()["bot"]), (200, "second"))
+            shell = await c.post("/api/echo/x")  # the desktop shell names no bot
+            self.assertEqual(shell.status_code, 200)
+
+    async def test_a_sign_in_still_lands_on_the_bot_it_started_on(self) -> None:
+        async with self.client() as c:
+            started = await c.get("/auth/login", headers={"x-olisar-bot": "default"})
+            route = next(v for v in started.headers.get_list("set-cookie") if v.startswith("olisar_bot_route="))
+            await c.post("/api/bots/switch", json={"id": self.second})
+            r = await c.get("/auth/callback?code=1", headers={
+                "cookie": route.split(";", 1)[0], "x-olisar-bot": "default",
+            })
+        self.assertEqual((r.status_code, r.json()["bot"]), (200, "first"))
+
     async def test_the_private_routes_are_never_forwarded(self) -> None:
         async with self.client() as c:
             for path in ("/api/instance", "/api/instance/reset"):

@@ -12,6 +12,12 @@ where that traffic goes, and every bot keeps running. It answers ``/api/bots`` i
 list, create/rename/delete, and the operations that involve two bots, like lending one bot's VM
 to another.
 
+The active bot is one setting for every console open at once: the desktop window and any
+browser tab. So each answer names the bot it came from (``X-Olisar-Bot``), a console page
+sends back the bot it loaded with, and a write from a page loaded for another bot is refused
+with 409, which reloads that page onto the bot now on screen, rather than landing in a bot
+the page isn't showing.
+
 Forwarding is transparent on purpose. A worker sees the operator's own Host header and cookies,
 and no forwarding headers for a loopback client, so it behaves exactly as it did when the
 console talked to it directly:
@@ -52,7 +58,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from api.trust import LOOPBACK, ConsoleGuard, loopback_origin_regex, require_local_request
+from api.trust import (
+    LOOPBACK,
+    SAFE_METHODS,
+    ConsoleGuard,
+    loopback_origin_regex,
+    require_local_request,
+)
 from olisar.runtime import profiles
 from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import home_dir, web_dist_dir
@@ -61,6 +73,8 @@ from olisar.runtime.server import WORKER_PORT_MARKER
 log = logging.getLogger("olisar.gateway")
 
 INTERNAL_HEADER = "x-olisar-gateway"
+# Which bot a console page is showing: sent on each of our answers, and back on each request.
+BOT_HEADER = "x-olisar-bot"
 
 # Sign-in round trips that finish in the operator's browser: the start sets the cookie, the
 # callback follows it back to the bot that started.
@@ -512,6 +526,7 @@ async def forward(request: Request, worker: Worker) -> Response:
         for k, v in resp.headers.multi_items()
         if k.lower() not in _HOP_BY_HOP
     ]
+    out.raw_headers.append((BOT_HEADER.encode(), worker.profile_id.encode()))
     if request.url.path in _ROUTE_START:
         out.raw_headers.append((
             b"set-cookie",
@@ -541,6 +556,24 @@ async def internal(worker: Worker, method: str, path: str, *, json: dict | None 
         detail = data.get("detail") if isinstance(data, dict) else None
         raise HTTPException(status_code=r.status_code, detail=detail or "that bot refused the request")
     return data if isinstance(data, dict) else {}
+
+
+def shown_elsewhere(request: Request, profile_id: str) -> bool:
+    """A write from a console page loaded for a bot other than ``profile_id``, the one it would
+    land in. Pages that don't say (the desktop shell, a console without a gateway) pass, as do
+    reads: a page can show what it likes, as long as it can't change a bot it isn't showing."""
+    if request.method in SAFE_METHODS:
+        return False
+    shown = request.headers.get(BOT_HEADER)
+    return bool(shown) and shown != profile_id
+
+
+def _switched(profile_id: str) -> dict:
+    """The body and headers of the answer to a write from a page showing another bot."""
+    return {
+        "detail": "This window was showing another bot. Reloading onto the one on screen.",
+        "headers": {BOT_HEADER: profile_id},
+    }
 
 
 # ── the app ────────────────────────────────────────────────────────────────────
@@ -602,14 +635,16 @@ def _bots_router(pool: Pool) -> APIRouter:
         return out
 
     @router.get("")
-    async def list_bots() -> dict:
+    async def list_bots(response: Response) -> dict:
         items = profiles.list()
         views = await asyncio.gather(*(view(p) for p in items))
+        response.headers[BOT_HEADER] = profiles.active_id()
         return {"profiles": views, "active_id": profiles.active_id(), "default_id": profiles.default_id()}
 
     @router.get("/active")
-    async def active_bot() -> dict:
+    async def active_bot(response: Response) -> dict:
         p = profiles.active()
+        response.headers[BOT_HEADER] = p["id"]
         return {**(await view(p)), "active_id": p["id"]}
 
     @router.post("")
@@ -682,11 +717,13 @@ def _bots_router(pool: Pool) -> APIRouter:
         return await internal(need(profile_id), "GET", "/api/server/pubkey", timeout=30.0)
 
     @router.post("/share-server")
-    async def share_server(body: ShareIn) -> dict:
+    async def share_server(body: ShareIn, request: Request) -> dict:
         """Get a bot ready to deploy onto the VM another bot already runs on, so the operator
         doesn't set up a server twice: that bot lets the new bot's SSH key in, and hands back
         the host and what the new install should reuse (Tailscale key, who may sign in)."""
         to_id = body.to_id or profiles.active_id()
+        if not body.to_id and shown_elsewhere(request, to_id):
+            raise HTTPException(status_code=409, **_switched(to_id))
         if body.from_id == to_id:
             raise HTTPException(status_code=400, detail="pick a different bot's server")
         source, target = need(body.from_id), need(to_id)
@@ -731,6 +768,7 @@ def create_app(pool: Pool) -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[BOT_HEADER],
     )
     # Outermost: a page that rebound its own name to loopback (``is_rebound``), and a write
     # from any page but the console's own (``is_foreign_origin``), are refused here, before
@@ -770,6 +808,9 @@ def create_app(pool: Pool) -> FastAPI:
         worker = target(request)
         if worker is None:
             return JSONResponse({"detail": "No bot is selected."}, status_code=503)
+        if shown_elsewhere(request, worker.profile_id):
+            switched = _switched(worker.profile_id)
+            return JSONResponse({"detail": switched["detail"]}, status_code=409, headers=switched["headers"])
         if worker.state == "failed":  # no point holding the request for a bot that keeps failing
             return JSONResponse({"detail": "This bot couldn't start."}, status_code=503)
         if not await worker.wait_ready(60.0):
