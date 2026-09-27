@@ -16,6 +16,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+from olisar.message_links import ChannelFilter, channel_filter
 from olisar.sandbox import capabilities, engine
 from olisar.sandbox.capabilities import DiscordBridge, Invocation
 from olisar.sandbox.engine import SandboxError
@@ -53,6 +54,31 @@ async def extract_manifest(compiled_js: str) -> dict:
     """Compile-check: run the extension once and return its declarative manifest."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_pool, engine.extract_manifest, compiled_js)
+
+
+def _as_id(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _invoker_can_read(
+    discord: DiscordBridge | None, *, guild_id: int, user_id: Any, here: Any,
+) -> ChannelFilter:
+    """Which channels the member who ran a command or clicked a component can open: the
+    check message search uses (``BotActions.readable_channels``), asked through the bot
+    that received the interaction. Without one to ask, only the channel it ran in passes,
+    so a doubt refuses rather than lets through."""
+    client = getattr(getattr(discord, "it", None), "client", None)
+    actions = None
+    if client is not None:
+        from bot.actions import BotActions
+
+        actions = BotActions(client)
+    return channel_filter(
+        actions, guild_id=guild_id, requester_id=_as_id(user_id), here=_as_id(here),
+    )
 
 
 def _share_blobs(inv: Invocation, discord: DiscordBridge | None) -> None:
@@ -122,6 +148,7 @@ async def run_tool(
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=ctx.cfg_guild, session=ctx.session, discord=bridge, trusted=trusted,
+        readable=ctx.readable(), in_dm=bool(getattr(ctx, "is_dm", False)),
     )
     _share_blobs(inv, bridge)
     payload = {
@@ -149,6 +176,10 @@ async def run_command(
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=guild_id, session=session, discord=discord, trusted=trusted,
+        readable=_invoker_can_read(
+            discord, guild_id=guild_id, user_id=(interaction_data or {}).get("userId"),
+            here=(interaction_data or {}).get("channelId"),
+        ),
     )
     _share_blobs(inv, discord)
     await _invoke(
@@ -169,6 +200,10 @@ async def run_component(
     inv = Invocation(
         ext_key=ext_key, permissions=set(permissions or []),
         guild_id=guild_id, session=session, discord=discord, trusted=trusted,
+        readable=_invoker_can_read(
+            discord, guild_id=guild_id, user_id=(component_ctx or {}).get("userId"),
+            here=(component_ctx or {}).get("channelId"),
+        ),
     )
     _share_blobs(inv, discord)
     await _invoke(
