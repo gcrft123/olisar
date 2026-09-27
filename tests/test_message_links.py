@@ -256,6 +256,63 @@ class RecallScope(unittest.TestCase):
         self.assertNotIn("discord.com", block)
 
 
+class ContextChannelScope(unittest.IsolatedAsyncioTestCase):
+    """Resource and feed channel snapshots go into every reply's memory block, so they
+    get the same filter as search: a staff #announcements is a feed channel too."""
+
+    async def test_only_channels_the_asker_can_open_are_carried(self):
+        import tempfile
+        from pathlib import Path
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from olisar.db.models import Base, ChannelAllowlist, ChannelContextItem, ChannelMode, Guild
+        from olisar.memory.channels import channel_context_blocks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_async_engine(f"sqlite+aiosqlite:///{Path(tmp) / 't.db'}")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            async with async_sessionmaker(engine)() as session:
+                session.add(Guild(id=GUILD))
+                for cid, name, mode in ((OPEN, "rules", ChannelMode.resource),
+                                        (HIDDEN, "staff-news", ChannelMode.feed)):
+                    session.add(ChannelAllowlist(guild_id=GUILD, channel_id=cid, mode=mode))
+                    session.add(ChannelContextItem(
+                        guild_id=GUILD, channel_id=cid, channel_name=name, content=f"{name} text",
+                    ))
+                await session.commit()
+
+                async def readable(ids):
+                    return ids & {OPEN}
+
+                everything = await channel_context_blocks(session, GUILD)
+                scoped = await channel_context_blocks(session, GUILD, readable=readable)
+            await engine.dispose()
+        self.assertEqual(len(everything), 2)
+        self.assertEqual(len(scoped), 1)
+        self.assertIn("rules text", scoped[0])
+
+    def test_recall_passes_the_askers_filter(self):
+        blocks = AsyncMock(return_value=[])
+
+        async def readable(ids):
+            return ids
+
+        session = MagicMock()
+        session.scalar = AsyncMock(return_value=None)
+        with (
+            patch("olisar.memory.retriever.glossary_block", AsyncMock(return_value="")),
+            patch("olisar.memory.retriever.channel_context_blocks", blocks),
+            patch("olisar.memory.retriever.embed_query", AsyncMock(return_value=None)),
+        ):
+            _run(recall(
+                session, cfg_guild=GUILD, user_id=5, query_text="", recent_ids=set(),
+                channel_id=HERE, readable=readable,
+            ))
+        self.assertIs(blocks.await_args.kwargs["readable"], readable)
+
+
 class _Perms(SimpleNamespace):
     view_channel = True
     read_message_history = True
