@@ -17,11 +17,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar import prompt_overrides
 from olisar.config import settings
-from olisar.context import CONTEXT_NOTE, build_contents, channel_note, people_directory
+from olisar.context import (
+    CHANNEL_TASK_HISTORY_NOTE,
+    CHANNEL_TASK_NOTE,
+    CONTEXT_NOTE,
+    build_contents,
+    build_task_contents,
+    channel_note,
+    people_directory,
+)
 from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini.rate_limiter import RateLimitExceeded
-from olisar.memory.retriever import recall
+from olisar.memory.retriever import recall, server_memory
 from olisar.memory.writer import ACK_MARKER
 from olisar.message_links import channel_filter, link_ids, strip_unoffered_links
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, render_message
@@ -709,6 +717,26 @@ async def _run_tool_loop(
     return _fallback_when_synthesis_fails(blank_fallback, gathered)
 
 
+def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
+    """The server's persona as a system instruction, or the default one for a server that
+    hasn't customized it."""
+    if persona is None:
+        return build_system_prompt(
+            persona_name=DEFAULT_PERSONA_NAME,
+            system_prompt=DEFAULT_SYSTEM_PROMPT,
+            tone_notes=DEFAULT_TONE_NOTES,
+            runtime_note=runtime_note,
+        )
+    return build_system_prompt(
+        persona_name=persona.name,
+        system_prompt=persona.system_prompt,
+        tone_notes=persona.tone_notes,
+        runtime_note=runtime_note,
+        server_type=persona.server_type,
+        slang_density=persona.slang_density,
+    )
+
+
 async def generate_reply(
     session: AsyncSession,
     *,
@@ -740,22 +768,7 @@ async def generate_reply(
         runtime_note = (DM_NOTE + (("\n\n" + runtime_note) if runtime_note else "")).strip()
 
     persona = await session.get(Persona, cfg_guild)
-    if persona is None:
-        system_instruction = build_system_prompt(
-            persona_name=DEFAULT_PERSONA_NAME,
-            system_prompt=DEFAULT_SYSTEM_PROMPT,
-            tone_notes=DEFAULT_TONE_NOTES,
-            runtime_note=runtime_note,
-        )
-    else:
-        system_instruction = build_system_prompt(
-            persona_name=persona.name,
-            system_prompt=persona.system_prompt,
-            tone_notes=persona.tone_notes,
-            runtime_note=runtime_note,
-            server_type=persona.server_type,
-            slang_density=persona.slang_density,
-        )
+    system_instruction = _persona_prompt(persona, runtime_note)
     config = await session.get(GuildConfig, cfg_guild)
     # Ending a turn with a reaction instead of a message is per-server and on by default.
     # Off, the tool is never declared and never described — an operator who turned it off
@@ -901,6 +914,57 @@ async def generate_reply(
     return Reply(text, blanked=text == blank_fallback)
 
 
+async def channel_task_prompt(
+    session: AsyncSession,
+    *,
+    guild_id: int,
+    channel_id: int,
+    channel_name: str,
+    channel_topic: str,
+    task: str,
+    runtime_note: str = "",
+) -> tuple[str, list]:
+    """The system instruction and ``contents`` for writing into a channel when nobody there
+    asked: ``host.generate`` given a ``channelId``, which is how Welcome greets a new member
+    in the room they'll arrive in.
+
+    Built from the same pieces as :func:`generate_reply`, so the text comes out as if the bot
+    had been called in that channel: the persona with its room settings, the channel's name
+    and topic, its recent transcript read by the same rules, and the glossary and
+    resource-channel memory every reply carries. Left out is everything that belongs to a
+    person asking (their memory, the people directory) and to tools, which this turn can't
+    call. ``runtime_note`` is the extension's ``systemNote``."""
+    persona = await session.get(Persona, guild_id)
+    config = await session.get(GuildConfig, guild_id)
+    contents, had_history = await build_task_contents(
+        session,
+        channel_id=channel_id,
+        task=task,
+        recent_window=(config.context_message_limit if config else None),
+        own_name=(persona.name if persona else "") or DEFAULT_PERSONA_NAME,
+    )
+
+    system_instruction = _persona_prompt(persona, runtime_note)
+    if had_history:
+        system_instruction += "\n\n" + CONTEXT_NOTE
+    name = (channel_name or "").lstrip("#").strip()
+    system_instruction += "\n\n" + CHANNEL_TASK_NOTE.format(
+        channel=f"#{name}" if name else "this channel"
+    ) + (CHANNEL_TASK_HISTORY_NOTE if had_history else "")
+    room = channel_note(channel_name, channel_topic)
+    if room:
+        system_instruction += "\n\n" + room
+    system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
+    # Best-effort, as recall is on a reply: the text still gets written without it.
+    try:
+        memory = await server_memory(session, guild_id)
+        if memory:
+            system_instruction += "\n\n" + memory
+    except Exception:
+        log.exception("server memory failed; writing into the channel without it")
+    return system_instruction, contents
+
+
 SANDBOX_NOTE = (
     "This is a private SANDBOX test chat with a server administrator — used to try out "
     "your persona, knowledge base, and tools. There is no real Discord channel here and "
@@ -925,22 +989,7 @@ async def generate_sandbox_reply(
     cfg_guild = guild_id or settings.target_guild_id
 
     persona = await session.get(Persona, cfg_guild)
-    if persona is None:
-        system_instruction = build_system_prompt(
-            persona_name=DEFAULT_PERSONA_NAME,
-            system_prompt=DEFAULT_SYSTEM_PROMPT,
-            tone_notes=DEFAULT_TONE_NOTES,
-            runtime_note=runtime_note,
-        )
-    else:
-        system_instruction = build_system_prompt(
-            persona_name=persona.name,
-            system_prompt=persona.system_prompt,
-            tone_notes=persona.tone_notes,
-            runtime_note=runtime_note,
-            server_type=persona.server_type,
-            slang_density=persona.slang_density,
-        )
+    system_instruction = _persona_prompt(persona, runtime_note)
     # The briefing for the tools this lane actually declares — not the full one. See
     # render_tools_note: the test chat has query_knowledge and web_search only.
     system_instruction += (
