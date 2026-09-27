@@ -51,7 +51,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
-from pathlib import Path
+from pathlib import Path, PurePath
 from urllib.parse import urlsplit
 
 import httpx
@@ -406,13 +406,20 @@ class Pool:
 # ── upgrading from one bot at a time ──────────────────────────────────────────
 
 
+def _read_only_uri(db: PurePath) -> str:
+    """``db`` as a SQLite URI that opens it read-only. Percent-encoded: in a bare
+    ``file:{path}``, a ``#`` or ``?`` in the path (``Olisar #2``) ends it, and SQLite opens, and
+    creates, a writable database at what's left. On Windows it's ``file:///C:/…``."""
+    return (db if db.is_absolute() else Path(db).absolute()).as_uri() + "?mode=ro"
+
+
 def _remote_access(db: Path) -> tuple[bool, str]:
     """Whether a bot's database has remote access turned on, and the public host it last had
     (read-only, stdlib sqlite)."""
     if not db.is_file():
         return False, ""
     try:
-        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+        con = sqlite3.connect(_read_only_uri(db), uri=True, timeout=5)
     except sqlite3.Error:
         return False, ""
     try:

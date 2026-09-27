@@ -438,6 +438,25 @@ class TailscaleHandOverTests(unittest.TestCase):
         self.assertIsNone(gateway.adopt_shared_tailscale())
         self.assertTrue((self.home / "tailscale").exists())
 
+    def test_a_path_with_a_hash_or_question_mark_is_read_where_it_is(self) -> None:
+        """Unescaped, "#" ends a SQLite URI's path: the check read a new, empty (and writable)
+        database at "Olisar " instead, and the bot's remote access looked off."""
+        from pathlib import PureWindowsPath
+
+        from olisar.runtime import gateway
+
+        folder = self.home / "Olisar #2?"
+        self.db(folder / "olisar.db", True, "olisar.tail1234.ts.net")
+        self.assertEqual(gateway._remote_access(folder / "olisar.db"), (True, "olisar.tail1234.ts.net"))
+        self.assertEqual(sorted(p.name for p in self.home.iterdir()), ["Olisar #2?", "tailscale"])
+        with sqlite3.connect(gateway._read_only_uri(folder / "olisar.db"), uri=True) as con:
+            with self.assertRaises(sqlite3.OperationalError):
+                con.execute("UPDATE app_config SET tunnel_enabled = 0")
+        self.assertEqual(
+            gateway._read_only_uri(PureWindowsPath(r"C:\Users\Ann\AppData\Roaming\Olisar #2\olisar.db")),
+            "file:///C:/Users/Ann/AppData/Roaming/Olisar%20%232/olisar.db?mode=ro",
+        )
+
     def test_of_several_it_goes_to_the_bot_last_on_screen(self) -> None:
         """That bot ran last, so the node carries its name. The others get devices of their
         own; nobody keeping it would give every one of them a new address."""
