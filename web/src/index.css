@@ -402,23 +402,34 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
-/* Starting or stopping: a light slides back and forth along the edge, from partway down one
-   side, around both top corners, to the same depth on the other. It rides --glow-path, the
-   border's centerline traced by FootSheet, turning with it (offset-rotate) so it bends through
-   each corner rather than running straight off past it. Short enough to turn within the corner's
-   radius. An oscillation eases at both ends, so this is ease-in-out rather than --ease-out. */
-.foot-glow::before {
-  content: ''; position: absolute; top: 0; left: 0; width: 44px; height: 16px;
-  border-radius: 50%; opacity: 0;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 45%, transparent), transparent);
-  offset-path: var(--glow-path, none); offset-rotate: auto; offset-anchor: center;
+/* Starting or stopping: a stretch of the border lights up and runs back and forth along it,
+   from the foot of one side, around both top corners, to the foot of the other. It's a dash of
+   a stroke laid on the border's centerline (--glow-path, traced by FootSheet), so it is the
+   line and bends with the corners, and it runs out at the ends as it passes the path's foot.
+   Three strokes share one position: a bright core, a longer, fainter tail that tapers it, and
+   a blurred halo thrown onto the rail. --trace is where the light is, 0–1 along the path;
+   each dash is centered on it (dasharray: the dash, then a gap longer than the path). An
+   oscillation eases at both ends, so this is ease-in-out rather than --ease-out. */
+@property --trace { syntax: '<number>'; inherits: true; initial-value: 0; }
+.foot-trace {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none; opacity: 0;
 }
-.foot-sheet[data-glow-motion="slide"] .foot-glow::before {
-  opacity: 1; animation: foot-glow-slide 2.4s ease-in-out infinite alternate;
+.foot-trace path {
+  d: var(--glow-path, path('M 0 0'));
+  fill: none; stroke: var(--glow); stroke-linecap: round;
+  stroke-dasharray: var(--dash) calc(var(--glow-len, 0) * 2px);
+  stroke-dashoffset: calc(var(--dash) / 2 - var(--trace) * var(--glow-len, 0) * 1px);
+}
+.foot-trace-halo { --dash: 56px; stroke-width: 5px; opacity: 0.6; }
+.foot-trace-tail { --dash: 72px; stroke-width: 1.5px; opacity: 0.45; }
+.foot-trace-core { --dash: 28px; stroke-width: 1.5px; stroke: color-mix(in srgb, var(--glow) 55%, var(--text)); }
+.foot-sheet[data-glow-motion="slide"] .foot-trace {
+  opacity: 1; animation: foot-trace 2.4s ease-in-out infinite alternate;
 }
 /* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
 .foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
-@keyframes foot-glow-slide { from { offset-distance: 0%; } to { offset-distance: 100%; } }
+@keyframes foot-trace { from { --trace: 0; } to { --trace: 1; } }
 @keyframes foot-glow-breathe { 50% { opacity: 0.3; } }
 
 /* Pulled up under the grabber, over the status row: opening cross-fades the row into the
@@ -438,7 +449,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   /* Nothing travels: the sheet is where it's going at once, and the cross-fade is all
      that moves. The sliding light becomes a slow breath, and the breath slows. */
   .foot-sheet { transition: none; }
-  .foot-sheet[data-glow-motion="slide"] .foot-glow::before { animation: none; opacity: 0; }
+  .foot-sheet[data-glow-motion="slide"] .foot-trace { animation: none; opacity: 0; }
   .foot-sheet[data-glow-motion] .foot-glow-in { animation: foot-glow-breathe 4.8s ease-in-out infinite; }
   .foot-sheet[data-glow-motion="steady"] .foot-glow-in { animation: none; }
 }
