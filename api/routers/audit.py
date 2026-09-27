@@ -71,6 +71,9 @@ LABELS: dict[str, str] = {
     "update_tool_pin": "Changed the tool PIN",
     "clear_tool_pin": "Removed the tool PIN",
     "set_pin_actions": "Changed what needs the PIN",
+    # One per PIN prompt in Discord, whatever the answer (bot/toolpin.py). The outcome and
+    # the wrong attempts are in `after`, so they show under the entry's Details.
+    "tool_pin": "Asked for the tool PIN",
 }
 
 
