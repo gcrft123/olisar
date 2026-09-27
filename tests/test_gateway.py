@@ -382,11 +382,42 @@ class TailscaleHandOverTests(unittest.TestCase):
         (self.home / "tailscale").mkdir()
         (self.home / "tailscale" / "tailscaled.state").write_text("node")
 
-    def db(self, path: Path, enabled: bool) -> None:
+    def db(self, path: Path, enabled: bool, public_host: str = "") -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(path) as con:
-            con.execute("CREATE TABLE app_config (id INTEGER PRIMARY KEY, tunnel_enabled BOOLEAN)")
-            con.execute("INSERT INTO app_config VALUES (1, ?)", (1 if enabled else 0,))
+            con.execute(
+                "CREATE TABLE app_config (id INTEGER PRIMARY KEY, tunnel_enabled BOOLEAN, tunnel_hostname TEXT)"
+            )
+            con.execute("INSERT INTO app_config VALUES (1, ?, ?)", (1 if enabled else 0, public_host))
+
+    def node_named(self, host: str, domain: str = "tail1234.ts.net.") -> None:
+        """The shared node's state as tsnet keeps it: base64 values, the prefs under the
+        current profile's key."""
+        import base64
+
+        def b64(value) -> str:
+            raw = value if isinstance(value, bytes) else json.dumps(value).encode()
+            return base64.b64encode(raw).decode()
+
+        (self.home / "tailscale" / "tailscaled.state").write_text(json.dumps({
+            "_current-profile": b64(b"profile-ab12"),
+            "_profiles": b64({"ab12": {"ID": "ab12", "Key": "profile-ab12",
+                                       "NetworkProfile": {"MagicDNSName": domain}}}),
+            "profile-ab12": b64({"Hostname": host, "WantRunning": True}),
+            "_machinekey": b64(b"privkey:0000"),
+        }))
+
+    def three_bots(self) -> tuple[str, str, str]:
+        """The original bot with remote access off, and three others that had it on."""
+        from olisar.runtime import profiles
+
+        self.db(self.home / "olisar.db", False)
+        ids = []
+        for name, host in (("A", "abot.tail1234.ts.net"), ("B", "bbot.tail1234.ts.net"),
+                           ("C", "cbot-1.tail1234.ts.net")):
+            ids.append(profiles.create(name)["id"])
+            self.db(profiles.db_path_for(ids[-1]), True, host)
+        return tuple(ids)
 
     def test_goes_to_the_one_other_bot_that_used_it(self) -> None:
         from olisar.runtime import gateway, profiles
@@ -407,14 +438,36 @@ class TailscaleHandOverTests(unittest.TestCase):
         self.assertIsNone(gateway.adopt_shared_tailscale())
         self.assertTrue((self.home / "tailscale").exists())
 
-    def test_leaves_it_when_it_cant_tell_whose(self) -> None:
+    def test_of_several_it_goes_to_the_bot_last_on_screen(self) -> None:
+        """That bot ran last, so the node carries its name. The others get devices of their
+        own; nobody keeping it would give every one of them a new address."""
         from olisar.runtime import gateway, profiles
 
-        for name in ("A", "B"):
-            self.db(profiles.db_path_for(profiles.create(name)["id"]), True)
-        self.db(self.home / "olisar.db", False)
-        self.assertIsNone(gateway.adopt_shared_tailscale())
-        self.assertTrue((self.home / "tailscale").exists())
+        a, b, c = self.three_bots()
+        self.node_named("cbot")
+        self.assertEqual(gateway.adopt_shared_tailscale(last_active=b), b)
+        self.assertTrue((profiles.data_dir_for(b) / "tailscale" / "tailscaled.state").exists())
+        self.assertIsNone(gateway.adopt_shared_tailscale(last_active=b))  # it's moved once
+
+    def test_else_to_the_bot_whose_address_is_the_nodes_name(self) -> None:
+        from olisar.runtime import gateway
+
+        a, b, c = self.three_bots()
+        self.node_named("cbot")  # Tailscale called it cbot-1: another device had the name
+        self.assertEqual(gateway.adopt_shared_tailscale(last_active="default"), c)
+
+    def test_else_to_the_oldest(self) -> None:
+        from olisar.runtime import gateway
+
+        a, b, c = self.three_bots()  # the node's state is unreadable ("node")
+        self.assertEqual(gateway.adopt_shared_tailscale(), a)
+
+    def test_a_node_named_for_none_of_them_goes_to_the_oldest(self) -> None:
+        from olisar.runtime import gateway
+
+        a, b, c = self.three_bots()
+        self.node_named("somebody-else")
+        self.assertEqual(gateway.adopt_shared_tailscale(last_active="gone"), a)
 
 
 class SupervisionTests(unittest.IsolatedAsyncioTestCase):

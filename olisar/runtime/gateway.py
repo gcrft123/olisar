@@ -37,10 +37,13 @@ happens to show.
 from __future__ import annotations
 
 import asyncio
+import base64
 import collections
 import contextlib
+import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -403,32 +406,78 @@ class Pool:
 # ── upgrading from one bot at a time ──────────────────────────────────────────
 
 
-def _tunnel_enabled(db: Path) -> bool:
-    """Whether a bot's database has remote access turned on (read-only, stdlib sqlite)."""
+def _remote_access(db: Path) -> tuple[bool, str]:
+    """Whether a bot's database has remote access turned on, and the public host it last had
+    (read-only, stdlib sqlite)."""
     if not db.is_file():
-        return False
+        return False, ""
     try:
         con = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
     except sqlite3.Error:
-        return False
+        return False, ""
     try:
-        row = con.execute("SELECT tunnel_enabled FROM app_config WHERE id = 1").fetchone()
-        return bool(row and row[0])
+        try:
+            row = con.execute(
+                "SELECT tunnel_enabled, tunnel_hostname FROM app_config WHERE id = 1"
+            ).fetchone()
+        except sqlite3.OperationalError:  # a database from before the host was kept
+            row = con.execute("SELECT tunnel_enabled, '' FROM app_config WHERE id = 1").fetchone()
+        return bool(row and row[0]), str((row and row[1]) or "").lower()
     except sqlite3.Error:
-        return False
+        return False, ""
     finally:
         con.close()
 
 
-def adopt_shared_tailscale() -> str | None:
+def _tunnel_enabled(db: Path) -> bool:
+    return _remote_access(db)[0]
+
+
+def _node_name(state_dir: Path) -> tuple[str, str] | None:
+    """The host name a Tailscale node was last started under and its tailnet's domain (``""``
+    when that can't be read), from the state tsnet keeps: a JSON map of keys to base64 values,
+    the current profile's preferences among them. Best effort; None when it can't be read."""
+    try:
+        store = json.loads((state_dir / "tailscaled.state").read_text("utf-8"))
+
+        def value(key: str) -> bytes:
+            return base64.b64decode(store[key])
+
+        current = value("_current-profile").decode()
+        host = str(json.loads(value(current)).get("Hostname") or "").lower()
+        domain = ""
+        with contextlib.suppress(Exception):
+            for p in json.loads(value("_profiles")).values():
+                if p.get("Key") == current:
+                    domain = str((p.get("NetworkProfile") or {}).get("MagicDNSName") or "").lower()
+    except Exception:  # noqa: BLE001 — not tsnet's layout, or not readable: no answer
+        return None
+    return (host, domain.strip(".")) if host else None
+
+
+def _was_called(public_host: str, node: tuple[str, str]) -> bool:
+    """Whether ``public_host`` (``name.tailnet.ts.net``) is the node's: its name, or its name
+    with the -1, -2… Tailscale adds when the tailnet already has one."""
+    label, _, domain = public_host.partition(".")
+    host, node_domain = node
+    if node_domain and domain and domain.strip(".") != node_domain:
+        return False
+    return label == host or re.fullmatch(rf"{re.escape(host)}-\d+", label) is not None
+
+
+def adopt_shared_tailscale(last_active: str | None = None) -> str | None:
     """Hand the install's Tailscale node to the bot that was actually using it.
 
     When bots ran one at a time they shared one node (``home_dir()/tailscale``), which is the
     original bot's directory. Now each bot has its own, and two bots can't run one node at
-    once. If the original bot never turned remote access on but exactly one other bot did, that
-    node is the other bot's web address — its OAuth redirect is registered against it — so move
-    it into that bot's directory rather than let the bot come up as a new device. Returns the
-    bot it went to, if any. Runs before any bot starts, so nothing holds the node open."""
+    once. If the original bot never turned remote access on, the node is another bot's web
+    address — its OAuth redirect is registered against it — so move it into that bot's
+    directory rather than let the bot come up as a new device. When several had remote access
+    on, one bot keeps it and the rest get devices of their own, and which one doesn't change
+    from launch to launch: the bot that was on screen when this version was first launched
+    (``last_active``, the one that last ran, and so last named the node), else the one whose
+    public address is the node's name, else the oldest. Returns the bot it went to, if any.
+    Runs before any bot starts, so nothing holds the node open."""
     shared = home_dir() / "tailscale"
     if not shared.is_dir():
         return None
@@ -436,22 +485,33 @@ def adopt_shared_tailscale() -> str | None:
     legacy = next((p["id"] for p in bots if p.get("legacy")), None)
     if legacy and _tunnel_enabled(profiles.db_path_for(legacy)):
         return None  # the original bot's own, as it always was
-    candidates = [
-        p["id"] for p in bots
-        if not p.get("legacy")
-        and _tunnel_enabled(profiles.db_path_for(p["id"]))
-        and not (profiles.data_dir_for(p["id"]) / "tailscale").exists()
-    ]
-    if len(candidates) != 1:
-        return None  # nobody, or no way to tell whose: each gets a node of its own
-    target = profiles.data_dir_for(candidates[0]) / "tailscale"
+    candidates = []
+    for p in bots:
+        if p.get("legacy") or (profiles.data_dir_for(p["id"]) / "tailscale").exists():
+            continue
+        enabled, public_host = _remote_access(profiles.db_path_for(p["id"]))
+        if enabled:
+            candidates.append((p, public_host))
+    if not candidates:
+        return None
+    chosen = next((p["id"] for p, _ in candidates if p["id"] == last_active), None)
+    if chosen is None:
+        node = _node_name(shared)
+        named = [p for p, host in candidates if node and host and _was_called(host, node)]
+        order = {p["id"]: i for i, p in enumerate(bots)}
+        oldest = min(
+            named or [p for p, _ in candidates],
+            key=lambda p: (str(p.get("created_at") or ""), order[p["id"]]),
+        )
+        chosen = oldest["id"]
+    target = profiles.data_dir_for(chosen) / "tailscale"
     try:
         shutil.move(str(shared), str(target))
     except OSError as exc:
-        log.warning("couldn't hand the Tailscale node to bot %s: %s", candidates[0], exc)
+        log.warning("couldn't hand the Tailscale node to bot %s: %s", chosen, exc)
         return None
-    log.info("moved the shared Tailscale node to bot %s, which was using it", candidates[0])
-    return candidates[0]
+    log.info("moved the shared Tailscale node to bot %s, which was using it", chosen)
+    return chosen
 
 
 # ── forwarding ─────────────────────────────────────────────────────────────────
@@ -826,11 +886,12 @@ def create_app(pool: Pool) -> FastAPI:
 
 async def run(host: str, port: int) -> None:
     """Serve the console and run every bot until SIGINT/SIGTERM, then stop them all."""
+    last_active = profiles.active_id()  # the bot on screen when the app last ran
     profiles.set_active(profiles.default_id())  # the console opens on the launch default
     # A deletion that stopped partway goes first: the original bot's Tailscale node, say,
     # mustn't be handed to another bot, and nothing of a deleted bot should start again.
     profiles.finish_deletions()
-    adopt_shared_tailscale()
+    adopt_shared_tailscale(last_active)
 
     # Each bot logs its own requests; the gateway's copy of every line would only double them.
     logging.getLogger("httpx").setLevel(logging.WARNING)
