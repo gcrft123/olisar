@@ -17,6 +17,9 @@ export type MockEnv = {
   /** BOT_MOCK: '' | 'updating' | 'starting' | 'limited' | 'offline' | 'refused' — the bot's state
    *  in the sidebar's drawer. Online by default. */
   bot?: string
+  /** USAGE_STATE: '' | 'fresh' | 'afternoon' | 'resting' | 'low' | 'out' | 'stale' — which of
+   *  the Usage page's states it opens on. Afternoon by default. */
+  usage?: string
 }
 
 export function configureMock(env: MockEnv): void {
@@ -24,6 +27,7 @@ export function configureMock(env: MockEnv): void {
   FRESH = env.fresh || ''
   MOCK_ROLE = env.role || ''
   BOT = env.bot || ''
+  USAGE = env.usage || ''
   // A fresh install starts with every channel off and no keys saved.
   channels = MOCK_CHANNELS.map((c) => ({ ...c, mode: FRESH ? 'off' : c.mode }))
   keys = Object.fromEntries(Object.entries(MOCK_KEYS).map(([k, v]) => [k, { ...v, dashboard: FRESH ? false : v.dashboard }]))
@@ -53,97 +57,158 @@ export type MockSend = (obj: unknown, status?: number) => void
 // reviews. Payloads mirror the real serializers field for field, deliberately: a fixture
 // that returns a convenient shape hides exactly the drift it should expose.
 
-function mockSummary(days: number) {
-  // days=0 is all-time; the real endpoint derives the window from the earliest recorded
-  // day and buckets past ~10 weeks. 400 days here so "Forever" exercises the bucketing.
-  const allTime = days === 0
-  days = allTime ? 400 : Math.max(1, Math.min(days, 30))
-  // Full fallback roster: the top few have usage; the rest are idle chain models.
-  const roster: any[] = [
-    { model: 'gemini-flash-latest', cap: 10, role: 'chat', base: 520, growth: 780, tpr: 1400, peak: 8 },
-    { model: 'gemini-flash-lite-latest', cap: 15, role: 'chat', base: 360, growth: 620, tpr: 900, peak: 6 },
-    { model: 'gemini-embedding-001', cap: 100, role: 'embed', base: 400, growth: 520, tpr: 120, peak: 12 },
-    { model: 'gemini-2.0-flash', cap: 15, role: 'chat', base: 80, growth: 200, tpr: 1600, peak: 3 },
-    { model: 'gemini-3.5-flash', cap: 10, role: 'chat' },
-    { model: 'gemini-3-flash-preview', cap: 10, role: 'chat' },
-    { model: 'gemini-2.5-flash', cap: 10, role: 'chat' },
-    { model: 'gemini-3.1-flash-lite', cap: 15, role: 'chat' },
-    { model: 'gemini-2.5-flash-lite', cap: 15, role: 'chat' },
-    { model: 'gemini-2.0-flash-lite', cap: 30, role: 'chat' },
-  ]
-  const active = roster.filter((m) => m.base)
-  const daily: any[] = []
-  for (let i = 0; i < days; i++) {
-    const d = new Date()
-    d.setUTCHours(0, 0, 0, 0)
-    d.setUTCDate(d.getUTCDate() - (days - 1 - i))
-    const frac = days > 1 ? i / (days - 1) : 1
-    const by_model: Record<string, number> = {}
-    let requests = 0, tokens = 0
-    for (const m of active) {
-      const v = Math.max(0, Math.round(m.base + m.growth * frac + Math.sin(i * 1.3 + m.cap) * 24))
-      by_model[m.model] = v
-      requests += v
-      tokens += v * m.tpr
-    }
-    daily.push({
-      day: d.toISOString().slice(0, 10),
-      requests, tokens,
-      peak_tpm: Math.round(140000 + 300000 * frac + Math.sin(i) * 35000),
-      by_model,
-    })
+// ── Usage ────────────────────────────────────────────────────────────────────
+// The six states in design/usage-page/, picked by USAGE_STATE. Each starts at its own Pacific
+// time and runs on from there: the live payload's `ts` carries the scene's clock, which the
+// page adopts as the server's, and a reply arrives every four seconds on the first model that
+// can take it, so the numbers move the way they would on a live bot.
+const USAGE_CHAIN: [string, number][] = [
+  ['gemini-3.5-flash', 250], ['gemini-flash-latest', 250], ['gemini-3-flash-preview', 250],
+  ['gemini-2.5-flash', 250], ['gemini-3.1-flash-lite', 1000], ['gemini-flash-lite-latest', 1000],
+  ['gemini-2.5-flash-lite', 1000],
+]
+type UsageScene = {
+  time: string
+  used: number[]
+  embed: number
+  web: number
+  out?: Record<number, string>
+  resting?: Record<number, number>
+  peak: { v: number; cap: number; model: string; at: string }
+  ranOutToday?: string
+  stale?: boolean
+}
+const USAGE_SCENES: Record<string, UsageScene> = {
+  fresh: {
+    time: '00:42', used: [38, 0, 0, 0, 21, 0, 3], embed: 14, web: 2,
+    peak: { v: 4, cap: 10, model: 'gemini-3.5-flash', at: '00:31' },
+  },
+  afternoon: {
+    time: '15:48', used: [250, 231, 131, 12, 468, 0, 22], embed: 388, web: 45,
+    out: { 0: '11:52', 1: '14:14' },
+    peak: { v: 9, cap: 10, model: 'gemini-3.5-flash', at: '11:40' },
+  },
+  resting: {
+    time: '12:20', used: [212, 9, 0, 0, 301, 0, 10], embed: 290, web: 31, resting: { 0: 48 },
+    peak: { v: 10, cap: 10, model: 'gemini-3.5-flash', at: '12:19' },
+  },
+  low: {
+    time: '19:05', used: [250, 250, 250, 250, 1000, 862, 610], embed: 802, web: 311,
+    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48' },
+    peak: { v: 15, cap: 15, model: 'gemini-3.1-flash-lite', at: '17:41' },
+  },
+  out: {
+    time: '21:50', used: [250, 250, 250, 250, 1000, 1000, 1000], embed: 941, web: 402,
+    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48', 5: '20:06', 6: '21:31' },
+    peak: { v: 15, cap: 15, model: 'gemini-2.5-flash-lite', at: '21:12' },
+    ranOutToday: '21:31',
+  },
+}
+USAGE_SCENES.stale = { ...USAGE_SCENES.afternoon, stale: true }
+const USAGE_SPLIT_TODAY: Record<string, number> = {
+  conversation: 452, summary: 196, persona: 141, glossary: 88, vision: 74,
+  proactivity: 58, grounding: 45, catchup: 21, extension: 16, canary: 14, status: 9,
+}
+const USAGE_SPLIT_7: Record<string, number> = {
+  conversation: 9820, summary: 4310, persona: 3050, glossary: 1920, vision: 1480,
+  proactivity: 1310, grounding: 1020, catchup: 480, extension: 350, canary: 98, status: 64,
+}
+const USAGE_SPLIT_30: Record<string, number> = {
+  conversation: 41200, summary: 17650, persona: 13020, glossary: 7480, vision: 6310,
+  proactivity: 5920, grounding: 4390, catchup: 2210, extension: 1640, canary: 420, status: 270,
+}
+// The 13 days before today.
+const USAGE_PAST = [2610, 2980, 3120, 2840, 3390, 3710, 2950, 3060, 3240, 4000, 3380, 3150, 3290]
+
+const PT = 'America/Los_Angeles'
+function ptParts(ms: number) {
+  const p = new Intl.DateTimeFormat('en-US', {
+    timeZone: PT, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(ms))
+  const g = (t: string) => Number(p.find((x) => x.type === t)!.value)
+  return { y: g('year'), mo: g('month') - 1, d: g('day'), h: g('hour'), mi: g('minute'), s: g('second') }
+}
+/** A Pacific wall-clock time as epoch ms. */
+function ptWall(y: number, mo: number, d: number, h: number, mi: number) {
+  const guess = Date.UTC(y, mo, d, h, mi)
+  const p = ptParts(guess)
+  return guess - (Date.UTC(p.y, p.mo, p.d, p.h, p.mi, p.s) - guess)
+}
+const USAGE_T0 = Date.now()
+const USAGE_TODAY = ptParts(USAGE_T0)
+const ptAt = (hhmm: string, dayOffset = 0) => {
+  const [h, m] = hhmm.split(':').map(Number)
+  return ptWall(USAGE_TODAY.y, USAGE_TODAY.mo, USAGE_TODAY.d + dayOffset, h, m)
+}
+const ptDay = (dayOffset = 0) => {
+  const p = ptParts(ptAt('12:00', dayOffset))
+  return `${p.y}-${String(p.mo + 1).padStart(2, '0')}-${String(p.d).padStart(2, '0')}`
+}
+
+let usageLivePolls = 0
+function usageScene() {
+  const sc = USAGE_SCENES[USAGE] || USAGE_SCENES.afternoon
+  const elapsed = Date.now() - USAGE_T0
+  const t = ptAt(sc.time) + elapsed
+  // Replies since the page opened, each on the first model that could take it.
+  const used = sc.used.slice()
+  const outAt: (number | null)[] = USAGE_CHAIN.map((_, i) => (sc.out?.[i] ? ptAt(sc.out[i]) : null))
+  const restLeft = (i: number) => Math.max(0, (sc.resting?.[i] ?? 0) - elapsed / 1000)
+  const replies = sc.stale ? 0 : Math.floor(elapsed / 4000)
+  for (let k = 1; k <= replies; k++) {
+    const at = ptAt(sc.time) + k * 4000
+    const i = USAGE_CHAIN.findIndex(([, limit], j) => !outAt[j] && used[j] < limit && (sc.resting?.[j] ?? 0) * 1000 <= k * 4000)
+    if (i < 0) break
+    used[i] += 1
+    if (used[i] >= USAGE_CHAIN[i][1]) outAt[i] = at
   }
-  const last = daily[daily.length - 1]
-  const total = daily.reduce((s, d) => s + d.requests, 0)
-  const step = days <= 70 ? 1 : days <= 730 ? 7 : 30
-  const series = step === 1 ? daily : daily.reduce((acc: any[], d, i) => {
-    if (i % step === 0) acc.push({ ...d, by_model: { ...d.by_model } })
-    else {
-      const b = acc[acc.length - 1]
-      b.requests += d.requests; b.tokens += d.tokens
-      b.peak_tpm = Math.max(b.peak_tpm, d.peak_tpm)
-      for (const k of Object.keys(d.by_model)) b.by_model[k] = (b.by_model[k] || 0) + d.by_model[k]
-    }
-    return acc
-  }, [])
-  const by_model = roster
-    .map((m) => {
-      const reqW = daily.reduce((s, d) => s + (d.by_model[m.model] || 0), 0)
-      return {
-        model: m.model, cap: m.cap, role: m.role, requests: reqW, tokens: m.tpr ? reqW * m.tpr : 0,
-        requests_today: last.by_model[m.model] || 0,
-        tokens_today: (last.by_model[m.model] || 0) * (m.tpr || 0),
-        peak_rpm_today: m.peak || 0,
-      }
-    })
-    .sort((a, b) => b.requests - a.requests)
-  const shares: [string, number][] = [
-    ['conversation', 0.34], ['embed', 0.26], ['summary', 0.14], ['persona', 0.09],
-    ['glossary', 0.06], ['vision', 0.05], ['grounding', 0.03], ['proactivity', 0.03], ['canary', 0.01],
-  ]
-  return {
-    window_days: days,
-    all_time: allTime,
-    start: daily[0].day,
-    bucket_days: step,
-    today: { requests: last.requests, tokens: last.tokens, grounding: 38 },
-    peak: { rpm: { value: 8, cap: 10, model: 'gemini-flash-latest' }, tpm: last.peak_tpm, tpm_limit: 1000000 },
-    daily: series,
-    by_model,
-    by_source: shares.map(([source, f]) => ({ source, requests: Math.round(total * f) })).sort((a, b) => b.requests - a.requests),
-  }
+  return { sc, t, used, outAt, restLeft, replies }
 }
 
 function mockLive() {
-  const jitter = (n: number) => Math.max(0, Math.round(n + (Math.sin(Date.now() / 3000) * 2)))
+  const { sc, t, used, outAt, restLeft, replies } = usageScene()
+  const reset = ptAt('00:00', 1)
+  const chain = USAGE_CHAIN.map(([model, limit], i) => {
+    const resting = !outAt[i] && restLeft(i) > 0
+    return {
+      model, requests: used[i], tokens: used[i] * 1420, limit, limit_from_google: false,
+      state: outAt[i] ? 'spent' : resting ? 'resting' : 'ok',
+      back_in: resting ? Math.ceil(restLeft(i)) : null,
+      spent_at: outAt[i] ? new Date(outAt[i]!).toISOString() : null,
+    }
+  })
   return {
-    ts: new Date().toISOString(),
-    exhausted: BOT === 'limited',
-    models: [
-      { model: 'gemini-flash-latest', rpm: jitter(7), cap: 10, cooldown: false },
-      { model: 'gemini-flash-lite-latest', rpm: jitter(4), cap: 15, cooldown: false },
-      { model: 'gemini-embedding-001', rpm: jitter(9), cap: 100, cooldown: false },
-    ],
+    ts: new Date(t).toISOString(),
+    exhausted: BOT === 'limited' || chain.every((m) => m.state !== 'ok'),
+    day: ptDay(),
+    day_start: new Date(ptAt('00:00')).toISOString(),
+    reset_at: new Date(reset).toISOString(),
+    chain,
+    memory_search: { model: 'gemini-embedding-001', requests: sc.embed + Math.floor(replies * 0.4), limit: 1000, spent: false },
+    web_search: { requests: sc.web, limit: 500, spent: false },
+  }
+}
+
+function mockSummary() {
+  const { sc, used } = usageScene()
+  const total = used.reduce((a, b) => a + b, 0)
+  const base = Object.values(USAGE_SPLIT_TODAY).reduce((a, b) => a + b, 0)
+  // Today's split scales with the scene; the rounding drift lands on replies so it sums.
+  const today = Object.fromEntries(Object.entries(USAGE_SPLIT_TODAY).map(([k, v]) => [k, Math.round((v * total) / base)]))
+  today.conversation += total - Object.values(today).reduce((a, b) => a + b, 0)
+  const values = [...USAGE_PAST, total]
+  return {
+    day: ptDay(),
+    features: { today, 7: USAGE_SPLIT_7, 30: USAGE_SPLIT_30 },
+    yesterday: { requests: Math.round(total * 0.918), tokens: Math.round(total * 1420 * 1.04) },
+    busiest_minute: { model: sc.peak.model, requests: sc.peak.v, limit: sc.peak.cap, at: new Date(ptAt(sc.peak.at)).toISOString() },
+    last_ran_out: new Date(sc.ranOutToday ? ptAt(sc.ranOutToday) : ptAt('21:12', -4)).toISOString(),
+    days: values.map((v, k) => {
+      const offset = k - (values.length - 1)
+      const ranOut = offset === 0 ? sc.ranOutToday : v >= 4000 ? '21:12' : null
+      return { day: ptDay(offset), requests: v, ran_out_at: ranOut ? new Date(ptAt(ranOut, offset)).toISOString() : null }
+    }),
   }
 }
 
@@ -453,6 +518,8 @@ let MOCK_ROLE = ''
 // is a VM part-way through moving onto a release, the one state a bot on this machine can't
 // get into.
 let BOT = ''
+// `USAGE_STATE` opens the Usage page on one of its states (see USAGE_SCENES).
+let USAGE = ''
 const MOCK_OK = { available: true, running: true, ready: true, can_power: true }
 function mockBot() {
   switch (BOT) {
@@ -820,11 +887,12 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
     }
     return send(MOCK_PIN)
   }
-  if (url.startsWith('/api/usage/live')) return send(mockLive())
-  if (url.startsWith('/api/usage/summary')) {
-    const m = url.match(/days=(\d+)/)
-    return send(mockSummary(m ? Number(m[1]) : 7))
+  if (url.startsWith('/api/usage/live')) {
+    // Not responding: the first reading lands, and then the bot stops answering.
+    if (USAGE === 'stale' && ++usageLivePolls > 2) return send({ detail: 'Bad gateway' }, 502)
+    return send(mockLive())
   }
+  if (url.startsWith('/api/usage/summary')) return send(mockSummary())
 
   // ── Config pages ────────────────────────────────────────────────────
   // Writes are accepted and discarded: the fixture exists to render states, not to
