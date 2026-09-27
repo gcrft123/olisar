@@ -7,7 +7,7 @@ import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
 import { Modal, confirmDialog, fromToasts, promptDialog, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
-import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
+import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, serverDate, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
 
 export function PageHead(props: { icon: IconName; title: string; sub?: string; doc?: string }) {
   const Glyph = Icon[props.icon]
@@ -1419,7 +1419,7 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   const entries: any[] = data?.entries ?? []
   const when = (ts: string | null) => {
     if (!ts) return ''
-    const d = new Date(ts)
+    const d = serverDate(ts)
     return isNaN(+d) ? '' : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   }
   // clear_memory stores its deleted-row counts in `after`; other actions carry other
@@ -1760,9 +1760,9 @@ function span(ms: number): string {
 // question a schedule creates — whether the thing is actually running.
 function sourceMeta(s: any): string {
   const bits = [String(s.type), `${s.chunks} chunks`]
-  const checked = s.last_checked_at ? Date.parse(s.last_checked_at) : NaN
+  const checked = s.last_checked_at ? serverDate(s.last_checked_at).getTime() : NaN
   if (Number.isFinite(checked)) bits.push(`checked ${span(Date.now() - checked)} ago`)
-  const next = s.refresh_hours > 0 && s.next_refresh_at ? Date.parse(s.next_refresh_at) : NaN
+  const next = s.refresh_hours > 0 && s.next_refresh_at ? serverDate(s.next_refresh_at).getTime() : NaN
   if (Number.isFinite(next)) {
     const due = next - Date.now()
     bits.push(due <= 0 ? 'next read due' : `next read in ${span(due)}`)
@@ -3136,7 +3136,8 @@ function RolesChip({ count, roles, colourOf }: { count: number; roles: MemberRol
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
-  try { return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) } catch { return '—' }
+  const d = serverDate(iso)
+  return isNaN(+d) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
 export function Members() {

@@ -8,7 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type Keyb
 import { api } from './api'
 import { Icon, CloseX } from './icons'
 import { Modal, toast, confirmDialog } from './overlays'
-import { Badge, Spinner, useDirtyGuard } from './ui'
+import { Badge, Spinner, serverDate, useDirtyGuard } from './ui'
 
 type DevTab = 'extensions' | 'reports' | 'blocked' | 'moderation' | 'logs' | 'funnel' | 'policy'
 
@@ -37,7 +37,7 @@ function ListingBadge({ status }: { status: string }) {
 }
 function fmtDate(s?: string): string {
   if (!s) return '—'
-  const d = new Date(s.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z'))
+  const d = serverDate(s)
   return isNaN(+d) ? s : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 function Loading() { return <Spinner /> }

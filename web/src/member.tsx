@@ -16,7 +16,7 @@ import { botName } from './botname'
 import { CloseX, Icon } from './icons'
 import { confirmDialog, promptDialog, toast } from './overlays'
 import { SettingsModal, clearPendingReport, pendingReport } from './settings'
-import { DonutChart, Segmented, Spinner, Toggle, U_SERIES, uReq, type DonutItem } from './ui'
+import { DonutChart, Segmented, Spinner, Toggle, U_SERIES, serverDate, uReq, type DonutItem } from './ui'
 
 type Server = { id: string; name: string; icon: string }
 type Session = { user_id: string; username: string; avatar: string; csrf: string; servers: Server[] }
@@ -50,13 +50,13 @@ const KIND_LABEL: Record<string, string> = {
 
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return ''
-  const d = new Date(iso)
+  const d = serverDate(iso)
   if (Number.isNaN(d.getTime())) return ''
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }
 
 function fmtWhen(iso: string): { day: string; time: string } {
-  const d = new Date(iso)
+  const d = serverDate(iso)
   if (Number.isNaN(d.getTime())) return { day: '', time: '' }
   const today = new Date()
   const sameDay = d.toDateString() === today.toDateString()
@@ -94,7 +94,7 @@ function localTimeOfDay(hoursUtc: number[] | undefined): Breakdown[] {
 
 function fmtAgo(iso: string | null): string {
   if (!iso) return ''
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400e3)
+  const days = Math.floor((Date.now() - serverDate(iso).getTime()) / 86400e3)
   if (days <= 0) return 'today'
   if (days === 1) return 'yesterday'
   if (days < 30) return `${days} days ago`
@@ -384,8 +384,8 @@ export function MemberPortal({ session, onSignOut }: { session: Session; onSignO
   }, [timeOfDay])
   const c = overview?.counts
   const s = overview?.settings
-  const pauseHours = s?.pause_until && new Date(s.pause_until) > new Date()
-    ? (new Date(s.pause_until).getTime() - Date.now() > 36 * 3600e3 ? 168 : 24)
+  const pauseHours = s?.pause_until && serverDate(s.pause_until).getTime() > Date.now()
+    ? (serverDate(s.pause_until).getTime() - Date.now() > 36 * 3600e3 ? 168 : 24)
     : 0
 
   return (
