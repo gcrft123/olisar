@@ -55,8 +55,9 @@ def create_app() -> FastAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
-    # Outermost: a write from a page that isn't the console is refused before anything else
-    # sees it. A worker's private port is as reachable from a web page as the console's is.
+    # Outermost: a page that rebound its own name to loopback, and a write from a page that
+    # isn't the console, are refused before anything else sees them. A worker's private port
+    # is as reachable from a web page as the console's is.
     app.add_middleware(ConsoleGuard)
 
     app.include_router(auth_router)

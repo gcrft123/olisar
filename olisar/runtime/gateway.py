@@ -732,8 +732,9 @@ def create_app(pool: Pool) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # Outermost: a write from any page but the console's own (see ``is_foreign_origin``) is
-    # refused here, before it can reset a bot or reach one.
+    # Outermost: a page that rebound its own name to loopback (``is_rebound``), and a write
+    # from any page but the console's own (``is_foreign_origin``), are refused here, before
+    # they can read a bot's answers, reset a bot, or reach one.
     app.add_middleware(ConsoleGuard)
     app.include_router(_bots_router(pool))
 
