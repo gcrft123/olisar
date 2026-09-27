@@ -470,6 +470,8 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 [dc07313] — The Gemini key fields in setup and on the API keys page show a key starting with `AQ.`, the format Google AI Studio hands out now, instead of the older `AIza`.
 
+[dfe71f5] — When the model types a tool call as its reply, like `react(emoji="🔥")` or `[reacted 🔥]`, Olisar reacts with that emoji or answers in words instead of posting the call to the channel.
+
 ## [1.5.0] — 2026-09-21
 
 A tool call runs the moment the model decides to make one. For most of them that is the point, but a few are worth a person's say-so first, and there was no way to ask for one. This release adds the asking: a 4-digit PIN, set in the console, that a tool call can be held against until someone types it into a Discord form.
