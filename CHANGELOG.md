@@ -192,6 +192,16 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 [4d31b08] — The Settings close button's tooltip shows Esc as a key.
 
+[c6121a5] — Bot power, the web link, who's signed in, and Settings and Log out are in a drawer at the bottom of the console's sidebar, opened with a tap or by dragging it up.
+
+[c6121a5] — Closed, the drawer still shows whether the bot is online.
+
+[d00b7e0] — The closed drawer shows the bot's status as a badge, and its top edge glows in the badge's color.
+
+[d00b7e0] — While the bot starts or stops, a light slides back and forth along the drawer's edge, and while it's rate-limited, the glow breathes.
+
+[b522f79] — A server's own console says Updating in the sidebar drawer while the desktop app moves the server onto a new release, and keeps saying it while the new version starts.
+
 [296e0c0] — Settings → General no longer describes the Size control.
 
 [c6d7bd8] — Stable versions have two numbers from 2.0 on, and a beta is numbered after the release it leads up to, as in 2.0.beta-1.

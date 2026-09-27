@@ -54,8 +54,8 @@ The tabs on the left:
 - [API keys](tab:keys) — your own Gemini and Cloudflare keys.
 - [Usage](tab:usage) — how much of the free model quota you're using.
 
-The sidebar footer has [Settings](#settings) too: app-wide preferences that aren't tied to any one
-server.
+The drawer at the bottom of the sidebar has [Settings](#settings) too: app-wide preferences that aren't
+tied to any one server. Tap it or drag it up to open it.
 `,
   },
   {
@@ -85,7 +85,7 @@ sets that server up with sensible defaults and it appears in your switcher. Conf
 
 :::tip Don't see a server you just got access to?
 Olisar checks your Manage Server permissions when you sign in. If you were just given it (or just added
-the bot), press **Log out** in the sidebar footer and sign in again so Olisar picks it up.
+the bot), press **Log out** in the drawer at the bottom of the sidebar and sign in again so Olisar picks it up.
 :::
 
 ## What's per-server vs. shared
@@ -365,8 +365,10 @@ volume on the VM, not in any cloud. The full reference is in
 
 The desktop app keeps the two in step. Whenever it starts up on a newer version than the server —
 which is what every launch after the app updates itself looks like — it applies that release to the
-VM as well, and the control panel says **Updating…** while it does. If the new version fails to
-start, the previous one is restored automatically. Your data is kept either way.
+VM as well, and the control panel says **Updating…** while it does. So does the server's own
+console, in the drawer at the bottom of its sidebar, and it can't be reached for a minute or so
+while the new version starts. If the new version fails to start, the previous one is restored
+automatically. Your data is kept either way.
 
 The server follows the app's [update channel](#settings). On **Beta**, it runs the betas
 too. Switching back to **Stable** never moves it backwards: it stays on the beta it has until a
@@ -412,14 +414,14 @@ once Discord has it.
 
 :::tip Flip it on and off from the console
 Once it's been set up once, you don't need the tray to toggle it. **Settings → Remote access** (the
-**Settings** button in the sidebar footer) shows the current status — Online / Off — and an **on/off
+**Settings** button in the drawer at the bottom of the sidebar) shows the current status — Online / Off — and an **on/off
 switch** that reuses the auth key from setup, so you can take the public link down or bring it back
 without re-entering anything. The same panel lists who has signed in.
 :::
 
 ## The web link
 
-Once remote access is on, the **sidebar footer** shows the public address: **"Open from the web"** with the
+Once remote access is on, the drawer at the bottom of the sidebar shows the public address: **"Open from the web"** with the
 \`…ts.net\` link and a **Copy** button. Share that link with your other admins; each signs in with their own
 Discord account and only sees the servers where they have **Manage Server** (see [Servers](#servers)).
 
@@ -490,7 +492,7 @@ with a new web address; register its \`…/auth/callback\` in that bot's Discord
     id: 'settings',
     title: 'Console settings',
     body: `
-The **Settings** button in the sidebar footer, next to **Log out**, opens an app-wide settings popup.
+The **Settings** button in the drawer at the bottom of the sidebar, next to **Log out**, opens an app-wide settings popup.
 Unlike the tabs above it, nothing here is per-server.
 
 ## General
