@@ -6,7 +6,8 @@ Two cooperating mechanisms:
 * **Reactive cooldown** — when the API returns 429 for a model, it's parked for
   a short while so the client falls back to the next-best model (see models.py)
   instead of hammering the limited one. A 429 that says the day's quota is spent
-  parks the model until Google's reset instead (``mark_spent``).
+  parks the model until Google's reset instead (``mark_spent``), for the API key
+  Google refused: a different key is a different quota.
 
 The client uses `state()` + `reserve()` + `penalize()` for the fallback chain;
 single-model callers (embeddings, search) use the blocking `acquire()`.
@@ -15,6 +16,7 @@ single-model callers (embeddings, search) use the blocking `acquire()`.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
 from collections import defaultdict, deque
@@ -22,6 +24,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import select
 
+from olisar import runtime_keys
 from olisar.db.engine import session_scope
 from olisar.db.models import GeminiUsage, UsageDay, UsageHour, UsageMinutePeak, UsageSource
 from olisar.gemini.models import RANKED_NAMES, rpm_for
@@ -32,6 +35,19 @@ log = logging.getLogger("olisar.gemini.ratelimit")
 # How long to avoid a model after it returns 429. Most free-tier 429s are
 # per-minute; this self-heals while keeping replies fast via fallback.
 COOLDOWN_SECONDS = 120.0
+
+# How often a model Google refused for the day is asked again anyway. The refusal holds
+# until midnight Pacific on a free-tier key, but turning on billing lifts it at once, and
+# without a retry the bot would sit out the rest of the day regardless.
+PROBE_SECONDS = 3600.0
+
+
+def key_id(key: str | None) -> str | None:
+    """A short one-way fingerprint of an API key, so a refusal can be tied to the key it
+    was for without the key itself being stored anywhere."""
+    if not key:
+        return None
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
 class RateLimitExceeded(Exception):
@@ -47,10 +63,15 @@ class RateLimiter:
     def __init__(self) -> None:
         self._calls: dict[str, deque[float]] = defaultdict(deque)
         self._cooldown_until: dict[str, float] = {}
-        # Models Google has refused for the rest of its day: the quota day and when. This
-        # used to be an ordinary two-minute cooldown, so a model that was out for the day
-        # was asked again every two minutes all evening, each time a wasted round trip.
-        self._spent: dict[str, tuple[date, datetime]] = {}
+        # Models Google has refused for the rest of its day: the quota day, when, and the
+        # fingerprint of the key it refused. This used to be an ordinary two-minute
+        # cooldown, so a model that was out for the day was asked again every two minutes
+        # all evening, each time a wasted round trip.
+        self._spent: dict[str, tuple[date, datetime, str | None]] = {}
+        # When each parked model may be asked again (monotonic); see PROBE_SECONDS.
+        self._probe_at: dict[str, float] = {}
+        # Fingerprint of the API key requests go out with (see use_key).
+        self._key: str | None = None
         # Global (all-model) rolling 60s window of (timestamp, tokens), for peak TPM.
         self._tokens: deque[tuple[float, int]] = deque()
 
@@ -71,21 +92,70 @@ class RateLimiter:
             return "rpm_full"
         return "ok"
 
+    @property
+    def key(self) -> str | None:
+        """Fingerprint of the API key in use (``key_id``), None before one is known."""
+        return self._key
+
+    def use_key(self, key: str | None) -> None:
+        """Record which key requests go out with. The daily quota belongs to the key's
+        Google Cloud project, so a new key un-parks every model the old one ran out on."""
+        if key == self._key:
+            return
+        dropped = [m for m, entry in self._spent.items() if entry[2] != key]
+        for model in dropped:
+            del self._spent[model]
+            self._probe_at.pop(model, None)
+        if dropped and self._key is not None:
+            log.warning(
+                "the Gemini API key changed; %d model(s) parked for the old key can take "
+                "requests again", len(dropped),
+            )
+        self._key = key
+
     def spent_at(self, model: str) -> datetime | None:
         """When Google refused ``model`` for the rest of today, or None if it hasn't. A
-        refusal from an earlier day has been cleared by the reset."""
+        refusal from an earlier day has been cleared by the reset, and one for another key
+        says nothing about this one."""
         entry = self._spent.get(model)
         if entry is None:
             return None
-        if entry[0] != quota_day():
+        if entry[0] != quota_day() or entry[2] != self._key:
             del self._spent[model]
+            self._probe_at.pop(model, None)
             return None
         return entry[1]
 
     def exhaust(self, model: str, at: datetime | None = None) -> None:
-        """Park ``model`` until Google's daily reset."""
+        """Park ``model`` until Google's daily reset, or until it's next worth asking again
+        (``claim_probe``). Refusing a model that's already parked keeps when it first ran
+        out and only pushes the next retry back."""
         at = at or datetime.now(timezone.utc)
-        self._spent[model] = (quota_day(at), at)
+        since = (datetime.now(timezone.utc) - at).total_seconds()
+        self._probe_at[model] = time.monotonic() + max(0.0, PROBE_SECONDS - since)
+        first = self.spent_at(model)
+        if first is not None and quota_day(first) == quota_day(at):
+            at = min(at, first)
+        self._spent[model] = (quota_day(at), at, self._key)
+
+    def claim_probe(self, model: str) -> bool:
+        """Whether to spend one request asking Google again about a model it refused for the
+        day: true about once an hour per model, so billing turned on this afternoon is
+        noticed this afternoon. Claiming pushes the next one back an hour, so a burst of
+        replies sends one request, not one each."""
+        if self.spent_at(model) is None:
+            return False
+        now = time.monotonic()
+        if now < self._probe_at.get(model, 0.0):
+            return False
+        self._probe_at[model] = now + PROBE_SECONDS
+        return True
+
+    def recover(self, model: str) -> bool:
+        """Google took a request for ``model``, so it isn't out after all. True if it was
+        parked."""
+        self._probe_at.pop(model, None)
+        return self._spent.pop(model, None) is not None
 
     def chain_spent(self) -> bool:
         """True when Google has refused every model in the chat chain for the day."""
@@ -137,7 +207,7 @@ class RateLimiter:
         can't fall back (embeddings, grounded search). Raises RateLimitExceeded rather
         than waiting for the daily reset, which can be most of a day away."""
         while True:
-            if self.spent_at(model) is not None:
+            if self.spent_at(model) is not None and not self.claim_probe(model):
                 raise RateLimitExceeded(model, "daily")
             now = time.monotonic()
             cooldown = self._cooldown_until.get(model, 0.0)
@@ -164,6 +234,8 @@ async def record_usage(
     (see olisar.gemini.quota), so it lines up with the daily limit being counted."""
     try:
         limiter = get_rate_limiter()
+        if limiter.recover(model):
+            log.warning("model %s is taking requests again", model)
         rpm = limiter.current(model)          # this model's instantaneous RPM
         tpm = limiter.record_tokens(tokens)   # global tokens-in-60s after this call
         now = datetime.now(timezone.utc)
@@ -193,6 +265,11 @@ async def record_usage(
                 if rpm > row.peak_rpm:
                     row.peak_rpm = rpm
                     row.peak_rpm_at = now
+                if row.exhausted_at is not None and row.exhausted_key == limiter.key:
+                    # Google took a request after refusing this key for the day (billing
+                    # turned on, most likely), so a restart mustn't park it again.
+                    row.exhausted_at = None
+                    row.exhausted_key = None
 
             hrow = await session.scalar(
                 select(UsageHour).where(
@@ -226,18 +303,28 @@ async def record_usage(
         log.exception("failed to record gemini usage")
 
 
-async def mark_spent(model: str, limit: int | None = None) -> None:
+async def mark_spent(model: str, limit: int | None = None, *, key: str | None = None) -> None:
     """Google refused ``model`` for the rest of its day: park it until the reset, and keep
     the refusal (and the limit Google named) for the Usage page. Parking happens first and
-    can't fail; the record is best-effort."""
+    can't fail; the record is best-effort.
+
+    ``key`` is the fingerprint (``key_id``) of the key the refused request went out with,
+    by default the one in use. A refusal for a key that has since been replaced is
+    recorded but parks nothing."""
     limiter = get_rate_limiter()
+    kid = key if key is not None else limiter.key
     now = datetime.now(timezone.utc)
-    limiter.exhaust(model, now)
-    log.warning(
-        "model %s is out of requests for the day%s; parked until the reset at %s",
-        model, f" (Google's limit: {limit})" if limit else "",
-        next_reset(now).isoformat(timespec="minutes"),
-    )
+    if kid == limiter.key:
+        again = limiter.spent_at(model) is not None
+        limiter.exhaust(model, now)
+        if again:
+            log.info("model %s is still out of requests for today; asking again in an hour", model)
+        else:
+            log.warning(
+                "model %s is out of requests for the day%s; parked until the reset at %s",
+                model, f" (Google's limit: {limit})" if limit else "",
+                next_reset(now).isoformat(timespec="minutes"),
+            )
     day = quota_day(now)
     try:
         async with session_scope() as session:
@@ -252,8 +339,9 @@ async def mark_spent(model: str, limit: int | None = None) -> None:
                     grounding_count=0, peak_rpm=0,
                 )
                 session.add(row)
-            if row.exhausted_at is None:
+            if row.exhausted_at is None or row.exhausted_key != kid:
                 row.exhausted_at = now
+                row.exhausted_key = kid
             if limit:
                 row.quota_limit = limit
             if model in RANKED_NAMES and limiter.chain_spent():
@@ -267,15 +355,30 @@ async def mark_spent(model: str, limit: int | None = None) -> None:
         log.exception("failed to record that %s ran out", model)
 
 
+async def current_key() -> str | None:
+    """Fingerprint of the Gemini key in effect now (the dashboard's, else .env's), made the
+    limiter's, so a key pasted into the dashboard un-parks the old key's models at once."""
+    kid = key_id(await runtime_keys.gemini_api_key())
+    get_rate_limiter().use_key(kid)
+    return kid
+
+
 async def restore_spent() -> int:
-    """Park the models Google already refused today, so a restart doesn't spend a request
-    on each of them to be told again. Returns how many."""
+    """Park the models Google already refused today for the key in use, so a restart
+    doesn't spend a request on each of them to be told again. A refusal for another key, or
+    one recorded before refusals carried their key, is left out: that quota says nothing
+    about this key's. Returns how many."""
+    kid = await current_key()
+    if kid is None:
+        return 0
     limiter = get_rate_limiter()
     async with session_scope() as session:
         rows = (
             await session.scalars(
                 select(GeminiUsage).where(
-                    GeminiUsage.day == quota_day(), GeminiUsage.exhausted_at.is_not(None)
+                    GeminiUsage.day == quota_day(),
+                    GeminiUsage.exhausted_at.is_not(None),
+                    GeminiUsage.exhausted_key == kid,
                 )
             )
         ).all()

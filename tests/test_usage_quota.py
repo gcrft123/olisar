@@ -29,7 +29,7 @@ from olisar.gemini import rate_limiter as rl
 from olisar.gemini.client import GeminiClient
 from olisar.gemini.models import RANKED, RANKED_NAMES
 from olisar.gemini.quota import day_start, next_reset, quota_day, quota_hour, read_refusal
-from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded
+from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded, key_id
 
 
 def _quota_429(quota_id: str, value: str = "250", retry: str | None = None):
@@ -125,6 +125,57 @@ class LimiterTests(unittest.TestCase):
         self.assertAlmostEqual(limiter.back_in(RANKED_NAMES[0]), 48, delta=1)
         self.assertEqual(limiter.back_in(RANKED_NAMES[1]), 0)
 
+    def test_a_new_key_unparks_what_the_old_one_ran_out_on(self):
+        """The quota is the key's project's; another key's refusal says nothing about it."""
+        limiter = RateLimiter()
+        limiter.use_key(key_id("KEY-A"))
+        limiter.exhaust(RANKED_NAMES[0])
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
+        limiter.use_key(key_id("KEY-B"))
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "ok")
+        self.assertFalse(limiter.chain_spent())
+
+    @staticmethod
+    def _an_hour_passes(limiter, model):
+        limiter._probe_at[model] -= rl.PROBE_SECONDS
+
+    def test_a_parked_model_is_asked_again_about_once_an_hour(self):
+        """So billing turned on in the afternoon is noticed before midnight."""
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0])
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]))
+        self._an_hour_passes(limiter, RANKED_NAMES[0])
+        self.assertTrue(limiter.claim_probe(RANKED_NAMES[0]))
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]), "one probe per hour, not one per reply")
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[1]), "only parked models are probed")
+
+    def test_the_hour_counts_from_the_refusal_not_the_restart(self):
+        limiter = RateLimiter()
+        now = datetime.now(timezone.utc)
+        ago = min(now - day_start(quota_day(now)), timedelta(minutes=30))  # still today
+        limiter.exhaust(RANKED_NAMES[0], now - ago)
+        due_in = limiter._probe_at[RANKED_NAMES[0]] - rl.time.monotonic()
+        self.assertAlmostEqual(due_in, rl.PROBE_SECONDS - ago.total_seconds(), delta=2)
+
+    def test_refused_again_keeps_when_it_first_ran_out(self):
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0])
+        first = limiter.spent_at(RANKED_NAMES[0])
+        self._an_hour_passes(limiter, RANKED_NAMES[0])
+        self.assertTrue(limiter.claim_probe(RANKED_NAMES[0]))
+        limiter.exhaust(RANKED_NAMES[0], first + timedelta(seconds=1))
+        self.assertEqual(limiter.spent_at(RANKED_NAMES[0]), first)
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]), "the refusal pushes the next probe back")
+
+    def test_acquire_takes_the_hourly_probe(self):
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-embedding-001")
+        self._an_hour_passes(limiter, "gemini-embedding-001")
+        asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001"), 1))
+        with self.assertRaises(RateLimitExceeded):
+            asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001"), 1))
+
 
 class ClientTests(unittest.TestCase):
     def _run(self, first_error, *, grounding=0):
@@ -147,7 +198,7 @@ class ClientTests(unittest.TestCase):
 
     def test_a_daily_429_parks_the_model_until_the_reset(self):
         limiter, spent = self._run(_quota_429(DAILY, "250"))
-        spent.assert_awaited_once_with(RANKED_NAMES[0], 250)
+        spent.assert_awaited_once_with(RANKED_NAMES[0], 250, key=None)
         limiter.penalize.assert_not_called()
 
     def test_a_per_minute_429_rests_it_as_before(self):
@@ -171,10 +222,18 @@ class _Db(unittest.IsolatedAsyncioTestCase):
             await conn.run_sync(Base.metadata.create_all)
         self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
         self.limiter = RateLimiter()
+        # The key in effect, as the dashboard or .env would give it. The limiter learns it
+        # from the client's first call.
+        self.key = {"value": "KEY-A"}
+        self.limiter.use_key(key_id(self.key["value"]))
         self._patches = [
             patch.object(rl, "session_scope", self.scope),
             patch.object(usage_router, "session_scope", self.scope),
             patch.object(rl, "_rate_limiter", self.limiter),
+            patch.object(
+                rl.runtime_keys, "gemini_api_key",
+                AsyncMock(side_effect=lambda: self.key["value"]),
+            ),
         ]
         for p in self._patches:
             p.start()
@@ -224,6 +283,101 @@ class RecordingTests(_Db):
         with patch.object(rl, "_rate_limiter", fresh):
             self.assertEqual(await rl.restore_spent(), 1)
         self.assertEqual(fresh.state(RANKED_NAMES[0]), "spent")
+
+    async def test_a_refusal_keeps_a_fingerprint_of_the_key_never_the_key(self):
+        await rl.mark_spent(RANKED_NAMES[0])
+        (row,) = await self.rows(GeminiUsage)
+        self.assertEqual(row.exhausted_key, key_id("KEY-A"))
+        self.assertNotIn("KEY-A", row.exhausted_key)
+
+    async def test_a_restart_on_a_new_key_parks_nothing(self):
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.key["value"] = "KEY-B"
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+        self.assertEqual(fresh.state(RANKED_NAMES[0]), "ok")
+
+    async def test_a_refusal_recorded_before_keys_were_kept_isnt_restored(self):
+        async with self.scope() as session:
+            session.add(GeminiUsage(
+                day=quota_day(), model=RANKED_NAMES[0], exhausted_at=datetime.now(timezone.utc),
+            ))
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_a_request_google_takes_clears_the_refusal(self):
+        """Billing turned on: the hourly retry went through, so it's no longer out."""
+        await rl.mark_spent(RANKED_NAMES[0], 250)
+        await rl.record_usage(RANKED_NAMES[0], 10)
+        self.assertEqual(self.limiter.state(RANKED_NAMES[0]), "ok")
+        (row,) = await self.rows(GeminiUsage)
+        self.assertIsNone(row.exhausted_at)
+        self.assertEqual(row.quota_limit, 250)
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_a_refusal_for_a_replaced_key_parks_nothing(self):
+        await rl.mark_spent(RANKED_NAMES[0], key=key_id("OLD-KEY"))
+        self.assertEqual(self.limiter.state(RANKED_NAMES[0]), "ok")
+
+
+class KeySwapTests(_Db):
+    """The whole path: Google refuses key A for the day, the operator pastes key B."""
+
+    async def _ask(self, client):
+        from google.genai import types
+
+        return await client._raw_generate(
+            contents=[types.Content(role="user", parts=[types.Part(text="hi")])],
+            config=types.GenerateContentConfig(), model=RANKED_NAMES[0],
+        )
+
+    async def test_a_new_key_is_tried_at_once(self):
+        from olisar.gemini import client as client_mod
+
+        sent: list[tuple[str, str]] = []
+
+        async def generate(*, model, contents, config):
+            sent.append((self.key["value"], model))
+            if self.key["value"] == "KEY-A":
+                raise _quota_429(DAILY, "20")
+            ok = MagicMock()
+            ok.usage_metadata.total_token_count = 5
+            return ok
+
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=generate)
+        with patch.object(client_mod.genai, "Client", return_value=sdk), patch.object(
+            client_mod.runtime_keys, "gemini_api_key", AsyncMock(side_effect=lambda: self.key["value"]),
+        ):
+            client = GeminiClient()
+            with self.assertRaises(genai_errors.APIError):
+                await self._ask(client)
+            self.assertTrue(self.limiter.chain_spent())
+            self.assertEqual(len(sent), len(RANKED_NAMES))
+
+            self.key["value"] = "KEY-B"
+            sent.clear()
+            await self._ask(client)
+            self.assertEqual(sent, [("KEY-B", RANKED_NAMES[0])])
+
+            # And a restart on key B doesn't park anything key A ran out of.
+            fresh = RateLimiter()
+            with patch.object(rl, "_rate_limiter", fresh):
+                self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_the_usage_page_follows_a_key_pasted_into_the_dashboard(self):
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.key["value"] = "KEY-B"
+        with patch.object(usage_router, "get_rate_limiter", return_value=self.limiter):
+            data = await usage_router.live(None)
+        self.assertEqual({m["state"] for m in data["chain"]}, {"ok"})
+        self.assertFalse(data["exhausted"])
 
 
 class EndpointTests(_Db):
