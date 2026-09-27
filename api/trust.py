@@ -11,7 +11,9 @@ sidecar always adds to funnel traffic; that way a remote visitor can never masqu
 local to reach operator-machine-only controls (tunnel toggle, setup, the ``.env`` prefill).
 
 Being on loopback doesn't make a request the operator's, either: every web page the operator
-has open can send one. ``ConsoleGuard`` refuses what a page other than the console sends.
+has open can send one. ``ConsoleGuard`` refuses what a page other than the console sends, and
+what a page reaches loopback through by DNS rebinding (a name of its own that it points at
+127.0.0.1, which makes it same-origin with this server as far as the browser can tell).
 """
 
 from __future__ import annotations
@@ -30,14 +32,15 @@ _Origin = tuple[str, str, int]  # scheme, lowercased host name, port
 
 def is_local_request(request: Request) -> bool:
     """True only for a request made directly to the loopback backend — never one proxied
-    in through the Funnel (which always carries ``X-Forwarded-*`` headers)."""
+    in through the Funnel (which always carries ``X-Forwarded-*`` headers), and never one
+    addressed by a name that isn't loopback (see ``is_rebound``)."""
     host = request.client.host if request.client else ""
     if host not in LOOPBACK:
         return False
     headers = request.headers
     if headers.get("x-forwarded-host") or headers.get("x-forwarded-for") or headers.get("forwarded"):
         return False
-    return True
+    return not is_rebound(request)
 
 
 def require_local_request(request: Request) -> None:
@@ -96,6 +99,25 @@ def _same_origin(a: _Origin, b: _Origin) -> bool:
     return a[0] == b[0] and a[2] == b[2] and a[1] in LOOPBACK and b[1] in LOOPBACK
 
 
+def is_rebound(request: Request) -> bool:
+    """A request straight to loopback, addressed by a name that isn't loopback.
+
+    A page at ``attacker.example`` can have its name resolve to 127.0.0.1 once it has loaded
+    (DNS rebinding). The browser then counts this server as the page's own origin, lets it read
+    every answer, and sends ``Host: attacker.example:<port>``. The operator's console, the
+    desktop shell and the gateway always address us by a loopback name, and a request from
+    the Funnel sidecar carries X-Forwarded-For and its public ``*.ts.net`` Host, so it isn't
+    judged here (it's a remote visitor's, and gets a remote visitor's trust)."""
+    client = request.client.host if request.client else ""
+    if client not in LOOPBACK or request.headers.get("x-forwarded-for"):
+        return False
+    host = request.headers.get("host")
+    if host is None:
+        return False  # not a browser: every browser request names its host
+    auth = _authority(host)
+    return auth is None or auth[0] not in LOOPBACK
+
+
 def is_foreign_origin(request: Request) -> bool:
     """A browser request that changes something, sent by a page other than the one it's
     addressed to.
@@ -125,15 +147,24 @@ def loopback_origin_regex(port: int) -> str:
 
 
 class ConsoleGuard:
-    """ASGI middleware refusing cross-site writes before any route sees them. Pure ASGI rather
-    than ``BaseHTTPMiddleware`` so a streamed answer and ``request.is_disconnected()`` (how a
-    cancelled marketplace publish is noticed) behave as they do without it."""
+    """ASGI middleware refusing, before any route sees them, requests reaching loopback under
+    a rebound name (reads included: reading is what rebinding is for) and cross-site writes.
+    Pure ASGI rather than ``BaseHTTPMiddleware`` so a streamed answer and
+    ``request.is_disconnected()`` (how a cancelled marketplace publish is noticed) behave as
+    they do without it."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http" and is_foreign_origin(Request(scope)):
-            await JSONResponse({"detail": "not from this console"}, status_code=403)(scope, receive, send)
-            return
+        if scope["type"] == "http":
+            request = Request(scope)
+            refusal = (
+                "not addressed to this machine" if is_rebound(request)
+                else "not from this console" if is_foreign_origin(request)
+                else None
+            )
+            if refusal:
+                await JSONResponse({"detail": refusal}, status_code=403)(scope, receive, send)
+                return
         await self.app(scope, receive, send)

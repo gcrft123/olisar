@@ -207,6 +207,21 @@ class ForwardingTests(unittest.IsolatedAsyncioTestCase):
             own = await c.get("/api/echo/x", headers={"origin": "http://localhost:8723"})
             self.assertEqual(own.headers.get("access-control-allow-origin"), "http://localhost:8723")
 
+    async def test_a_page_that_rebinds_its_name_to_loopback_reads_nothing(self) -> None:
+        """DNS rebinding: attacker.example resolves to 127.0.0.1 once its page has loaded, so
+        the browser counts us as that page's own origin. Only its Host gives it away."""
+        async with self.client() as c:
+            for path in ("/api/bots", "/api/echo/x", "/api/health"):
+                r = await c.get(path, headers={"host": "attacker.example:8723"})
+                self.assertEqual(r.status_code, 403, path)
+            for host in ("127.0.0.1:8723", "localhost:8723", "[::1]:8723", "localhost"):
+                r = await c.get("/api/echo/x", headers={"host": host})
+                self.assertEqual(r.status_code, 200, host)
+        # A remote visitor names whatever host they reached; they're marked as remote anyway.
+        async with self.client(peer="192.168.1.20") as c:
+            r = await c.get("/api/echo/x", headers={"host": "olisar.local:8723"})
+        self.assertEqual(r.status_code, 200)
+
     async def test_cannot_delete_the_bot_on_screen_or_the_last_one(self) -> None:
         async with self.client() as c:
             self.assertEqual((await c.delete("/api/bots/default")).status_code, 409)
@@ -229,6 +244,12 @@ class BotPortGuardTests(unittest.IsolatedAsyncioTestCase):
         @app.post("/api/server/reconnect")
         async def reconnect():
             return {"ok": True}
+
+        @app.get("/api/settings/logs")
+        async def logs(request: Request):
+            from api.trust import is_local_request
+
+            return {"local": is_local_request(request)}
 
         # As the bot serves it: trusting X-Forwarded-* from the Funnel sidecar on loopback.
         return ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
@@ -258,6 +279,24 @@ class BotPortGuardTests(unittest.IsolatedAsyncioTestCase):
         # A sidecar that rewrote Host to the backend still reports the public one.
         self.assertEqual(await self.post({**funnel, "host": "127.0.0.1:49152"}), 200)
         self.assertEqual(await self.post({**funnel, "origin": "https://evil.example"}), 403)
+
+    async def get(self, headers: dict) -> httpx.Response:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app(), client=("127.0.0.1", 50000)),
+            base_url="http://127.0.0.1:49152",
+        ) as c:
+            return await c.get("/api/settings/logs", headers=headers)
+
+    async def test_a_rebound_name_reads_nothing(self) -> None:
+        self.assertEqual((await self.get({"host": "attacker.example:49152"})).status_code, 403)
+        mine = await self.get({})
+        self.assertEqual((mine.status_code, mine.json()), (200, {"local": True}))
+        # Behind the Funnel: X-Forwarded-For and the public host. Served, as a remote visitor.
+        funnel = await self.get({
+            "host": "olisar.tail1234.ts.net", "x-forwarded-for": "198.51.100.7",
+            "x-forwarded-proto": "https", "x-forwarded-host": "olisar.tail1234.ts.net",
+        })
+        self.assertEqual((funnel.status_code, funnel.json()), (200, {"local": False}))
 
     def test_the_bots_own_app_carries_the_guard(self) -> None:
         from api.main import create_app
