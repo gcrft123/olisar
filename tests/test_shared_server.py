@@ -39,17 +39,23 @@ from olisar.runtime import remote
 
 HERE = Path(__file__).resolve().parent
 
-# A docker that remembers nothing but logs where it was called from — enough for the update
-# script to "pull", pin a digest, start and pass its health gate. A container it brings up
-# publishes the backend's state.json from its .env: a Tailscale key with "dead" in it is one
-# Tailscale refuses, so that bot's console gets no address, and otherwise the address starts
-# with the device name.
+# A docker that logs where it was called from and remembers only which tag each image was
+# pulled as — enough for the update script to "pull", pin a digest, start and pass its health
+# gate, and for the status probe to read the release a bot runs (every tag is its own image,
+# labeled with that tag, as CI labels them). A container it brings up publishes the backend's
+# state.json from its .env: a Tailscale key with "dead" in it is one Tailscale refuses, so
+# that bot's console gets no address, and otherwise the address starts with the device name.
 DOCKER_STUB = r"""#!/usr/bin/env bash
 echo "$PWD|docker $*" >> "$STUB_LOG"
+IMAGES="$(dirname "$STUB_LOG")/images"  # one file per digest, holding the tag pulled as it
+mkdir -p "$IMAGES"
+digest_of() { printf '%s' "$1" | shasum -a 256 | cut -c1-64; }
+pinned() { grep -m1 'image:' docker-compose.yml 2>/dev/null | awk '{print $2}'; }
 case "$1" in
   compose)
     case "$2" in
       ps) [ -f stopped.stub ] || echo "cid-$(basename "$PWD")" ;;
+      images) pinned ;;
       up)
         if grep -q '^TAILSCALE_AUTH=.*dead' .env 2>/dev/null; then
           printf '{"public_url": "http://127.0.0.1:8000", "tunnel_error": "tsnet.Up: backend: invalid key: API key does not exist"}\n' > state.json.stub
@@ -58,6 +64,10 @@ case "$1" in
           printf '{"public_url": "https://%s.example.ts.net"}\n' "${node:-$(basename "$PWD")}" > state.json.stub
         fi ;;
     esac
+    exit 0 ;;
+  pull)
+    tag="${2##*:}"
+    echo "$tag" > "$IMAGES/$(digest_of "$tag")"
     exit 0 ;;
   exec)
     case "$*" in
@@ -71,13 +81,25 @@ case "$1" in
   inspect)
     case "$3" in
       *State.StartedAt*) echo 'running|healthy|2026-09-26T08:15:02.123456789Z|"2026-09-26T09:14:32.4Z""2026-09-26T09:15:02.5Z"' ;;
-      *Config.Image*) echo "|$(grep -m1 'image:' docker-compose.yml | awk '{print $2}')" ;;
+      *Config.Image*) echo "|$(pinned)" ;;
       *State.Status*) echo running ;;
       *State.Health*) echo healthy ;;
     esac
     exit 0 ;;
   image)
-    [ "$2" = "inspect" ] && echo "ghcr.io/gcrft123/olisar@sha256:$(printf 'a%.0s' $(seq 1 64))"
+    [ "$2" = "inspect" ] || exit 0
+    # docker image inspect --format <fmt> <ref>, the ref by tag or by digest
+    case "$5" in
+      *@sha256:*) digest="${5##*@sha256:}" ;;
+      *) digest="$(digest_of "${5##*:}")" ;;
+    esac
+    tag="$(cat "$IMAGES/$digest" 2>/dev/null)"
+    case "$4" in
+      *revision*) echo "$tag||ghcr.io/gcrft123/olisar@sha256:$digest" ;;  # the status probe
+      *image.version*) echo "$tag" ;;
+      *RepoDigests*) echo "ghcr.io/gcrft123/olisar@sha256:$digest" ;;
+      *) echo "sha256:$digest" ;;
+    esac
     exit 0 ;;
 esac
 exit 0
@@ -356,6 +378,58 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result["ok"])
         self.assertNotIn("docker pull", self.log.read_text())
         self.assertEqual((await remote._load()).server_synced_version, synced)
+
+    def pinned_tag(self, app_dir: str = "olisar") -> str:
+        return json.loads((self.home / app_dir / "versions.json").read_text())["tag"]
+
+    def pulls(self) -> list[str]:
+        lines = self.log.read_text().splitlines() if self.log.exists() else []
+        return [ln.split("docker pull ", 1)[1] for ln in lines if "docker pull" in ln]
+
+    async def test_a_redeploy_leaves_a_server_on_a_newer_release_than_the_app_s_channel(self) -> None:
+        """Re-running setup (or moving a bot onto its server) pinned whatever the app's channel
+        offered: switched from beta to stable, that put the server back on the older stable
+        release. It stays on its beta, and the redeploy's new .env still reaches it."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        self.release, self.channel = "v2.1.beta-1", "beta"
+        self.assertTrue((await remote.deploy("127.0.0.1", "tester", self.env_file("111")))["ok"])
+        self.assertEqual(self.pinned_tag(), "v2.1.beta-1")
+
+        self.release, self.channel = "v2.0", "stable"
+        self.log.write_text("")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("111", node="everest"))
+        self.assertTrue(again["ok"], again)
+        self.assertIn("2.1.beta-1", again["log"])
+        self.assertEqual(self.pinned_tag(), "v2.1.beta-1")
+        self.assertEqual(self.pulls(), ["ghcr.io/gcrft123/olisar:v2.1.beta-1"])  # its own tag
+        self.assertIn("compose up -d", self.log.read_text())
+        self.assertEqual((await remote.status())["url"], "https://everest.example.ts.net")  # the new .env
+        # Not "synced": nothing reconciled this server with the app's channel.
+        self.assertEqual((await remote._load()).server_synced_version, "")
+
+    async def test_a_redeploy_with_no_release_to_pin_keeps_the_server_s_own(self) -> None:
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.release = None
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("111", node="everest"))
+        self.assertTrue(again["ok"], again)
+        self.assertEqual(self.pinned_tag(), "v9.9.9")
+        self.assertEqual((await remote.status())["url"], "https://everest.example.ts.net")
+        self.assertEqual((await remote._load()).server_synced_version, "")
+
+    async def test_a_first_deploy_with_no_release_to_pin_is_refused(self) -> None:
+        """Untagged, the script would take GitHub's latest release, off the app's channel."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        self.release = None
+        dep = await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        self.assertFalse(dep["ok"])
+        self.assertIn("GitHub", dep["error"])
+        self.assertFalse((self.home / "olisar" / ".env").exists())  # nothing written
+        self.assertEqual(self.pulls(), [])
+        self.assertNotEqual((await remote._load()).hosting_mode, "server")
 
     async def test_status_and_activity_come_from_the_bot_s_own_container(self) -> None:
         """The probe's start and healthcheck times, and the activity feed read from inside the

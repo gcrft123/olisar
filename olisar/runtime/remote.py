@@ -311,8 +311,9 @@ async def _retire_timer(conn, app_dir: str) -> None:
 
 async def deploy(host: str, user: str, env_text: str) -> dict:
     """Install Docker and the updater, write the .env, then let the updater put the newest
-    release on the VM and start it. On success, persist the connection and switch the app
-    into server-hosting mode.
+    release on the VM and start it (or start the newer one an existing install already runs;
+    see ``hold``). On success, persist the connection and switch the app into server-hosting
+    mode.
 
     The install goes wherever ``choose_app_dir`` says: over this bot's own install if the VM
     has one, else alongside whatever other bots are there. Returns ``app_dir`` so a move can
@@ -342,6 +343,31 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         others = [i["dir"] for i in installs if i["dir"] != app_dir]
         if others:
             log_lines.append(f"This server already runs {len(others)} other bot(s) — adding this one in ~/{app_dir}.")
+        # Which release to pin, settled before anything is written. The same rule as an
+        # update (``hold``): an install already on a newer release than this app's channel
+        # offers keeps it, and so does one when GitHub can't be asked. A new .env still
+        # reaches it. With no release to pin at all, the script would take GitHub's latest,
+        # which may be off the app's channel, so the deploy stops here.
+        target = await _target()
+        server = ""
+        if any(i["dir"] == app_dir and i["compose"] for i in installs):
+            try:
+                server = (await _probe(conn, app_dir))["version"]
+            except Exception as exc:  # noqa: BLE001 — the script also refuses to go back
+                log.warning("couldn't read the release ~/%s runs: %s", app_dir, exc)
+        held = hold(target=target, server=server, channel=updates.channel())
+        tag = target
+        if held is not None:
+            if not parse(server):
+                raise RuntimeError(
+                    "Couldn't find the newest Olisar release on GitHub. Check this computer's "
+                    "internet connection and try again."
+                )
+            tag = server
+            log_lines.append(
+                f"This server runs {display(server)}, which is newer than {display(target)}. Keeping it."
+                if target else f"Couldn't find the newest release on GitHub. Keeping this server on {display(server)}."
+            )
         log_lines.append("Writing configuration…")
         # File bodies go over stdin (via `input=`), so secrets never appear in the VM's
         # process list / shell history the way an inline command would.
@@ -350,15 +376,16 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         await _run(conn, f"chmod 600 ~/{app_dir}/.env", timeout=30)
         await _mark_owner(conn, app_dir, owner)
         await _install_managed(conn, app_dir)
-        # A first deploy and an update are the same code path — the script resolves the
-        # newest release, pins its digest into the compose file, starts it, and rolls back
-        # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
-        log_lines.append("Pulling the latest Olisar release and starting it…")
-        tag = await _target()
-        pin = f" --tag {shlex.quote(tag)}" if tag else ""
+        # A first deploy and an update are the same code path — the script pins the release's
+        # digest into the compose file, starts it, and rolls back if it doesn't pass its
+        # healthcheck. Nothing here duplicates that logic.
+        log_lines.append(
+            "Pulling the latest Olisar release and starting it…" if tag == target
+            else "Starting it with the new configuration…"
+        )
         # Long enough to wait out another bot's update on the same VM (the script serialises
         # them) and then run this one.
-        out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start{pin}", timeout=1500)
+        out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start --tag {shlex.quote(tag)}", timeout=1500)
         log_lines.append(out.strip()[-2000:])
         # The script only returns once the container is healthy, and the backend publishes
         # whether its funnel came up before it answers that check. A refused Tailscale key
@@ -376,8 +403,9 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         server_host=host, server_ssh_user=user, server_app_dir=app_dir,
         hosting_mode="server", configured=True,
         # The VM is on the newest release as of this build, so the launch after this one
-        # has nothing to reconcile (see ``autoupdate``).
-        server_synced_version=current_version(),
+        # has nothing to reconcile (see ``autoupdate``). One that kept its own release
+        # wasn't brought level with anything, so the next launch looks again.
+        server_synced_version=current_version() if tag == target else "",
     )
     await runtime_config.session_secret()
     # Still ``ok``: the bot is installed and running, and saved as this app's server, so the
