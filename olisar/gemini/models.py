@@ -19,6 +19,12 @@ class ModelInfo:
     name: str
     rpm: int  # our conservative per-minute throttle (free-tier ballpark)
     label: str
+    # Free-tier requests per day. Google's rate-limits page stopped listing these (AI Studio
+    # shows a project its own), so these are the last published figures. They stand in until
+    # Google names the real one in a daily 429 (see olisar.gemini.quota.read_refusal), and the
+    # Usage page counts against that instead. Nothing here stops a request: Olisar only treats
+    # a model as spent when Google says so.
+    rpd: int = 0
 
 
 # Best -> worst. The chain starts at the guild's default_model and continues down.
@@ -41,13 +47,13 @@ class ModelInfo:
 # model, so "does this name resolve?" is not the question — only a real generation is.
 # The daily self-test (olisar/gemini/canary.py) still sweeps the ``-latest`` aliases.
 RANKED: list[ModelInfo] = [
-    ModelInfo("gemini-3.5-flash", 10, "Gemini 3.5 Flash"),
-    ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)"),
-    ModelInfo("gemini-3-flash-preview", 10, "Gemini 3 Flash"),
-    ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash"),
-    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite"),
-    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)"),
-    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite"),
+    ModelInfo("gemini-3.5-flash", 10, "Gemini 3.5 Flash", rpd=250),
+    ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=250),
+    ModelInfo("gemini-3-flash-preview", 10, "Gemini 3 Flash", rpd=250),
+    ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=250),
+    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000),
+    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000),
+    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000),
 ]
 
 # The head of the chain, and the default for a fresh guild / an unset GEMINI_CHAT_MODEL.
@@ -67,6 +73,11 @@ LEGACY_DEFAULT_CHAT_MODEL = "gemini-flash-latest"
 RANKED_NAMES = [m.name for m in RANKED]
 _RPM = {m.name: m.rpm for m in RANKED}
 _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
+_RPD = {m.name: m.rpd for m in RANKED}
+_RPD["gemini-embedding-001"] = 1000
+
+# Google Search grounding has a daily allowance of its own, on top of the model's.
+GROUNDING_RPD = 500
 
 
 # Vision (image-understanding) fallback chain, used for image recognition and the
@@ -98,6 +109,11 @@ DEFAULT_VISION_MODEL = IMAGE_RANKED_NAMES[0]
 
 def rpm_for(model: str) -> int:
     return _RPM.get(model, 10)
+
+
+def rpd_for(model: str) -> int:
+    """The free-tier daily limit we assume for ``model``, or 0 when we have no figure."""
+    return _RPD.get(model, 0)
 
 
 def model_chain(preferred: str) -> list[str]:
