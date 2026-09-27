@@ -273,7 +273,7 @@ function reportDraft(r: { prompt?: string; when?: string; server?: string; chann
     : ''
   const where = [place, when && `on ${when}`].filter(Boolean).join(' ')
   return [
-    `Olisar drew a blank${where ? ' ' + where : ''}.`,
+    `${botName()} drew a blank${where ? ' ' + where : ''}.`,
     '',
     'What I asked:',
     r.prompt || '(nothing recorded)',
