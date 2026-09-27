@@ -31,13 +31,14 @@ const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 
 function inline(text) {
   let out = ''
-  const re = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
+  const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
   let last = 0
   let m
   while ((m = re.exec(text))) {
     if (m.index > last) out += esc(text.slice(last, m.index))
     const t = m[0]
     if (t.startsWith('**')) out += `<strong>${esc(t.slice(2, -2))}</strong>`
+    else if (t.startsWith('*')) out += `<em>${esc(t.slice(1, -1))}</em>`
     else if (t.startsWith('`')) out += `<code>${esc(t.slice(1, -1))}</code>`
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)

@@ -598,7 +598,7 @@ function MoveBotModal(
 
         <div className="move-body">
           <div className="callout tip">
-            <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+            <span className="ic"><Icon.check size={17} weight="Bold" /></span>
             <div className="callout-body">Its persona, memory, knowledge, and uploaded docs move with it. The old copy is kept as a backup.</div>
           </div>
 

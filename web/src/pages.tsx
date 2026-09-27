@@ -1201,7 +1201,7 @@ function SearchIndexCard() {
     <Section title="Message search index" hint={`Lets ${botName()} search back through your server's history.`}>
       {!data ? (poll.stale
         ? <div className="callout warning"><span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-            <div className="callout-body">Can't reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
+            <div className="callout-body">Can’t reach the bot, so the index status is unknown. Nothing has been lost — this card resumes when the connection does.</div>
           </div>
         : <Spinner label="Reading the index…" />) : (
         <>
@@ -3794,10 +3794,7 @@ export function Usage() {
           {livePoll.stale && (
             <div className="callout warning">
               <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
-              <div className="callout-body">
-                These numbers stopped updating — the console can't reach the backend.
-                What's shown is the last reading, not the current one.
-              </div>
+              <div className="callout-body">Can’t reach the bot. These are the last figures it reported, not the current ones.</div>
             </div>
           )}
           {!livePoll.stale && liveModels.length === 0 && <div className="u-hint">No calls in the last minute.</div>}
@@ -3888,7 +3885,7 @@ export function Usage() {
         </Section>
       </div>
 
-      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, {botName()} rests it for two minutes and falls back to the next one in its chain.</div></div>
+      <div className="callout note"><span className="ic"><Icon.info size={17} weight="Bold" /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, {botName()} rests it for two minutes and falls back to the next one in its chain.</div></div>
     </>
   )
 }

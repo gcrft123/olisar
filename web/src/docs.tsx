@@ -1,5 +1,5 @@
 // User-facing documentation, authored as Markdown and rendered by the Docs page.
-// Supports **bold**, `code`, [links](url), - bullets, ## / ### headings, | tables |,
+// Supports **bold**, *italic*, `code`, [links](url), - bullets, ## / ### headings, | tables |,
 // and :::tip / :::note / :::warning / :::info callouts. Edit the strings here to
 // update the in-console docs.
 
