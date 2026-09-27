@@ -340,6 +340,23 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
             await remote.autoupdate()
         self.assertEqual(script.read_text(), remote._asset(remote.UPDATE_SCRIPT))
 
+    async def test_an_update_with_no_release_to_pin_changes_nothing(self) -> None:
+        """GitHub couldn't be asked. The script would fall back to GitHub's latest release on
+        its own, which is stable and may be older than the server, so it isn't run; nor is the
+        run recorded as settled, so the next launch tries again."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        synced = (await remote._load()).server_synced_version
+        self.release = None
+        self.log.write_text("")
+        with mock.patch.object(remote, "current_version", lambda: "99.0.0"):
+            result = await remote.autoupdate()
+        self.assertEqual(result["status"], "no-release")
+        self.assertFalse(result["ok"])
+        self.assertNotIn("docker pull", self.log.read_text())
+        self.assertEqual((await remote._load()).server_synced_version, synced)
+
     async def test_status_and_activity_come_from_the_bot_s_own_container(self) -> None:
         """The probe's start and healthcheck times, and the activity feed read from inside the
         container — or, on an image from before the feed, an empty one rather than an error."""
