@@ -797,7 +797,9 @@ function AccessDenied() {
   return (
     <div className="login">
       <div className="box wide">
-        <ScreenCorners />
+        {/* The server attaches no logs to feedback from a refused sign-in (none of this
+            install's logs are theirs), so the gear's Feedback doesn't offer them either. */}
+        <ScreenCorners noLogs />
         <div className="mark warn"><Icon.access size={26} weight="Bold" /></div>
         <h1>Access denied</h1>
         <p>

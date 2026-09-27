@@ -69,10 +69,11 @@ export function clearPendingReport(): void {
 // gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
 // `prefill` opens it pre-filled from whatever screen sent the operator here. `operator` is
 // false for a signed-in admin who isn't the operator: the tool PIN is install-wide, so it's
-// shown to them but isn't theirs to change.
+// shown to them but isn't theirs to change. `noLogs` is for a sender the server attaches no
+// logs for (a refused sign-in): nothing here offers to send them.
 export function SettingsModal(
-  { onClose, sections, initialSection, report, prefill, operator }:
-  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill; operator?: boolean },
+  { onClose, sections, initialSection, report, prefill, operator, noLogs }:
+  { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill; operator?: boolean; noLogs?: boolean },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
   // so an unfiltered modal must not offer both, and the same goes for the server panel's
@@ -134,13 +135,13 @@ export function SettingsModal(
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
           {section === 'bots' && <BotsPane Head={Head} />}
-          {section === 'logs' && <Logs onReport={hasFeedback ? (logText) => goFeedback({ category: 'Bug report', logs: true, logText }) : undefined} />}
+          {section === 'logs' && <Logs onReport={hasFeedback && !noLogs ? (logText) => goFeedback({ category: 'Bug report', logs: true, logText }) : undefined} />}
           {section === 'security' && <Security canEdit={operator !== false} />}
           {section === 'remote' && <Remote />}
           {section === 'server-remote' && <ServerRemote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
-          {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
+          {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={noLogs ? { ...fb.prefill, noLogs: true } : fb.prefill} />}
         </div>
     </Modal>
   )
@@ -152,7 +153,7 @@ export function SettingsModal(
 // were out of reach exactly when something was wrong.
 export const PRE_CONSOLE_SECTIONS: SectionId[] = ['general', 'bots', 'logs', 'updates', 'desktop', 'feedback']
 
-export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: SectionId[] }) {
+export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS, noLogs }: { sections?: SectionId[]; noLogs?: boolean }) {
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<SectionId | undefined>(undefined)
   return (
@@ -161,7 +162,7 @@ export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: 
       <button className="ghost icon-btn sm box-gear" data-tip="Settings" aria-label="Settings" onClick={() => { setPane(undefined); setOpen(true) }}>
         <Icon.settings size={16} />
       </button>
-      {open && <SettingsModal sections={sections} initialSection={pane} onClose={() => setOpen(false)} />}
+      {open && <SettingsModal sections={sections} initialSection={pane} noLogs={noLogs} onClose={() => setOpen(false)} />}
     </>
   )
 }
@@ -288,7 +289,7 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
   const [message, setMessage] = useState(prefill?.message ?? '')
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
-  const [logsAttached, setLogsAttached] = useState(!!prefill?.logs)
+  const [logsAttached, setLogsAttached] = useState(!!prefill?.logs && !prefill?.noLogs)
   // Logs handed over by the screen that opened this form (the server panel's VM logs). While
   // set, "Add bot logs" attaches these rather than asking the server for its own.
   const [logText, setLogText] = useState(prefill?.logText ?? '')
@@ -349,7 +350,7 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
     try {
       const body = {
         category, message: message.trim(), email: email.trim(),
-        include_logs: logsAttached && !logText, attachments: files,
+        include_logs: logsAttached && !logText && !prefill?.noLogs, attachments: files,
         logs: logsAttached ? logText : '',
         // Which logs to attach, not whether: the toggle above decides that. Ignored by the
         // server once the parked failure has expired or if it was never ours.
