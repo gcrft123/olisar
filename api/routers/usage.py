@@ -3,10 +3,11 @@
 Gemini quota is bot-wide (one account), so these are account-scoped (``require_admin``),
 matching the legacy ``/stats`` endpoint. Two endpoints:
 
-* ``GET /api/usage/live`` — what's left of today's allowance: every model in the chat chain
-  with its count, its daily limit and whether it can take a request, plus memory search and
-  web search. The bot and API share this process, so the limiter singleton is the live source
-  of truth for which models are parked; the page polls this every few seconds.
+* ``GET /api/usage/live`` — what's left of today's allowance: every model in the selected
+  server's fallback chain with its count, its daily limit and whether it can take a request,
+  plus memory search and web search. The bot and API share this process, so the limiter
+  singleton is the live source of truth for which models are parked; the page polls this
+  every few seconds.
 * ``GET /api/usage/summary`` — the slower-moving figures: requests by feature, the same time
   yesterday, the busiest minute, when the chain last ran out and requests per day.
 
@@ -17,8 +18,9 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func, select
 
 from api.auth.deps import require_admin
@@ -26,9 +28,14 @@ from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageSource
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import GROUNDING_RPD, RANKED, rpd_for, rpm_for
+from olisar.gemini.models import GROUNDING_RPD, rpd_for, rpm_for
 from olisar.gemini.quota import PACIFIC, aware, day_start, next_reset, quota_day
-from olisar.gemini.rate_limiter import current_key, get_rate_limiter
+from olisar.gemini.rate_limiter import (
+    chains_in_use,
+    current_key,
+    get_rate_limiter,
+    union_chain,
+)
 
 router = APIRouter(prefix="/api/usage", tags=["usage"])
 
@@ -47,17 +54,34 @@ def _is_chat(model: str) -> bool:
     return model != settings.gemini_embed_model
 
 
+def _selected_guild(admin: AdminUser | None, x_guild_id: str | None) -> int | None:
+    """The server the console has selected, if this admin may see it."""
+    if not x_guild_id or not x_guild_id.isdigit():
+        return None
+    if admin is not None and not admin.is_allowlisted and x_guild_id not in (admin.managed_guild_ids or []):
+        return None
+    return int(x_guild_id)
+
+
 @router.get("/live")
-async def live(_: AdminUser = Depends(require_admin)):
+async def live(
+    admin: AdminUser = Depends(require_admin),
+    x_guild_id: Annotated[str | None, Header()] = None,
+):
     """Today's allowance, model by model, in chain order.
+
+    ``chain`` is the fallback chain the selected server (``X-Guild-Id``) replies through:
+    its default model and everything ranked below it. Without one, it's every model any
+    active server replies through.
 
     A model is ``spent`` once Google has refused it for the day, whatever Olisar counted:
     the quota is per Google Cloud project, so something else on the project can use it up.
     ``limit`` is the daily limit Google last named in a refusal, else the assumed figure in
     olisar/gemini/models.py.
 
-    ``exhausted`` is true only when every chat-chain model is parked or at its RPM cap — the
-    bot can't answer. A single model cooling down is normal fallback, not this flag."""
+    ``exhausted`` is bot-wide, for the sidebar: true only when no active server can be
+    answered, every model in every server's chain parked or at its RPM cap. A single model
+    cooling down is normal fallback, not this flag."""
     limiter = get_rate_limiter()
     # A key pasted into the dashboard is a new quota: un-park the old key's models now
     # rather than at the next reply.
@@ -76,6 +100,9 @@ async def live(_: AdminUser = Depends(require_admin)):
                 .order_by(GeminiUsage.day.desc())
             )
         ).all()
+        chains = await chains_in_use(session)
+    everyone = union_chain(chains.values())
+    shown = chains.get(_selected_guild(admin, x_guild_id)) or everyone
     today = {r.model: r for r in rows}
     google_limit: dict[str, int] = {}
     for model, limit in named:
@@ -87,18 +114,18 @@ async def live(_: AdminUser = Depends(require_admin)):
         return limiter.spent_at(model) or aware(stored)
 
     chain = []
-    for info in RANKED:
-        row = today.get(info.name)
-        out = spent_at(info.name)
-        resting = out is None and limiter.state(info.name) in ("cooldown", "rpm_full")
+    for name in shown:
+        row = today.get(name)
+        out = spent_at(name)
+        resting = out is None and limiter.state(name) in ("cooldown", "rpm_full")
         chain.append({
-            "model": info.name,
+            "model": name,
             "requests": row.request_count if row else 0,
             "tokens": row.token_count if row else 0,
-            "limit": google_limit.get(info.name) or info.rpd,
-            "limit_from_google": info.name in google_limit,
+            "limit": google_limit.get(name) or rpd_for(name),
+            "limit_from_google": name in google_limit,
             "state": "spent" if out else "resting" if resting else "ok",
-            "back_in": math.ceil(limiter.back_in(info.name)) if resting else None,
+            "back_in": math.ceil(limiter.back_in(name)) if resting else None,
             "spent_at": _iso(out),
         })
 
@@ -108,7 +135,7 @@ async def live(_: AdminUser = Depends(require_admin)):
     blocked = get_gemini().grounding_blocked_until
     return {
         "ts": now.isoformat(),
-        "exhausted": limiter.chat_exhausted(),
+        "exhausted": limiter.chat_exhausted(everyone),
         "day": day.isoformat(),
         "day_start": day_start(day).isoformat(),
         "reset_at": reset.isoformat(),

@@ -24,10 +24,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.routers import usage as usage_router
-from olisar.db.models import Base, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.db.models import (
+    AdminUser,
+    Base,
+    GeminiUsage,
+    Guild,
+    GuildConfig,
+    UsageDay,
+    UsageHour,
+    UsageSource,
+)
 from olisar.gemini import rate_limiter as rl
 from olisar.gemini.client import GeminiClient
-from olisar.gemini.models import RANKED, RANKED_NAMES
+from olisar.gemini.models import RANKED, RANKED_NAMES, model_chain
 from olisar.gemini.quota import day_start, next_reset, quota_day, quota_hour, read_refusal
 from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded, key_id
 
@@ -323,6 +332,65 @@ class RecordingTests(_Db):
     async def test_a_refusal_for_a_replaced_key_parks_nothing(self):
         await rl.mark_spent(RANKED_NAMES[0], key=key_id("OLD-KEY"))
         self.assertEqual(self.limiter.state(RANKED_NAMES[0]), "ok")
+
+
+class ServerChainTests(_Db):
+    """A server replies through ``model_chain(default_model)``, not the whole ranking."""
+
+    LOWER = "gemini-2.5-flash"
+
+    async def _servers(self, *defaults: str | None) -> None:
+        async with self.scope() as session:
+            for gid, default in enumerate(defaults, start=1):
+                session.add(Guild(id=gid))
+                if default is not None:
+                    session.add(GuildConfig(guild_id=gid, default_model=default))
+            session.add(Guild(id=99, active=False))
+            session.add(GuildConfig(guild_id=99, default_model=RANKED_NAMES[-1]))
+
+    async def _live(self, guild: str | None = None, admin=None):
+        with patch.object(usage_router, "get_rate_limiter", return_value=self.limiter):
+            return await usage_router.live(admin, guild)
+
+    async def test_the_page_shows_the_selected_servers_chain(self):
+        await self._servers(self.LOWER)
+        chain = model_chain(self.LOWER)
+        for name in chain:
+            await rl.mark_spent(name)
+        data = await self._live("1")
+        self.assertEqual([m["model"] for m in data["chain"]], chain)
+        self.assertEqual({m["state"] for m in data["chain"]}, {"spent"})
+        self.assertTrue(data["exhausted"])
+        (marker,) = await self.rows(UsageDay)
+        self.assertIsNotNone(marker.chain_out_at)
+        summary = await usage_router.summary(None)
+        self.assertIsNotNone(summary["last_ran_out"])
+
+    async def test_without_a_selection_it_is_every_chain_in_use(self):
+        await self._servers(self.LOWER)
+        data = await self._live()
+        self.assertEqual([m["model"] for m in data["chain"]], model_chain(self.LOWER))
+
+    async def test_rate_limited_only_when_no_server_can_be_answered(self):
+        await self._servers(None, self.LOWER)  # server 1 on the default head
+        for name in model_chain(self.LOWER):
+            await rl.mark_spent(name)
+        data = await self._live("2")
+        self.assertEqual({m["state"] for m in data["chain"]}, {"spent"})
+        self.assertFalse(data["exhausted"], "server 1 still replies through the models above")
+        self.assertEqual(await self.rows(UsageDay), [])
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.assertTrue((await self._live("2"))["exhausted"])
+        self.assertEqual(len(await self.rows(UsageDay)), 1)
+
+    async def test_a_server_the_admin_doesnt_manage_isnt_shown(self):
+        await self._servers(None, self.LOWER)
+        admin = AdminUser(discord_user_id=5, is_allowlisted=False, managed_guild_ids=["1"])
+        data = await self._live("2", admin)
+        self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
+        data = await self._live("99")  # the bot left: not a chain in use
+        self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
 
 
 class KeySwapTests(_Db):
