@@ -424,7 +424,7 @@ export function ServerControlPanel() {
         Enter the VM's IP and Olisar re-verifies it over SSH. Nothing is reinstalled.
       </p>
       <div className="callout tip" style={{ marginBottom: 16 }}>
-        <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+        <span className="ic"><Icon.check size={17} weight="Bold" /></span>
         <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
       </div>
       <Field label="VM public IP address" desc="The VM running Olisar.">

@@ -3888,7 +3888,7 @@ export function Usage() {
         </Section>
       </div>
 
-      <div className="callout note"><span className="ic"><Icon.info size={17} /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, {botName()} rests it for two minutes and falls back to the next one in its chain.</div></div>
+      <div className="callout note"><span className="ic"><Icon.info size={17} weight="Bold" /></span><div className="callout-body">Free-tier limits reset daily at 00:00 UTC. When a model hits its limit, {botName()} rests it for two minutes and falls back to the next one in its chain.</div></div>
     </>
   )
 }
