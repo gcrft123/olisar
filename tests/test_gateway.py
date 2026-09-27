@@ -86,6 +86,7 @@ class ForwardingTests(unittest.IsolatedAsyncioTestCase):
             w.start = lambda: None  # a stand-in: no process behind it
             w.state = "ready"
             w._ready.set()
+            w._settled.set()
             w.client = httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=_fake_bot(name)), base_url="http://worker",
             )
@@ -173,21 +174,96 @@ class ForwardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(health.json()["bot_failed"])
 
     async def test_another_website_cant_change_anything(self) -> None:
-        """Any page the operator has open can POST to 127.0.0.1. The console's own pages are
-        always on loopback; nothing else gets to reset a bot or reach one through us."""
+        """Any page the operator has open can POST to 127.0.0.1. Only the console's own pages,
+        served from this address, get to reset a bot or reach one through us — a page on
+        another loopback port (some local dev server) is somebody else's."""
         async with self.client() as c:
             evil = {"origin": "https://evil.example"}
             self.assertEqual((await c.post("/api/bots/default/reset", headers=evil)).status_code, 403)
             self.assertEqual((await c.post("/api/echo/x", headers=evil)).status_code, 403)
             self.assertEqual((await c.get("/api/echo/x", headers=evil)).status_code, 200)
-            for ok in ("http://127.0.0.1:8723", "http://localhost:5173"):
+            for bad in ("http://localhost:5555", "http://127.0.0.1:5173", "null", "http://127.0.0.1"):
+                r = await c.post("/api/bots/default/reset", headers={"origin": bad})
+                self.assertEqual(r.status_code, 403, bad)
+                r = await c.post("/api/echo/x", headers={"origin": bad})
+                self.assertEqual(r.status_code, 403, bad)
+            for ok in ("http://127.0.0.1:8723", "http://localhost:8723", "http://[::1]:8723"):
                 r = await c.post("/api/echo/x", headers={"origin": ok})
                 self.assertEqual(r.status_code, 200, ok)
+            # The Vite dev server proxies the console's calls through: the browser addressed
+            # it, so the Host it forwards is the page's own.
+            vite = {"origin": "http://localhost:5173", "host": "localhost:5173"}
+            self.assertEqual((await c.post("/api/echo/x", headers=vite)).status_code, 200)
             self.assertEqual((await c.post("/api/echo/x")).status_code, 200)  # the desktop shell
+
+    async def test_another_local_page_cant_read_the_answers(self) -> None:
+        async with self.client() as c:
+            other = await c.get("/api/echo/x", headers={"origin": "http://localhost:5555"})
+            self.assertNotIn("access-control-allow-origin", other.headers)
+            preflight = await c.options("/api/echo/x", headers={
+                "origin": "http://localhost:5555", "access-control-request-method": "PUT",
+            })
+            self.assertEqual(preflight.status_code, 400)
+            own = await c.get("/api/echo/x", headers={"origin": "http://localhost:8723"})
+            self.assertEqual(own.headers.get("access-control-allow-origin"), "http://localhost:8723")
 
     async def test_cannot_delete_the_bot_on_screen_or_the_last_one(self) -> None:
         async with self.client() as c:
             self.assertEqual((await c.delete("/api/bots/default")).status_code, 409)
+
+
+class BotPortGuardTests(unittest.IsolatedAsyncioTestCase):
+    """Each bot also listens on a loopback port of its own, which a web page can find by
+    scanning. It refuses the same cross-site writes the gateway does, while the console
+    (through the gateway, which passes its Host and Origin along) and a remote visitor on the
+    Funnel address, whose page is that address, keep working."""
+
+    def app(self):
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+        from api.trust import ConsoleGuard
+
+        app = FastAPI()
+        app.add_middleware(ConsoleGuard)
+
+        @app.post("/api/server/reconnect")
+        async def reconnect():
+            return {"ok": True}
+
+        # As the bot serves it: trusting X-Forwarded-* from the Funnel sidecar on loopback.
+        return ProxyHeadersMiddleware(app, trusted_hosts="127.0.0.1")
+
+    async def post(self, headers: dict, base: str = "http://127.0.0.1:49152") -> int:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=self.app(), client=("127.0.0.1", 50000)), base_url=base,
+        ) as c:
+            return (await c.post("/api/server/reconnect", headers=headers)).status_code
+
+    async def test_a_scanning_page_is_refused(self) -> None:
+        for origin in ("https://evil.example", "http://localhost:5555", "null"):
+            self.assertEqual(await self.post({"origin": origin}), 403, origin)
+
+    async def test_the_console_through_the_gateway_passes(self) -> None:
+        console = {"origin": "http://127.0.0.1:8723", "host": "127.0.0.1:8723"}
+        self.assertEqual(await self.post(console), 200)
+        self.assertEqual(await self.post({}), 200)  # the gateway's own calls, the desktop shell
+
+    async def test_a_remote_console_on_the_funnel_passes(self) -> None:
+        funnel = {
+            "origin": "https://olisar.tail1234.ts.net", "host": "olisar.tail1234.ts.net",
+            "x-forwarded-for": "198.51.100.7", "x-forwarded-proto": "https",
+            "x-forwarded-host": "olisar.tail1234.ts.net",
+        }
+        self.assertEqual(await self.post(funnel), 200)
+        # A sidecar that rewrote Host to the backend still reports the public one.
+        self.assertEqual(await self.post({**funnel, "host": "127.0.0.1:49152"}), 200)
+        self.assertEqual(await self.post({**funnel, "origin": "https://evil.example"}), 403)
+
+    def test_the_bots_own_app_carries_the_guard(self) -> None:
+        from api.main import create_app
+        from api.trust import ConsoleGuard
+
+        self.assertIn(ConsoleGuard, [m.cls for m in create_app().user_middleware])
 
 
 class WorkerEnvTests(unittest.TestCase):

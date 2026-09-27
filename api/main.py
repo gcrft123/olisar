@@ -9,6 +9,7 @@ Shares the bot's SQLite DB, so edits made here are read live by the running bot
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,8 @@ from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
 from api.routers.tunnel import router as tunnel_router
 from api.routers.usage import router as usage_router
+from api.trust import ConsoleGuard, loopback_origin_regex
+from olisar import runtime_config
 from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import web_dist_dir
 
@@ -39,16 +42,22 @@ def create_app() -> FastAPI:
     # API never hits a missing attribute).
     app.state.bot_supervisor = None
 
-    # The dashboard is served same-origin in the desktop app/production (ConsoleFiles
-    # below) and through the tunnel, so CORS only needs to admit the dev Vite server
-    # on whatever loopback port it picked. A regex keeps that origin-agnostic.
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"http://(127\.0\.0\.1|localhost)(:\d+)?",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # The dashboard is served same-origin: by this server (ConsoleFiles below), through the
+    # tunnel, by the desktop gateway in front of it, or by the Vite dev server's proxy. So CORS
+    # only admits the console's own address under its other loopback names; any other page,
+    # including one on another loopback port, can't read what this bot answers the operator.
+    console_port = urlsplit(runtime_config.local_base_url()).port
+    if console_port:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origin_regex=loopback_origin_regex(console_port),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    # Outermost: a write from a page that isn't the console is refused before anything else
+    # sees it. A worker's private port is as reachable from a web page as the console's is.
+    app.add_middleware(ConsoleGuard)
 
     app.include_router(auth_router)
     app.include_router(admin_router)
