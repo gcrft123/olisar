@@ -110,6 +110,13 @@ async def _call(
             return resp.status, body
 
 
+# A team member counts only once they've accepted the invite (1 is still pending), and a
+# read-only member doesn't count at all: the portal won't show them the token or secret,
+# so the console shouldn't hand them the keys either.
+_TEAM_ACCEPTED = 2
+_TEAM_READ_ONLY = "read_only"
+
+
 def _extract_owner_ids(app: dict) -> set[int]:
     """Pull the operator user IDs out of a Discord application object."""
     ids: set[int] = set()
@@ -121,6 +128,10 @@ def _extract_owner_ids(app: dict) -> set[int]:
         if team.get("owner_user_id"):
             ids.add(int(team["owner_user_id"]))
         for member in team.get("members") or []:
+            if member.get("membership_state") != _TEAM_ACCEPTED:
+                continue
+            if member.get("role") == _TEAM_READ_ONLY:
+                continue
             uid = (member.get("user") or {}).get("id")
             if uid:
                 ids.add(int(uid))
