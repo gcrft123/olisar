@@ -409,7 +409,7 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 
 Variants: **primary** (one bright CTA per view), **secondary** (the base hairline button), **ghost**, **danger** (red), **caution** (amber), and an **acting** state (disabled + a spinning ring) for "Saving…". Sizes `md` (34px) / `sm` (28px); optional leading icon.
 
-**IconButton** — a 34×34 square (default ghost) for toolbar/row actions. On hover/focus it shows an instant dark tooltip pill (with a small downward arrow). Set a **confirm** behavior so that on click of a copy/confirm action the glyph swaps to a green `check-circle` briefly (pop animation), then reverts.
+**IconButton** — a 34×34 square (default ghost) for toolbar/row actions. On hover or keyboard focus it shows a **Tooltip** (below). Set a **confirm** behavior so that on click of a copy/confirm action the glyph swaps to a green `check-circle` briefly (pop animation), then reverts.
 
 **Tooltips are for icon-only controls only.** The hover tooltip (`data-tip`, or a `title` the host migrates to one) exists to name a control that has no visible text label — i.e. an **IconButton**. Do **not** put `data-tip`/`title` on text buttons, selectors, tabs, or other labelled controls: their label already says what they do, so a tooltip is redundant noise. Add one to a labelled control only when explicitly asked.
 
@@ -420,6 +420,10 @@ Variants: **primary** (one bright CTA per view), **secondary** (the base hairlin
 ```
 
 The host sets `aria-label` from a stripped `title` as a backstop, but write it yourself: the backstop can only repeat the tooltip, and the two want different words — the tooltip is a hint (`Copy`), the label names the object (`Copy the public web address`).
+
+**Tooltip** — a dark chip read by its hairline, like every overlay: `--panel` fill, a 1px `--border-strong` hairline, `--text`, `--radius-xs`, 11.5px/500, 5px 9px. The fill and the hairline are **one SVG path**, body and stem together (`tipPath()` in `overlays.tsx`), stroked half a pixel in so it sits where a 1px border would. Don't bring back a CSS border with a stem laid against it: two shapes rasterized separately only meet when they land on the same subpixel, and at 110% zoom they usually don't. The stem reaches 5px out and is 10px wide at the edge, with a sharp tip. It sits 8px from its trigger (10px beside the rail's buttons, `data-tip-side="right"`), above by default and below near the top of the window. It keeps 8px from the window's edge and slides its stem along to stay on the target, at least 14px from the ends, clear of the rounded corners. A shortcut goes in `data-tip-kbd="Esc"` and renders as a compact `kbd` chip.
+
+The timing is adapted from React Bits' [Warm Tooltip](https://reactbits.dev/c/micro/warm-tooltip), with the whole console as one group and one shared delay. The first tooltip waits 400ms, then pops out of its trigger (from `scale(.94)`, 4px toward it and `blur(4px)`, over `--dur-mid`). While one is showing, and for 300ms after it closes, the next opens at once; from one still on screen it glides over (`--dur-slow`) and the labels swap with a 10px slide the way it moved. It starts closing 80ms after the pointer leaves or presses (enough to cross to a neighbor) and takes `--dur-fast`; a key, a scroll, or a keyboard-opened tooltip losing focus closes it at once. After a press it doesn't come back until the pointer leaves and returns. Keyboard focus shows it with no delay. Reduced motion keeps only the fade.
 
 ### CopyGlyph (copy → copied)
 
