@@ -704,7 +704,7 @@ export function SetupWizard(
         Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.
       </p>
       <div className="callout tip" style={{ marginBottom: 16 }}>
-        <span className="ic"><Icon.info size={17} weight="Bold" /></span>
+        <span className="ic"><Icon.check size={17} weight="Bold" /></span>
         <div className="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
       </div>
       <Field label="VM public IP address" desc="The VM already running Olisar.">
@@ -948,7 +948,7 @@ export function SetupWizard(
 
             {sharing ? (
               <div className={'callout ' + (shareErr ? 'warning' : 'note')}>
-                <span className="ic">{shareBusy ? <span className="spinner" /> : <Icon.info size={17} weight="Bold" />}</span>
+                <span className="ic">{shareBusy ? <span className="spinner" /> : shareErr ? <Icon.warn size={17} weight="Bold" /> : <Icon.info size={17} weight="Bold" />}</span>
                 <div className="callout-body">
                   {shareBusy ? 'Connecting to that server…'
                     : shareErr ? shareErr

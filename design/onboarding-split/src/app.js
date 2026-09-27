@@ -1002,7 +1002,7 @@
         <h1>Connect to an existing server</h1>
         <p class="step-sub">Point Olisar at a cloud VM that already runs it. Nothing is reinstalled.</p>
         <div class="callout tip" style="margin-bottom:16px">
-          <span class="ic">${I.info(17)}</span>
+          <span class="ic">${I.check(17)}</span>
           <div class="callout-body">Its persona, memory, knowledge, and settings are kept.</div>
         </div>
         <${Field} id="c-host" label="VM public IP address" desc="The VM already running Olisar.">
@@ -1144,7 +1144,7 @@
                 options=${[...shared.map((x) => ({ value: x.from.id, label: serverLabel(x) })), { value: 'new', label: 'A new server' }]} />`}
             ${sharing ? html`
               <div class=${'callout ' + (shareErr ? 'warning' : 'note')} style="margin-bottom:16px">
-                <span class="ic">${shareBusy ? html`<span class="spinner"></span>` : I.info(17)}</span>
+                <span class="ic">${shareBusy ? html`<span class="spinner"></span>` : shareErr ? I.warn(17) : I.info(17)}</span>
                 <div class="callout-body">
                   ${shareBusy ? 'Connecting to that server…' : shareErr ? shareErr : html`Olisar adds this bot to <b>${share?.host}</b>, next to the one already there. Nothing to set up on the server.`}
                 </div>
