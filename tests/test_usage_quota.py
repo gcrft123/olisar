@@ -534,6 +534,56 @@ class EndpointTests(_Db):
         self.assertGreaterEqual(data["yesterday"]["requests"], quota_hour() * 60)
         self.assertLessEqual(data["yesterday"]["requests"], (quota_hour() + 1) * 60)
 
+    async def _same_time_yesterday(self, now: datetime) -> tuple[float, int]:
+        """A flat request a minute all yesterday, bucketed the way record_usage does.
+        Returns (minutes today so far, what the page compares them with)."""
+        today = quota_day(now)
+        yesterday = today - timedelta(days=1)
+        counts: dict[int, int] = {}
+        t = day_start(yesterday)
+        while t < day_start(today):
+            counts[quota_hour(t)] = counts.get(quota_hour(t), 0) + 1
+            t += timedelta(minutes=1)
+        async with self.scope() as session:
+            for hour, n in counts.items():
+                session.add(UsageHour(day=yesterday, hour=hour, model=RANKED_NAMES[0],
+                                      request_count=n, token_count=0))
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+
+        with patch.object(usage_router, "datetime", Frozen):
+            data = await usage_router.summary(None)
+        return (now - day_start(today)).total_seconds() / 60, data["yesterday"]["requests"]
+
+    async def test_same_time_yesterday_across_the_clocks_going_back(self):
+        """Nov 1 has two 1 AMs; the day after compares against the 25-hour day."""
+        for now in (
+            datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc),   # Nov 1, the second 1:30 AM
+            datetime(2026, 11, 2, 9, 30, tzinfo=timezone.utc),   # Nov 2, 1:30 AM
+            datetime(2026, 11, 2, 20, 0, tzinfo=timezone.utc),   # Nov 2, noon
+        ):
+            with self.subTest(now=now):
+                async with self.scope() as session:
+                    await session.execute(UsageHour.__table__.delete())
+                so_far, yesterday = await self._same_time_yesterday(now)
+                self.assertEqual(yesterday, round(so_far))
+
+    async def test_same_time_yesterday_across_the_clocks_going_forward(self):
+        """Mar 14 has no 2 AM; the day after compares against the 23-hour day."""
+        for now in (
+            datetime(2027, 3, 14, 10, 30, tzinfo=timezone.utc),  # Mar 14, 3:30 AM
+            datetime(2027, 3, 15, 10, 30, tzinfo=timezone.utc),  # Mar 15, 3:30 AM
+            datetime(2027, 3, 15, 19, 0, tzinfo=timezone.utc),   # Mar 15, noon
+        ):
+            with self.subTest(now=now):
+                async with self.scope() as session:
+                    await session.execute(UsageHour.__table__.delete())
+                so_far, yesterday = await self._same_time_yesterday(now)
+                self.assertEqual(yesterday, round(so_far))
+
 
 if __name__ == "__main__":
     unittest.main()
