@@ -399,6 +399,7 @@ async function clearCacheOnNewVersion() {
 
 async function boot() {
   registerUpdateIpc()
+  updater.cleanUpLeftovers()  // an update cut off last time: its temp files, mount, staged copy
   await clearCacheOnNewVersion()
   backendPort = await choosePort()
   startBackend(backendPort)
@@ -429,18 +430,22 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(boot)
   app.on('window-all-closed', (e) => { /* stay in tray; don't quit on macOS or others */ })
   app.on('activate', createWindow)
-  // Quitting waits for the backend to stop its bots, so none is left signed in to Discord.
-  // The window and tray go at once; the wait happens out of sight.
-  let backendStopped = false
+  // Quitting waits for the backend to stop its bots, so none is left signed in to Discord, and
+  // for an update it calls off (a download, or macOS's unpack) to put things back. The window
+  // and tray go at once; the wait happens out of sight.
+  let readyToQuit = false
   app.on('before-quit', (e) => {
     app.isQuitting = true
-    // Quitting while an update downloads calls the update off.
-    updater.cancelInstall()
-    if (backendStopped || !backend) return
+    if (readyToQuit) return
+    // Settles once the update is undone; null when there's none to call off. A stuck unwind
+    // gives up after a while: the leftovers are cleared at the next launch.
+    const abandoned = updater.abandonInstall()
+    if (!abandoned && !backend) return
     e.preventDefault()
     // An update keeps its window up to show the last steps; any other quit hides it at once.
     if (!updater.isCommitted()) for (const w of BrowserWindow.getAllWindows()) w.hide()
     if (tray) { tray.destroy(); tray = null }
-    stopBackend().finally(() => { backendStopped = true; app.quit() })
+    const unwound = abandoned && Promise.race([abandoned, new Promise((resolve) => setTimeout(resolve, 20000))])
+    Promise.all([unwound, stopBackend()]).finally(() => { readyToQuit = true; app.quit() })
   })
 }
