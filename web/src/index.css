@@ -2565,8 +2565,12 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 @media (max-width: 760px) { .chatdrawer { width: var(--vw); } }
 
 /* ── Settings popup (Notion-style modal) ────────────────────────────────── */
+/* Above everything in the app shell, the narrow-width rail (130) and its backdrop (120)
+   included: an open dialog marks the app inert, so a layer left above it can't be clicked
+   and covers the dialog's own controls. Settings opens from the rail's sheet. Toasts (200),
+   the skip link, tooltips and the update screen stay above it. */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 140;
   background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; padding: 24px;
   animation: fade-in var(--dur-fast) var(--ease-out);
