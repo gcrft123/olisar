@@ -575,7 +575,10 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
   // is "This channel's mode is **{mode}**." — and printing the asterisks made the preview
   // wrong on five of fourteen replies. A preview that is 95% faithful is worse than none,
   // because the 5% is the part nobody thinks to check.
-  const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__[^_]+__|`[^`\n]+`|~~[^~]+~~)/g)
+  //
+  // `__x__` is underline in Discord, not bold, and a slot can sit inside it: `[^_]` alone
+  // stopped at the first underscore of `{user_name}` and the pair never matched.
+  const parts = text.split(/(\{[a-z_]+\}|\*\*[^*]+\*\*|\*[^*\n]+\*|__(?:\{[a-z_]+\}|[^_])+?__|`[^`\n]+`|~~[^~]+~~)/g)
   // A slot inside bold or italics is still a slot: "**{mode}**" rendered as bold text alone.
   const slots = (s: string) => s.split(/(\{[a-z_]+\})/gi).map((seg, i) =>
     /^\{[a-z_]+\}$/i.test(seg) ? <span className="dcp-slot" key={i}>{seg}</span> : seg)
@@ -596,7 +599,7 @@ function DiscordPreview({ name, avatar, text }: { name: string; avatar?: string;
               ? parts.map((seg, i) => {
                   if (/^\{[a-z_]+\}$/i.test(seg)) return <span className="dcp-slot" key={i}>{seg}</span>
                   if (/^\*\*[^*]+\*\*$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
-                  if (/^__[^_]+__$/.test(seg)) return <b key={i}>{slots(seg.slice(2, -2))}</b>
+                  if (/^__(?:\{[a-z_]+\}|[^_])+__$/i.test(seg)) return <u key={i}>{slots(seg.slice(2, -2))}</u>
                   if (/^\*[^*\n]+\*$/.test(seg)) return <i key={i}>{slots(seg.slice(1, -1))}</i>
                   if (/^~~[^~]+~~$/.test(seg)) return <s key={i}>{slots(seg.slice(2, -2))}</s>
                   if (/^`[^`\n]+`$/.test(seg)) return <code className="dcp-code" key={i}>{seg.slice(1, -1)}</code>
