@@ -85,6 +85,23 @@ class RefusalTests(unittest.TestCase):
         self.assertTrue(refusal.daily)
         self.assertEqual(refusal.limit, 250)
 
+    def test_a_daily_token_quota_is_daily_but_names_no_request_limit(self):
+        """1,000,000 input tokens a day isn't a million requests a day."""
+        err = _quota_429("GenerateContentInputTokensPerModelPerDay-FreeTier", "1000000")
+        refusal = read_refusal(err)
+        self.assertTrue(refusal.daily)
+        self.assertIsNone(refusal.limit)
+
+    def test_the_request_quota_wins_when_both_ran_out(self):
+        body = {"error": {"code": 429, "details": [{
+            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+            "violations": [
+                {"quotaId": "GenerateContentInputTokensPerModelPerDay-FreeTier", "quotaValue": "1000000"},
+                {"quotaId": DAILY, "quotaValue": "250"},
+            ],
+        }]}}
+        self.assertEqual(read_refusal(genai_errors.APIError(429, body)).limit, 250)
+
     def test_a_per_minute_quota_is_not_daily(self):
         refusal = read_refusal(_quota_429(PER_MINUTE, "10", retry="23s"))
         self.assertFalse(refusal.daily)
