@@ -341,15 +341,28 @@ class Proactive(commands.Cog):
             names = await name_map(session, {m.author_id for m in rows if not m.author_is_bot})
         return "\n".join(f"{speaker_name(m, names, own=own)}: {m.content}" for m in rows)
 
-    async def _still_latest(self, channel_id: int, msg_id: int) -> bool:
+    async def _still_latest(self, channel_id: int, msg_id: int, author_id: int) -> bool:
+        """Whether ``msg_id`` is still the message on the table: nothing newer in the channel
+        but its own author adding to it ("wait, for mining" under "best ship?").
+
+        One of those follow-ups being answered as addressed does count, since that reply
+        is on its way and this one would go out beside it. So does anything more than a
+        few messages on, which is a conversation that has moved on regardless."""
         async with session_scope() as session:
-            latest = await session.scalar(
-                select(Message.message_id)
-                .where(Message.channel_id == channel_id)
-                .order_by(Message.created_at.desc())
-                .limit(1)
-            )
-        return latest == msg_id
+            newest = (
+                await session.execute(
+                    select(Message.message_id, Message.author_id, Message.author_is_bot)
+                    .where(Message.channel_id == channel_id)
+                    .order_by(Message.created_at.desc())
+                    .limit(6)
+                )
+            ).all()
+        for mid, aid, is_bot in newest:
+            if mid == msg_id:
+                return True
+            if is_bot or aid != author_id or is_reply_pending(mid):
+                return False
+        return False
 
     async def _chime_in(
         self,
@@ -412,8 +425,9 @@ class Proactive(commands.Cog):
             return False
         # Writing the reply takes long enough for the room to move on: someone answers the
         # question, or asks Olisar something by name. Either way this reply is to a message
-        # that's no longer the one on the table, so it doesn't go out.
-        if not await self._still_latest(channel_id, msg_id):
+        # that's no longer the one on the table, so it doesn't go out. The asker adding a
+        # line of their own isn't the room moving on, and used to drop it all the same.
+        if not await self._still_latest(channel_id, msg_id, author_id):
             log.info("proactive dropped ch=%s: channel moved on while composing", channel_id)
             return False
         # Chiming in unprompted almost always anchors: the message being answered has sat

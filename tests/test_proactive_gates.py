@@ -119,14 +119,17 @@ class _DbCase(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self._tmp.cleanup()
 
-    async def _store(self, message_id: int, content: str, *, age: float, bot: bool = False):
+    async def _store(
+        self, message_id: int, content: str, *, age: float, bot: bool = False,
+        author: int = ASKER,
+    ):
         async with self.scope() as session:
             session.add(
                 Message(
                     guild_id=GUILD,
                     channel_id=CHANNEL,
                     message_id=message_id,
-                    author_id=ASKER,
+                    author_id=author,
                     author_is_bot=bot,
                     content=content,
                     created_at=utcnow() - timedelta(seconds=age),
@@ -292,8 +295,25 @@ class ChimeRechecksBeforeSendingTest(_DbCase):
 
     async def test_drops_the_reply_when_someone_else_spoke(self) -> None:
         await self._store(1003, "best mining ship?", age=20)
-        await self._store(1005, "prospector, easy", age=2)
+        await self._store(1005, "prospector, easy", age=2, author=ASKER + 1)
         sent, send = await self._chime()
+        self.assertFalse(sent)
+        send.assert_not_awaited()
+
+    async def test_sends_when_the_asker_only_added_to_it(self) -> None:
+        """Their own follow-up is the same question still on the table."""
+        await self._store(1003, "best mining ship?", age=20)
+        await self._store(1006, "solo, not with a crew", age=2)
+        sent, send = await self._chime()
+        self.assertTrue(sent)
+        send.assert_awaited_once()
+
+    async def test_drops_it_when_the_askers_follow_up_is_being_answered(self) -> None:
+        """"olisar?" under the question gets an addressed reply; this one would go beside it."""
+        await self._store(1003, "best mining ship?", age=20)
+        await self._store(1007, "olisar?", age=2)
+        with reply_pending(1007):
+            sent, send = await self._chime()
         self.assertFalse(sent)
         send.assert_not_awaited()
 
