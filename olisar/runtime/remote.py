@@ -169,9 +169,16 @@ def owner_of(cfg: AppConfig | None) -> str:
     return hashlib.sha256(pub.encode()).hexdigest()[:32] if pub else ""
 
 
-async def _mark_owner(conn, app_dir: str, owner: str) -> None:
-    if owner:  # hex only, so it's safe in the command
-        await _run(conn, f"printf '%s' {owner} > ~/{app_dir}/.olisar-owner", timeout=30)
+async def _mark_owner(conn, app_dir: str, owner: str, *, if_unmarked: bool = False) -> None:
+    """Record ``owner`` as whose ``~/<app_dir>`` is. ``if_unmarked`` leaves an existing mark,
+    and a directory that isn't there, alone."""
+    if not owner:
+        return
+    # hex only, so it's safe in the command
+    write = f"printf '%s' {owner} > ~/{app_dir}/.olisar-owner"
+    if if_unmarked:
+        write = f"[ ! -d ~/{app_dir} ] || [ -s ~/{app_dir}/.olisar-owner ] || {write}"
+    await _run(conn, write, timeout=30)
 
 
 async def _list_installs(conn) -> list[dict]:
@@ -179,7 +186,23 @@ async def _list_installs(conn) -> list[dict]:
     return parse_installs(r.stdout or "")
 
 
-def choose_app_dir(installs: list[dict], *, client_id: str, own: str, owner: str = "") -> str:
+def remembered_app_dir(cfg: AppConfig | None, host: str) -> str:
+    """The install this bot remembers running as, for a deploy onto ``host``, or "".
+
+    ``server_app_dir`` once it's set, which a reset keeps. Blank is what every bot deployed
+    before one VM could run several has, and means ``~/olisar``, but it's also what a bot
+    that never deployed has: so it only counts while the bot still points at ``host``."""
+    name = ((getattr(cfg, "server_app_dir", "") or "") if cfg is not None else "").strip()
+    if valid_app_dir(name):
+        return name
+    if cfg is not None and host and (getattr(cfg, "server_host", "") or "").strip() == host:
+        return APP_DIR
+    return ""
+
+
+def choose_app_dir(
+    installs: list[dict], *, client_id: str, own: str, owner: str = "", remembered: str = "",
+) -> str:
     """Where a deploy of the Discord application ``client_id`` goes on a VM with ``installs``.
 
     Pure, because it's the whole difference between "redeploy this bot" and "add a bot next
@@ -187,15 +210,22 @@ def choose_app_dir(installs: list[dict], *, client_id: str, own: str, owner: str
     configuration:
       1. this bot's own install (its ``owner`` mark) — replace it, even if the bot has been
          reset onto a different Discord application since
-      2. an install of this same application — replace it (a redeploy, or a retry of one
+      2. the install it ``remembered`` running as (``remembered_app_dir``), unless another
+         bot's mark says it's theirs — one from before installs were marked, whose
+         application may have changed too
+      3. an install of this same application — replace it (a redeploy, or a retry of one
          that failed partway, or one set up before installs were marked)
-      3. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
-      4. otherwise this bot's own ``~/olisar-<id>``
+      4. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
+      5. otherwise this bot's own ``~/olisar-<id>``
     """
     if owner:
         for install in installs:
             if install.get("owner") == owner:
                 return install["dir"]
+    if remembered:
+        for install in installs:
+            if install.get("dir") == remembered and install.get("owner", "") in ("", owner):
+                return remembered
     if client_id:
         for install in installs:
             if install.get("client_id") == client_id:
@@ -332,9 +362,11 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         await _run(conn, "command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sudo sh)", timeout=300)
         installs = await _list_installs(conn)
         env = parse_env(env_text)
-        owner = owner_of(await _load())
+        cfg = await _load()
+        owner = owner_of(cfg)
         app_dir = choose_app_dir(
             installs, client_id=env.get("DISCORD_CLIENT_ID", ""), own=_own_app_dir(), owner=owner,
+            remembered=remembered_app_dir(cfg, host),
         )
         taken = {i["node"] for i in installs if i["dir"] != app_dir and i.get("node")}
         node = distinct_node(env.get("OLISAR_FUNNEL_HOSTNAME", ""), taken, app_dir)
@@ -1198,6 +1230,14 @@ async def _reconcile() -> dict:
         log.info("auto-update: %s unreachable (%s) — retrying on the next launch", cfg.server_host, exc)
         return {"skipped": "unreachable"}
     app_dir = app_dir_of(cfg)
+    # An install deployed before installs were marked has no mark, and nothing but a deploy
+    # or an adoption used to write one; without it, a reset and a setup onto a new Discord
+    # application can't tell the install is this bot's. This bot runs from it, so claim it,
+    # on every launch until that's done, never over another bot's mark.
+    try:
+        await _mark_owner(conn, app_dir, owner_of(cfg), if_unmarked=True)
+    except Exception as exc:  # noqa: BLE001 — the update doesn't depend on it
+        log.warning("couldn't mark ~/%s as this bot's: %s", app_dir, exc)
     try:
         state = await _probe(conn, app_dir)
         reason = decide(
