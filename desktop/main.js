@@ -241,6 +241,15 @@ async function toggleTunnel() {
 
 // ── window + tray ───────────────────────────────────────────────────────────
 
+function parseUrl(url) { try { return new URL(url) } catch { return null } }
+function originOf(url) { const u = parseUrl(url); return u ? u.origin : null }
+// The only links the app hands to the OS browser.
+function isWebUrl(url) { const u = parseUrl(url); return !!u && (u.protocol === 'https:' || u.protocol === 'http:') }
+function isDiscord(url) {
+  const u = parseUrl(url)
+  return !!u && u.protocol === 'https:' && (u.hostname === 'discord.com' || u.hostname.endsWith('.discord.com'))
+}
+
 function createWindow() {
   if (win) { win.show(); win.focus(); return }
   // Open large enough that the dashboard's longest pages fit without scrolling,
@@ -259,11 +268,28 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
-  win.loadURL(`http://127.0.0.1:${backendPort}/`)
-  // External links open in the OS browser, not inside the app window.
+  const consoleOrigin = `http://127.0.0.1:${backendPort}`
+  win.loadURL(`${consoleOrigin}/`)
+  // Links never open a window inside the app: http(s) goes to the OS browser, anything else
+  // (file:, a custom scheme) nowhere. The console renders model replies as Markdown, so it can
+  // be handed any link, and one that isn't http(s) used to open a new app window, which could
+  // inherit the preload.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) { shell.openExternal(url); return { action: 'deny' } }
-    return { action: 'allow' }
+    if (isWebUrl(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  // And the window itself stays on the console. The one way off it is through Discord, for the
+  // sign-ins that run in the window (the marketplace's publisher check, and "Sign in again" on
+  // the access-denied screen): the backend redirects there, which this doesn't see, and
+  // Discord's pages navigate among themselves and then back to the backend's callback. So
+  // Discord is allowed only once the window is already on it. The console's own sign-in
+  // (/auth/login?desktop=…) opens in the OS browser through the handler above, and polls the
+  // backend to claim the session, so it never navigates this window at all.
+  win.webContents.on('will-navigate', (e) => {
+    if (originOf(e.url) === consoleOrigin) return
+    if (isDiscord(e.url) && isDiscord(win.webContents.getURL())) return
+    e.preventDefault()
+    if (isWebUrl(e.url)) shell.openExternal(e.url)
   })
   win.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); win.hide() }  // stay alive in the tray
