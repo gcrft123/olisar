@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -26,6 +27,32 @@ from pathlib import Path
 log = logging.getLogger("olisar.tunnel")
 
 _START_TIMEOUT = 100  # seconds to wait for the funnel to come up
+
+# A Tailscale device name Tailscale keeps as typed: one DNS label, since it becomes the first
+# part of the console's address.
+_DEVICE_NAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+DEVICE_NAME_RULES = "Use letters, numbers and hyphens, starting and ending with a letter or number."
+
+
+def device_name(raw: str | None) -> str | None:
+    """``raw`` as a device name, lowercased, or None if it isn't one."""
+    name = (raw or "").strip().lower()
+    return name if _DEVICE_NAME_RE.match(name) else None
+
+
+def rename_note(requested: str, url: str) -> str:
+    """What to tell the operator when a renamed node's address doesn't start with the name
+    they asked for, or "" when it does."""
+    label = url.split("://", 1)[-1].split(".", 1)[0].lower()
+    if not label or label == requested:
+        return ""
+    if re.fullmatch(rf"{re.escape(requested)}-\d+", label):
+        return f"Another device in your tailnet is already called {requested}, so Tailscale named this one {label}."
+    # Tailscale stops following the hostname a node sends once its name is set by hand.
+    return (
+        f"Tailscale kept the name {label}. If it was renamed in Tailscale's admin console, "
+        "turn on Auto-generate from OS hostname there, then rename it again."
+    )
 
 
 def funnel_helper_path() -> str | None:

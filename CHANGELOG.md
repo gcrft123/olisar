@@ -52,6 +52,8 @@ After the app started, Settings → Bots listed every bot but the one on screen 
 
 Installing an update from the desktop app changed a button to "Installing…", and a minute later the window vanished. In between, the console stayed usable on a backend that was about to stop, and a page with unsaved edits could hold the quit open, which left the app with no window, no tray and no backend, and no update. An update now takes the window while it runs, shows each step and what's left, and can be cancelled while it downloads.
 
+A bot's web address came from the device name typed during setup, and nothing in the app could change it after that. Settings → Remote access now renames it, for a bot on this machine or on a server. Discord refuses sign-ins at the new address until it's registered there, so the pane shows the new redirect URL and ticks it off once Discord lists it.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -179,6 +181,12 @@ Installing an update from the desktop app changed a button to "Installing…", a
 [55b26c2] — A failed update says which step failed and what went wrong, and offers Try again, the installer, or the way back to the console.
 
 [55b26c2] — After an update, the console says which version the app opened on.
+
+[390cb7d] — Settings → Remote access renames the bot's Tailscale device, which moves the console to a new address.
+
+[390cb7d] — The server panel's Settings has a Remote access section, which renames a server bot's device the same way.
+
+[390cb7d] — After a rename, Remote access shows the new redirect URL to add in Discord and ticks it off once Discord lists it.
 
 ### Changed
 
@@ -366,6 +374,8 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 [5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
 
+[390cb7d] — The Remote access switch only shows on the machine the desktop app runs on; an admin signed in over the web link couldn't use it.
+
 ### Fixed
 
 [ce98ef9] — When Olisar can't use the server you picked to share, the notice shows a warning sign instead of an info icon.
@@ -469,6 +479,8 @@ Installing an update from the desktop app changed a button to "Installing…", a
 [55b26c2] — An update download that loses its connection partway through fails, instead of waiting forever.
 
 [dc07313] — The Gemini key fields in setup and on the API keys page show a key starting with `AQ.`, the format Google AI Studio hands out now, instead of the older `AIza`.
+
+[265cc27] — A bot moved onto a server another bot already runs on uses the Tailscale device name the move picked for it, instead of the one it had on this machine, which could be the other bot's.
 
 [dfe71f5] — When the model types a tool call as its reply, like `react(emoji="🔥")` or `[reacted 🔥]`, Olisar reacts with that emoji or answers in words instead of posting the call to the channel.
 
