@@ -425,7 +425,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .foot-trace-tail { --dash: 96px; stroke-width: 1px; opacity: 0.18; }
 .foot-trace-core { --dash: 40px; stroke-width: 1px; opacity: 0.32; }
 .foot-sheet[data-glow-motion="slide"] .foot-trace {
-  opacity: 1; animation: foot-trace 2.4s ease-in-out infinite alternate;
+  opacity: 1; animation: foot-trace 1.4s ease-in-out infinite alternate;
 }
 /* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
 .foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
