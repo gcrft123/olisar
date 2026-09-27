@@ -17,7 +17,13 @@ from google.genai import types
 
 from olisar.config import settings
 from olisar.gemini.client import get_gemini
-from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter, record_usage
+from olisar.gemini.quota import read_refusal
+from olisar.gemini.rate_limiter import (
+    RateLimitExceeded,
+    get_rate_limiter,
+    mark_spent,
+    record_usage,
+)
 
 BATCH_SIZE = 50  # texts per request
 
@@ -48,8 +54,14 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
             # Unlike the chat path, embeddings have no fallback chain — one model. On a 429
             # we must PARK it (penalize → cooldown) so acquire() backs off, instead of
             # re-hitting the exhausted quota on every message/index tick (that's what spammed
-            # 429s in the log). Raise the typed error callers already defer on.
+            # 429s in the log). Raise the typed error callers already defer on. A spent
+            # daily quota parks it until Google's reset, and acquire() then refuses at once
+            # rather than waiting out the day.
             if getattr(exc, "code", None) == 429:
+                refusal = read_refusal(exc)
+                if refusal.daily:
+                    await mark_spent(model, refusal.limit)
+                    raise RateLimitExceeded(model, "daily") from exc
                 get_rate_limiter().penalize(model, reason="a rate limit (429)")
                 raise RateLimitExceeded(model, "rpm") from exc
             raise

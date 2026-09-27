@@ -235,7 +235,7 @@ export const api = {
   clearIndex: () => req('/api/knowledge/reindex/clear', { method: 'POST' }),
   reindexStatus: () => req('/api/knowledge/reindex/status'),
 
-  getUsage: (days: number) => req(`/api/usage/summary?days=${days}`),
+  getUsage: () => req('/api/usage/summary'),
   getUsageLive: () => req('/api/usage/live'),
   getAudit: (limit = 100) => req(`/api/audit?limit=${limit}`),
 

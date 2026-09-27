@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from olisar import self_settings, toolpin
 from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
 from olisar.gemini.client import GroundingUnavailable, get_gemini
+from olisar.gemini.quota import quota_day
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
@@ -466,7 +467,7 @@ async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
     config = await session.get(GuildConfig, cfg_guild)
     if config is None or not config.grounding_enabled:
         return False
-    today = datetime.now(timezone.utc).date()
+    today = quota_day()
     rows = (await session.scalars(select(GeminiUsage).where(GeminiUsage.day == today))).all()
     used = sum(r.grounding_count for r in rows)
     return used < config.grounding_daily_cap

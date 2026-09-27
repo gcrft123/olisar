@@ -25,6 +25,7 @@ dependencies = [
     "cryptography>=42",         # Ed25519 signing/verification of .olx extension bundles
     "pillow>=12.3.0",
     "asyncssh>=2.24.0",
+    "tzdata>=2024.1",           # Google's quota day is Pacific time; slim images ship no zoneinfo
 ]
 
 [project.optional-dependencies]

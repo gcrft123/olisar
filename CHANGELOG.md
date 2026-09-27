@@ -56,6 +56,10 @@ A bot's web address came from the device name typed during setup, and nothing in
 
 A welcome message was written from the persona and the new member's name, and nothing else. Olisar reads the room when someone calls it in a channel, but the greeting never saw the channel it went into, so it came out the same in the middle of a conversation as in an empty channel, and could describe a room that wasn't there. Welcome now writes it the way a reply in that channel would come out, and extensions can do the same.
 
+The Usage page counted the wrong day and never showed the limit that actually stops Olisar. Google resets each model's daily limit at midnight Pacific, and Olisar counted days in UTC, so for seven or eight hours every evening the page started a fresh day while Google was still counting the old one. It compared this morning with the whole of yesterday, drew a tokens-per-minute cap that wasn't Google's, and a model Google had turned away for the day was asked again every two minutes until midnight.
+
+What stops Olisar replying is the daily limit on each model it falls back through, so that's what the page now leads with.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -191,6 +195,10 @@ A welcome message was written from the persona and the new member's name, and no
 [390cb7d] — After a rename, Remote access shows the new redirect URL to add in Discord and ticks it off once Discord lists it.
 
 [b33d67b] — `host.generate` takes a `channelId` and writes as if the bot had been called in that channel, from its name, topic and recent conversation and the server's glossary; built-in and locally-authored extensions only.
+
+[7b730a4] — Olisar learns each model's daily limit from the first time Google turns it away for the day, since Google no longer publishes them.
+
+[27b92f4] — The Usage page lists every model in the fallback chain in order, with whether it's replying, on standby, resting or used up, and what's left of its daily limit.
 
 ### Changed
 
@@ -382,6 +390,18 @@ A welcome message was written from the persona and the new member's name, and no
 
 [af9e85d] — Welcome greets a new member from the welcome channel's name, topic and recent conversation.
 
+[27b92f4] — The Usage page opens on what's left today across the fallback chain, which model is replying, and whether today's pace lasts until the reset.
+
+[27b92f4] — Memory search and web search show their own daily limits beside the chain's.
+
+[27b92f4] — By feature counts only requests against the chain's daily limits, opens on today, and keeps each feature's color whichever range is picked.
+
+[27b92f4] — Requests and tokens today are compared with the same time yesterday rather than with the whole of yesterday.
+
+[27b92f4] — Usage charts requests per day for the last 14 days against the chain's daily total, with the days it ran out in amber.
+
+[27b92f4] — The tokens-per-minute chart is gone, along with the 1M cap it drew, which wasn't Google's.
+
 ### Fixed
 
 [ce98ef9] — When Olisar can't use the server you picked to share, the notice shows a warning sign instead of an info icon.
@@ -489,6 +509,14 @@ A welcome message was written from the persona and the new member's name, and no
 [265cc27] — A bot moved onto a server another bot already runs on uses the Tailscale device name the move picked for it, instead of the one it had on this machine, which could be the other bot's.
 
 [dfe71f5] — When the model types a tool call as its reply, like `react(emoji="🔥")` or `[reacted 🔥]`, Olisar reacts with that emoji or answers in words instead of posting the call to the channel.
+
+[7b730a4] — Usage is counted on Google's day, midnight to midnight Pacific, instead of the UTC date, so the evening no longer starts a new day early.
+
+[7b730a4] — A model Google refuses for the rest of the day is left alone until the reset instead of being asked again every two minutes, including after a restart.
+
+[7b730a4] — Memory search gives up straight away once its daily quota is spent, instead of waiting for the reset.
+
+[7b730a4] — Web search waits for midnight Pacific, not UTC, after Google says its daily allowance is spent.
 
 ## [1.5.0] — 2026-09-21
 

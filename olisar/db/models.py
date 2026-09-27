@@ -1001,7 +1001,10 @@ class BotActivity(Base):
 
 
 class GeminiUsage(Base):
-    """Per-day, per-model request/token accounting for the rate limiter + dashboard."""
+    """Per-day, per-model request/token accounting for the rate limiter + dashboard.
+
+    ``day`` is Google's quota day (midnight to midnight Pacific, see olisar.gemini.quota).
+    Rows written before that change are keyed by the UTC date."""
 
     __tablename__ = "gemini_usage"
     __table_args__ = (UniqueConstraint("day", "model", name="uq_usage_day_model"),)
@@ -1013,8 +1016,39 @@ class GeminiUsage(Base):
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     grounding_count: Mapped[int] = mapped_column(Integer, default=0)
     # The highest requests-in-any-60s window this model reached on this day — the day's
-    # peak RPM, compared against the model's cap on the Usage dashboard.
+    # peak RPM, compared against the model's cap on the Usage dashboard — and when.
     peak_rpm: Mapped[int] = mapped_column(Integer, default=0)
+    peak_rpm_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # When Google refused this model for the rest of the day, and the daily limit it named
+    # doing so. A model can be refused before Olisar's own count reaches its limit: the quota
+    # is per Google Cloud project, and anything else on the project draws on it too.
+    exhausted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quota_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class UsageHour(Base):
+    """Requests and tokens per model per hour of Google's day. The Usage page compares today
+    with the same time yesterday, which a daily total can't answer before the day is over."""
+
+    __tablename__ = "usage_hour"
+    __table_args__ = (UniqueConstraint("day", "hour", "model", name="uq_usage_hour"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[datetime] = mapped_column(Date, index=True)
+    hour: Mapped[int] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(String(64))
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class UsageDay(Base):
+    """A quota day's events that aren't per model: when every model in the chat chain had been
+    refused for the day, so Olisar couldn't reply until the reset."""
+
+    __tablename__ = "usage_day"
+
+    day: Mapped[datetime] = mapped_column(Date, primary_key=True)
+    chain_out_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class UsageSource(Base):
