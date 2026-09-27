@@ -14,7 +14,8 @@ bot workers read it (for their own name) and never modify it.
 Deliberately stdlib-only (no ``olisar.config`` import, like :mod:`olisar.runtime.paths`) so
 it is safe to call at any point in the boot sequence.
 
-Storage: a JSON file at ``home_dir()/profiles.json``::
+Storage: a JSON file at ``home_dir()/profiles.json``, with a copy beside it
+(``profiles.json.bak``) that's read when the file itself can't be::
 
     { "active": "default", "profiles": [ {id, name, created_at, created, legacy}, ... ] }
 
@@ -28,7 +29,10 @@ Storage: a JSON file at ``home_dir()/profiles.json``::
 
 from __future__ import annotations
 
+import builtins
+import contextlib
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -36,6 +40,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from olisar.runtime.paths import home_dir
+
+log = logging.getLogger("olisar.profiles")
 
 DEFAULT_ID = "default"
 
@@ -86,29 +92,96 @@ def _normalise(reg: dict) -> dict:
     return reg
 
 
-def _read() -> dict:
+def _backup_path() -> Path:
     path = _registry_path()
-    if not path.exists():
-        reg = _synthesize_default()
-        _write(reg)
-        return reg
+    return path.with_name(path.name + ".bak")
+
+
+def _load(path: Path) -> dict | None:
+    """The registry in ``path``, or None if it's missing or isn't one."""
     try:
         reg = json.loads(path.read_text("utf-8"))
-    except (json.JSONDecodeError, OSError):
-        reg = _synthesize_default()
+    except (OSError, ValueError):
+        return None
+    profiles = reg.get("profiles") if isinstance(reg, dict) else None
+    if not profiles or not isinstance(profiles, builtins.list):
+        return None
+    if not all(isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"] for p in profiles):
+        return None
+    return reg
+
+
+def _rebuild() -> dict:
+    """A registry from what's on disk, for when there's none to read: the original bot if its
+    database is there, and every bot directory. Names aren't kept anywhere else, so a rebuilt
+    bot goes by its id. With nothing on disk, this is a first boot: the one original bot,
+    bound to where its data will be (see ``_synthesize_default``)."""
+    reg = _synthesize_default()
+    home = home_dir()
+    found = []
+    with contextlib.suppress(OSError):
+        found = [
+            {"id": d.name, "name": d.name, "created_at": _now_iso(), "created": True, "legacy": False}
+            for d in sorted((home / "profiles").iterdir())
+            if d.is_dir() and not d.name.startswith(".")
+        ]
+    if found:
+        legacy = reg["profiles"] if (home / "olisar.db").exists() else []
+        reg["profiles"] = legacy + found
+        reg["active"] = reg["default"] = reg["profiles"][0]["id"]
+    return reg
+
+
+def _read() -> dict:
+    """The registry. A copy of it is kept beside it (``profiles.json.bak``), and one that
+    can't be read is never replaced on the strength of that: dropping every bot but the first
+    from the list is how a truncated file used to cost an operator their bots."""
+    path = _registry_path()
+    reg = _load(path) or _load(_backup_path())
+    if reg is not None:
+        return _normalise(reg)
+    if not path.exists() and not _backup_path().exists():
+        reg = _rebuild()  # a first boot (or an upgrade from one bot): nothing to lose
         _write(reg)
         return reg
-    return _normalise(reg)
+    # Unreadable, and so is the copy. Work from what's on disk without writing it back; the
+    # next change writes the registry again, so keep what was there for someone to look at.
+    unreadable = path.with_name(path.name + ".unreadable")
+    if path.exists() and not unreadable.exists():
+        with contextlib.suppress(OSError):
+            shutil.copy2(path, unreadable)
+    log.error("the bot registry (%s) can't be read; working from the bots found on disk", path)
+    return _normalise(_rebuild())
+
+
+def _replace(path: Path, text: str) -> None:
+    """Write ``path`` in one step: a tmp file, flushed to disk before ``os.replace`` (atomic on
+    POSIX and Windows) puts it in place, so a crash leaves the old file or the new one, never
+    an empty or half-written one. The tmp name carries the pid, so a worker that writes the
+    file at the same moment the gateway does can't interleave into one tmp file."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, path)
+    if os.name != "nt":  # and the rename itself, which lives in the directory
+        with contextlib.suppress(OSError):
+            fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
 
 
 def _write(reg: dict) -> None:
-    """Atomic write: tmp file + ``os.replace`` (atomic on POSIX and Windows). The tmp name
-    carries the pid, so a worker that synthesizes the file at the same moment the gateway
-    writes it can't interleave into one half-written tmp file."""
-    path = _registry_path()
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(reg, indent=2), "utf-8")
-    os.replace(tmp, path)
+    """Save the registry, then refresh its copy (read if the registry itself can't be)."""
+    text = json.dumps(reg, indent=2)
+    _replace(_registry_path(), text)
+    try:
+        _replace(_backup_path(), text)
+    except OSError as exc:
+        log.warning("couldn't refresh the bot registry's backup copy: %s", exc)
 
 
 # ── public API ────────────────────────────────────────────────────────────────
