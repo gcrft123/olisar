@@ -504,10 +504,13 @@ export function useSaver(save: () => Promise<void>) {
 export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string; variant?: 'primary' | 'secondary' }) {
   const s = props.saver
   // Re-render whenever any field's validity changes, then answer the narrower question:
-  // is anything invalid *in this bar's own card*? The page-wide answer belongs to SaveDock.
+  // is anything invalid in the form this bar saves? The page-wide answer belongs to SaveDock.
+  // That form is the compose block the bar sits in (Knowledge's "add a source"), or else its
+  // Section. This looked for `.card`, which stopped existing when cards became sections, so
+  // the check found nothing and a crawl depth of 7 went out as the last valid value.
   const anyInvalid = useHasInvalidFields()
   const box = React.useRef<HTMLDivElement>(null)
-  const invalid = anyInvalid && !!box.current?.closest('.card')?.querySelector('[aria-invalid="true"]')
+  const invalid = anyInvalid && !!box.current?.closest('.compose, section')?.querySelector('[aria-invalid="true"]')
   return (
     <div className="savebar" ref={box}>
       {/* A page gets one primary. On Knowledge three SaveBars and a SaveDock were all
