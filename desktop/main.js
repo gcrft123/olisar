@@ -241,6 +241,15 @@ async function toggleTunnel() {
 
 // ── window + tray ───────────────────────────────────────────────────────────
 
+function parseUrl(url) { try { return new URL(url) } catch { return null } }
+function originOf(url) { const u = parseUrl(url); return u ? u.origin : null }
+// The only links the app hands to the OS browser.
+function isWebUrl(url) { const u = parseUrl(url); return !!u && (u.protocol === 'https:' || u.protocol === 'http:') }
+function isDiscord(url) {
+  const u = parseUrl(url)
+  return !!u && u.protocol === 'https:' && (u.hostname === 'discord.com' || u.hostname.endsWith('.discord.com'))
+}
+
 function createWindow() {
   if (win) { win.show(); win.focus(); return }
   // Open large enough that the dashboard's longest pages fit without scrolling,
@@ -259,11 +268,28 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
-  win.loadURL(`http://127.0.0.1:${backendPort}/`)
-  // External links open in the OS browser, not inside the app window.
+  const consoleOrigin = `http://127.0.0.1:${backendPort}`
+  win.loadURL(`${consoleOrigin}/`)
+  // Links never open a window inside the app: http(s) goes to the OS browser, anything else
+  // (file:, a custom scheme) nowhere. The console renders model replies as Markdown, so it can
+  // be handed any link, and one that isn't http(s) used to open a new app window, which could
+  // inherit the preload.
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//.test(url)) { shell.openExternal(url); return { action: 'deny' } }
-    return { action: 'allow' }
+    if (isWebUrl(url)) shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  // And the window itself stays on the console. The one way off it is through Discord, for the
+  // sign-ins that run in the window (the marketplace's publisher check, and "Sign in again" on
+  // the access-denied screen): the backend redirects there, which this doesn't see, and
+  // Discord's pages navigate among themselves and then back to the backend's callback. So
+  // Discord is allowed only once the window is already on it. The console's own sign-in
+  // (/auth/login?desktop=…) opens in the OS browser through the handler above, and polls the
+  // backend to claim the session, so it never navigates this window at all.
+  win.webContents.on('will-navigate', (e) => {
+    if (originOf(e.url) === consoleOrigin) return
+    if (isDiscord(e.url) && isDiscord(win.webContents.getURL())) return
+    e.preventDefault()
+    if (isWebUrl(e.url)) shell.openExternal(e.url)
   })
   win.on('close', (e) => {
     if (!app.isQuitting) { e.preventDefault(); win.hide() }  // stay alive in the tray
@@ -294,9 +320,12 @@ function rebuildTray() {
       }]
     : []
   const update = updater.getAvailableUpdate()
+  // A release this build can't install itself (no installer for it on the release) only
+  // offers the download, which is what the click does then.
+  const selfUpdate = updater.canSelfUpdate() && update && update.hasInstaller
   const updateItems = update
     ? [{
-        label: (updater.canSelfUpdate() ? 'Install update & restart' : 'Download update') + ` — v${update.version}`,
+        label: (selfUpdate ? 'Install update & restart' : 'Download update') + ` — v${update.version}`,
         click: () => updater.installUpdate(update),
       }]
     : [{ label: 'Check for Updates…', click: checkForUpdatesInteractive }]
@@ -396,6 +425,7 @@ async function clearCacheOnNewVersion() {
 
 async function boot() {
   registerUpdateIpc()
+  updater.cleanUpLeftovers()  // an update cut off last time: its temp files, mount, staged copy
   await clearCacheOnNewVersion()
   backendPort = await choosePort()
   startBackend(backendPort)
@@ -426,18 +456,22 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(boot)
   app.on('window-all-closed', (e) => { /* stay in tray; don't quit on macOS or others */ })
   app.on('activate', createWindow)
-  // Quitting waits for the backend to stop its bots, so none is left signed in to Discord.
-  // The window and tray go at once; the wait happens out of sight.
-  let backendStopped = false
+  // Quitting waits for the backend to stop its bots, so none is left signed in to Discord, and
+  // for an update it calls off (a download, or macOS's unpack) to put things back. The window
+  // and tray go at once; the wait happens out of sight.
+  let readyToQuit = false
   app.on('before-quit', (e) => {
     app.isQuitting = true
-    // Quitting while an update downloads calls the update off.
-    updater.cancelInstall()
-    if (backendStopped || !backend) return
+    if (readyToQuit) return
+    // Settles once the update is undone; null when there's none to call off. A stuck unwind
+    // gives up after a while: the leftovers are cleared at the next launch.
+    const abandoned = updater.abandonInstall()
+    if (!abandoned && !backend) return
     e.preventDefault()
     // An update keeps its window up to show the last steps; any other quit hides it at once.
     if (!updater.isCommitted()) for (const w of BrowserWindow.getAllWindows()) w.hide()
     if (tray) { tray.destroy(); tray = null }
-    stopBackend().finally(() => { backendStopped = true; app.quit() })
+    const unwound = abandoned && Promise.race([abandoned, new Promise((resolve) => setTimeout(resolve, 20000))])
+    Promise.all([unwound, stopBackend()]).finally(() => { readyToQuit = true; app.quit() })
   })
 }

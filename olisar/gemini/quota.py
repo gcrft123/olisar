@@ -68,6 +68,13 @@ def _quota_id(violation: dict) -> str:
     return str(violation.get("quotaId") or violation.get("quota_id") or "")
 
 
+def _counts_requests(violation: dict) -> bool:
+    """Whether a quota counts requests, e.g. ``GenerateRequestsPerDayPerProjectPerModel``,
+    rather than tokens (``GenerateContentInputTokensPerModelPerDay``)."""
+    quota_id = _quota_id(violation).lower()
+    return "request" in quota_id and "token" not in quota_id
+
+
 def _violations(exc: Exception) -> list[dict]:
     """The ``google.rpc.QuotaFailure`` violations Google attached to an error, if any."""
     body = getattr(exc, "details", None)
@@ -94,10 +101,13 @@ def read_refusal(exc: Exception) -> Refusal:
         # No structured detail, but the words can still say so.
         text = f"{getattr(exc, 'message', '') or ''} {getattr(exc, 'details', '') or ''}"
         return Refusal(daily=bool(re.search(r"PerDay\w*-FreeTier", text)))
-    # A request quota's size, not a token quota's, is the number the page counts against.
-    requests = [v for v in daily if "request" in _quota_id(v).lower()]
+    # Only a request quota's size is a daily request limit, the number the page counts
+    # against. A token quota's (1,000,000 input tokens a day) would read as a million
+    # requests left, so when only a token quota ran out the model is out with no limit.
     limit = None
-    for v in requests or daily:
+    for v in daily:
+        if not _counts_requests(v):
+            continue
         try:
             limit = int(str(v.get("quotaValue") or v.get("quota_value") or ""))
             break

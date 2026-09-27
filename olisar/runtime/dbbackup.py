@@ -26,6 +26,10 @@ log = logging.getLogger("olisar.dbbackup")
 
 KEEP = 2  # how many pre-upgrade snapshots to retain per profile
 _PREFIX = ".pre-"
+# What follows the prefix in a snapshot's name: the version it was taken from ("unknown"
+# when none was recorded). Other files share the prefix and aren't ours to prune: a move
+# between hosts keeps the database it replaced as ``olisar.db.pre-move.bak``.
+_SNAPSHOT_OF = re.compile(r"(unknown|\d[A-Za-z0-9._-]*)(?<!-journal)(?<!-wal)(?<!-shm)")
 
 
 def _marker(db_path: Path) -> Path:
@@ -52,8 +56,12 @@ def _snapshot(src: Path, dst: Path) -> None:
 def _prune(db_path: Path) -> None:
     """Keep only the KEEP newest snapshots so a long-lived install doesn't accumulate a
     copy of the database per release."""
+    prefix = f"{db_path.name}{_PREFIX}"
     snaps = sorted(
-        db_path.parent.glob(f"{db_path.name}{_PREFIX}*"),
+        (
+            p for p in db_path.parent.glob(f"{prefix}*")
+            if _SNAPSHOT_OF.fullmatch(p.name[len(prefix):])
+        ),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )

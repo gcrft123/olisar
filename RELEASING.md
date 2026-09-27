@@ -169,12 +169,29 @@ git push origin v2.0.beta-1
 
 The workflow builds **both** installers in parallel — macOS (Apple-Silicon `.dmg`) and
 Windows (`.exe`) — each running the full chain (Tailscale sidecar → dashboard → PyInstaller
-backend → electron-builder) on its own runner, and both land on the same `v<tag>` GitHub
-Release using the repo's `GITHUB_TOKEN`. It's live immediately. A beta is published as a
-**pre-release**, which keeps it off every stable install, and the server image's `:latest`
+backend → electron-builder) on its own runner, alongside the server image, and both installers
+land on the same `v<tag>` GitHub Release using the repo's `GITHUB_TOKEN`. A beta is published as
+a **pre-release**, which keeps it off every stable install, and the server image's `:latest`
 tag only moves for a stable release. To point `:latest` somewhere else (back to the previous
 release after a bad one, say), run the **Point :latest at a release** workflow from the
 Actions tab with a stable tag. It copies that release's image instead of rebuilding it.
+
+**The release is a draft until everything is on it.** The `version-check` job opens it as a
+draft (already marked pre-release for a beta), the macOS and Windows jobs attach their
+installers to that draft, and the last job, `publish`, makes it live. `publish` waits on the
+macOS, Windows and server-image jobs, checks that a `.dmg` and an `.exe` are attached, then runs
+`gh release edit --draft=false`, keeping a beta a pre-release and marking a stable release
+**Latest**. Nobody outside the repo can see a draft: not the desktop updaters, not a VM moving
+to the release, not `/releases/latest`. So a release is never seen half-built. Publishing from
+whichever build finished first used to put it live minutes before the rest: v2.0.beta-4 was up
+for two minutes without its `.dmg` and five without its server image.
+
+If a build fails, the release stays a draft and nothing ships. For a flake (a notarization
+timeout, a runner hiccup), use **Re-run failed jobs** on the same run; `publish` runs after
+them, and the re-run reuses the draft rather than opening a second one. A failure that needs a
+code change needs a new tag, so delete that tag's draft and cut the next version. The draft is on
+the [Releases](https://github.com/gcrft123/olisar/releases) page for maintainers meanwhile, and a
+title or notes written into it before it goes live are kept.
 
 Both jobs build with `--publish never` and upload with `gh`. electron-builder can only
 publish to a tag spelled `v` + the package.json version (`v2.0.0-beta.1`), which isn't the
@@ -199,10 +216,14 @@ uv run pyinstaller desktop/backend.spec --noconfirm --clean
 # 3. build, sign and notarize the .dmg  (see §2 for APPLE_KEYCHAIN_PROFILE)
 cd desktop && npm install && npm run release:mac
 
-# 4. publish it (drop --prerelease for a stable release)
-gh release create v2.0.beta-1 --title "v2.0.beta-1" --notes "…" --prerelease
+# 4. open a draft, attach the .dmg, then publish (drop --prerelease for a stable release)
+gh release create v2.0.beta-1 --draft --title "v2.0.beta-1" --notes "…" --prerelease
 gh release upload v2.0.beta-1 out/Olisar-2.0.0-beta.1-arm64.dmg --clobber
+gh release edit v2.0.beta-1 --draft=false
 ```
+
+Publish last, as CI does: a release created without `--draft` is live, and offered to every
+install on its channel, before its installer is on it.
 
 `npm run release:mac` = `npm run dist:mac` (build + sign + notarize + staple the `.app`,
 then build and sign the `.dmg`) followed by `npm run notarize:dmg` (notarize + staple the
@@ -229,7 +250,8 @@ Cutting a stable release renames that section to `## [2.1] — YYYY-MM-DD` (em d
 date) and leaves `## [Unreleased]` empty above it. Its notes are the whole section, so they
 cover every beta that led up to it, and it ships verbatim.
 
-CI publishes the GitHub Release with an **empty body**, so paste the notes in afterwards:
+CI opens the GitHub Release with an **empty body**, so paste the notes in, into the draft while
+the builds run or once it's published (publishing leaves them alone):
 
 ```sh
 gh release edit v2.1 --notes-file notes.md   # notes.md = the notes, without the section heading
@@ -264,9 +286,11 @@ The reasoning lives here.
 
 ## 5. Verify
 
-Running an older build on the right channel (a beta needs Settings → Updates → **Beta**),
-open the tray → **Check for Updates…**. It should report the new version and offer
-**Download**. (Or wait — it polls automatically a few seconds after launch and every 6 hours.)
+Once the `publish` job is green, running an older build on the right channel (a beta needs
+Settings → Updates → **Beta**), open the tray → **Check for Updates…**. It should report the new
+version and offer **Install & Restart** (**Download** on a build that can't install itself).
+(Or wait — it polls automatically a few seconds after launch and every 6 hours.) Before
+`publish` finishes it should still say you're up to date.
 
 > **Cross-platform:** the tag-push CI builds macOS *and* Windows automatically. The updater
 > picks the `.exe` asset on Windows and the `arm64.dmg` on Apple-Silicon macOS, and self-installs

@@ -24,12 +24,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.routers import usage as usage_router
-from olisar.db.models import Base, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.db.models import (
+    AdminUser,
+    Base,
+    GeminiUsage,
+    Guild,
+    GuildConfig,
+    UsageDay,
+    UsageHour,
+    UsageSource,
+)
 from olisar.gemini import rate_limiter as rl
 from olisar.gemini.client import GeminiClient
-from olisar.gemini.models import RANKED, RANKED_NAMES
+from olisar.gemini.models import RANKED, RANKED_NAMES, model_chain
 from olisar.gemini.quota import day_start, next_reset, quota_day, quota_hour, read_refusal
-from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded
+from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded, key_id
 
 
 def _quota_429(quota_id: str, value: str = "250", retry: str | None = None):
@@ -75,6 +84,23 @@ class RefusalTests(unittest.TestCase):
         refusal = read_refusal(_quota_429(DAILY, "250"))
         self.assertTrue(refusal.daily)
         self.assertEqual(refusal.limit, 250)
+
+    def test_a_daily_token_quota_is_daily_but_names_no_request_limit(self):
+        """1,000,000 input tokens a day isn't a million requests a day."""
+        err = _quota_429("GenerateContentInputTokensPerModelPerDay-FreeTier", "1000000")
+        refusal = read_refusal(err)
+        self.assertTrue(refusal.daily)
+        self.assertIsNone(refusal.limit)
+
+    def test_the_request_quota_wins_when_both_ran_out(self):
+        body = {"error": {"code": 429, "details": [{
+            "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+            "violations": [
+                {"quotaId": "GenerateContentInputTokensPerModelPerDay-FreeTier", "quotaValue": "1000000"},
+                {"quotaId": DAILY, "quotaValue": "250"},
+            ],
+        }]}}
+        self.assertEqual(read_refusal(genai_errors.APIError(429, body)).limit, 250)
 
     def test_a_per_minute_quota_is_not_daily(self):
         refusal = read_refusal(_quota_429(PER_MINUTE, "10", retry="23s"))
@@ -125,6 +151,57 @@ class LimiterTests(unittest.TestCase):
         self.assertAlmostEqual(limiter.back_in(RANKED_NAMES[0]), 48, delta=1)
         self.assertEqual(limiter.back_in(RANKED_NAMES[1]), 0)
 
+    def test_a_new_key_unparks_what_the_old_one_ran_out_on(self):
+        """The quota is the key's project's; another key's refusal says nothing about it."""
+        limiter = RateLimiter()
+        limiter.use_key(key_id("KEY-A"))
+        limiter.exhaust(RANKED_NAMES[0])
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
+        limiter.use_key(key_id("KEY-B"))
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "ok")
+        self.assertFalse(limiter.chain_spent())
+
+    @staticmethod
+    def _an_hour_passes(limiter, model):
+        limiter._probe_at[model] -= rl.PROBE_SECONDS
+
+    def test_a_parked_model_is_asked_again_about_once_an_hour(self):
+        """So billing turned on in the afternoon is noticed before midnight."""
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0])
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]))
+        self._an_hour_passes(limiter, RANKED_NAMES[0])
+        self.assertTrue(limiter.claim_probe(RANKED_NAMES[0]))
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]), "one probe per hour, not one per reply")
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[1]), "only parked models are probed")
+
+    def test_the_hour_counts_from_the_refusal_not_the_restart(self):
+        limiter = RateLimiter()
+        now = datetime.now(timezone.utc)
+        ago = min(now - day_start(quota_day(now)), timedelta(minutes=30))  # still today
+        limiter.exhaust(RANKED_NAMES[0], now - ago)
+        due_in = limiter._probe_at[RANKED_NAMES[0]] - rl.time.monotonic()
+        self.assertAlmostEqual(due_in, rl.PROBE_SECONDS - ago.total_seconds(), delta=2)
+
+    def test_refused_again_keeps_when_it_first_ran_out(self):
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0])
+        first = limiter.spent_at(RANKED_NAMES[0])
+        self._an_hour_passes(limiter, RANKED_NAMES[0])
+        self.assertTrue(limiter.claim_probe(RANKED_NAMES[0]))
+        limiter.exhaust(RANKED_NAMES[0], first + timedelta(seconds=1))
+        self.assertEqual(limiter.spent_at(RANKED_NAMES[0]), first)
+        self.assertFalse(limiter.claim_probe(RANKED_NAMES[0]), "the refusal pushes the next probe back")
+
+    def test_acquire_takes_the_hourly_probe(self):
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-embedding-001")
+        self._an_hour_passes(limiter, "gemini-embedding-001")
+        asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001"), 1))
+        with self.assertRaises(RateLimitExceeded):
+            asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001"), 1))
+
 
 class ClientTests(unittest.TestCase):
     def _run(self, first_error, *, grounding=0):
@@ -147,7 +224,7 @@ class ClientTests(unittest.TestCase):
 
     def test_a_daily_429_parks_the_model_until_the_reset(self):
         limiter, spent = self._run(_quota_429(DAILY, "250"))
-        spent.assert_awaited_once_with(RANKED_NAMES[0], 250)
+        spent.assert_awaited_once_with(RANKED_NAMES[0], 250, key=None)
         limiter.penalize.assert_not_called()
 
     def test_a_per_minute_429_rests_it_as_before(self):
@@ -171,10 +248,18 @@ class _Db(unittest.IsolatedAsyncioTestCase):
             await conn.run_sync(Base.metadata.create_all)
         self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
         self.limiter = RateLimiter()
+        # The key in effect, as the dashboard or .env would give it. The limiter learns it
+        # from the client's first call.
+        self.key = {"value": "KEY-A"}
+        self.limiter.use_key(key_id(self.key["value"]))
         self._patches = [
             patch.object(rl, "session_scope", self.scope),
             patch.object(usage_router, "session_scope", self.scope),
             patch.object(rl, "_rate_limiter", self.limiter),
+            patch.object(
+                rl.runtime_keys, "gemini_api_key",
+                AsyncMock(side_effect=lambda: self.key["value"]),
+            ),
         ]
         for p in self._patches:
             p.start()
@@ -224,6 +309,186 @@ class RecordingTests(_Db):
         with patch.object(rl, "_rate_limiter", fresh):
             self.assertEqual(await rl.restore_spent(), 1)
         self.assertEqual(fresh.state(RANKED_NAMES[0]), "spent")
+
+    async def test_a_refusal_keeps_a_fingerprint_of_the_key_never_the_key(self):
+        await rl.mark_spent(RANKED_NAMES[0])
+        (row,) = await self.rows(GeminiUsage)
+        self.assertEqual(row.exhausted_key, key_id("KEY-A"))
+        self.assertNotIn("KEY-A", row.exhausted_key)
+
+    async def test_a_restart_on_a_new_key_parks_nothing(self):
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.key["value"] = "KEY-B"
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+        self.assertEqual(fresh.state(RANKED_NAMES[0]), "ok")
+
+    async def test_a_refusal_recorded_before_keys_were_kept_isnt_restored(self):
+        async with self.scope() as session:
+            session.add(GeminiUsage(
+                day=quota_day(), model=RANKED_NAMES[0], exhausted_at=datetime.now(timezone.utc),
+            ))
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_a_request_google_takes_clears_the_refusal(self):
+        """Billing turned on: the hourly retry went through, so it's no longer out."""
+        await rl.mark_spent(RANKED_NAMES[0], 250)
+        await rl.record_usage(RANKED_NAMES[0], 10)
+        self.assertEqual(self.limiter.state(RANKED_NAMES[0]), "ok")
+        (row,) = await self.rows(GeminiUsage)
+        self.assertIsNone(row.exhausted_at)
+        self.assertEqual(row.quota_limit, 250)
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_a_refusal_for_a_replaced_key_parks_nothing(self):
+        await rl.mark_spent(RANKED_NAMES[0], key=key_id("OLD-KEY"))
+        self.assertEqual(self.limiter.state(RANKED_NAMES[0]), "ok")
+
+
+class ServerChainTests(_Db):
+    """A server replies through ``model_chain(default_model)``, not the whole ranking."""
+
+    LOWER = "gemini-2.5-flash"
+
+    async def _servers(self, *defaults: str | None) -> None:
+        async with self.scope() as session:
+            for gid, default in enumerate(defaults, start=1):
+                session.add(Guild(id=gid))
+                if default is not None:
+                    session.add(GuildConfig(guild_id=gid, default_model=default))
+            session.add(Guild(id=99, active=False))
+            session.add(GuildConfig(guild_id=99, default_model=RANKED_NAMES[-1]))
+
+    async def _live(self, guild: str | None = None, admin=None):
+        with patch.object(usage_router, "get_rate_limiter", return_value=self.limiter):
+            return await usage_router.live(admin, guild)
+
+    async def test_the_page_shows_the_selected_servers_chain(self):
+        await self._servers(self.LOWER)
+        chain = model_chain(self.LOWER)
+        for name in chain:
+            await rl.mark_spent(name)
+        data = await self._live("1")
+        self.assertEqual([m["model"] for m in data["chain"]], chain)
+        self.assertEqual({m["state"] for m in data["chain"]}, {"spent"})
+        self.assertTrue(data["exhausted"])
+        (marker,) = await self.rows(UsageDay)
+        self.assertIsNotNone(marker.chain_out_at)
+        summary = await usage_router.summary(None)
+        self.assertIsNotNone(summary["last_ran_out"])
+
+    async def test_without_a_selection_it_is_every_chain_in_use(self):
+        await self._servers(self.LOWER)
+        data = await self._live()
+        self.assertEqual([m["model"] for m in data["chain"]], model_chain(self.LOWER))
+
+    async def test_rate_limited_only_when_no_server_can_be_answered(self):
+        await self._servers(None, self.LOWER)  # server 1 on the default head
+        for name in model_chain(self.LOWER):
+            await rl.mark_spent(name)
+        data = await self._live("2")
+        self.assertEqual({m["state"] for m in data["chain"]}, {"spent"})
+        self.assertFalse(data["exhausted"], "server 1 still replies through the models above")
+        self.assertEqual(await self.rows(UsageDay), [])
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.assertTrue((await self._live("2"))["exhausted"])
+        self.assertEqual(len(await self.rows(UsageDay)), 1)
+
+    async def test_a_server_the_admin_doesnt_manage_isnt_shown(self):
+        await self._servers(None, self.LOWER)
+        admin = AdminUser(discord_user_id=5, is_allowlisted=False, managed_guild_ids=["1"])
+        data = await self._live("2", admin)
+        self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
+        data = await self._live("99")  # the bot left: not a chain in use
+        self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
+
+
+class WipeTests(_Db):
+    async def test_a_brain_wipe_clears_every_usage_table(self):
+        """Otherwise a wiped install goes on showing the days the chain ran out."""
+        from sqlalchemy import text
+
+        from olisar.db.models import UsageMinutePeak
+        from olisar.memory import purge
+
+        async with self.scope() as session:
+            for table in purge._BRAIN_EMBEDDING_TABLES:  # vec0 in the app; stand-ins here
+                await session.execute(text(f"CREATE TABLE {table} (x)"))
+            session.add(Guild(id=1))
+        await rl.record_usage(RANKED_NAMES[0], 10, source="conversation")
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        tables = (GeminiUsage, UsageHour, UsageDay, UsageSource, UsageMinutePeak)
+        for table in tables:
+            self.assertTrue(await self.rows(table), table.__name__)
+        async with self.scope() as session:
+            await purge.wipe_brain(session, guild_ids=[1])
+        for table in tables:
+            self.assertEqual(await self.rows(table), [], table.__name__)
+        summary = await usage_router.summary(None)
+        self.assertIsNone(summary["last_ran_out"])
+
+
+class KeySwapTests(_Db):
+    """The whole path: Google refuses key A for the day, the operator pastes key B."""
+
+    async def _ask(self, client):
+        from google.genai import types
+
+        return await client._raw_generate(
+            contents=[types.Content(role="user", parts=[types.Part(text="hi")])],
+            config=types.GenerateContentConfig(), model=RANKED_NAMES[0],
+        )
+
+    async def test_a_new_key_is_tried_at_once(self):
+        from olisar.gemini import client as client_mod
+
+        sent: list[tuple[str, str]] = []
+
+        async def generate(*, model, contents, config):
+            sent.append((self.key["value"], model))
+            if self.key["value"] == "KEY-A":
+                raise _quota_429(DAILY, "20")
+            ok = MagicMock()
+            ok.usage_metadata.total_token_count = 5
+            return ok
+
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=generate)
+        with patch.object(client_mod.genai, "Client", return_value=sdk), patch.object(
+            client_mod.runtime_keys, "gemini_api_key", AsyncMock(side_effect=lambda: self.key["value"]),
+        ):
+            client = GeminiClient()
+            with self.assertRaises(genai_errors.APIError):
+                await self._ask(client)
+            self.assertTrue(self.limiter.chain_spent())
+            self.assertEqual(len(sent), len(RANKED_NAMES))
+
+            self.key["value"] = "KEY-B"
+            sent.clear()
+            await self._ask(client)
+            self.assertEqual(sent, [("KEY-B", RANKED_NAMES[0])])
+
+            # And a restart on key B doesn't park anything key A ran out of.
+            fresh = RateLimiter()
+            with patch.object(rl, "_rate_limiter", fresh):
+                self.assertEqual(await rl.restore_spent(), 0)
+
+    async def test_the_usage_page_follows_a_key_pasted_into_the_dashboard(self):
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        self.key["value"] = "KEY-B"
+        with patch.object(usage_router, "get_rate_limiter", return_value=self.limiter):
+            data = await usage_router.live(None)
+        self.assertEqual({m["state"] for m in data["chain"]}, {"ok"})
+        self.assertFalse(data["exhausted"])
 
 
 class EndpointTests(_Db):
@@ -294,6 +559,56 @@ class EndpointTests(_Db):
         # Every full hour so far, plus the share of this one.
         self.assertGreaterEqual(data["yesterday"]["requests"], quota_hour() * 60)
         self.assertLessEqual(data["yesterday"]["requests"], (quota_hour() + 1) * 60)
+
+    async def _same_time_yesterday(self, now: datetime) -> tuple[float, int]:
+        """A flat request a minute all yesterday, bucketed the way record_usage does.
+        Returns (minutes today so far, what the page compares them with)."""
+        today = quota_day(now)
+        yesterday = today - timedelta(days=1)
+        counts: dict[int, int] = {}
+        t = day_start(yesterday)
+        while t < day_start(today):
+            counts[quota_hour(t)] = counts.get(quota_hour(t), 0) + 1
+            t += timedelta(minutes=1)
+        async with self.scope() as session:
+            for hour, n in counts.items():
+                session.add(UsageHour(day=yesterday, hour=hour, model=RANKED_NAMES[0],
+                                      request_count=n, token_count=0))
+
+        class Frozen(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return now
+
+        with patch.object(usage_router, "datetime", Frozen):
+            data = await usage_router.summary(None)
+        return (now - day_start(today)).total_seconds() / 60, data["yesterday"]["requests"]
+
+    async def test_same_time_yesterday_across_the_clocks_going_back(self):
+        """Nov 1 has two 1 AMs; the day after compares against the 25-hour day."""
+        for now in (
+            datetime(2026, 11, 1, 9, 30, tzinfo=timezone.utc),   # Nov 1, the second 1:30 AM
+            datetime(2026, 11, 2, 9, 30, tzinfo=timezone.utc),   # Nov 2, 1:30 AM
+            datetime(2026, 11, 2, 20, 0, tzinfo=timezone.utc),   # Nov 2, noon
+        ):
+            with self.subTest(now=now):
+                async with self.scope() as session:
+                    await session.execute(UsageHour.__table__.delete())
+                so_far, yesterday = await self._same_time_yesterday(now)
+                self.assertEqual(yesterday, round(so_far))
+
+    async def test_same_time_yesterday_across_the_clocks_going_forward(self):
+        """Mar 14 has no 2 AM; the day after compares against the 23-hour day."""
+        for now in (
+            datetime(2027, 3, 14, 10, 30, tzinfo=timezone.utc),  # Mar 14, 3:30 AM
+            datetime(2027, 3, 15, 10, 30, tzinfo=timezone.utc),  # Mar 15, 3:30 AM
+            datetime(2027, 3, 15, 19, 0, tzinfo=timezone.utc),   # Mar 15, noon
+        ):
+            with self.subTest(now=now):
+                async with self.scope() as session:
+                    await session.execute(UsageHour.__table__.delete())
+                so_far, yesterday = await self._same_time_yesterday(now)
+                self.assertEqual(yesterday, round(so_far))
 
 
 if __name__ == "__main__":

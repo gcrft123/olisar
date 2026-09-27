@@ -150,3 +150,25 @@ class OperatorOnlyTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RateLimitTests(unittest.IsolatedAsyncioTestCase):
+    """A 429 says the service is busy, not that the key is wrong, so it must never mark the
+    field bad (setup would then refuse to go on, and server hosting requires the key)."""
+
+    async def test_a_429_is_not_a_wrong_key(self) -> None:
+        class Client:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def get(self, url, **kw): return httpx.Response(429, request=httpx.Request("GET", url))
+        with patch.object(key_checks.httpx, "AsyncClient", lambda **kw: Client()):
+            with self.assertRaises(key_checks.RateLimited):
+                await key_checks.gemini("AQ.key")
+            with self.assertRaises(key_checks.Unreachable):
+                await key_checks.cloudflare("tok", ACCOUNT)
+
+    async def test_the_console_reports_it_as_unchecked(self) -> None:
+        with patch.object(key_checks, "gemini", AsyncMock(side_effect=key_checks.RateLimited("HTTP 429"))), \
+                patch.object(admin.runtime_keys, "gemini_api_key", AsyncMock(return_value="AQ.saved")):
+            out = await admin.check_gemini_key(GeminiCheckIn(key=""), SimpleNamespace(is_allowlisted=True))
+        self.assertEqual(out, {"set": True, "ok": None})

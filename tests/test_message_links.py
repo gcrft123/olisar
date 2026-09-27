@@ -29,7 +29,7 @@ from olisar.memory.retriever import recall
 from olisar.memory.search import _Cand, _only_readable
 from olisar.message_links import channel_filter, link_ids, message_link, strip_unoffered_links
 from olisar.pipeline import _without_invented_links, render_tools_note
-from olisar.tools import SANDBOX_TOOL_NAMES
+from olisar.tools import SANDBOX_TOOL_NAMES, ToolContext
 
 GUILD = 100
 HERE = 200
@@ -73,6 +73,33 @@ class StripUnofferedLinks(unittest.TestCase):
     def test_masked_link_keeps_its_label(self):
         text, _ = strip_unoffered_links(f"rook [posted it here]({SLIPPED})", self.offered)
         self.assertEqual(text, "rook posted it here")
+
+    def test_a_label_that_is_itself_a_made_up_link_goes_too(self):
+        text, removed = strip_unoffered_links(f"it's [{SLIPPED}]({SLIPPED}) ok", self.offered)
+        self.assertEqual(text, "it's ok")
+        self.assertEqual(removed, [SLIPPED, SLIPPED])
+
+    def test_a_made_up_label_on_a_real_link_leaves_the_real_one(self):
+        text, removed = strip_unoffered_links(f"here: [{SLIPPED}]({GIVEN})", self.offered)
+        self.assertEqual(text, f"here: {GIVEN}")
+        self.assertEqual(removed, [SLIPPED])
+        text, _ = strip_unoffered_links(f"[see {SLIPPED}]({GIVEN})", self.offered)
+        self.assertEqual(text, f"[see]({GIVEN})")
+
+    def test_capitals_in_the_url_are_the_same_link(self):
+        shouty = SLIPPED.replace("https://discord.com", "HTTPS://Discord.com")
+        text, removed = strip_unoffered_links(f"rook posted it {shouty} earlier", self.offered)
+        self.assertEqual((text, removed), ("rook posted it earlier", [shouty]))
+        given = GIVEN.replace("discord.com", "DISCORD.com")
+        self.assertEqual(strip_unoffered_links(given, self.offered), (given, []))
+
+    def test_only_the_spot_a_link_left_is_tidied(self):
+        """The tidy ran over the whole reply and flattened code indentation."""
+        code = "```py\ndef f(x):\n    if x :\n        return  x\n```"
+        text, _ = strip_unoffered_links(f"try this:\n{code}\nsee {SLIPPED}", self.offered)
+        self.assertEqual(text, f"try this:\n{code}\nsee")
+        text, _ = strip_unoffered_links(f"{SLIPPED}\nfirst  line", self.offered)
+        self.assertEqual(text, "first  line")
 
     def test_other_discord_hostnames_count_as_given(self):
         ptb = GIVEN.replace("https://discord.com", "https://ptb.discord.com")
@@ -124,6 +151,61 @@ class ChannelFilterFailsClosed(unittest.TestCase):
         readable = channel_filter(actions, guild_id=GUILD, requester_id=7, here=HERE)
         self.assertEqual(_run(readable({HERE, OPEN, HIDDEN})), {HERE, OPEN})
         actions.readable_channels.assert_awaited_once_with(GUILD, {OPEN, HIDDEN}, requester_id=7)
+
+
+class NobodyAsked(unittest.TestCase):
+    """A proactive chime-in answers a message that wasn't addressed to Olisar and posts
+    where its author didn't choose to ask, so it searches and recalls by what @everyone
+    can open (requester 0), not by that author's access."""
+
+    def _actions(self):
+        actions = MagicMock()
+        actions.readable_channels = AsyncMock(return_value={OPEN})
+        actions.channel_directory = AsyncMock(return_value="")
+        return actions
+
+    def test_search_goes_by_everyone_not_the_author(self):
+        for addressed, requester in ((False, 0), (True, 7)):
+            with self.subTest(addressed=addressed):
+                actions = self._actions()
+                ctx = ToolContext(
+                    session=None, cfg_guild=GUILD, channel_id=HERE, user_id=7,
+                    display_name="rook", actions=actions, addressed=addressed,
+                )
+                self.assertEqual(_run(ctx.readable()({HERE, OPEN, HIDDEN})), {HERE, OPEN})
+                actions.readable_channels.assert_awaited_once_with(
+                    GUILD, {OPEN, HIDDEN}, requester_id=requester
+                )
+
+    def test_recall_and_the_channel_directory_do_too(self):
+        from olisar import pipeline
+
+        actions, seen = self._actions(), {}
+
+        async def recall(_session, **kw):
+            seen["readable"] = kw["readable"]
+            return ""
+
+        session = MagicMock()
+        session.get = AsyncMock(return_value=None)
+        with (
+            patch.object(pipeline, "_run_tool_loop", new=AsyncMock(return_value="ok")),
+            patch.object(pipeline, "build_contents", new=AsyncMock(return_value=([], set()))),
+            patch.object(pipeline, "people_directory", new=AsyncMock(return_value="")),
+            patch.object(pipeline, "recall", new=recall),
+            patch.object(
+                pipeline, "gather_enabled",
+                new=AsyncMock(return_value=pipeline.GatheredExtensions()),
+            ),
+        ):
+            _run(pipeline.generate_reply(
+                session, guild_id=GUILD, channel_id=HERE, current_message_id=1, bot_user_id=2,
+                user_id=7, display_name="rook", user_text="best mining ship?",
+                actions=actions, addressed=False,
+            ))
+            _run(seen["readable"]({OPEN}))
+        actions.channel_directory.assert_awaited_once_with(GUILD, requester_id=0)
+        actions.readable_channels.assert_awaited_once_with(GUILD, {OPEN}, requester_id=0)
 
 
 def _cand(channel_id: int, *, is_dm: bool = False) -> _Cand:
@@ -201,6 +283,63 @@ class RecallScope(unittest.TestCase):
         self.assertNotIn("discord.com", block)
 
 
+class ContextChannelScope(unittest.IsolatedAsyncioTestCase):
+    """Resource and feed channel snapshots go into every reply's memory block, so they
+    get the same filter as search: a staff #announcements is a feed channel too."""
+
+    async def test_only_channels_the_asker_can_open_are_carried(self):
+        import tempfile
+        from pathlib import Path
+
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from olisar.db.models import Base, ChannelAllowlist, ChannelContextItem, ChannelMode, Guild
+        from olisar.memory.channels import channel_context_blocks
+
+        with tempfile.TemporaryDirectory() as tmp:
+            engine = create_async_engine(f"sqlite+aiosqlite:///{Path(tmp) / 't.db'}")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            async with async_sessionmaker(engine)() as session:
+                session.add(Guild(id=GUILD))
+                for cid, name, mode in ((OPEN, "rules", ChannelMode.resource),
+                                        (HIDDEN, "staff-news", ChannelMode.feed)):
+                    session.add(ChannelAllowlist(guild_id=GUILD, channel_id=cid, mode=mode))
+                    session.add(ChannelContextItem(
+                        guild_id=GUILD, channel_id=cid, channel_name=name, content=f"{name} text",
+                    ))
+                await session.commit()
+
+                async def readable(ids):
+                    return ids & {OPEN}
+
+                everything = await channel_context_blocks(session, GUILD)
+                scoped = await channel_context_blocks(session, GUILD, readable=readable)
+            await engine.dispose()
+        self.assertEqual(len(everything), 2)
+        self.assertEqual(len(scoped), 1)
+        self.assertIn("rules text", scoped[0])
+
+    def test_recall_passes_the_askers_filter(self):
+        blocks = AsyncMock(return_value=[])
+
+        async def readable(ids):
+            return ids
+
+        session = MagicMock()
+        session.scalar = AsyncMock(return_value=None)
+        with (
+            patch("olisar.memory.retriever.glossary_block", AsyncMock(return_value="")),
+            patch("olisar.memory.retriever.channel_context_blocks", blocks),
+            patch("olisar.memory.retriever.embed_query", AsyncMock(return_value=None)),
+        ):
+            _run(recall(
+                session, cfg_guild=GUILD, user_id=5, query_text="", recent_ids=set(),
+                channel_id=HERE, readable=readable,
+            ))
+        self.assertIs(blocks.await_args.kwargs["readable"], readable)
+
+
 class _Perms(SimpleNamespace):
     view_channel = True
     read_message_history = True
@@ -243,10 +382,31 @@ class ReadableChannels(unittest.TestCase):
         actions = self._actions(self._guild(channels, member=MagicMock(id=7)))
         self.assertEqual(_run(actions.readable_channels(GUILD, {1, 2, 3}, requester_id=7)), {1})
 
-    def test_non_member_is_checked_as_everyone(self):
+    def test_a_non_member_can_open_nothing(self):
+        """Checked as @everyone, someone who shared only another server with the bot could
+        DM it and read this one's public channels."""
         channels = {1: _channel(_Perms())}
         guild = self._guild(channels, member=None)
-        _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7))
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7)), set()
+        )
+        channels[1].permissions_for.assert_not_called()
+
+    def test_a_failed_member_lookup_opens_nothing_either(self):
+        channels = {1: _channel(_Perms())}
+        guild = self._guild(channels, member=None)
+        guild.fetch_member = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "x"))
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7)), set()
+        )
+
+    def test_no_requester_is_checked_as_everyone(self):
+        """How a reply nobody asked for is scoped (olisar.message_links.channel_filter)."""
+        channels = {1: _channel(_Perms())}
+        guild = self._guild(channels, member=None)
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=0)), {1}
+        )
         channels[1].permissions_for.assert_called_once_with(guild.default_role)
 
     def test_private_thread_needs_membership(self):
@@ -256,6 +416,24 @@ class ReadableChannels(unittest.TestCase):
         self.assertEqual(_run(actions.readable_channels(GUILD, {1}, requester_id=7)), set())
         thread.fetch_member = AsyncMock(return_value=MagicMock())
         self.assertEqual(_run(actions.readable_channels(GUILD, {1}, requester_id=7)), {1})
+
+    def test_the_channel_directory_lists_nothing_for_a_non_member(self):
+        """It listed every channel the bot could see whenever the asker wasn't a cached
+        member, which is everyone who reaches the bot through another server's DM."""
+        me, member = MagicMock(name="bot"), MagicMock(id=7)
+        public = SimpleNamespace(name="general", id=1, permissions_for=lambda who: _Perms())
+        staff = SimpleNamespace(
+            name="staff", id=2,
+            permissions_for=lambda who: _Perms(view_channel=who is me),
+        )
+        guild = self._guild({}, member=None)
+        guild.me, guild.text_channels = me, [public, staff]
+        self.assertEqual(_run(self._actions(guild).channel_directory(GUILD, requester_id=7)), "")
+
+        guild.get_member.return_value = member
+        listing = _run(self._actions(guild).channel_directory(GUILD, requester_id=7))
+        self.assertIn("#general (id 1)", listing)
+        self.assertNotIn("staff", listing)
 
     def test_deleted_channel_is_hidden_and_not_fetched_twice(self):
         _DELETED_CHANNELS.discard(42)

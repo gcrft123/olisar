@@ -5,9 +5,10 @@ messages, and the speaking user's remembered facts — and folds in their person
 and roles. The result is a compact text block appended to the system prompt as
 *background context* (the operating rules mark it as data, not instructions).
 
-Summaries and older messages come from every channel Olisar has memory of, so both
-are narrowed to this channel plus the ones the person being answered can open. Older
-messages carry their jump-link, so Olisar can cite one.
+Summaries, older messages and the resource and feed channel snapshots come from every
+channel Olisar has memory of, so all three are narrowed to this channel plus the ones the
+person being answered can open. Older messages carry their jump-link, so Olisar can cite
+one.
 """
 
 from __future__ import annotations
@@ -64,8 +65,9 @@ async def recall(
         blocks.append(glossary)
         used.append("glossary")
 
-    # Resource (#rules, #roles-list) + feed (#announcements) channel context.
-    ctx_blocks = await channel_context_blocks(session, cfg_guild)
+    # Resource (#rules, #roles-list) + feed (#announcements) channel context, from the
+    # channels the asker can open, as search filters the same rows.
+    ctx_blocks = await channel_context_blocks(session, cfg_guild, readable=readable)
     blocks.extend(ctx_blocks)
     if ctx_blocks:
         used.append(f"channel-context:{len(ctx_blocks)}")

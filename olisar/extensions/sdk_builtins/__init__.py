@@ -10,6 +10,7 @@ bundled source changes, so updates ship with the app.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ from sqlalchemy import select
 
 from olisar import sandbox
 from olisar.db.models import (
+    AuditLog,
     ExtensionKV,
     ExtensionPackage,
     ExtensionState,
@@ -103,6 +105,63 @@ async def seed(session: "AsyncSession") -> None:
         log.info("seeded built-in extension %s v%s", key, row.version)
 
     await _prune_removed(session, shipped, complete)
+    await _untrust_detached(session)
+
+
+def _as_utc(ts: datetime | None) -> datetime | None:
+    """SQLite hands timestamps back naive; they were written in UTC."""
+    if ts is None:
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+async def _untrust_detached(session: "AsyncSession") -> None:
+    """Put marketplace installs that an earlier build detached to ``local`` back to
+    ``imported``. Idempotent; runs on every boot.
+
+    Detaching a yanked listing used to set ``origin = "local"``, the trusted origin, so a
+    publisher could yank their own listing to unlock host secrets and member-join hooks on
+    every install. Such a row is recognized by either of two marks the detach left behind:
+
+    - it carries a bundle signature or signer key, which only ``install_bundle`` writes
+      (console-authored extensions never have one), or
+    - a ``detach_extension`` audit entry names it, and the row predates that entry (so an
+      extension the operator deleted and re-authored under the same key isn't touched).
+    """
+    rows = (
+        await session.scalars(
+            select(ExtensionPackage).where(
+                ExtensionPackage.kind == "user", ExtensionPackage.origin == "local"
+            )
+        )
+    ).all()
+    if not rows:
+        return
+    detached_at: dict[str, datetime] = {}
+    for key, ts in (
+        await session.execute(
+            select(AuditLog.target_id, AuditLog.ts).where(
+                AuditLog.action == "detach_extension",
+                AuditLog.target_type == "extension_package",
+            )
+        )
+    ).all():
+        ts = _as_utc(ts)
+        if key and ts and (key not in detached_at or ts > detached_at[key]):
+            detached_at[key] = ts
+    moved = []
+    for pkg in rows:
+        from_bundle = bool(pkg.signature or pkg.publisher_key)
+        created = _as_utc(pkg.created_at)
+        detached = pkg.key in detached_at and (created is None or created <= detached_at[pkg.key])
+        if from_bundle or detached:
+            pkg.origin = "imported"
+            moved.append(pkg.key)
+    if moved:
+        log.warning(
+            "moved %d extension(s) detached from the marketplace back to untrusted: %s",
+            len(moved), ", ".join(sorted(moved)),
+        )
 
 
 async def _prune_removed(session: "AsyncSession", shipped: set[str], complete: bool) -> None:

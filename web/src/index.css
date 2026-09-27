@@ -402,20 +402,34 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
-/* Starting or stopping: a light slides back and forth along the top edge. An oscillation
-   eases at both ends, so this is ease-in-out rather than the file's --ease-out. */
-.foot-glow::before {
-  content: ''; position: absolute; top: -8px; left: 0; width: 40%; height: 16px;
-  border-radius: 50%; opacity: 0;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 40%, transparent), transparent);
+/* Starting or stopping: a stretch of the border lights up and runs back and forth along it,
+   from the foot of one side, around both top corners, to the foot of the other. It's a dash of
+   a stroke laid on the border's centerline (--glow-path, traced by FootSheet), so it is the
+   line and bends with the corners, and it runs out at the ends as it passes the path's foot.
+   Three strokes share one position: a bright core, a longer, fainter tail that tapers it, and
+   a blurred halo thrown onto the rail. --trace is where the light is, 0–1 along the path;
+   each dash is centered on it (dasharray: the dash, then a gap longer than the path). An
+   oscillation eases at both ends, so this is ease-in-out rather than --ease-out. */
+@property --trace { syntax: '<number>'; inherits: true; initial-value: 0; }
+.foot-trace {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none; opacity: 0;
 }
-.foot-sheet[data-glow-motion="slide"] .foot-glow::before {
-  opacity: 1; animation: foot-glow-slide 1.6s ease-in-out infinite alternate;
+.foot-trace path {
+  d: var(--glow-path, path('M 0 0'));
+  fill: none; stroke: var(--glow); stroke-linecap: round;
+  stroke-dasharray: var(--dash) calc(var(--glow-len, 0) * 2px);
+  stroke-dashoffset: calc(var(--dash) / 2 - var(--trace) * var(--glow-len, 0) * 1px);
+}
+.foot-trace-halo { --dash: 96px; stroke-width: 12px; opacity: 0.4; }
+.foot-trace-tail { --dash: 96px; stroke-width: 1px; opacity: 0.18; }
+.foot-trace-core { --dash: 40px; stroke-width: 1px; opacity: 0.32; }
+.foot-sheet[data-glow-motion="slide"] .foot-trace {
+  opacity: 1; animation: foot-trace 1.4s ease-in-out infinite alternate;
 }
 /* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
 .foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
-/* Its center runs from 15% to 85% of the edge, clear of the rounded corners. */
-@keyframes foot-glow-slide { from { transform: translateX(-12.5%); } to { transform: translateX(162.5%); } }
+@keyframes foot-trace { from { --trace: 0; } to { --trace: 1; } }
 @keyframes foot-glow-breathe { 50% { opacity: 0.3; } }
 
 /* Pulled up under the grabber, over the status row: opening cross-fades the row into the
@@ -435,7 +449,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   /* Nothing travels: the sheet is where it's going at once, and the cross-fade is all
      that moves. The sliding light becomes a slow breath, and the breath slows. */
   .foot-sheet { transition: none; }
-  .foot-sheet[data-glow-motion="slide"] .foot-glow::before { animation: none; opacity: 0; }
+  .foot-sheet[data-glow-motion="slide"] .foot-trace { animation: none; opacity: 0; }
   .foot-sheet[data-glow-motion] .foot-glow-in { animation: foot-glow-breathe 4.8s ease-in-out infinite; }
   .foot-sheet[data-glow-motion="steady"] .foot-glow-in { animation: none; }
 }
@@ -565,7 +579,9 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 }
 .botpower.limited .bp-status { color: var(--warn); }
 .botpower.offline .power-btn { color: var(--text-3); }
-.botpower.offline .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+.botpower.offline:not(.readonly) .power-btn:hover { color: var(--text); border-color: var(--border-strong); }
+/* A co-admin's view: the operator's switch, drawn as a status light rather than a control. */
+.botpower.readonly .power-btn { cursor: default; }
 /* Stopped on its own: Discord refused it or it crashed. Red, because it won't come back
    without the operator, unlike a bot switched off on purpose. */
 .botpower.refused .power-btn { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border-strong)); }
@@ -675,6 +691,26 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 /* The receipt — the counts the toast used to show for 3.6s and then discard. */
 .act-receipt { display: block; color: var(--text-2); font-size: 12px; margin-top: 2px; }
 .act-who { font-family: var(--mono); font-size: 11.5px; color: var(--text-3); justify-self: end; }
+/* What an entry changed, under a disclosure: the value a save or a chat edit wrote over is
+   often the only copy of it left. Quiet, like the receipt, until it's opened. */
+.act-detail { margin-top: 4px; }
+.act-detail > summary {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+  color: var(--text-2); font-size: 12px; font-weight: 550; user-select: none;
+  padding: 2px 4px; margin: -2px -4px; border-radius: var(--radius-xs);
+}
+.act-detail > summary::-webkit-details-marker { display: none; }
+.act-detail > summary:hover { color: var(--text); }
+.act-detail > summary:focus-visible { outline: none; box-shadow: var(--ring); }
+.act-detail[open] > summary .disclosure-chev { transform: rotate(90deg); }
+.act-diff { margin: 8px 0 2px; display: grid; gap: 10px; }
+.act-diff dt { font-size: 12px; font-weight: 550; color: var(--text); }
+.act-diff dd { margin: 4px 0 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 8px; align-items: baseline; }
+.act-diff dd.solo { grid-template-columns: minmax(0, 1fr); }
+.act-tag { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+/* Long values (a system prompt) scroll inside their row rather than pushing the ledger apart,
+   and stay selectable so they can be copied back. */
+.act-text { font-size: 12px; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 144px; overflow-y: auto; }
 @media (max-width: 560px) {
   .act-row { grid-template-columns: minmax(0, 1fr) auto; }
   .act-when { grid-column: 1 / -1; }
@@ -2543,8 +2579,12 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 @media (max-width: 760px) { .chatdrawer { width: var(--vw); } }
 
 /* ── Settings popup (Notion-style modal) ────────────────────────────────── */
+/* Above everything in the app shell, the narrow-width rail (130) and its backdrop (120)
+   included: an open dialog marks the app inert, so a layer left above it can't be clicked
+   and covers the dialog's own controls. Settings opens from the rail's sheet. Toasts (200),
+   the skip link, tooltips and the update screen stay above it. */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 100;
+  position: fixed; inset: 0; z-index: 140;
   background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center; padding: 24px;
   animation: fade-in var(--dur-fast) var(--ease-out);

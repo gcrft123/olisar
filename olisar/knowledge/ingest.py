@@ -31,15 +31,17 @@ from olisar.memory.writer import estimate_tokens
 log = logging.getLogger("olisar.knowledge.ingest")
 
 
-async def _gather(stype: KBSourceType, uri: str, depth: int, max_pages: int) -> list[dict]:
+async def _gather(
+    stype: KBSourceType, uri: str, depth: int, max_pages: int, *, public_only: bool = False
+) -> list[dict]:
     """Network/extraction only — no DB. Returns chunk records."""
     if stype == KBSourceType.doc:
         pages = [Page(url=None, title=Path(uri).name, text=extract_document(uri))]
     elif stype == KBSourceType.url:
-        page = await fetch_page(uri)
+        page = await fetch_page(uri, public_only=public_only)
         pages = [page] if page else []
     elif stype == KBSourceType.website:
-        pages = await crawl(uri, max_depth=depth, max_pages=max_pages)
+        pages = await crawl(uri, max_depth=depth, max_pages=max_pages, public_only=public_only)
     else:
         pages = []
 
@@ -151,10 +153,11 @@ async def process_pending_sources() -> bool:
         src.last_checked_at = utcnow()
         sid, stype, uri = src.id, src.type, src.uri
         depth, max_pages, gid = src.crawl_depth, src.max_pages, src.guild_id
+        public_only = bool(src.public_only)
 
     # Gather outside any transaction (network-bound).
     try:
-        records = await _gather(stype, uri, depth, max_pages)
+        records = await _gather(stype, uri, depth, max_pages, public_only=public_only)
     except Exception as exc:
         log.exception("ingest failed for source %s", sid)
         async with session_scope() as session:

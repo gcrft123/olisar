@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Icon, CopyGlyph, BadgeIcon, SEAL_TINT, SpinnerRing, type BadgeIconName } from './icons'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
+import { toast } from './overlays'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
 // bordered boxes read as boxes inside boxes; here the hairline between groups and the rows
@@ -466,6 +467,19 @@ export function Segmented<T extends string | number>(props: {
   )
 }
 
+/** A timestamp from the backend, as a Date. Most of the API writes a stored UTC time with
+ *  `.isoformat()`, which leaves off the offset, and `new Date()` reads an offset-less date and
+ *  time as *local*: every one of those times was off by the viewer's UTC offset, so a change
+ *  made at 11:32 PM in Chicago listed as 4:32 AM. Read those as UTC. A string that carries its
+ *  own offset or Z (Usage's, the server panel's) and a bare date are read as written. */
+export function serverDate(s: string | null | undefined): Date {
+  if (!s) return new Date(NaN)
+  const t = s.trim()
+  const hasTime = /^\d{4}-\d\d-\d\d[T ]\d\d:\d\d/.test(t)
+  const hasZone = /(?:[zZ]|[+-]\d\d:?\d\d)$/.test(t)
+  return new Date(hasTime && !hasZone ? t.replace(' ', 'T') + 'Z' : t)
+}
+
 // A save button with status feedback, given an async save function.
 export function useSaver(save: () => Promise<void>) {
   const [busy, setBusy] = useState(false)
@@ -504,10 +518,13 @@ export function useSaver(save: () => Promise<void>) {
 export function SaveBar(props: { saver: ReturnType<typeof useSaver>; label?: string; variant?: 'primary' | 'secondary' }) {
   const s = props.saver
   // Re-render whenever any field's validity changes, then answer the narrower question:
-  // is anything invalid *in this bar's own card*? The page-wide answer belongs to SaveDock.
+  // is anything invalid in the form this bar saves? The page-wide answer belongs to SaveDock.
+  // That form is the compose block the bar sits in (Knowledge's "add a source"), or else its
+  // Section. This looked for `.card`, which stopped existing when cards became sections, so
+  // the check found nothing and a crawl depth of 7 went out as the last valid value.
   const anyInvalid = useHasInvalidFields()
   const box = React.useRef<HTMLDivElement>(null)
-  const invalid = anyInvalid && !!box.current?.closest('.card')?.querySelector('[aria-invalid="true"]')
+  const invalid = anyInvalid && !!box.current?.closest('.compose, section')?.querySelector('[aria-invalid="true"]')
   return (
     <div className="savebar" ref={box}>
       {/* A page gets one primary. On Knowledge three SaveBars and a SaveDock were all
@@ -764,8 +781,14 @@ export function SaveDock(props: {
 
 // ── Minimal Markdown renderer (no dependency) ───────────────────────────────
 // Supports: ## / ### headings, - bullet lists, blank-line paragraphs, and inline
-// **bold**, `code`, and [text](url). Content is trusted (authored in docs.tsx),
-// and we render React nodes (no dangerouslySetInnerHTML).
+// **bold**, `code`, and [text](url). Rendered as React nodes (no dangerouslySetInnerHTML).
+// Not all of it is ours: the test chat renders the model's replies through here, and a reply
+// can say anything a member got it to say.
+
+// The schemes a link out may use. Anything else, `javascript:` and `file:` included, keeps its
+// text and loses the link: an href is the one place React renders a string as code.
+const LINK_OUT = /^(https?:|mailto:)/i
+
 function inline(text: string, key: string, onLink?: (id: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
   const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
@@ -780,14 +803,16 @@ function inline(text: string, key: string, onLink?: (id: string) => void): React
     else if (t.startsWith('`')) nodes.push(<code key={key + i}>{t.slice(1, -1)}</code>)
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!
-      const url = mm[2]
+      const url = mm[2].trim()
       if (url.startsWith('#') || url.startsWith('tab:')) {
         // In-app link: between doc pages (#id / #heading) or to a dashboard tab (tab:id).
         nodes.push(
           <a key={key + i} href={url.startsWith('#') ? url : '#'} onClick={(e) => { e.preventDefault(); onLink?.(url) }}>{mm[1]}</a>,
         )
-      } else {
+      } else if (LINK_OUT.test(url)) {
         nodes.push(<a key={key + i} href={url} target="_blank" rel="noreferrer">{mm[1]}</a>)
+      } else {
+        nodes.push(<React.Fragment key={key + i}>{mm[1]}</React.Fragment>)
       }
     }
     last = m.index + t.length
@@ -838,16 +863,43 @@ function highlight(code: string, lang: string): React.ReactNode {
   return out
 }
 
+/** Put text on the clipboard, and answer whether it got there. `navigator.clipboard` is
+ *  missing on a plain-http address that isn't localhost, and a write can be refused, so the
+ *  older execCommand route is tried before giving up. Copy buttons used to fire the write
+ *  and report success whatever happened; a caller now says so when it didn't work. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* refused: try the older route */ }
+  const back = document.activeElement as HTMLElement | null
+  const box = document.createElement('textarea')
+  box.value = text
+  box.setAttribute('readonly', '')
+  box.style.position = 'fixed'
+  box.style.opacity = '0'
+  document.body.appendChild(box)
+  try {
+    box.select()
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    box.remove()
+    back?.focus?.()
+  }
+}
+
 // A docs code-preview box (DESIGN.md): filename head + a trailing copy button whose
 // glyph cross-fades to a green check-circle on click (icons.tsx CopyGlyph).
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked — code is still selectable */ }
+    if (!(await copyText(code))) { toast('Couldn’t copy. Select the code to copy it yourself.', 'danger'); return }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
   return (
     <div className="codeblock">
@@ -888,11 +940,16 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
   // Whether the list being gathered is numbered ("1. …"), as the docs site renders it. The
   // console used to join a numbered list into one paragraph.
   let ordered = false
+  // The number a numbered list starts at. A list the text interrupts (a paragraph or a code
+  // block between steps) goes on from where it was, not from 1 again.
+  let start = 1
   let para: string[] = []
   const flushList = (k: string) => {
     if (list.length) {
       const items = list.map((li, j) => <li key={j}>{inline(li, 'li' + k + j, onLink)}</li>)
-      out.push(ordered ? <ol key={'ol' + k}>{items}</ol> : <ul key={'ul' + k}>{items}</ul>)
+      out.push(ordered
+        ? <ol key={'ol' + k} start={start !== 1 ? start : undefined}>{items}</ol>
+        : <ul key={'ul' + k}>{items}</ul>)
       list = []
     }
   }
@@ -953,7 +1010,18 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       continue
     }
 
-    if (!line) { flushList(k); flushPara(k); i++; continue }
+    if (!line) {
+      // A loose list, its items a blank line apart the way a model tends to write them, is
+      // still one list. Closing it at every blank line made each step its own list, all of
+      // them numbered 1.
+      if (list.length) {
+        let j = i + 1
+        while (j < lines.length && !lines[j].trim()) j++
+        const after = lines[j]?.trim() ?? ''
+        if (ordered ? /^\d+\.\s+/.test(after) : after.startsWith('- ')) { i = j; continue }
+      }
+      flushList(k); flushPara(k); i++; continue
+    }
     // ## / ### map to h2 / h3: the doc page's own title is the h1, so ## must be the next
     // level down. Rendering it as h3 skipped a level on every documentation page.
     if (line.startsWith('### ')) {
@@ -968,12 +1036,13 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       out.push(<h2 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h2>)
       i++; continue
     }
-    const num = /^\d+\.\s+(.*)$/.exec(line)
+    const num = /^(\d+)\.\s+(.*)$/.exec(line)
     if (num || line.startsWith('- ')) {
       flushPara(k)
       if (list.length && ordered !== !!num) flushList(k)
+      if (!list.length) start = num ? Number(num[1]) : 1
       ordered = !!num
-      list.push(num ? num[1] : line.slice(2)); i++; continue
+      list.push(num ? num[2] : line.slice(2)); i++; continue
     }
     if (list.length) { list[list.length - 1] += ' ' + line; i++; continue } // wrapped bullet
     para.push(line); i++ // paragraph line (joined across wraps)

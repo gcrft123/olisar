@@ -17,7 +17,8 @@ almost all of them:
 Who may call these isn't decided here. The writes sit behind the tool PIN on any server
 that keeps "self_edit" in its ``pin_actions`` (the default), and ``olisar.toolpin.gate``
 checks each call before it reaches this module. ``pin_actions`` itself is deliberately not
-one of the keys below: the setting that guards these tools can't be one they change.
+one of the keys below: the setting that guards these tools can't be one they change. Nor
+can the PIN prompt's wording, which is how the person typing the PIN sees what it approves.
 
 Every change is committed as soon as it's made, rather than with the rest of the reply.
 The model tells the user "done" from the result string, so the result has to be true
@@ -27,6 +28,7 @@ which would otherwise wait on this reply's lock.
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import re
@@ -52,6 +54,7 @@ from olisar.db.models import (
 )
 from olisar.gemini.models import RANKED_NAMES
 from olisar.knowledge import sources
+from olisar.knowledge.crawler import non_public_reason
 from olisar.knowledge.refresh import MAX_INTERVAL_HOURS, REFRESHABLE_TYPES
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
@@ -274,6 +277,12 @@ def _hint(f: _Field) -> str:
 # ── Parsing a value ─────────────────────────────────────────────────────────
 
 
+# The most any whole-number key without its own maximum takes. Past anything one of them
+# could mean (a billion seconds is 31 years), and well inside the 64-bit column: "1e20" used
+# to parse, then overflow the column at commit and take the reply down with it.
+_INT_CEILING = 1_000_000_000
+
+
 def _number(f: _Field, value: str) -> int | float:
     try:
         n = float(value.strip())
@@ -284,6 +293,8 @@ def _number(f: _Field, value: str) -> int | float:
     if f.kind == "int":
         if not n.is_integer():
             raise ValueError("it has to be a whole number")
+        if f.hi is None and n > _INT_CEILING:
+            raise ValueError(f"that's too big; the most it takes is {_INT_CEILING:,}")
         n = int(n)
     if (f.lo is not None and n < f.lo) or (f.hi is not None and n > f.hi):
         raise ValueError(f"out of range{_hint(f)}")
@@ -291,18 +302,30 @@ def _number(f: _Field, value: str) -> int | float:
 
 
 def _items(value: str) -> list[str]:
+    """A list value the way the model writes one: comma-separated, or a list written out
+    in JSON or in Python (`['olisar', 'ol']`, which is what a list argument turns into
+    as a string). Splitting that one on commas stored `['olisar'` as a name trigger."""
     raw = value.strip()
-    if raw.lower() in ("", "none", "[]"):
+    if raw.lower() in ("", "none"):
         return []
     parts = None
-    if raw.startswith("["):
-        try:
-            parts = [str(x) for x in json.loads(raw)]
-        except (ValueError, TypeError):
-            parts = None
+    if raw.startswith("[") and raw.endswith("]"):
+        for parse in (json.loads, ast.literal_eval):
+            # literal_eval can raise more than ValueError on odd input (see
+            # olisar.pipeline._typed_call); whatever fails is read as plain text.
+            try:
+                parsed = parse(raw)
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(parsed, (list, tuple)):
+                parts = [str(x) for x in parsed]
+                break
+        if parts is None:  # [a, b], unquoted
+            parts = raw[1:-1].split(",")
     if parts is None:
         parts = raw.split(",")
-    return list(dict.fromkeys(p.strip() for p in parts if p.strip()))
+    cleaned = (p.strip().strip("'\"").strip() for p in parts)
+    return list(dict.fromkeys(p for p in cleaned if p))
 
 
 def _edit_text(current: str, value: str, find: str, append: bool) -> str:
@@ -585,12 +608,22 @@ async def _audit(
         ctx.session, actor=ctx.user_id, action=action, target_type=target_type,
         target_id=target_id, after={**after, "via": "chat"}, **extra,
     )
+    # Every change these tools make comes through here, so this is how the tool layer tells
+    # a write that happened from a refusal (olisar.tools._went_through).
+    ctx.settings_writes += 1
+
+
+# Replies chat can read but not change. The PIN prompt is how a person learns what they're
+# approving, so the tools it gates mustn't be able to reword it.
+_CONSOLE_ONLY_REPLIES = frozenset({"tool_pin_prompt"})
 
 
 async def _change_reply(ctx: ToolContext, key: str, value: str, find: str, append: bool) -> str:
     name = key[len(_REPLY):]
     if name not in DEFAULT_COMMAND_MESSAGES:
         return f"No reply called {key!r}. open_settings replies lists them."
+    if name in _CONSOLE_ONLY_REPLIES:
+        return f"{key} not changed: it can only be changed from the console."
     config = await ctx.session.get(GuildConfig, ctx.cfg_guild)
     if config is None:
         config = GuildConfig(guild_id=ctx.cfg_guild)
@@ -623,7 +656,12 @@ async def _change_reply(ctx: ToolContext, key: str, value: str, find: str, appen
 
 async def change_setting(args: dict, ctx: ToolContext) -> str:
     key = (args.get("key") or "").strip()
-    value = "" if args.get("value") is None else str(args.get("value"))
+    raw = args.get("value")
+    # A list argument is passed on written out as JSON, which _items reads back as a list.
+    if isinstance(raw, (list, tuple)):
+        value = json.dumps([str(x) for x in raw])
+    else:
+        value = "" if raw is None else str(raw)
     find = str(args.get("find") or "")
     append = _truthy(args.get("append"))
     if key.startswith(_REPLY):
@@ -674,15 +712,19 @@ async def change_setting(args: dict, ctx: ToolContext) -> str:
 
 
 def _count(raw: object, default: int, lo: int, hi: int, what: str) -> int:
+    """A whole number in ``lo``-``hi``, as the console's API takes it (api/schemas.py):
+    2 and 2.0 are 2, and 1.5 is refused rather than quietly read as 1."""
     if raw in (None, ""):
         return default
     try:
-        n = int(float(str(raw).strip()))
-    except (ValueError, OverflowError):
+        n = float(str(raw).strip())
+    except ValueError:
         raise ValueError(f"{what} has to be a number") from None
+    if not math.isfinite(n) or not n.is_integer():
+        raise ValueError(f"{what} has to be a whole number")
     if not lo <= n <= hi:
         raise ValueError(f"{what} has to be {lo}-{hi}")
-    return n
+    return int(n)
 
 
 async def _source(ctx: ToolContext, target: str) -> KBSource | str:
@@ -705,10 +747,15 @@ async def _kb_add(ctx: ToolContext, target: str, args: dict, *, site: bool) -> s
         pages = _count(args.get("pages"), 25, 1, 100, "pages")
     except ValueError as e:
         return f"Not added: {e}."
+    # Olisar runs inside someone's network, so from chat only public addresses are read:
+    # checked here, and again on every request of every crawl (public_only).
+    reason = await non_public_reason(target)
+    if reason:
+        return f"Not added: {reason}. Only public web pages can be added from chat."
     kind = "website" if site else "url"
     src = sources.new_source(
         guild_id=ctx.cfg_guild, type=kind, uri=target, crawl_depth=depth,
-        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id,
+        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id, public_only=True,
     )
     ctx.session.add(src)
     await ctx.session.flush()
@@ -725,8 +772,14 @@ async def _kb_remove(ctx: ToolContext, target: str, args: dict) -> str:
     if isinstance(src, str):
         return src
     sid = src.id
+    # What an operator needs to add it back; there's no console Undo for a chat removal.
+    before = {
+        "uri": src.uri, "type": src.type.value, "title": src.title,
+        "crawl_depth": src.crawl_depth, "max_pages": src.max_pages,
+        "refresh_hours": src.refresh_interval_hours,
+    }
     removed = await sources.delete_source(ctx.session, src)
-    await _audit(ctx, "delete_kb_source", "kb_source", sid)
+    await _audit(ctx, "delete_kb_source", "kb_source", sid, before=before)
     await ctx.session.commit()
     return f"Removed source #{sid} and the {removed} passages read from it."
 
@@ -798,8 +851,9 @@ async def _glossary_delete(ctx: ToolContext, target: str, args: dict) -> str:
         if row is None or row.guild_id != ctx.cfg_guild:
             missing.append(fid)
             continue
+        before = {"subject": row.subject, "fact": row.fact}
         await ctx.session.delete(row)
-        await _audit(ctx, "delete_guild_fact", "guild_fact", fid)
+        await _audit(ctx, "delete_guild_fact", "guild_fact", fid, before=before)
         gone.append(fid)
     await ctx.session.commit()
     parts = []
@@ -852,10 +906,14 @@ async def _rebuild_impression(ctx: ToolContext, target: str, args: dict) -> str:
         names = ", ".join(f"{p.display_name} ({p.user_id})" for p in hits[:8])
         return f"Several members match: {names}. Call again with the id."
     member = hits[0]
+    previous = member.persona_summary  # the rebuild writes over it
     result = await build_persona_now(ctx.session, guild_id=ctx.cfg_guild, user_id=member.user_id)
     if not result.get("ok"):
         return result.get("error") or "Couldn't rebuild it."
-    await _audit(ctx, "build_impression", "user_profile", member.user_id)
+    await _audit(
+        ctx, "build_impression", "user_profile", member.user_id,
+        before={"impression": previous},
+    )
     await ctx.session.commit()
     # The impression itself stays out of the result: it's a private profile, and this reply
     # is going to a channel.

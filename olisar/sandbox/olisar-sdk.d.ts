@@ -297,6 +297,8 @@ interface GenerateOpts {
    * be in the same server). The model sees what a reply there would: the channel's name
    * and topic, its recent conversation, and the server's glossary and resource channels.
    * Built-in and locally-authored extensions only; the call throws for anything imported.
+   * From a command, a button or a tool, it also has to be a channel the person who set it
+   * off can open, and it can't be used in a DM.
    */
   channelId?: string;
 }

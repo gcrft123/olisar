@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import prompt_overrides
+from olisar import discord_app, prompt_overrides
 from olisar.config import settings
 from olisar.context import (
     CHANNEL_TASK_HISTORY_NOTE,
@@ -56,6 +56,7 @@ from olisar.tools import (
     sandbox_tools,
     tools_with_extensions,
     with_settings_tools,
+    without_settings_tools,
 )
 
 log = logging.getLogger("olisar.pipeline")
@@ -167,8 +168,9 @@ _TOOL_LINES: dict[str, str] = {
         "REPLACES the sentence you'd have written about it: \"done\", \"got it\", \"sent\", "
         "\"noted\", \"written down\", \"i'll remember that\". Send the reaction instead of "
         "the sentence, not as well as it. Same for a message that only needs acknowledging "
-        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Not for a "
-        "question, and not when something went wrong — say so.\n"
+        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Call it on its "
+        "own, after the other tools have answered. Not for a question, and not when "
+        "something went wrong — say so.\n"
     ),
 }
 
@@ -486,6 +488,7 @@ async def _settle_typed_calls(text: str, ctx: ToolContext, tools: list) -> str |
             await execute_tool("react", {"emoji": emoji}, ctx)
         return rest
     if set(ctx.tools_run) <= _REACTION_TOOLS and "acknowledge" in names:
+        ctx.batch = ["acknowledge"]  # made on its own, whatever the last model turn called
         await execute_tool("acknowledge", {"emoji": reactions[-1]}, ctx)
         if ctx.silent:
             return ""
@@ -658,6 +661,9 @@ async def _run_tool_loop(
 
         contents.append(resp.candidates[0].content)  # the model's tool-call turn
         responses = []
+        # Every call below runs before ctx.silent is looked at, so `acknowledge` checks
+        # this and refuses to be one of several.
+        ctx.batch = [call.name for call in calls]
         for call in calls:
             if call.name in LOOKUP_TOOLS:
                 lookups[call.name] = lookups.get(call.name, 0) + 1
@@ -737,6 +743,25 @@ def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
     )
 
 
+async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` may reach the home server's settings from a DM: the operator
+    (``ADMIN_ALLOWLIST``, or an owner of the bot's Discord app as last read), or someone
+    with Manage Server there.
+
+    A DM acts on the home server, and sharing any server with the bot is enough to DM it,
+    so without this a member of some other server could read and change this one's."""
+    owners = discord_app._extract_owner_ids(discord_app.cached_application() or {})
+    if user_id in settings.admin_allowlist or user_id in owners:
+        return True
+    if actions is None:
+        return False
+    try:
+        return bool(await actions.is_admin(user_id, cfg_guild))
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't check whether %s manages the home server", user_id)
+        return False
+
+
 async def generate_reply(
     session: AsyncSession,
     *,
@@ -754,11 +779,18 @@ async def generate_reply(
     reply_to: tuple[str, str] | None = None,
     channel_name: str = "",
     channel_topic: str = "",
+    addressed: bool = True,
 ) -> Reply:
     """Produce Olisar's reply for one incoming message/prompt.
 
     ``images`` (``(data, mime)`` pairs from the triggering message) are shown to
-    the model directly, so Olisar can react to screenshots/pictures in real time."""
+    the model directly, so Olisar can react to screenshots/pictures in real time.
+
+    ``addressed`` is False for a reply nobody asked for (a proactive chime-in). The person
+    whose message it answers didn't ask Olisar to do anything, so it gets no settings
+    tools: a change made there would be audited under someone who never requested it. Nor
+    does it search or recall with their access, since it posts where they didn't choose
+    to ask: it gets what @everyone can open (olisar.message_links.channel_filter)."""
     # DMs (guild_id 0 == DM_GUILD_ID) borrow a home server's persona, knowledge, and tools
     # (cfg_guild — the caller passes a real guild the bot is in via home_guild_id), while the
     # message history stays keyed to the per-user DM channel. Tell the model it's a private
@@ -820,11 +852,15 @@ async def generate_reply(
     except Exception:
         log.exception("people directory build failed; continuing without it")
 
+    # Whose access decides which channels this reply may draw on: the asker's, or for a
+    # reply nobody asked for, @everyone's (0; see olisar.message_links.channel_filter).
+    viewer = user_id if addressed else 0
+
     # A channel directory (name -> id) so Olisar maps a loose channel reference to the real
     # channel itself and posts by id via send_to_channel — instead of guessing at a name.
     if actions is not None:
         try:
-            channels = await actions.channel_directory(cfg_guild, requester_id=user_id)
+            channels = await actions.channel_directory(cfg_guild, requester_id=viewer)
             if channels:
                 system_instruction += "\n\n" + channels
         except Exception:
@@ -840,7 +876,7 @@ async def generate_reply(
             recent_ids=recent_ids,
             channel_id=channel_id,
             readable=channel_filter(
-                actions, guild_id=cfg_guild, requester_id=user_id, here=channel_id
+                actions, guild_id=cfg_guild, requester_id=viewer, here=channel_id
             ),
         )
         if recalled:
@@ -873,6 +909,12 @@ async def generate_reply(
     reply_tools = tools_with_extensions(
         extra_decls + (ack_declarations() if silent_acks else [])
     )
+    # The settings tools act on cfg_guild, which in a DM is the home server.
+    settings_allowed = addressed and (
+        bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
+    )
+    if not settings_allowed:
+        reply_tools = without_settings_tools(reply_tools)
 
     ctx = ToolContext(
         session=session,
@@ -884,6 +926,8 @@ async def generate_reply(
         message_id=current_message_id,
         actions=actions,
         extension_tools=ext.handlers,
+        settings_allowed=settings_allowed,
+        addressed=addressed,
     )
     try:
         text = await _run_tool_loop(

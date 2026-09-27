@@ -25,6 +25,7 @@ from olisar.db.models import (
     CONTEXT_MODES,
     GuildChannelInfo,
 )
+from olisar.message_links import ChannelFilter
 
 FEED_KEEP = 3              # feed channels: keep only the last N messages
 RESOURCE_KEEP = 50        # resource channels: rolling reference window
@@ -89,9 +90,17 @@ async def _context_channels(
     )
 
 
-async def channel_context_blocks(session: AsyncSession, guild_id: int) -> list[str]:
-    """Rendered background-context blocks for every resource + feed channel."""
+async def channel_context_blocks(
+    session: AsyncSession, guild_id: int, *, readable: ChannelFilter | None = None
+) -> list[str]:
+    """Rendered background-context blocks for every resource + feed channel, or with
+    ``readable`` (the asker's ChannelFilter, olisar.message_links) only the ones it lets
+    through. A staff #announcements is a feed channel too, and without the filter its
+    latest posts went into every member's reply."""
     context_channels = await _context_channels(session, guild_id, CONTEXT_MODES)
+    if readable is not None and context_channels:
+        ok = await readable({ch.channel_id for ch in context_channels})
+        context_channels = [ch for ch in context_channels if ch.channel_id in ok]
     topics = await _channel_topics(session, [ch.channel_id for ch in context_channels])
     blocks: list[str] = []
     for ch in context_channels:

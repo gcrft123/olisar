@@ -16,13 +16,16 @@ refusal rather than approval:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from olisar import self_settings, toolpin
@@ -74,6 +77,14 @@ class GateConfigTests(unittest.TestCase):
         with patch.object(toolpin.settings, "pin_gated_tools", "react, send_dm"):
             self.assertEqual(toolpin.gated_tools(), frozenset({"react", "send_dm"}))
 
+    def test_the_override_takes_any_separator_and_case(self):
+        """A tool the operator thinks is gated and isn't is the failure to avoid here."""
+        with patch.object(toolpin.settings, "pin_gated_tools", " React;send_dm\tSET_status\n"):
+            self.assertEqual(
+                toolpin.gated_tools(), frozenset({"react", "send_dm", "set_status"})
+            )
+            self.assertEqual(asyncio.run(toolpin.gate(None, GUILD, "set_status")), "set_status")
+
     def test_self_edit_covers_every_settings_write(self):
         """A write tool added to self_settings without being listed here would run
         unconfirmed on every server that thinks it has self-edit behind the PIN."""
@@ -94,7 +105,9 @@ class GateConfigTests(unittest.TestCase):
 
 class DenialNoteTests(unittest.TestCase):
     def test_every_outcome_names_the_tool_and_forbids_a_retry(self):
-        for outcome in (toolpin.TIMEOUT, toolpin.WRONG, toolpin.REFUSED, toolpin.UNAVAILABLE):
+        for outcome in (
+            toolpin.TIMEOUT, toolpin.WRONG, toolpin.REFUSED, toolpin.UNAVAILABLE, toolpin.LOCKED
+        ):
             with self.subTest(outcome=outcome):
                 note = toolpin.denial_note("send_dm", outcome)
                 self.assertTrue(note.startswith("DENIED:"))
@@ -107,6 +120,51 @@ class DenialNoteTests(unittest.TestCase):
         from olisar.pipeline import _useful
 
         self.assertFalse(_useful(toolpin.denial_note("react", toolpin.TIMEOUT)))
+
+
+class DescribeTests(unittest.TestCase):
+    """What the PIN prompt says the call would do. Whoever types the PIN is approving
+    that call, and "run change_setting" doesn't say which setting or what it becomes."""
+
+    def test_a_setting_change_names_the_key_and_the_value(self):
+        say = toolpin.describe
+        self.assertEqual(
+            say("change_setting", {"key": "name", "value": "Rook"}), 'change "name" to "Rook"'
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "system_prompt", "value": "boats", "find": "trains"}),
+            'replace "trains" with "boats" in "system_prompt"',
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "tone_notes", "value": "be kind", "append": "true"}),
+            'add "be kind" to the end of "tone_notes"',
+        )
+        self.assertEqual(
+            say("change_setting", {"key": "reply.ping", "value": ""}),
+            'reset "reply.ping" to its default',
+        )
+
+    def test_an_action_names_its_target_and_options(self):
+        self.assertEqual(
+            toolpin.describe(
+                "settings_action",
+                {"action": "kb_add_site", "target": "https://wiki.example", "depth": "2"},
+            ),
+            '"kb_add_site" on "https://wiki.example", depth "2"',
+        )
+
+    def test_any_other_tool_lists_its_arguments(self):
+        self.assertEqual(toolpin.describe("react", {"emoji": "👍"}), 'emoji "👍"')
+        self.assertEqual(toolpin.describe("react", {}), "no arguments")
+
+    def test_a_long_or_formatted_value_is_cut_and_defused(self):
+        """A spoiler bar or a line break in the value mustn't hide part of it."""
+        said = toolpin.describe(
+            "change_setting", {"key": "system_prompt", "value": "||x||\n\n" + "y" * 500}
+        )
+        self.assertIn("\\|\\|x\\|\\| yyy", said)
+        self.assertIn("(506 chars)", said)
+        self.assertNotIn("\n", said)
 
 
 class _DbCase(unittest.IsolatedAsyncioTestCase):
@@ -177,6 +235,52 @@ class StoredPinTests(_DbCase):
             self.assertEqual(await toolpin.set_timeout(session, 5), toolpin.MIN_TIMEOUT_SEC)
             self.assertEqual(await toolpin.set_timeout(session, 99999), toolpin.MAX_TIMEOUT_SEC)
             self.assertEqual(await toolpin.set_timeout(session, 60), 60)
+
+
+class LockoutTests(_DbCase):
+    """Wrong entries add up across prompts, so asking again doesn't buy three more guesses."""
+
+    async def _fail(self, user_id: int, times: int = 1) -> None:
+        async with self.scope() as session:
+            for _ in range(times):
+                await toolpin.record_failure(session, user_id=user_id, guild_id=GUILD)
+
+    async def _lockout(self, user_id: int) -> str:
+        async with self.Session() as session:
+            return await toolpin.lockout(session, user_id)
+
+    async def test_five_wrong_entries_lock_that_person_only(self):
+        await self._fail(7, toolpin.USER_LOCK_AFTER - 1)
+        self.assertEqual(await self._lockout(7), "")
+        await self._fail(7)
+        self.assertEqual(await self._lockout(7), "user")
+        self.assertEqual(await self._lockout(8), "")
+
+    async def test_enough_from_everyone_together_locks_the_install(self):
+        """Several accounts, each under the per-person limit."""
+        for uid in range(toolpin.INSTALL_LOCK_AFTER):
+            await self._fail(100 + uid)
+        self.assertEqual(await self._lockout(999), "install")
+
+    async def test_entries_older_than_the_window_do_not_count(self):
+        from olisar.db.models import ToolPinFailure, utcnow
+
+        async with self.scope() as session:
+            old = utcnow() - toolpin.LOCK_WINDOW - timedelta(minutes=1)
+            for _ in range(toolpin.USER_LOCK_AFTER):
+                session.add(ToolPinFailure(user_id=7, at=old))
+        self.assertEqual(await self._lockout(7), "")
+        await self._fail(7)  # recording a new one prunes the stale ones
+        async with self.Session() as session:
+            self.assertEqual(len((await session.scalars(select(ToolPinFailure))).all()), 1)
+
+    async def test_changing_or_removing_the_pin_lifts_it(self):
+        for change in (lambda s: toolpin.set_pin(s, "9999"), toolpin.clear_pin):
+            await self._fail(7, toolpin.USER_LOCK_AFTER)
+            self.assertEqual(await self._lockout(7), "user")
+            async with self.scope() as session:
+                await change(session)
+            self.assertEqual(await self._lockout(7), "")
 
 
 class ServerGateTests(_DbCase):
@@ -279,9 +383,13 @@ class _Actions:
     def __init__(self, *outcomes: str) -> None:
         self.outcomes = list(outcomes)
         self.asked: list[str] = []
+        self.details: list[str] = []
 
-    async def request_pin(self, *, tool: str, guild_id: int, user_id: int, timeout: float) -> str:
+    async def request_pin(
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
+    ) -> str:
         self.asked.append(tool)
+        self.details.append(details)
         return self.outcomes.pop(0) if self.outcomes else toolpin.TIMEOUT
 
 
@@ -409,6 +517,19 @@ class SelfEditTests(_DbCase):
         self.assertEqual(results, ["tool ran"] * 3)
         self.assertEqual(actions.asked, ["change_setting"])
         self.assertEqual(dispatch.await_count, 3)
+
+    async def test_the_prompt_is_told_what_the_call_would_do(self):
+        actions = _Actions(toolpin.APPROVED)
+        async with self.Session() as session:
+            ctx = ToolContext(
+                session=session, cfg_guild=GUILD, channel_id=2, user_id=3,
+                display_name="ada", actions=actions,
+            )
+            with patch.object(toolpin.settings, "pin_gated_tools", ""), patch(
+                "olisar.tools._dispatch", new=AsyncMock(return_value="tool ran")
+            ):
+                await execute_tool("change_setting", {"key": "name", "value": "Rook"}, ctx)
+        self.assertEqual(actions.details, ['change "name" to "Rook"'])
 
     async def test_a_refusal_covers_both_tools(self):
         actions = _Actions(toolpin.REFUSED, toolpin.APPROVED)

@@ -39,7 +39,7 @@ from olisar import runtime_config, updates
 from olisar.db.engine import session_scope
 from olisar.db.models import AppConfig
 from olisar.updates import UNKNOWN_VERSION, current_version
-from olisar.versioning import display, is_newer, same_version
+from olisar.versioning import display, is_newer, parse, same_version
 
 log = logging.getLogger("olisar.remote")
 
@@ -169,9 +169,16 @@ def owner_of(cfg: AppConfig | None) -> str:
     return hashlib.sha256(pub.encode()).hexdigest()[:32] if pub else ""
 
 
-async def _mark_owner(conn, app_dir: str, owner: str) -> None:
-    if owner:  # hex only, so it's safe in the command
-        await _run(conn, f"printf '%s' {owner} > ~/{app_dir}/.olisar-owner", timeout=30)
+async def _mark_owner(conn, app_dir: str, owner: str, *, if_unmarked: bool = False) -> None:
+    """Record ``owner`` as whose ``~/<app_dir>`` is. ``if_unmarked`` leaves an existing mark,
+    and a directory that isn't there, alone."""
+    if not owner:
+        return
+    # hex only, so it's safe in the command
+    write = f"printf '%s' {owner} > ~/{app_dir}/.olisar-owner"
+    if if_unmarked:
+        write = f"[ ! -d ~/{app_dir} ] || [ -s ~/{app_dir}/.olisar-owner ] || {write}"
+    await _run(conn, write, timeout=30)
 
 
 async def _list_installs(conn) -> list[dict]:
@@ -179,7 +186,23 @@ async def _list_installs(conn) -> list[dict]:
     return parse_installs(r.stdout or "")
 
 
-def choose_app_dir(installs: list[dict], *, client_id: str, own: str, owner: str = "") -> str:
+def remembered_app_dir(cfg: AppConfig | None, host: str) -> str:
+    """The install this bot remembers running as, for a deploy onto ``host``, or "".
+
+    ``server_app_dir`` once it's set, which a reset keeps. Blank is what every bot deployed
+    before one VM could run several has, and means ``~/olisar``, but it's also what a bot
+    that never deployed has: so it only counts while the bot still points at ``host``."""
+    name = ((getattr(cfg, "server_app_dir", "") or "") if cfg is not None else "").strip()
+    if valid_app_dir(name):
+        return name
+    if cfg is not None and host and (getattr(cfg, "server_host", "") or "").strip() == host:
+        return APP_DIR
+    return ""
+
+
+def choose_app_dir(
+    installs: list[dict], *, client_id: str, own: str, owner: str = "", remembered: str = "",
+) -> str:
     """Where a deploy of the Discord application ``client_id`` goes on a VM with ``installs``.
 
     Pure, because it's the whole difference between "redeploy this bot" and "add a bot next
@@ -187,22 +210,36 @@ def choose_app_dir(installs: list[dict], *, client_id: str, own: str, owner: str
     configuration:
       1. this bot's own install (its ``owner`` mark) — replace it, even if the bot has been
          reset onto a different Discord application since
-      2. an install of this same application — replace it (a redeploy, or a retry of one
+      2. the install it ``remembered`` running as (``remembered_app_dir``), unless another
+         bot's mark says it's theirs — one from before installs were marked, whose
+         application may have changed too
+      3. an install of this same application — replace it (a redeploy, or a retry of one
          that failed partway, or one set up before installs were marked)
-      3. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
-      4. otherwise this bot's own ``~/olisar-<id>``
+      4. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
+      5. otherwise this bot's own ``~/olisar-<id>``, with a random suffix if another bot is
+         already there: every bot from before one app could run several has the profile id
+         "default", on every machine (the one random step, so this is pure apart from it)
     """
     if owner:
         for install in installs:
             if install.get("owner") == owner:
                 return install["dir"]
+    if remembered:
+        for install in installs:
+            if install.get("dir") == remembered and install.get("owner", "") in ("", owner):
+                return remembered
     if client_id:
         for install in installs:
             if install.get("client_id") == client_id:
                 return install["dir"]
-    if not any(i.get("dir") == APP_DIR for i in installs):
+    taken = {i.get("dir") for i in installs}
+    if APP_DIR not in taken:
         return APP_DIR
-    return own
+    # Whatever is in ``own`` would have matched above if it were this bot's.
+    candidate = own
+    while candidate in taken:
+        candidate = f"{own[:len(APP_DIR) + 1 + 28]}{secrets.token_hex(2)}"
+    return candidate
 
 
 def distinct_node(node: str, taken: set[str], app_dir: str) -> str:
@@ -311,8 +348,9 @@ async def _retire_timer(conn, app_dir: str) -> None:
 
 async def deploy(host: str, user: str, env_text: str) -> dict:
     """Install Docker and the updater, write the .env, then let the updater put the newest
-    release on the VM and start it. On success, persist the connection and switch the app
-    into server-hosting mode.
+    release on the VM and start it (or start the newer one an existing install already runs;
+    see ``hold``). On success, persist the connection and switch the app into server-hosting
+    mode.
 
     The install goes wherever ``choose_app_dir`` says: over this bot's own install if the VM
     has one, else alongside whatever other bots are there. Returns ``app_dir`` so a move can
@@ -331,9 +369,11 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         await _run(conn, "command -v docker >/dev/null 2>&1 || (curl -fsSL https://get.docker.com | sudo sh)", timeout=300)
         installs = await _list_installs(conn)
         env = parse_env(env_text)
-        owner = owner_of(await _load())
+        cfg = await _load()
+        owner = owner_of(cfg)
         app_dir = choose_app_dir(
             installs, client_id=env.get("DISCORD_CLIENT_ID", ""), own=_own_app_dir(), owner=owner,
+            remembered=remembered_app_dir(cfg, host),
         )
         taken = {i["node"] for i in installs if i["dir"] != app_dir and i.get("node")}
         node = distinct_node(env.get("OLISAR_FUNNEL_HOSTNAME", ""), taken, app_dir)
@@ -342,23 +382,50 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         others = [i["dir"] for i in installs if i["dir"] != app_dir]
         if others:
             log_lines.append(f"This server already runs {len(others)} other bot(s) — adding this one in ~/{app_dir}.")
+        # Which release to pin, settled before anything is written. The same rule as an
+        # update (``hold``): an install already on a newer release than this app's channel
+        # offers keeps it, and so does one when GitHub can't be asked. A new .env still
+        # reaches it. With no release to pin at all, the script would take GitHub's latest,
+        # which may be off the app's channel, so the deploy stops here.
+        target = await _target()
+        server = ""
+        if any(i["dir"] == app_dir and i["compose"] for i in installs):
+            try:
+                server = (await _probe(conn, app_dir))["version"]
+            except Exception as exc:  # noqa: BLE001 — the script also refuses to go back
+                log.warning("couldn't read the release ~/%s runs: %s", app_dir, exc)
+        held = hold(target=target, server=server, channel=updates.channel())
+        tag = target
+        if held is not None:
+            if not parse(server):
+                raise RuntimeError(
+                    "Couldn't find the newest Olisar release on GitHub. Check this computer's "
+                    "internet connection and try again."
+                )
+            tag = server
+            log_lines.append(
+                f"This server runs {display(server)}, which is newer than {display(target)}. Keeping it."
+                if target else f"Couldn't find the newest release on GitHub. Keeping this server on {display(server)}."
+            )
         log_lines.append("Writing configuration…")
         # File bodies go over stdin (via `input=`), so secrets never appear in the VM's
         # process list / shell history the way an inline command would.
         await _run(conn, f"mkdir -p ~/{app_dir}", timeout=30)
         await conn.run(f"cat > ~/{app_dir}/.env", input=env_text, check=True)
+        _forget_vm_token(host, app_dir)
         await _run(conn, f"chmod 600 ~/{app_dir}/.env", timeout=30)
         await _mark_owner(conn, app_dir, owner)
         await _install_managed(conn, app_dir)
-        # A first deploy and an update are the same code path — the script resolves the
-        # newest release, pins its digest into the compose file, starts it, and rolls back
-        # if it doesn't pass its healthcheck. Nothing here duplicates that logic.
-        log_lines.append("Pulling the latest Olisar release and starting it…")
-        tag = await _target()
-        pin = f" --tag {shlex.quote(tag)}" if tag else ""
+        # A first deploy and an update are the same code path — the script pins the release's
+        # digest into the compose file, starts it, and rolls back if it doesn't pass its
+        # healthcheck. Nothing here duplicates that logic.
+        log_lines.append(
+            "Pulling the latest Olisar release and starting it…" if tag == target
+            else "Starting it with the new configuration…"
+        )
         # Long enough to wait out another bot's update on the same VM (the script serialises
         # them) and then run this one.
-        out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start{pin}", timeout=1500)
+        out = await _run(conn, f"bash ~/{app_dir}/{UPDATE_SCRIPT} --start --tag {shlex.quote(tag)}", timeout=1500)
         log_lines.append(out.strip()[-2000:])
         # The script only returns once the container is healthy, and the backend publishes
         # whether its funnel came up before it answers that check. A refused Tailscale key
@@ -376,8 +443,9 @@ async def deploy(host: str, user: str, env_text: str) -> dict:
         server_host=host, server_ssh_user=user, server_app_dir=app_dir,
         hosting_mode="server", configured=True,
         # The VM is on the newest release as of this build, so the launch after this one
-        # has nothing to reconcile (see ``autoupdate``).
-        server_synced_version=current_version(),
+        # has nothing to reconcile (see ``autoupdate``). One that kept its own release
+        # wasn't brought level with anything, so the next launch looks again.
+        server_synced_version=current_version() if tag == target else "",
     )
     await runtime_config.session_secret()
     # Still ``ok``: the bot is installed and running, and saved as this app's server, so the
@@ -446,6 +514,7 @@ async def connect(host: str, user: str, app_dir: str = "") -> dict:
     except Exception as exc:  # noqa: BLE001 — adoption must still succeed
         log.warning("could not reconcile managed files on %s: %s", host, exc)
     conn.close()
+    _forget_vm_token(host, app_dir)
     await runtime_config.save(
         server_host=host, server_ssh_user=user, server_app_dir=app_dir,
         hosting_mode="server", configured=True,
@@ -499,8 +568,13 @@ _PUBKEY_RE = re.compile(r"^ssh-(ed25519|rsa) [A-Za-z0-9+/=]{16,}( [A-Za-z0-9@._-
 # The VM's bot token, read once from its .env and kept for this process: the app hands the
 # token to the VM when it deploys and keeps no copy, and checking the VM's sign-in address
 # against the Discord app needs it. Keyed by host and install, so a reconnect elsewhere
-# reads again.
+# reads again. A deploy or an adoption of that install forgets it (the .env may name another
+# Discord application now), and so does Discord refusing it (rotated by hand on the VM).
 _vm_tokens: dict[str, str] = {}
+
+
+def _forget_vm_token(host: str, app_dir: str) -> None:
+    _vm_tokens.pop(f"{host}/{app_dir}", None)
 
 
 async def _vm_token(cfg: AppConfig) -> str:
@@ -514,6 +588,23 @@ async def _vm_token(cfg: AppConfig) -> str:
         if env.get("DISCORD_TOKEN"):
             _vm_tokens[key] = env["DISCORD_TOKEN"]
     return _vm_tokens.get(key, "")
+
+
+async def _vm_app(cfg: AppConfig, read) -> dict:
+    """``read`` (``discord_app.inspect`` or ``prepare``) with the VM's bot token. A token
+    Discord refuses may only be the copy kept here, so that one is read from the VM again,
+    once, before the refusal stands."""
+    from olisar import discord_app
+
+    token = await _vm_token(cfg)
+    try:
+        return await read(token)
+    except discord_app.BadToken:
+        _forget_vm_token(cfg.server_host, app_dir_of(cfg))
+        fresh = await _vm_token(cfg)
+        if not fresh or fresh == token:
+            raise
+        return await read(fresh)
 
 
 async def discord_check(public_url: str = "") -> dict:
@@ -533,10 +624,9 @@ async def discord_check(public_url: str = "") -> dict:
     url = (public_url or "").rstrip("/")
     redirect = f"{url}/auth/callback" if url.startswith("https://") else ""
     try:
-        token = await _vm_token(cfg)
-        if not token:
+        if not await _vm_token(cfg):
             return {"ok": False, "error": "Couldn't read the bot token on the server."}
-        app = await discord_app.inspect(token)
+        app = await _vm_app(cfg, discord_app.inspect)
     except Exception as exc:  # noqa: BLE001 (SSH or Discord; either way the panel just can't tell)
         return {"ok": False, "error": str(exc) or type(exc).__name__}
     return {
@@ -562,8 +652,7 @@ async def reconnect() -> dict:
     if not (cfg and cfg.server_host):
         return {"ok": False, "error": "No server configured yet."}
     try:
-        token = await _vm_token(cfg)
-        app = await discord_app.prepare(token)
+        app = await _vm_app(cfg, discord_app.prepare)
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "error": str(exc) or type(exc).__name__}
     if app["intents_missing"]:
@@ -959,7 +1048,7 @@ async def _target() -> str | None:
     """The release the VM should run: the newest on this app's update channel, so a beta
     tester's server gets the betas too. The VM's script can find a release by itself, but
     only GitHub's latest, which is always stable. ``None`` when GitHub couldn't be asked or
-    has nothing on the channel."""
+    has nothing on the channel, and then the script isn't run at all (see ``hold``)."""
     try:
         rel = await updates.newest_release()
     except Exception as exc:  # noqa: BLE001 — the caller decides what "unknown" means
@@ -970,19 +1059,21 @@ async def _target() -> str | None:
 
 def hold(*, target: str | None, server: str, channel: str) -> dict | None:
     """Why the VM's update script must not run, as the result it would have reported, or
-    ``None`` to run it. The script pins whatever release it's handed, so both of these
-    would move a server backwards:
+    ``None`` to run it with ``--tag target``. Both of these would move a server backwards or
+    off the app's channel:
 
-    - a beta app that couldn't resolve its release: with no ``--tag`` the script falls back
-      to GitHub's latest release, which is stable
+    - no target (GitHub couldn't be asked, or has nothing on the channel): with no ``--tag``
+      the script falls back to GitHub's latest release, which is stable and may be older
+      than the server. ``no-release`` is undecided (see ``decided``), so the next launch
+      tries again.
     - a server already past the target, which is where switching from beta to stable
-      leaves it until the next stable release overtakes the beta it's on
+      leaves it until the next stable release overtakes the beta it's on. Only a server
+      version that reads as a release counts: an odd image label mustn't pin a VM forever.
     """
     if not target:
-        if channel == "beta":
-            return {"ok": False, "status": "no-release", "message": "couldn't find the newest beta on GitHub"}
-        return None
-    if server and is_newer(server, target):
+        name = "beta" if channel == "beta" else "release"
+        return {"ok": False, "status": "no-release", "message": f"couldn't find the newest {name} on GitHub"}
+    if server and parse(server) and is_newer(server, target):
         return {
             "ok": True,
             "status": "server-ahead",
@@ -1006,11 +1097,11 @@ async def _apply_update(conn, host: str, app_dir: str, server_version: str) -> d
         # Always this build's script: one an older client left behind may predate the lock
         # that keeps two bots on the same VM from updating at once.
         await _install_managed(conn, app_dir)
-        pin = f" --tag {shlex.quote(tag)}" if tag else ""
         # Long enough to wait out another bot's update on the same VM (the script serialises
         # them) and then run this one.
         r = await asyncio.wait_for(
-            conn.run(f"bash ~/{app_dir}/{UPDATE_SCRIPT}{pin}", check=False), timeout=2400
+            conn.run(f"bash ~/{app_dir}/{UPDATE_SCRIPT} --tag {shlex.quote(tag)}", check=False),
+            timeout=2400,
         )
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         script_ok = r.exit_status == 0
@@ -1146,6 +1237,14 @@ async def _reconcile() -> dict:
         log.info("auto-update: %s unreachable (%s) — retrying on the next launch", cfg.server_host, exc)
         return {"skipped": "unreachable"}
     app_dir = app_dir_of(cfg)
+    # An install deployed before installs were marked has no mark, and nothing but a deploy
+    # or an adoption used to write one; without it, a reset and a setup onto a new Discord
+    # application can't tell the install is this bot's. This bot runs from it, so claim it,
+    # on every launch until that's done, never over another bot's mark.
+    try:
+        await _mark_owner(conn, app_dir, owner_of(cfg), if_unmarked=True)
+    except Exception as exc:  # noqa: BLE001 — the update doesn't depend on it
+        log.warning("couldn't mark ~/%s as this bot's: %s", app_dir, exc)
     try:
         state = await _probe(conn, app_dir)
         reason = decide(

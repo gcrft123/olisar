@@ -48,6 +48,12 @@ async def status(request: Request) -> dict:
         "headless": settings.headless,
         "hostname": await runtime_config.tunnel_hostname(),
         "public_url": await runtime_config.public_base_url(),
+        # Whether turning it on can reuse a stored auth key. Only shared hosting asks for one
+        # in setup, so a bot set up for this machine alone has none, and the console has to
+        # ask for it rather than offer a switch that can only fail. Never the key itself.
+        "has_key": bool(await runtime_config.tunnel_token()),
+        # The device name a stored key last came up under, "" before it ever has.
+        "node": await runtime_config.tunnel_node(),
     }
 
 

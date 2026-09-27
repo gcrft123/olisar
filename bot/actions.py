@@ -14,7 +14,7 @@ import discord
 
 from bot.replies import chunk_text, mention_policy, sanitize_mentions
 from olisar.persona import strip_breaks
-from olisar.tools import ACK_OK, STATUS_OK
+from olisar.tools import ACK_OK, DM_OK, POSTED_OK, REACT_OK, STATUS_OK
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -223,7 +223,7 @@ class BotActions:
         try:
             for chunk in chunk_text(text):
                 await user.send(chunk)
-            return f"sent a DM to {user.display_name}"
+            return f"{DM_OK} {user.display_name}"
         except discord.Forbidden:
             return f"can't DM {user.display_name} — their DMs are closed to me"
         except Exception as exc:  # noqa: BLE001
@@ -300,7 +300,7 @@ class BotActions:
             return f"I don't have permission to post in #{target.name}."
         except Exception as exc:  # noqa: BLE001
             return f"couldn't post in #{target.name}: {exc}"
-        return f"Posted your message in #{target.name}."
+        return f"{POSTED_OK} #{target.name}."
 
     async def user_status(self, query: str, guild_id: int) -> str:
         """A member's live presence (status + current game/app), for the
@@ -352,20 +352,21 @@ class BotActions:
         """A compact 'name (id …)' listing of the guild's text channels, injected into
         context so the model can map a loose reference to the real channel + id itself —
         the same trick people_directory uses for users, and far more robust than string
-        matching. Scoped to channels both the bot and (when resolvable) the requester can
-        see, so it never reveals a private channel the asker can't access. '' if none."""
+        matching. Scoped to channels both the bot and the requester can see, so it never
+        reveals a private channel the asker can't access. '' if none, and '' for someone
+        who isn't a member of the guild at all (see _viewer)."""
         guild = self.bot.get_guild(int(guild_id)) if guild_id else None
         if guild is None:
             return ""
         me = guild.me
-        member = guild.get_member(int(requester_id)) if requester_id else None
+        who = await self._viewer(guild, requester_id)
+        if who is None:
+            return ""
 
         def _visible(c) -> bool:
             if me is not None and not c.permissions_for(me).view_channel:
                 return False
-            if member is not None and not c.permissions_for(member).view_channel:
-                return False
-            return True
+            return bool(c.permissions_for(who).view_channel)
 
         chans = [c for c in guild.text_channels if _visible(c)]
         if not chans:
@@ -385,18 +386,17 @@ class BotActions:
         """The subset of ``channel_ids`` whose messages ``requester_id`` can open: View
         Channel and Read Message History, plus membership for a private thread.
 
-        Someone who can't be resolved as a member is checked as @everyone, and a channel
-        that can't be resolved is left out, so every doubt lands on the side of hiding."""
+        Someone who isn't a member of this guild can open none of it, and neither can
+        anyone whose membership couldn't be checked; a ``requester_id`` of 0 is checked as
+        @everyone (see _viewer). A channel that can't be resolved is left out, so every
+        doubt lands on the side of hiding."""
         guild = self.bot.get_guild(int(guild_id)) if guild_id else None
         if guild is None or not channel_ids:
             return set()
-        member = guild.get_member(int(requester_id)) if requester_id else None
-        if member is None and requester_id:
-            try:
-                member = await guild.fetch_member(int(requester_id))
-            except discord.HTTPException:
-                member = None  # not in this server (NotFound), or the lookup failed
-        who = member if member is not None else guild.default_role
+        who = await self._viewer(guild, requester_id)
+        if who is None:
+            return set()
+        member = None if who is guild.default_role else who
 
         readable: set[int] = set()
         for cid in channel_ids:
@@ -414,6 +414,24 @@ class BotActions:
                     continue
             readable.add(int(cid))
         return readable
+
+    async def _viewer(self, guild: discord.Guild, requester_id: int):
+        """Whose permissions a channel check in ``guild`` goes by: the requester as a member
+        of it, or the @everyone role when ``requester_id`` is 0, which is how a reply nobody
+        asked for is scoped (olisar.message_links). None when the requester isn't a member
+        or the lookup failed.
+
+        A non-member used to be checked as @everyone, so someone who shared only another
+        server with the bot could DM it and read this one's public channels."""
+        if not requester_id:
+            return guild.default_role
+        member = guild.get_member(int(requester_id))
+        if member is not None:
+            return member
+        try:
+            return await guild.fetch_member(int(requester_id))
+        except discord.HTTPException:
+            return None  # not in this server (NotFound), or the lookup failed
 
     async def _channel_or_thread(self, guild: discord.Guild, channel_id: int):
         """A channel or thread of ``guild`` by id. Archived threads aren't cached, so those
@@ -493,7 +511,7 @@ class BotActions:
         return f"Posted in {where}." if getattr(target, "name", None) else "Posted it here."
 
     async def request_pin(
-        self, *, tool: str, guild_id: int, user_id: int, timeout: float
+        self, *, tool: str, guild_id: int, user_id: int, timeout: float, details: str = ""
     ) -> str:
         """Put a PIN prompt in the active channel and wait for it (see bot/toolpin.py).
 
@@ -504,6 +522,7 @@ class BotActions:
 
         return await ask(
             self.channel, tool=tool, guild_id=guild_id, user_id=user_id, timeout=timeout,
+            details=details,
         )
 
     async def send_image(
@@ -537,7 +556,7 @@ class MessageActions(BotActions):
             return "no emoji given"
         try:
             await self.message.add_reaction(emoji)
-            return f"reacted with {emoji}"
+            return f"{REACT_OK} {emoji}"
         except Exception as exc:  # noqa: BLE001
             return f"couldn't react with {emoji}: {exc}"
 

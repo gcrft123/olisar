@@ -44,7 +44,14 @@ from olisar.db.models import (
 )
 from olisar.guild_setup import ensure_guild_defaults
 from olisar.pipeline import _run_tool_loop
-from olisar.tools import TOOLS, ToolContext, sandbox_tools, tools_with_extensions, with_settings_tools
+from olisar.tools import (
+    TOOLS,
+    ToolContext,
+    execute_tool,
+    sandbox_tools,
+    tools_with_extensions,
+    with_settings_tools,
+)
 
 GUILD = 5001
 OTHER_GUILD = 5002
@@ -125,6 +132,84 @@ class TheReadUnlocksTheWrites(unittest.TestCase):
     def test_any_other_tool_leaves_them_out(self):
         for tools in self._tools_per_call("recall_memory"):
             self.assertFalse(WRITES & tools)
+
+
+class _Replying:
+    """Run generate_reply with everything but the tool set and the ToolContext stubbed."""
+
+    def reply(self, *, guild_id=0, is_admin=False, **kw) -> dict:
+        from olisar import pipeline
+
+        seen: dict = {}
+
+        async def fake_loop(contents, system, model, ctx, **loop_kw):
+            seen["tools"], seen["ctx"] = _names(loop_kw["tools"]), ctx
+            return "ok"
+
+        actions = MagicMock()
+        actions.is_admin = AsyncMock(return_value=is_admin)
+        actions.channel_directory = AsyncMock(return_value="")
+        session = MagicMock()
+        session.get = AsyncMock(return_value=None)
+        with patch.object(pipeline, "_run_tool_loop", new=fake_loop), patch.object(
+            pipeline, "build_contents", new=AsyncMock(return_value=([], set()))
+        ), patch.object(pipeline, "people_directory", new=AsyncMock(return_value="")), patch.object(
+            pipeline, "recall", new=AsyncMock(return_value="")
+        ), patch.object(
+            pipeline, "gather_enabled", new=AsyncMock(return_value=pipeline.GatheredExtensions())
+        ):
+            asyncio.run(pipeline.generate_reply(
+                session, guild_id=guild_id, home_guild_id=GUILD, channel_id=1,
+                current_message_id=2, bot_user_id=3, user_id=USER, display_name="ada",
+                user_text="rename yourself", actions=actions, **kw,
+            ))
+        seen["actions"] = actions
+        return seen
+
+
+class InADirectMessage(_Replying, unittest.TestCase):
+    """A DM acts on the home server, and sharing any server with the bot is enough to DM
+    it. Only someone who could change the home server's settings anyway gets the tools."""
+
+    def test_a_member_of_some_other_server_gets_none_of_them(self):
+        seen = self.reply(is_admin=False)
+        self.assertFalse(self_settings.TOOL_NAMES & seen["tools"])
+        self.assertFalse(seen["ctx"].settings_allowed)
+        seen["actions"].is_admin.assert_awaited_once_with(USER, GUILD)
+
+    def test_someone_who_manages_the_home_server_keeps_them(self):
+        seen = self.reply(is_admin=True)
+        self.assertIn("open_settings", seen["tools"])
+        self.assertTrue(seen["ctx"].settings_allowed)
+
+    def test_the_operator_keeps_them(self):
+        from olisar import pipeline
+
+        with patch.object(pipeline.settings, "admin_allowlist", [USER]):
+            seen = self.reply(is_admin=False)
+        self.assertIn("open_settings", seen["tools"])
+
+    def test_a_server_channel_is_unchanged(self):
+        seen = self.reply(guild_id=GUILD, is_admin=False)
+        self.assertIn("open_settings", seen["tools"])
+        seen["actions"].is_admin.assert_not_awaited()
+
+    def test_a_call_that_names_one_anyway_is_refused(self):
+        ctx = ToolContext(session=None, cfg_guild=GUILD, channel_id=1, user_id=USER,
+                          display_name="ada", settings_allowed=False)
+        out = asyncio.run(execute_tool("open_settings", {"section": "persona"}, ctx))
+        self.assertIn("aren't available", out)
+        self.assertFalse(ctx.settings_open)
+
+
+class InAReplyNobodyAskedFor(_Replying, unittest.TestCase):
+    """A proactive chime-in answers someone who didn't ask Olisar to do anything."""
+
+    def test_it_gets_none_of_them(self):
+        """tests/test_proactive_gates.py checks the chime-in says nobody asked."""
+        seen = self.reply(guild_id=GUILD, is_admin=True, addressed=False)
+        self.assertFalse(self_settings.TOOL_NAMES & seen["tools"])
+        self.assertFalse(seen["ctx"].settings_allowed)
 
 
 class TheBoundsAreTheConsoles(unittest.TestCase):
@@ -246,6 +331,8 @@ class ChangingAKey(_Db):
         for key, value in [
             ("context_message_limit", "0"),
             ("context_message_limit", "12.5"),
+            ("grounding_daily_cap", "1e20"),
+            ("proactivity.global_cooldown_sec", "1000000001"),
             ("proactivity.confidence_threshold", "nan"),
             ("default_model", "gpt-4"),
             ("blocked_mentions", "everyone, admins"),
@@ -278,6 +365,18 @@ class ChangingAKey(_Db):
         self.assertEqual((await self.row(ProactivityConfig)).quiet_hours, {})
         self.assertEqual((await self.row(Persona)).server_type, "")
 
+    async def test_a_list_is_read_however_it_is_written(self):
+        """A list argument reaches the tool as its Python repr, which split on commas
+        stored `['olisar'` as a name trigger."""
+        for value in ("['olisar', 'ol']", '["olisar", "ol"]', "olisar, ol", "[olisar, ol]",
+                      ["olisar", "ol"]):
+            with self.subTest(value=value):
+                await self.change("name_triggers", "none")
+                await self.change("name_triggers", value)
+                self.assertEqual((await self.row(GuildConfig)).name_triggers, ["olisar", "ol"])
+        await self.change("name_triggers", "[]")
+        self.assertEqual((await self.row(GuildConfig)).name_triggers, [])
+
     async def test_an_unchanged_value_writes_nothing(self):
         out = await self.change("context_message_limit", "12")
         self.assertIn("already", out)
@@ -286,6 +385,22 @@ class ChangingAKey(_Db):
     async def test_unknown_keys_and_misplaced_edits_are_refused(self):
         self.assertIn("No setting", await self.change("temperature", "2"))
         self.assertIn("only work on text", await self.change("reply_in_dms", "x", find="y"))
+
+    async def test_a_write_that_fails_at_commit_doesnt_take_the_reply_down(self):
+        """A value past the column's range raised at commit and left the session needing a
+        rollback, so the next call (and the reply's own commit) raised too."""
+        async with self.scope() as s:
+            (await s.get(GuildConfig, GUILD)).pin_actions = []
+        with patch.object(self_settings, "_number", return_value=10**20):
+            out = await execute_tool(
+                "change_setting", {"key": "grounding_daily_cap", "value": "5"}, self.ctx
+            )
+        self.assertIn("errored", out)
+        out = await execute_tool(
+            "change_setting", {"key": "grounding_daily_cap", "value": "7"}, self.ctx
+        )
+        self.assertEqual(out, "grounding_daily_cap: 100 → 7.")
+        self.assertEqual((await self.row(GuildConfig)).grounding_daily_cap, 7)
 
 
 class EditingText(_Db):
@@ -331,10 +446,44 @@ class CommandReplies(_Db):
     async def test_unknown_reply(self):
         self.assertIn("No reply", await self.change("reply.hello", "hi"))
 
+    async def test_the_pin_prompt_is_not_changeable_from_chat(self):
+        """It's how whoever types the PIN sees what they're approving, so the tools it
+        gates can't reword it."""
+        out = await self.change("reply.tool_pin_prompt", "type the PIN to say hi")
+        self.assertIn("only be changed from the console", out)
+        self.assertNotIn("tool_pin_prompt", await self.custom())
+
 
 class KnowledgeActions(_Db):
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        # Every host resolves to a public address unless a test says otherwise; nothing
+        # here may reach the network.
+        self.resolved = ["93.184.216.34"]
+        resolver = patch(
+            "olisar.knowledge.crawler._resolve", new=AsyncMock(side_effect=lambda h: self.resolved)
+        )
+        resolver.start()
+        self.addCleanup(resolver.stop)
+
     async def source(self, sid: int) -> KBSource | None:
         return await self.row(KBSource, sid)
+
+    async def test_a_page_added_from_chat_is_read_from_public_addresses_only(self):
+        await self.action("kb_add_page", target="https://a.example")
+        self.assertTrue((await self.source(1)).public_only)
+
+    async def test_a_host_on_the_local_network_is_refused(self):
+        for resolved in (["127.0.0.1"], ["10.1.2.3"], ["169.254.169.254"], ["::1"],
+                         ["::ffff:192.168.1.1"], ["93.184.216.34", "192.168.1.1"]):
+            with self.subTest(resolved=resolved):
+                self.resolved = resolved
+                out = await self.action("kb_add_site", target="https://intranet.example")
+                self.assertIn("private or local address", out)
+        for target in ("http://127.0.0.1:8723/api", "http://[::1]/", "http://10.0.0.1/"):
+            with self.subTest(target=target):
+                self.assertIn("private or local", await self.action("kb_add_page", target=target))
+        self.assertIsNone(await self.source(1))
 
     async def test_adding_a_site_queues_it_with_its_options(self):
         out = await self.action("kb_add_site", target="https://wiki.example", depth="2",
@@ -348,7 +497,15 @@ class KnowledgeActions(_Db):
     async def test_bad_input_adds_nothing(self):
         self.assertIn("http", await self.action("kb_add_page", target="wiki.example"))
         self.assertIn("depth", await self.action("kb_add_site", target="https://a.b", depth="9"))
+        for pages in ("1.5", "nan", "inf", "lots"):
+            with self.subTest(pages=pages):
+                out = await self.action("kb_add_site", target="https://a.b", pages=pages)
+                self.assertIn("Not added: pages has to be a", out)
         self.assertIsNone(await self.source(1))
+
+    async def test_a_whole_number_written_as_a_decimal_is_fine(self):
+        await self.action("kb_add_site", target="https://a.b", depth="2.0", pages="40")
+        self.assertEqual((await self.source(1)).crawl_depth, 2)
 
     async def test_schedule_refresh_and_remove(self):
         await self.action("kb_add_page", target="https://a.example")
@@ -375,6 +532,26 @@ class KnowledgeActions(_Db):
                                    index_enabled=False))
         self.assertIn("Re-indexing 1 channels", await self.action("index_rebuild"))
         self.assertTrue((await self.row(GuildChannelInfo, 2)).backfill_done)
+
+    async def audited(self, action: str):
+        async with self.Session() as s:
+            return (await s.scalars(select(AuditLog).where(AuditLog.action == action))).all()
+
+    async def test_removals_keep_what_was_removed_in_the_log(self):
+        """There's no console Undo for these, so the log is what an operator restores from."""
+        await self.action("kb_add_site", target="https://wiki.example", depth="2", hours="24")
+        async with self.scope() as s:
+            s.add(GuildFact(guild_id=GUILD, subject="MN", fact="MN is Movie Night"))
+        await self.action("kb_remove", target="1")
+        await self.action("glossary_delete", target="1")
+        (source,) = await self.audited("delete_kb_source")
+        self.assertEqual(
+            source.before,
+            {"uri": "https://wiki.example", "type": "website", "title": "https://wiki.example",
+             "crawl_depth": 2, "max_pages": 25, "refresh_hours": 24},
+        )
+        (fact,) = await self.audited("delete_guild_fact")
+        self.assertEqual(fact.before, {"subject": "MN", "fact": "MN is Movie Night"})
 
     async def test_glossary_delete_takes_several_ids_and_only_this_servers(self):
         async with self.scope() as s:
@@ -404,6 +581,23 @@ class RebuildingAnImpression(_Db):
             out = await self.action("rebuild_impression", target="alex")
         self.assertEqual(out, "Rebuilt Alex's impression from 30 messages.")
         self.assertEqual(built.await_args.kwargs["user_id"], 1)
+
+    async def test_the_one_it_replaced_is_kept_in_the_log(self):
+        def alex(session):
+            return session.scalar(select(UserProfile).where(UserProfile.user_id == 1))
+
+        async with self.scope() as s:
+            (await alex(s)).persona_summary = "the old view"
+
+        async def rebuild(session, *, guild_id, user_id):
+            (await alex(session)).persona_summary = "the new view"
+            return {"ok": True, "messages": 30}
+
+        with patch("olisar.memory.personas.build_persona_now", new=rebuild):
+            await self.action("rebuild_impression", target="alex")
+        async with self.Session() as s:
+            entry = (await s.scalars(select(AuditLog))).one()
+        self.assertEqual(entry.before, {"impression": "the old view"})
 
     async def test_nobody_by_that_name(self):
         self.assertIn("No member", await self.action("rebuild_impression", target="zed"))

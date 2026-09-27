@@ -215,6 +215,66 @@ class PinFlowTests(unittest.IsolatedAsyncioTestCase):
         await view.cancel.callback(cancel)
         self.assertEqual(cancel.response.messages, ["Error: Already answered."])
 
+    # ── asking again ──────────────────────────────────────────────────────────
+
+    async def _audit(self) -> list[dict]:
+        from sqlalchemy import select
+
+        from olisar.db.models import AuditLog
+
+        async with self._scope() as session:
+            rows = (await session.scalars(select(AuditLog).order_by(AuditLog.id))).all()
+        return [r.after for r in rows if r.action == "tool_pin"]
+
+    async def test_wrong_pins_add_up_across_prompts(self):
+        """Three tries a prompt used to mean three tries forever: the member re-sent the
+        request and got a fresh prompt. The fifth wrong entry in an hour ends it."""
+        user = _User(uid=99)
+        task = self._ask()
+        _, view = await self._posted(task)
+        for _ in range(toolpin.MAX_ATTEMPTS):
+            await self._enter(view, "0000", user=user)
+        self.assertEqual(await task, toolpin.WRONG)
+
+        self.channel.sent.clear()
+        task = self._ask()
+        _, view = await self._posted(task)
+        await self._enter(view, "0000", user=user)
+        last = await self._enter(view, "0000", user=user)
+        self.assertEqual(await task, toolpin.LOCKED)
+        self.assertEqual(last.response.messages, ["Too many wrong PINs. Try again later."])
+
+        # The next request doesn't get a prompt at all, even with the right PIN in hand.
+        self.channel.sent.clear()
+        self.assertEqual(await self._ask(), toolpin.LOCKED)
+        self.assertEqual(self.channel.sent, [])
+        outcomes = [(a["outcome"], a.get("lockout")) for a in await self._audit()]
+        self.assertEqual(
+            outcomes, [("wrong", None), ("locked", "user"), ("locked", "user")]
+        )
+
+    async def test_a_locked_out_member_cannot_guess_on_someone_elses_prompt(self):
+        async with self._scope() as session:
+            for _ in range(toolpin.USER_LOCK_AFTER):
+                await toolpin.record_failure(session, user_id=555, guild_id=GUILD)
+        task = self._ask()
+        _, view = await self._posted(task)
+        reply = await self._enter(view, "4821", user=_User(uid=555))  # right, but refused
+        self.assertEqual(reply.response.messages, ["Too many wrong PINs. Try again later."])
+        self.assertEqual(await task, toolpin.LOCKED)
+
+    async def test_changing_the_pin_lifts_the_lock(self):
+        async with self._scope() as session:
+            for _ in range(toolpin.USER_LOCK_AFTER):
+                await toolpin.record_failure(session, user_id=99, guild_id=GUILD)
+        self.assertEqual(await self._ask(), toolpin.LOCKED)
+        async with self._scope() as session:
+            await toolpin.set_pin(session, "1357")
+        task = self._ask()
+        _, view = await self._posted(task)
+        await self._enter(view, "1357", user=_User(uid=99))
+        self.assertEqual(await task, toolpin.APPROVED)
+
     # ── who may answer ────────────────────────────────────────────────────────
 
     async def test_knowing_the_pin_is_the_only_credential(self):
@@ -269,6 +329,37 @@ class PinFlowTests(unittest.IsolatedAsyncioTestCase):
         task = self._ask()
         message, view = await self._posted(task)
         self.assertEqual(message.content, "key please for react (30s)")
+        await self._enter(view, "4821", user=_User())
+        await task
+
+    async def test_the_prompt_says_what_it_would_approve(self):
+        task = asyncio.create_task(
+            discord_pin.request_pin(
+                self.channel, tool="change_setting", guild_id=GUILD, user_id=99,
+                timeout=30.0, details='change "name" to "Rook"',
+            )
+        )
+        message, view = await self._posted(task)
+        self.assertIn('**change_setting** (change "name" to "Rook")', message.content)
+        await self._enter(view, "4821", user=_User())
+        await task
+
+    async def test_a_wording_without_the_details_still_shows_them(self):
+        """A server's own wording from before there was a {details} slot."""
+        async with self._scope() as session:
+            session.add(GuildConfig(
+                guild_id=GUILD, command_messages={"tool_pin_prompt": "key please for {tool}"},
+            ))
+        task = asyncio.create_task(
+            discord_pin.request_pin(
+                self.channel, tool="change_setting", guild_id=GUILD, user_id=99,
+                timeout=30.0, details='change "name" to "Rook"',
+            )
+        )
+        message, view = await self._posted(task)
+        self.assertEqual(
+            message.content, 'key please for change_setting\nchange "name" to "Rook"'
+        )
         await self._enter(view, "4821", user=_User())
         await task
 

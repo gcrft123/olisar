@@ -78,6 +78,39 @@ class NewServerDefaultsTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(persona.system_prompt, DEFAULT_SYSTEM_PROMPT)
         self.assertEqual(config.name_triggers, ["olisar"])
 
+    async def test_a_server_seeded_before_the_bot_connected_takes_its_name(self):
+        """Docker and the VM seed TARGET_GUILD_ID at startup, before the bot can say what
+        it's called, so the home server started as Olisar whatever the bot's name."""
+        await self.provision()  # scripts/init_db.py seed_defaults
+        await self.provision(name="Home", bot_name="Everest")
+        persona, config = await self.rows()
+        self.assertEqual(persona.name, "Everest")
+        self.assertTrue(persona.system_prompt.startswith("You are Everest — "))
+        self.assertEqual(config.name_triggers, ["everest"])
+        # Only on that first visit: a later rename in Discord doesn't move it again.
+        await self.provision(name="Home", bot_name="Summit")
+        self.assertEqual((await self.rows())[0].name, "Everest")
+
+    async def test_a_seed_someone_edited_is_left_alone(self):
+        for edit in (
+            lambda p, c: setattr(p, "name", "Olisar Prime"),
+            lambda p, c: setattr(p, "system_prompt", p.system_prompt + " Be brief."),
+            lambda p, c: setattr(c, "name_triggers", ["olisar", "ol"]),
+        ):
+            with self.subTest():
+                await self.asyncTearDown()
+                await self.asyncSetUp()
+                await self.provision()
+                async with self.Session() as s:
+                    edit(await s.get(Persona, GUILD), await s.get(GuildConfig, GUILD))
+                    await s.commit()
+                before = await self.rows()
+                await self.provision(name="Home", bot_name="Everest")
+                persona, config = await self.rows()
+                self.assertEqual(persona.name, before[0].name)
+                self.assertEqual(persona.system_prompt, before[0].system_prompt)
+                self.assertEqual(config.name_triggers, before[1].name_triggers)
+
     async def test_transcripts_use_the_persona_name(self):
         await self.provision(name="Home", bot_name="Everest")
         async with self.Session() as s:

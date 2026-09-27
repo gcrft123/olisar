@@ -18,12 +18,18 @@ class Unreachable(Exception):
     """The service couldn't answer: a network failure or a 5xx, not a wrong key."""
 
 
+class RateLimited(Unreachable):
+    """The service is turning requests away for now (429). Says nothing about the key."""
+
+
 async def _get(url: str, **kw) -> httpx.Response:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, **kw)
     except httpx.HTTPError as exc:
         raise Unreachable(str(exc)) from exc
+    if resp.status_code == 429:
+        raise RateLimited("HTTP 429")
     if resp.status_code >= 500:
         raise Unreachable(f"HTTP {resp.status_code}")
     return resp

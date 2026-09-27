@@ -28,6 +28,21 @@ def name_trigger_for(bot_name: str) -> list[str]:
     return [trigger] if trigger else []
 
 
+def _seeded_before_connect(persona: Persona, config: GuildConfig) -> bool:
+    """Whether the persona and name trigger are still exactly what the seed writes for a
+    guild whose bot name it doesn't know.
+
+    A server-hosted install (Docker, the VM) seeds TARGET_GUILD_ID at startup, before the
+    bot has connected and can say what it's called, so its home server started as
+    "Olisar" whatever the bot's name. Checked only on the bot's first visit, and only
+    all three untouched: anything someone edited stays as they left it."""
+    return (
+        persona.name == DEFAULT_PERSONA_NAME
+        and persona.system_prompt == default_system_prompt(DEFAULT_PERSONA_NAME)
+        and list(config.name_triggers or []) == name_trigger_for(DEFAULT_PERSONA_NAME)
+    )
+
+
 async def ensure_guild_defaults(
     session: AsyncSession,
     guild_id: int,
@@ -41,8 +56,13 @@ async def ensure_guild_defaults(
 
     ``bot_name`` is what the bot is called in this server. A new server's persona and
     name trigger start from it, so a bot the operator named in Discord answers to that
-    name rather than to "Olisar". Rows that already exist keep what they have."""
+    name rather than to "Olisar". Rows that already exist keep what they have, with one
+    exception: rows the startup seed wrote before the bot ever connected (see
+    _seeded_before_connect)."""
     guild = await session.get(Guild, guild_id)
+    # The bot names the guild row the first time it provisions it; only the startup seed
+    # (scripts/init_db.py, which knows no name) leaves it blank.
+    first_visit = bool(bot_name) and (guild is None or not guild.name)
     if guild is None:
         session.add(Guild(id=guild_id, name=name or "", icon=icon or "", active=True))
     else:
@@ -51,14 +71,15 @@ async def ensure_guild_defaults(
         if icon:
             guild.icon = icon
         guild.active = True
-    if await session.get(GuildConfig, guild_id) is None:
+    config = await session.get(GuildConfig, guild_id)
+    if config is None:
         config = GuildConfig(guild_id=guild_id)
         if bot_name:
             config.name_triggers = name_trigger_for(bot_name)
         session.add(config)
     persona = await session.get(Persona, guild_id)
+    persona_name = (bot_name or DEFAULT_PERSONA_NAME)[:64]
     if persona is None:
-        persona_name = (bot_name or DEFAULT_PERSONA_NAME)[:64]
         session.add(Persona(
             guild_id=guild_id,
             name=persona_name,
@@ -66,6 +87,10 @@ async def ensure_guild_defaults(
             tone_notes=DEFAULT_TONE_NOTES,
         ))
     else:
+        if first_visit and _seeded_before_connect(persona, config):
+            persona.name = persona_name
+            persona.system_prompt = default_system_prompt(persona_name)
+            config.name_triggers = name_trigger_for(bot_name)
         # An exact match with any previous release's seed means nobody ever edited this
         # field, so the guild is running defaults and should get the current ones.
         fresh = refreshed_tone_notes(persona.tone_notes)
