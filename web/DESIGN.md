@@ -1110,6 +1110,13 @@ and the skip link stays focusable behind the dialog. Render the overlay through 
 disables itself — and refcount the flag, because two stacked dialogs closing in sequence must not
 re-enable the page under the one still open.
 
+**So a dialog has to stack above everything it disables.** Anything in the app root that paints
+over the backdrop is inert with the rest of the page: it covers the dialog and swallows the clicks
+meant for it, and only Escape gets out. The backdrop sits at `z-index: 140`, above the narrow-width
+rail (130) and its backdrop (120), which Settings opens from, and the test chat drawer (101). Only
+what must stay usable over a dialog goes higher: toasts (200), the skip link (300), tooltips (400)
+and the update screen (500).
+
 ### Guarding unsaved work
 
 If the system's promise is "nothing is applied until you press Save", then every route out of a
