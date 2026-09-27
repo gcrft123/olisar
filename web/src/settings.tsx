@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from './api'
 import { botName } from './botname'
 import { Icon, CloseX, type IconName } from './icons'
-import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds } from './ui'
+import { Area, Badge, Field, Segmented, Select, Spinner, Text, Toggle, hasDraft, useDraft, useFieldIds, usePoll } from './ui'
 import { ActivityCard } from './pages'
 import { Modal, toast, confirmDialog } from './overlays'
 import { BotMenu, BotsPane, useBots } from './bots'
+import { RedirectRow } from './setup'
 import { SCALES, getScale, setScale } from './theme'
 import { openFeedback, registerFeedbackHost, type FeedbackPrefill } from './feedback'
 import { isBeta } from './version'
@@ -14,7 +15,8 @@ import { isBeta } from './version'
 // right content pane. App-wide operator settings (not per-server) live here.
 // 'size' is the member portal's cut-down General — the size control alone, without the
 // console-only keyboard shortcuts. 'bots' only exists in the desktop app (see bots.tsx).
-export type SectionId = 'general' | 'size' | 'activity' | 'bots' | 'logs' | 'security' | 'remote' | 'updates' | 'desktop' | 'feedback'
+// 'server-remote' is the server panel's Remote access, which drives the VM over SSH.
+export type SectionId = 'general' | 'size' | 'activity' | 'bots' | 'logs' | 'security' | 'remote' | 'server-remote' | 'updates' | 'desktop' | 'feedback'
 export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'general', label: 'General', ic: 'settings' },
   { id: 'size', label: 'Size', ic: 'palette' },
@@ -23,6 +25,8 @@ export const SECTIONS: { id: SectionId; label: string; ic: IconName }[] = [
   { id: 'logs', label: 'Logs', ic: 'pulse' },
   { id: 'security', label: 'Security', ic: 'access' },
   { id: 'remote', label: 'Remote access', ic: 'remote' },
+  // A server bot's, for the desktop app's server panel: the VM runs its funnel.
+  { id: 'server-remote', label: 'Remote access', ic: 'remote' },
   { id: 'updates', label: 'Updates', ic: 'update' },
   { id: 'desktop', label: 'Desktop app', ic: 'settings' },
   { id: 'feedback', label: 'Feedback', ic: 'messages' },
@@ -69,10 +73,11 @@ export function SettingsModal(
   { onClose: () => void; sections?: SectionId[]; initialSection?: SectionId; report?: string; prefill?: FeedbackPrefill },
 ) {
   // 'size' is the member portal's cut-down General; the console shows General instead,
-  // so an unfiltered modal must not offer both. 'bots' needs the desktop app's gateway.
+  // so an unfiltered modal must not offer both, and the same goes for the server panel's
+  // Remote access. 'bots' needs the desktop app's gateway.
   const bots = useBots()
   const visible = (sections ? SECTIONS.filter((s) => sections.includes(s.id))
-    : SECTIONS.filter((s) => s.id !== 'size'))
+    : SECTIONS.filter((s) => s.id !== 'size' && s.id !== 'server-remote'))
     .filter((s) => s.id !== 'bots' || bots.available || bots.loading)
   const hasFeedback = visible.some((v) => v.id === 'feedback')
   const first = prefill && hasFeedback ? 'feedback' : initialSection
@@ -130,6 +135,7 @@ export function SettingsModal(
           {section === 'logs' && <Logs onReport={hasFeedback ? () => goFeedback({ category: 'Bug report', logs: true }) : undefined} />}
           {section === 'security' && <Security />}
           {section === 'remote' && <Remote />}
+          {section === 'server-remote' && <ServerRemote />}
           {section === 'updates' && <Updates />}
           {section === 'desktop' && <Desktop />}
           {section === 'feedback' && <Feedback key={fb.n} report={report} prefill={fb.prefill} />}
@@ -693,16 +699,20 @@ function Remote() {
   // its env-configured Tailscale key — it's always on and can't be driven from the console.
   const headless = !!st?.headless
   // The funnel can only be toggled when the bundled helper is present; flipping it on
-  // re-uses the auth key saved during first-run setup (no key → the backend tells us).
-  const canToggle = !!st?.available && !!st?.helper && !headless
+  // re-uses the auth key saved during first-run setup (no key → the backend tells us). Only
+  // from the operator's machine: an admin signed in over the funnel would be refused.
+  const canToggle = !!st?.available && !!st?.helper && !headless && !!st?.local
+  const tunnelChanged = () => {
+    load()
+    window.dispatchEvent(new Event('olisar:tunnel-changed'))  // refresh the sidebar card now
+  }
   const toggle = async (on: boolean) => {
     setBusy(true)
     try {
       if (on) await api.enableTunnel()
       else await api.disableTunnel()
       toast(on ? 'Remote access on' : 'Remote access off', 'success')
-      load()
-      window.dispatchEvent(new Event('olisar:tunnel-changed'))  // refresh the sidebar card now
+      tunnelChanged()
     } catch (e: any) {
       toast(e?.message || 'Could not change remote access', 'danger')
     } finally {
@@ -739,6 +749,12 @@ function Remote() {
                 : 'Turning it on publishes the console using the Tailscale key from setup.'}
             </p>
           )}
+          {canToggle && st?.running && isWeb && (
+            <>
+              <DeviceName url={url} rename={api.renameTunnel} busy={busy} setBusy={setBusy} onRenamed={tunnelChanged} />
+              <RedirectCheck key={url} check={api.tunnelDiscord} />
+            </>
+          )}
 
           <div className="settings-subhead">Who can access ({data.users?.length || 0})</div>
           <div className="userlist">
@@ -757,6 +773,123 @@ function Remote() {
         </>
       )}
     </>
+  )
+}
+
+// The server panel's Remote access. The VM runs the funnel from its own .env, so there's no
+// switch here: what the operator can change from this machine is the device name.
+function ServerRemote() {
+  const [st, setSt] = useState<any>(null)
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = () => {
+    setErr(null)
+    return api.serverStatus()
+      .then(setSt)
+      .catch((e: any) => setErr(e?.message || 'Couldn’t reach the server.'))
+  }
+  useEffect(() => { load() }, [])
+  const url = (st?.url || '').replace(/\/$/, '')
+  const isWeb = /^https:\/\//.test(url)
+  const line = st?.auto_updating ? 'Updating…'
+    : isWeb ? 'Online'
+    : st?.reachable === false || st?.error ? 'Can’t reach the server'
+    : !st?.running ? 'Stopped'
+    : 'No address yet'
+  return (
+    <>
+      <Head title="Remote access" sub="Reach this console from anywhere, over Tailscale." />
+      {err && <div className="settings-err" role="alert">{err}</div>}
+      {!st ? (!err && <Spinner />) : (
+        <>
+          <div className="status-card">
+            <span className={'dot' + (isWeb ? ' on' : ' warn')} />
+            <div>
+              <div className="status-line">{line}</div>
+              {isWeb && <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https:\/\//, '')}</a>}
+            </div>
+            <div style={{ marginLeft: 'auto' }}>
+              <button className="ghost icon-btn sm" onClick={load} disabled={busy} data-tip="Refresh" aria-label="Refresh"><Icon.refresh size={14} /></button>
+            </div>
+          </div>
+          {isWeb && (
+            <>
+              <DeviceName url={url} rename={api.serverTunnelNode} busy={busy} setBusy={setBusy} onRenamed={() => {
+                load()
+                window.dispatchEvent(new Event('olisar:tunnel-changed'))  // the panel behind reads it too
+              }} />
+              <RedirectCheck key={url} check={() => api.serverDiscord(url)} />
+            </>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+/** The first part of a console's address, and a Rename that moves the console to a new one.
+ *  Tailscale settles the name, so the field starts from the address as it is. `rename`
+ *  answers `{ note }` when Tailscale gave the device some other name, or `{ ok: false, error }`. */
+function DeviceName({ url, rename, busy, setBusy, onRenamed }: {
+  url: string
+  rename: (name: string) => Promise<any>
+  busy: boolean
+  setBusy: (busy: boolean) => void
+  onRenamed: () => void
+}) {
+  const [current, ...rest] = url.replace(/^https:\/\//, '').split('.')
+  const [name, setName] = useState(current)
+  useEffect(() => { setName(current) }, [current])
+  const next = name.trim().toLowerCase()
+  const submit = async () => {
+    const ok = await confirmDialog({
+      title: `Rename to ${next}?`,
+      message: `The console moves to https://${[next, ...rest].join('.')} and its current address stops working. Admins sign in again at the new one.`,
+      confirmLabel: 'Rename',
+      cancelLabel: 'Cancel',
+      tone: 'warning',
+    })
+    if (ok !== true) return
+    setBusy(true)
+    try {
+      const r = await rename(next)
+      if (r?.ok === false) throw new Error(r.error)
+      toast(r?.note || 'Renamed', r?.note ? 'warning' : 'success')
+      onRenamed()
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t rename it', 'danger')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Field label="Device name" desc="The first part of the console’s address.">
+      <div className="key-swap">
+        <Text value={name} onChange={setName} mono />
+        <button disabled={busy || !next || next === current} onClick={submit}>{busy ? 'Renaming…' : 'Rename'}</button>
+      </div>
+    </Field>
+  )
+}
+
+/** The console's sign-in address, once Discord is seen not to list it: signing in there is
+ *  refused until it's added. It turns to Added when Discord lists it, and stays. Keyed by the
+ *  address, so a rename starts it over. */
+function RedirectCheck({ check }: { check: () => Promise<any> }) {
+  const [dc, setDc] = useState<{ app_id: string; redirect: string; added: boolean } | null>(null)
+  usePoll(() => check().then((r: any) => { if (r?.ok) setDc(r) }), dc?.added ? 60000 : 5000)
+  const missing = useRef(false)
+  if (dc && !dc.added) missing.current = true
+  if (!dc || !missing.current) return null
+  return (
+    <Field
+      plain
+      label="Redirect URL"
+      desc={<>Signing in at this address needs it. On <a href={`https://discord.com/developers/applications/${dc.app_id}/oauth2`} target="_blank" rel="noreferrer">the OAuth2 page</a>, under <strong>Redirects</strong>, add it and press <strong>Save Changes</strong>.</>}
+    >
+      <RedirectRow url={dc.redirect} added={dc.added} />
+      {!dc.added && <div className="check-line" role="status"><span className="spinner" /> Waiting for Discord to list it…</div>}
+    </Field>
   )
 }
 

@@ -178,6 +178,10 @@ class TunnelEnableIn(BaseModel):
     hostname: str | None = None   # desired node name (default "olisar")
 
 
+class TunnelRenameIn(BaseModel):
+    hostname: str                 # the node's new name, the first label of its address
+
+
 class ConfigIn(BaseModel):
     # The bounds match what the console prints under each field ("3-100 . default 12").
     # Without them the UI was the only thing enforcing a range it advertised, so anything

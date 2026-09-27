@@ -480,6 +480,25 @@ const MOCK_APP_ID = '1100000000000000001'
 // The address remote access last came up at, so the redirect the wizard asks for is the one
 // that gets "registered", whatever device name was typed.
 const SETUP_TUNNEL = { url: 'https://olisar.tail4f2a.ts.net' }
+// The device name remote access runs under, on this machine and on the server. A rename moves
+// the address, and Discord "lists" the new sign-in address 8 seconds later. A name starting
+// with "bad" fails as Tailscale would, and "taken" comes back as taken-1, the name Tailscale
+// gives a device when another in the tailnet already has the one it asked for.
+const RENAMED = { local: 'olisar', server: 'olisar' }
+const tsUrl = (node: string) => `https://${node}.tail4f2a.ts.net`
+function mockRename(where: 'local' | 'server', raw: unknown): { ok: true; url: string; note: string } | { ok: false; error: string } {
+  const name = String(raw ?? '').trim().toLowerCase()
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(name)) {
+    return { ok: false, error: 'Use letters, numbers and hyphens, starting and ending with a letter or number.' }
+  }
+  if (name.startsWith('bad')) return { ok: false, error: 'Couldn’t rename it: timed out bringing up the tunnel' }
+  const got = name === 'taken' ? 'taken-1' : name
+  RENAMED[where] = got
+  SETUP_WAIT[`renamed-${where}`] = Date.now()
+  const note = got === name ? '' : `Another device in your tailnet is already called ${name}, so Tailscale named this one ${got}.`
+  return { ok: true, url: tsUrl(got), note }
+}
+const redirectListed = (where: 'local' | 'server') => !SETUP_WAIT[`renamed-${where}`] || waited(`renamed-${where}`, 8000)
 function mockSetupApp(token: string, polled: boolean, origin = '') {
   const intentsOn = !token.includes('intents') || (polled && waited('intents', 8000))
   const redirectsIn = polled && intentsOn && waited('redirects', 5000)
@@ -668,19 +687,20 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
       configured: true, host: '203.0.113.9', auto_updating: false, reachable: true, running: true, state: 'running',
       health: up < 3000 ? 'starting' : 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', logs: '',
       started_at: new Date(boot).toISOString(), health_at: lastCheck ? new Date(lastCheck).toISOString() : '',
-      url: SETUP_STATE.consoleErr ? '' : 'https://olisar.tail4f2a.ts.net', console_error: SETUP_STATE.consoleErr,
+      url: SETUP_STATE.consoleErr ? '' : tsUrl(RENAMED.server), console_error: SETUP_STATE.consoleErr,
     }), true
   }
   if (url.startsWith('/api/server/activity')) return later(500, () => send(mockActivity()))
   if (url.startsWith('/api/server/tunnel-key')) return body((b) => later(3000, () => {
     if (bad(b.key)) return send({ ok: false, error: MOCK_KEY_REFUSED })
     SETUP_STATE.consoleErr = ''
-    send({ ok: true, url: 'https://olisar.tail4f2a.ts.net' })
+    send({ ok: true, url: tsUrl(RENAMED.server) })
   }))
+  if (url.startsWith('/api/server/tunnel-node')) return body((b) => later(4000, () => send(mockRename('server', b.node))))
   // The console's sign-in address turns up registered 6 seconds after the panel first asks.
   // SETUP_MOCK=intents also has the server bot's intents off until Turn on and restart.
   if (url.startsWith('/api/server/discord')) return later(400, () => send({
-    ok: true, app_id: MOCK_APP_ID, redirect: 'https://olisar.tail4f2a.ts.net/auth/callback', added: waited('signin', 6000),
+    ok: true, app_id: MOCK_APP_ID, redirect: `${tsUrl(RENAMED.server)}/auth/callback`, added: waited('signin', 6000) && redirectListed('server'),
     bot_name: 'Olisar', bot_avatar: '',
     intents_missing: SETUP === 'intents' && !SETUP_WAIT.intentsFixed ? ['message_content'] : [],
   }))
@@ -711,7 +731,21 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/invite')) return send({ url: `https://discord.com/oauth2/authorize?client_id=${MOCK_APP_ID}&scope=bot+applications.commands&permissions=274878024768`, available: true })
   if (url.startsWith('/api/dev/status')) return send({ is_developer: false })
   if (url.startsWith('/api/dev/standing')) return send({ banned: false, warning: null })
-  if (url.startsWith('/api/tunnel/status')) return send({ available: false, running: false, helper: false, headless: false, hostname: '', public_url: '' })
+  // Remote access is on, under whatever name it was last renamed to.
+  if (url.startsWith('/api/tunnel/status')) {
+    const at = tsUrl(RENAMED.local)
+    return send({ available: true, running: true, helper: true, headless: false, hostname: at.slice(8), public_url: at })
+  }
+  if (url.startsWith('/api/tunnel/rename')) {
+    return readBody(req, (b) => setTimeout(() => {
+      const r = mockRename('local', b.hostname)
+      if (!r.ok) return send({ detail: r.error }, 400)
+      send({ ok: true, public_url: r.url, redirect_uri: `${r.url}/auth/callback`, note: r.note })
+    }, 2500))
+  }
+  if (url.startsWith('/api/tunnel/discord')) {
+    return send({ ok: true, app_id: MOCK_APP_ID, redirect: `${tsUrl(RENAMED.local)}/auth/callback`, added: redirectListed('local') })
+  }
   if (url.startsWith('/api/bots')) {
     // Shaped like the desktop gateway's answer: one running bot, one on a server, one
     // not set up yet — every state the switcher and Settings ▸ Bots draw.
@@ -859,7 +893,21 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/keys')) return send(keys)
   if (url.startsWith('/api/audit')) return send(MOCK_AUDIT)
   if (url.startsWith('/api/stats')) return send({ today: { requests: 4120, grounding: 38 }, by_model: {} })
-  if (url.startsWith('/api/settings/remote')) return send({ running: false, public_url: '', sessions: [] })
+  if (url.startsWith('/api/settings/remote')) {
+    const at = tsUrl(RENAMED.local)
+    return send({
+      status: {
+        available: true, running: true, helper: true, headless: false, hostname: at.slice(8), public_url: at,
+        // An admin who isn't the operator signs in over the funnel, not at the operator's machine.
+        local: MOCK_ROLE !== 'admin',
+      },
+      logs: [],
+      users: [
+        { username: 'gcrft123', granted_via: 'allowlist', is_allowlisted: true, last_login: new Date(Date.now() - 3600000).toISOString(), guild_count: 2 },
+        { username: 'intmorg', granted_via: 'manage_guild', is_allowlisted: false, last_login: new Date(Date.now() - 86400000 * 2).toISOString(), guild_count: 1 },
+      ],
+    })
+  }
   if (url.startsWith('/api/settings/logs')) return send({ lines: ['[fixture] no live log in mock mode'] })
   next()
 }

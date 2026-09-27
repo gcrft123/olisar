@@ -21,6 +21,7 @@ from api.auth.oauth import DENIED_COOKIE, denied_identity
 from api.auth.sessions import COOKIE_NAME, MEMBER_COOKIE_NAME
 from api.routers.marketplace import _registry_error, _registry_post
 from api.schemas import DesktopSettingsIn, FeedbackIn, ToolPinIn, UpdateChannelIn
+from api.trust import is_local_request
 from olisar import logbuffer, runtime_config, toolpin, updates
 from olisar.audit import record_audit
 from olisar.config import settings
@@ -195,6 +196,9 @@ async def get_remote(request: Request, _: AdminUser = Depends(require_admin)) ->
         "headless": settings.headless,
         "hostname": await runtime_config.tunnel_hostname(),
         "public_url": await runtime_config.public_base_url(),
+        # Whether this admin is at the operator's machine, where /api/tunnel can be driven
+        # (renaming the device, the on/off toggle). An admin signed in over the funnel isn't.
+        "local": is_local_request(request),
     }
     # Tunnel-related lines from the in-memory log (the funnel helper + our manager).
     logs = logbuffer.tail(300, contains="olisar.tunnel") + logbuffer.tail(300, contains="olisar.api.tunnel")

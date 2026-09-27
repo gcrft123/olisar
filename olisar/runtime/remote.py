@@ -605,12 +605,45 @@ async def set_tunnel_key(key: str) -> dict:
     container on it, then report whether the console came up: ``{ok, url}`` or
     ``{ok: False, error}``.
 
-    Recreated, not restarted: a restarted container keeps the environment it was created
-    with, dead key included. A node that joined before keeps its identity in the data
-    volume and never reads the key again, so this only changes anything for one that hasn't."""
+    A node that joined before keeps its identity in the data volume and never reads the key
+    again, so this only changes anything for one that hasn't."""
     key = (key or "").strip()
     if not _TSKEY_RE.match(key):
         return {"ok": False, "error": "That isn't a Tailscale auth key. They start with tskey-."}
+    return await _apply_env("TAILSCALE_AUTH", key)
+
+
+async def set_tunnel_node(node: str) -> dict:
+    """Rename this bot's Tailscale device, which is the first part of its console's address:
+    put the name in its ``.env`` on the VM and recreate its container on it. ``{ok, url,
+    note}``, where ``note`` says why the address doesn't start with the new name when it
+    doesn't, or ``{ok: False, error}``."""
+    from olisar.runtime.tunnel import DEVICE_NAME_RULES, device_name, rename_note
+
+    name = device_name(node)
+    if not name:
+        return {"ok": False, "error": DEVICE_NAME_RULES}
+
+    async def not_taken(conn, app_dir: str) -> str:
+        # The same rule deploy follows (see distinct_node): two bots here asking for one
+        # name would both get it, suffixed in whatever order they come up.
+        others = {i["node"] for i in await _list_installs(conn) if i["dir"] != app_dir}
+        return "Another bot on this server uses that name." if name in others else ""
+
+    result = await _apply_env("OLISAR_FUNNEL_HOSTNAME", name, check=not_taken)
+    if result.get("ok"):
+        result["note"] = rename_note(name, result["url"])
+    return result
+
+
+async def _apply_env(key: str, value: str, *, check=None) -> dict:
+    """Set one line of this bot's ``.env`` on the VM and recreate its container on it, then
+    report whether the console came up: ``{ok, url}`` or ``{ok: False, error}``. ``check``,
+    given the connection and the install's directory, can refuse the value first by
+    returning why.
+
+    Recreated, not restarted: a restarted container keeps the environment it was created
+    with, the old value included."""
     cfg = await _load()
     if not (cfg and cfg.server_host):
         return {"ok": False, "error": "No server configured yet."}
@@ -621,12 +654,15 @@ async def set_tunnel_key(key: str) -> dict:
     app_dir = app_dir_of(cfg)
     try:
         async with _gate:  # not while an update is recreating the same container
+            refused = await check(conn, app_dir) if check else ""
+            if refused:
+                return {"ok": False, "error": refused}
             env_text = await _run(conn, f"cat ~/{app_dir}/.env", timeout=30)
-            # Over stdin, like deploy, so the key never shows in the VM's process list.
+            # Over stdin, like deploy, so a key never shows in the VM's process list.
             await asyncio.wait_for(
                 conn.run(
                     f"cat > ~/{app_dir}/.env",
-                    input=_set_env_line(env_text, "TAILSCALE_AUTH", key) + "\n",
+                    input=_set_env_line(env_text, key, value) + "\n",
                     check=True,
                 ),
                 timeout=30,
