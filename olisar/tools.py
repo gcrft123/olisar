@@ -114,6 +114,10 @@ class ToolContext:
     # Set once open_settings has run. From then on the reply also declares the settings
     # write tools (see with_settings_tools), which are left out until then to save tokens.
     settings_open: bool = False
+    # False when this reply mustn't reach the settings tools at all (see
+    # without_settings_tools). They aren't declared then, and a call that names one anyway
+    # is refused.
+    settings_allowed: bool = True
 
     def readable(self) -> ChannelFilter:
         """The channels this reply's asker can open, for filtering search and recall."""
@@ -438,6 +442,17 @@ def with_settings_tools(tools: list) -> list:
         return tools
     return [
         types.Tool(function_declarations=[*declared, *self_settings.WRITE_DECLARATIONS])
+    ]
+
+
+def without_settings_tools(tools: list) -> list:
+    """``tools`` minus every settings tool, read included, for a reply that mustn't see or
+    change the server's settings. Pair it with ``ToolContext.settings_allowed = False``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    return [
+        types.Tool(
+            function_declarations=[d for d in declared if d.name not in self_settings.TOOL_NAMES]
+        )
     ]
 
 
@@ -841,6 +856,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             return f"Cancelled reminder #{rid}."
 
         if name in self_settings.TOOL_NAMES:
+            if not ctx.settings_allowed:
+                return "Settings aren't available here. Answer without them."
             return await self_settings.run(name, args, ctx)
 
         if name == "set_dm_indexing":

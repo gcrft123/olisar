@@ -134,6 +134,74 @@ class TheReadUnlocksTheWrites(unittest.TestCase):
             self.assertFalse(WRITES & tools)
 
 
+class _Replying:
+    """Run generate_reply with everything but the tool set and the ToolContext stubbed."""
+
+    def reply(self, *, guild_id=0, is_admin=False, **kw) -> dict:
+        from olisar import pipeline
+
+        seen: dict = {}
+
+        async def fake_loop(contents, system, model, ctx, **loop_kw):
+            seen["tools"], seen["ctx"] = _names(loop_kw["tools"]), ctx
+            return "ok"
+
+        actions = MagicMock()
+        actions.is_admin = AsyncMock(return_value=is_admin)
+        actions.channel_directory = AsyncMock(return_value="")
+        session = MagicMock()
+        session.get = AsyncMock(return_value=None)
+        with patch.object(pipeline, "_run_tool_loop", new=fake_loop), patch.object(
+            pipeline, "build_contents", new=AsyncMock(return_value=([], set()))
+        ), patch.object(pipeline, "people_directory", new=AsyncMock(return_value="")), patch.object(
+            pipeline, "recall", new=AsyncMock(return_value="")
+        ), patch.object(
+            pipeline, "gather_enabled", new=AsyncMock(return_value=pipeline.GatheredExtensions())
+        ):
+            asyncio.run(pipeline.generate_reply(
+                session, guild_id=guild_id, home_guild_id=GUILD, channel_id=1,
+                current_message_id=2, bot_user_id=3, user_id=USER, display_name="ada",
+                user_text="rename yourself", actions=actions, **kw,
+            ))
+        seen["actions"] = actions
+        return seen
+
+
+class InADirectMessage(_Replying, unittest.TestCase):
+    """A DM acts on the home server, and sharing any server with the bot is enough to DM
+    it. Only someone who could change the home server's settings anyway gets the tools."""
+
+    def test_a_member_of_some_other_server_gets_none_of_them(self):
+        seen = self.reply(is_admin=False)
+        self.assertFalse(self_settings.TOOL_NAMES & seen["tools"])
+        self.assertFalse(seen["ctx"].settings_allowed)
+        seen["actions"].is_admin.assert_awaited_once_with(USER, GUILD)
+
+    def test_someone_who_manages_the_home_server_keeps_them(self):
+        seen = self.reply(is_admin=True)
+        self.assertIn("open_settings", seen["tools"])
+        self.assertTrue(seen["ctx"].settings_allowed)
+
+    def test_the_operator_keeps_them(self):
+        from olisar import pipeline
+
+        with patch.object(pipeline.settings, "admin_allowlist", [USER]):
+            seen = self.reply(is_admin=False)
+        self.assertIn("open_settings", seen["tools"])
+
+    def test_a_server_channel_is_unchanged(self):
+        seen = self.reply(guild_id=GUILD, is_admin=False)
+        self.assertIn("open_settings", seen["tools"])
+        seen["actions"].is_admin.assert_not_awaited()
+
+    def test_a_call_that_names_one_anyway_is_refused(self):
+        ctx = ToolContext(session=None, cfg_guild=GUILD, channel_id=1, user_id=USER,
+                          display_name="ada", settings_allowed=False)
+        out = asyncio.run(execute_tool("open_settings", {"section": "persona"}, ctx))
+        self.assertIn("aren't available", out)
+        self.assertFalse(ctx.settings_open)
+
+
 class TheBoundsAreTheConsoles(unittest.TestCase):
     """Each key's range is the one the console's API validates, and each key is one the
     console's API accepts at all."""
