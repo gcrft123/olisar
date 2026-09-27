@@ -131,6 +131,8 @@ class BotSupervisor:
 
     # How long a bot gets to become ready before the watchdog asks Discord why it hasn't.
     connect_grace = 20.0
+    # How long to wait before asking again when Discord couldn't answer; the last one repeats.
+    ask_again_after = (5.0, 10.0, 20.0, 40.0, 60.0)
 
     async def _watch_connect(self, bot, token: str) -> None:
         """Stop a bot Discord won't let in over an intent, and say why.
@@ -141,16 +143,24 @@ class BotSupervisor:
         seconds forever: never ready, never failing, and spending the token's daily budget of
         1000 identifies, past which Discord resets the token. So if it isn't ready in time,
         the app's intents are read back, and a bot missing one is stopped rather than left
-        to loop."""
+        to loop. Reading them back can fail too (a 429, a 5xx, a dropped connection), and
+        giving up then would leave the loop running, so it's asked again, less often each
+        time, for as long as the bot is neither in nor stopped."""
         from olisar import discord_app
 
         await asyncio.sleep(self.connect_grace)
-        if bot.is_ready() or bot.is_closed():
-            return
-        try:
-            app = await discord_app.inspect(token)
-        except Exception:  # noqa: BLE001 (can't tell why; leave it to keep trying)
-            return
+        waits = iter(self.ask_again_after)
+        while True:
+            if bot.is_ready() or bot.is_closed():
+                return
+            try:
+                app = await discord_app.inspect(token)
+                break
+            except Exception as exc:  # noqa: BLE001 (can't tell why yet; ask again)
+                wait = next(waits, self.ask_again_after[-1])
+                log.warning("bot not ready and Discord couldn't say why (%s); asking again in %.0fs",
+                            type(exc).__name__, wait)
+                await asyncio.sleep(wait)
         if not app["intents_missing"]:
             return  # a slow start, not a refusal
         log.warning("bot not ready after %.0fs and its app is missing intents %s; stopping it",
