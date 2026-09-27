@@ -827,6 +827,9 @@ def create_app(pool: Pool) -> FastAPI:
 async def run(host: str, port: int) -> None:
     """Serve the console and run every bot until SIGINT/SIGTERM, then stop them all."""
     profiles.set_active(profiles.default_id())  # the console opens on the launch default
+    # A deletion that stopped partway goes first: the original bot's Tailscale node, say,
+    # mustn't be handed to another bot, and nothing of a deleted bot should start again.
+    profiles.finish_deletions()
     adopt_shared_tailscale()
 
     # Each bot logs its own requests; the gateway's copy of every line would only double them.

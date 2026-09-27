@@ -10,7 +10,9 @@ own database whichever bot the console is showing.
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -122,6 +124,81 @@ class RegistryFileTests(unittest.TestCase):
             self.profiles.rename(self.second, "Again")
         self.assertEqual(order[:2], ["fsync", "replace"])
         self.assertEqual(order.count("replace"), 2)  # the registry, then its copy
+
+
+class DeletingTheOriginalBotTests(unittest.TestCase):
+    """The original bot's data sits in the install directory itself, next to the registry, the
+    other bots and (in the desktop app) the app's own files. Deleting it used to leave all of
+    its data there: its token, keys and memory, which a rebuilt registry then brought back."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.home = Path(self._tmp.name)
+        os.environ["OLISAR_DATA_DIR"] = str(self.home)
+        self.addCleanup(os.environ.pop, "OLISAR_DATA_DIR", None)
+        os.environ.pop("OLISAR_HOME", None)
+        from olisar.runtime import profiles
+
+        self.profiles = profiles
+        self.second = profiles.create("Second")["id"]
+        (profiles.data_dir_for(self.second) / "olisar.db").write_text("second's")
+        profiles.set_active(self.second)
+        self.bots_files = [
+            "olisar.db", "olisar.db-wal", "olisar.db-shm", "olisar.db.version",
+            "olisar.db.pre-1.5.0", "olisar.db.pre-move.bak", "state.json",
+            "kb_uploads/manual.pdf", "tailscale/tailscaled.state",
+        ]
+        self.installs_files = ["updates.json", "last-launched-version", "Local Storage/leveldb/000003.log"]
+        for name in self.bots_files + self.installs_files:
+            (self.home / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.home / name).write_text("x")
+
+    def left(self) -> list[str]:
+        return [n for n in self.bots_files if (self.home / n).exists()]
+
+    def test_its_files_go_and_the_installs_stay(self) -> None:
+        self.profiles.delete("default")
+        self.assertEqual(self.left(), [])
+        self.assertFalse((self.home / "kb_uploads").exists())
+        self.assertFalse((self.home / "tailscale").exists())
+        for name in self.installs_files + ["profiles.json", "profiles.json.bak"]:
+            self.assertTrue((self.home / name).exists(), name)
+        self.assertEqual((self.profiles.data_dir_for(self.second) / "olisar.db").read_text(), "second's")
+        self.assertNotIn("deleting", json.loads((self.home / "profiles.json").read_text()))
+
+    def test_a_rebuilt_registry_doesnt_bring_it_back(self) -> None:
+        self.profiles.delete("default")
+        (self.home / "profiles.json").unlink()
+        (self.home / "profiles.json.bak").unlink()
+        self.assertEqual([p["id"] for p in self.profiles.list()], [self.second])
+
+    def test_a_deletion_stopped_partway_is_finished_and_never_undone(self) -> None:
+        from unittest import mock
+
+        real = shutil.rmtree
+
+        def held_open(path, *a, **kw):
+            if Path(path).name == "kb_uploads":
+                raise PermissionError("in use")
+            return real(path, *a, **kw)
+
+        with mock.patch.object(shutil, "rmtree", held_open):
+            self.profiles.delete("default")
+        self.assertEqual([p["id"] for p in self.profiles.list()], [self.second])
+        self.assertEqual(self.left(), ["kb_uploads/manual.pdf"])
+        self.assertFalse((self.home / "olisar.db").exists())  # the bot itself went first
+
+        self.profiles.finish_deletions()  # the gateway's next start
+        self.assertEqual(self.left(), [])
+        self.assertNotIn("deleting", json.loads((self.home / "profiles.json").read_text()))
+
+    def test_another_bot_still_takes_its_directory_with_it(self) -> None:
+        self.profiles.set_active("default")
+        bot_dir = self.profiles.data_dir_for(self.second)
+        self.profiles.delete(self.second)
+        self.assertFalse(bot_dir.exists())
+        self.assertTrue((self.home / "olisar.db").exists())
 
 
 if __name__ == "__main__":
