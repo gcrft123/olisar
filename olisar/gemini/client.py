@@ -19,7 +19,13 @@ from google.genai import types
 from olisar import runtime_keys
 from olisar.config import settings
 from olisar.gemini.models import image_model_chain, model_chain
-from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter, record_usage
+from olisar.gemini.quota import next_reset, read_refusal
+from olisar.gemini.rate_limiter import (
+    RateLimitExceeded,
+    get_rate_limiter,
+    mark_spent,
+    record_usage,
+)
 
 log = logging.getLogger("olisar.gemini")
 
@@ -82,7 +88,7 @@ class GroundingUnavailable(Exception):
 
 # A 429 that carries a retry delay is a *rate* (per-minute) limit — it clears on its own
 # in seconds. One with no delay, or a long one, is the daily grounding quota, which won't
-# clear until Google's day rolls over. Anything up to this is treated as the former.
+# clear until Google's day rolls over at midnight Pacific. Anything up to this is treated as the former.
 _GROUNDING_SHORT_RETRY_MAX = 15 * 60.0
 # Matches both shapes Google uses: `"retryDelay": "23s"` and `retry_delay { seconds: 7 }`
 # — the first number after the key, whether or not a unit follows it.
@@ -109,10 +115,6 @@ def _retry_after_seconds(exc: Exception) -> float | None:
     that waiting a moment won't help."""
     match = _RETRY_DELAY_RE.search(_api_error_detail(exc))
     return float(match.group(1)) if match else None
-
-
-def _next_utc_midnight(now: datetime) -> datetime:
-    return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 @dataclass
@@ -170,6 +172,12 @@ class GeminiClient:
         # it every reply pays a full round trip (and up to a minute queued behind the
         # rate limiter) to rediscover the same refusal.
         self._grounding_blocked_until: datetime | None = None
+
+    @property
+    def grounding_blocked_until(self) -> datetime | None:
+        """When web search will be tried again, or None while it's allowed."""
+        until = self._grounding_blocked_until
+        return until if until is not None and until > datetime.now(timezone.utc) else None
 
     async def aclient(self) -> genai.Client:
         """The underlying SDK client, built lazily and rebuilt when the effective
@@ -256,7 +264,15 @@ class GeminiClient:
                 code = getattr(exc, "code", None)
                 last_error = exc
                 if code == 429:
-                    limiter.penalize(candidate, reason="a rate limit (429)")
+                    # A grounded call's daily refusal can be about the search allowance
+                    # rather than the model's, and parking the model until midnight for
+                    # that would cost every reply it could still give. search() keeps its
+                    # own block for grounding.
+                    refusal = read_refusal(exc)
+                    if refusal.daily and not grounding:
+                        await mark_spent(candidate, refusal.limit)
+                    else:
+                        limiter.penalize(candidate, reason="a rate limit (429)")
                 elif code in _TRANSIENT_5XX:
                     log.warning(
                         "gemini %s error code=%s; falling back to next model", candidate, code
@@ -450,7 +466,7 @@ class GeminiClient:
             until = now + timedelta(seconds=retry)
             why = f"Google asked for {retry:.0f}s"
         else:
-            until = _next_utc_midnight(now)
+            until = next_reset(now)
             why = (
                 "no retryDelay — treating it as the daily grounding quota"
                 if retry is None

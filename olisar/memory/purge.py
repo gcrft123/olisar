@@ -13,6 +13,7 @@ from olisar.db.models import (
     ChannelSummary,
     FailureReport,
     GeminiUsage,
+    UsageHour,
     Guild,
     GuildChannelInfo,
     GuildFact,
@@ -217,6 +218,7 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
 
     # Usage stats are global (no guild_id).
     await session.execute(delete(GeminiUsage))
+    await session.execute(delete(UsageHour))
 
     # Forget people, but keep opt-out promises: drop non-opted-out profiles
     # entirely (they re-register on next activity), and blank the learned fields

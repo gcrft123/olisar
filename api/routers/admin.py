@@ -7,7 +7,6 @@ scan, no restart. Account- and global-scope routes (me, models, keys, guilds) us
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -51,6 +50,7 @@ from olisar.db.models import (
     UserProfile,
 )
 from olisar.gemini.models import RANKED
+from olisar.gemini.quota import quota_day
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
 
@@ -884,7 +884,7 @@ async def deep_mine_facts(gctx: GuildContext = Depends(require_guild_admin)) -> 
 @router.get("/stats")
 async def get_stats(admin: AdminUser = Depends(require_admin)):
     """Gemini usage is bot-wide (one quota), so this stays account-scoped."""
-    today = datetime.now(timezone.utc).date()
+    today = quota_day()
     async with session_scope() as session:
         rows = (await session.scalars(select(GeminiUsage))).all()
     by_model: dict[str, dict] = {}

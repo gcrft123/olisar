@@ -1,0 +1,300 @@
+"""Google's daily limits: which day it is, what a 429 says, and what the Usage page reads.
+
+Run:  uv run python -m unittest tests.test_usage_quota -v
+
+Google resets requests-per-day at midnight Pacific, and Olisar counted days in UTC, so for
+seven or eight hours every evening it started a fresh day while Google was still counting the
+old one. A model Google had refused for the day was parked for two minutes and asked again
+all evening. Covered here: the day boundary, telling a spent day from a per-minute throttle,
+parking until the reset (and surviving a restart), and the two endpoints the page polls.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import tempfile
+import unittest
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from google.genai import errors as genai_errors
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from api.routers import usage as usage_router
+from olisar.db.models import Base, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.gemini import rate_limiter as rl
+from olisar.gemini.client import GeminiClient
+from olisar.gemini.models import RANKED, RANKED_NAMES
+from olisar.gemini.quota import day_start, next_reset, quota_day, quota_hour, read_refusal
+from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded
+
+
+def _quota_429(quota_id: str, value: str = "250", retry: str | None = None):
+    details = [{
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [{
+            "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+            "quotaId": quota_id,
+            "quotaDimensions": {"location": "global", "model": "gemini-3.5-flash"},
+            "quotaValue": value,
+        }],
+    }]
+    if retry:
+        details.append({"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry})
+    body = {"error": {
+        "code": 429, "message": "You exceeded your current quota.",
+        "status": "RESOURCE_EXHAUSTED", "details": details,
+    }}
+    return genai_errors.APIError(429, body)
+
+
+DAILY = "GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+PER_MINUTE = "GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+
+
+class QuotaDayTests(unittest.TestCase):
+    def test_a_utc_evening_is_still_googles_day(self):
+        # 03:00 UTC on the 27th is 8 PM Pacific on the 26th (PDT).
+        now = datetime(2026, 9, 27, 3, 0, tzinfo=timezone.utc)
+        self.assertEqual(quota_day(now), date(2026, 9, 26))
+        self.assertEqual(quota_hour(now), 20)
+
+    def test_the_reset_is_midnight_pacific(self):
+        now = datetime(2026, 9, 27, 3, 0, tzinfo=timezone.utc)
+        self.assertEqual(next_reset(now), datetime(2026, 9, 27, 7, 0, tzinfo=timezone.utc))
+
+    def test_the_reset_follows_standard_time_in_winter(self):
+        self.assertEqual(day_start(date(2026, 12, 1)), datetime(2026, 12, 1, 8, 0, tzinfo=timezone.utc))
+
+
+class RefusalTests(unittest.TestCase):
+    def test_a_daily_quota_is_daily_and_names_its_limit(self):
+        refusal = read_refusal(_quota_429(DAILY, "250"))
+        self.assertTrue(refusal.daily)
+        self.assertEqual(refusal.limit, 250)
+
+    def test_a_per_minute_quota_is_not_daily(self):
+        refusal = read_refusal(_quota_429(PER_MINUTE, "10", retry="23s"))
+        self.assertFalse(refusal.daily)
+        self.assertIsNone(refusal.limit)
+
+    def test_a_bare_429_is_not_read_as_daily(self):
+        """Parking a model until midnight over a throttle costs hours; the reverse, minutes."""
+        err = genai_errors.APIError(429, {"error": {"message": "Too many requests."}})
+        self.assertFalse(read_refusal(err).daily)
+
+    def test_the_quota_id_in_the_words_alone_still_counts(self):
+        err = genai_errors.APIError(429, {"error": {"message": f"Quota exceeded: {DAILY}"}})
+        self.assertTrue(read_refusal(err).daily)
+
+
+class LimiterTests(unittest.TestCase):
+    def test_a_spent_model_is_skipped_until_the_reset(self):
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0])
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
+        self.assertEqual(limiter.state(RANKED_NAMES[1]), "ok")
+
+    def test_the_reset_clears_it(self):
+        limiter = RateLimiter()
+        limiter.exhaust(RANKED_NAMES[0], datetime.now(timezone.utc) - timedelta(days=1))
+        self.assertIsNone(limiter.spent_at(RANKED_NAMES[0]))
+        self.assertEqual(limiter.state(RANKED_NAMES[0]), "ok")
+
+    def test_the_whole_chain_spent(self):
+        limiter = RateLimiter()
+        for name in RANKED_NAMES[:-1]:
+            limiter.exhaust(name)
+        self.assertFalse(limiter.chain_spent())
+        limiter.exhaust(RANKED_NAMES[-1])
+        self.assertTrue(limiter.chain_spent())
+        self.assertTrue(limiter.chat_exhausted())
+
+    def test_acquire_refuses_rather_than_waiting_out_the_day(self):
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-embedding-001")
+        with self.assertRaises(RateLimitExceeded):
+            asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001"), 1))
+
+    def test_back_in_counts_down_a_cooldown(self):
+        limiter = RateLimiter()
+        limiter.penalize(RANKED_NAMES[0], seconds=48)
+        self.assertAlmostEqual(limiter.back_in(RANKED_NAMES[0]), 48, delta=1)
+        self.assertEqual(limiter.back_in(RANKED_NAMES[1]), 0)
+
+
+class ClientTests(unittest.TestCase):
+    def _run(self, first_error, *, grounding=0):
+        client = GeminiClient()
+        ok = MagicMock()
+        ok.usage_metadata.total_token_count = 5
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=[first_error, ok])
+        client.aclient = AsyncMock(return_value=sdk)
+        limiter = MagicMock()
+        limiter.state.return_value = "ok"
+        spent = AsyncMock()
+        with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), patch(
+            "olisar.gemini.client.record_usage", new=AsyncMock()
+        ), patch("olisar.gemini.client.mark_spent", new=spent):
+            asyncio.run(client._raw_generate(
+                contents="hi", config=MagicMock(), model=RANKED_NAMES[0], grounding=grounding,
+            ))
+        return limiter, spent
+
+    def test_a_daily_429_parks_the_model_until_the_reset(self):
+        limiter, spent = self._run(_quota_429(DAILY, "250"))
+        spent.assert_awaited_once_with(RANKED_NAMES[0], 250)
+        limiter.penalize.assert_not_called()
+
+    def test_a_per_minute_429_rests_it_as_before(self):
+        limiter, spent = self._run(_quota_429(PER_MINUTE, "10"))
+        spent.assert_not_awaited()
+        limiter.penalize.assert_called_once()
+
+    def test_a_grounded_call_never_parks_the_model_for_the_day(self):
+        """Its daily refusal can be the search allowance's, not the model's."""
+        limiter, spent = self._run(_quota_429(DAILY, "500"), grounding=1)
+        spent.assert_not_awaited()
+        limiter.penalize.assert_called_once()
+
+
+class _Db(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        path = Path(self._tmp.name) / "test.db"
+        self.engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.limiter = RateLimiter()
+        self._patches = [
+            patch.object(rl, "session_scope", self.scope),
+            patch.object(usage_router, "session_scope", self.scope),
+            patch.object(rl, "_rate_limiter", self.limiter),
+        ]
+        for p in self._patches:
+            p.start()
+
+    async def asyncTearDown(self) -> None:
+        for p in self._patches:
+            p.stop()
+        await self.engine.dispose()
+        self._tmp.cleanup()
+
+    @contextlib.asynccontextmanager
+    async def scope(self):
+        async with self.Session() as session:
+            yield session
+            await session.commit()
+
+    async def rows(self, model):
+        async with self.Session() as session:
+            return (await session.scalars(select(model))).all()
+
+
+class RecordingTests(_Db):
+    async def test_a_request_is_counted_on_googles_day_and_hour(self):
+        await rl.record_usage(RANKED_NAMES[0], 120, source="conversation")
+        (row,) = await self.rows(GeminiUsage)
+        self.assertEqual(row.day, quota_day())
+        (hour,) = await self.rows(UsageHour)
+        self.assertEqual((hour.day, hour.hour, hour.request_count, hour.token_count),
+                         (quota_day(), quota_hour(), 1, 120))
+
+    async def test_a_refusal_is_kept_with_the_limit_google_named(self):
+        await rl.mark_spent(RANKED_NAMES[0], 250)
+        (row,) = await self.rows(GeminiUsage)
+        self.assertEqual((row.request_count, row.quota_limit), (0, 250))
+        self.assertIsNotNone(row.exhausted_at)
+        self.assertEqual(await self.rows(UsageDay), [])
+
+    async def test_the_last_model_out_marks_the_day(self):
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        (marker,) = await self.rows(UsageDay)
+        self.assertIsNotNone(marker.chain_out_at)
+
+    async def test_a_restart_parks_what_google_already_refused(self):
+        await rl.mark_spent(RANKED_NAMES[0])
+        fresh = RateLimiter()
+        with patch.object(rl, "_rate_limiter", fresh):
+            self.assertEqual(await rl.restore_spent(), 1)
+        self.assertEqual(fresh.state(RANKED_NAMES[0]), "spent")
+
+
+class EndpointTests(_Db):
+    async def _seed(self, model, requests, **extra):
+        async with self.scope() as session:
+            session.add(GeminiUsage(
+                day=extra.pop("day", quota_day()), model=model, request_count=requests,
+                token_count=requests * 10, grounding_count=extra.pop("grounding", 0),
+                peak_rpm=extra.pop("peak_rpm", 0), **extra,
+            ))
+
+    async def _live(self):
+        with patch.object(usage_router, "get_rate_limiter", return_value=self.limiter):
+            return await usage_router.live(None)
+
+    async def test_live_lists_every_chain_model_in_order(self):
+        await self._seed(RANKED_NAMES[2], 40)
+        data = await self._live()
+        self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
+        third = data["chain"][2]
+        self.assertEqual((third["requests"], third["limit"], third["state"]), (40, RANKED[2].rpd, "ok"))
+
+    async def test_live_uses_googles_limit_once_it_named_one(self):
+        await self._seed(RANKED_NAMES[0], 20, day=quota_day() - timedelta(days=3), quota_limit=20)
+        data = await self._live()
+        self.assertEqual(data["chain"][0]["limit"], 20)
+        self.assertTrue(data["chain"][0]["limit_from_google"])
+
+    async def test_live_reports_spent_and_resting_models(self):
+        await rl.mark_spent(RANKED_NAMES[0], 250)
+        self.limiter.penalize(RANKED_NAMES[1], seconds=48)
+        data = await self._live()
+        states = [m["state"] for m in data["chain"][:3]]
+        self.assertEqual(states, ["spent", "resting", "ok"])
+        self.assertIsNotNone(data["chain"][0]["spent_at"])
+        self.assertLessEqual(data["chain"][1]["back_in"], 48)
+        self.assertEqual(data["reset_at"], next_reset().isoformat())
+
+    async def test_memory_search_and_web_search_have_their_own_limits(self):
+        await self._seed("gemini-embedding-001", 12)
+        await self._seed(RANKED_NAMES[0], 30, grounding=4)
+        data = await self._live()
+        self.assertEqual(data["memory_search"]["requests"], 12)
+        self.assertEqual(data["web_search"]["requests"], 4)
+
+    async def test_summary_leaves_memory_search_out_of_the_chain(self):
+        async with self.scope() as session:
+            session.add(UsageSource(day=quota_day(), source="conversation", request_count=9))
+            session.add(UsageSource(day=quota_day(), source="embed", request_count=50))
+            session.add(UsageSource(day=quota_day() - timedelta(days=5), source="summary", request_count=3))
+        await self._seed(RANKED_NAMES[0], 9, peak_rpm=8)
+        await self._seed("gemini-embedding-001", 50, peak_rpm=40)
+        data = await usage_router.summary(None)
+        self.assertEqual(data["features"]["today"], {"conversation": 9})
+        self.assertEqual(data["features"]["7"], {"conversation": 9, "summary": 3})
+        self.assertEqual(len(data["days"]), usage_router.DAYS_SHOWN)
+        self.assertEqual(data["days"][-1]["requests"], 9)
+        self.assertEqual(data["busiest_minute"]["model"], RANKED_NAMES[0])
+        self.assertIsNone(data["yesterday"])
+
+    async def test_summary_compares_with_the_same_time_yesterday(self):
+        yesterday = quota_day() - timedelta(days=1)
+        async with self.scope() as session:
+            for hour in range(24):
+                session.add(UsageHour(day=yesterday, hour=hour, model=RANKED_NAMES[0],
+                                      request_count=60, token_count=600))
+        data = await usage_router.summary(None)
+        # Every full hour so far, plus the share of this one.
+        self.assertGreaterEqual(data["yesterday"]["requests"], quota_hour() * 60)
+        self.assertLessEqual(data["yesterday"]["requests"], (quota_hour() + 1) * 60)
+
+
+if __name__ == "__main__":
+    unittest.main()

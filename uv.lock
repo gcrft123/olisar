@@ -603,6 +603,7 @@ dependencies = [
     { name = "quickjs" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sqlite-vec" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -643,6 +644,7 @@ requires-dist = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
     { name = "sqlite-vec", specifier = ">=0.1.6" },
     { name = "trafilatura", marker = "extra == 'knowledge'", specifier = ">=1.9" },
+    { name = "tzdata", specifier = ">=2024.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 provides-extras = ["knowledge", "dev"]

@@ -24,6 +24,7 @@ from olisar.gemini.client import (
     _api_error_detail,
     _retry_after_seconds,
 )
+from olisar.gemini.quota import PACIFIC
 from olisar.gemini.rate_limiter import RateLimitExceeded
 
 
@@ -68,13 +69,15 @@ class GroundingSuppressionTests(unittest.TestCase):
         # Only the first attempt reached Google; the rest short-circuited.
         self.assertEqual(client._raw_generate.await_count, 1)
 
-    def test_daily_quota_blocks_until_the_utc_day_rolls_over(self):
+    def test_daily_quota_blocks_until_googles_day_rolls_over(self):
+        """Google resets at midnight Pacific, not UTC."""
         client = self._client_raising(_api_error(429, QUOTA_429))
         with self.assertRaises(GroundingUnavailable):
             asyncio.run(client.search("q"))
         blocked = client._grounding_blocked_until
         self.assertIsNotNone(blocked)
-        self.assertEqual((blocked.hour, blocked.minute, blocked.second), (0, 0, 0))
+        local = blocked.astimezone(PACIFIC)
+        self.assertEqual((local.hour, local.minute, local.second), (0, 0, 0))
         self.assertLessEqual(blocked - datetime.now(timezone.utc), timedelta(days=1))
 
     def test_throttle_only_parks_for_the_delay_google_asked_for(self):
