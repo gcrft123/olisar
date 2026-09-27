@@ -294,8 +294,8 @@ def rename(profile_id: str, name: str) -> None:
 
 
 def delete(profile_id: str) -> None:
-    """Remove a profile and (for non-legacy profiles) its DB directory. Refuses to delete
-    the active profile or the last remaining one."""
+    """Remove a profile and its data. Refuses to delete the active profile or the last
+    remaining one. Its process must already be stopped."""
     reg = _read()
     if profile_id == reg["active"]:
         raise ValueError("switch to another bot before deleting this one")
@@ -309,7 +309,61 @@ def delete(profile_id: str) -> None:
     # can't delete the active bot).
     if reg.get("default") == profile_id:
         reg["default"] = reg["active"]
+    # Recorded in the same write that takes it off the list, so a bot is either still listed
+    # or on its way off the disk: stopped partway, the gateway's next start finishes the job.
+    reg.setdefault("deleting", []).append({"id": profile_id, "legacy": bool(target.get("legacy"))})
     _write(reg)
-    # Reclaim the DB dir — but never the shared legacy olisar.db (+ its sidecars).
-    if not target.get("legacy"):
-        shutil.rmtree(home_dir() / "profiles" / profile_id, ignore_errors=True)
+    finish_deletions()
+
+
+# The original bot's files. Its directory is the install's, which also holds the registry, the
+# other bots (``profiles/``) and, in the desktop app, the app's own files, so only these go
+# with it. The database first: it's what makes the bot that bot (its token, keys, memory), and
+# a registry rebuilt from disk (see ``_rebuild``) brings the original bot back if it's there.
+_LEGACY_DATABASE = ("olisar.db", "olisar.db-wal", "olisar.db-shm", "olisar.db-journal")
+_LEGACY_REST = ("olisar.db.version", "kb_uploads", "tailscale", "state.json", "updating.json")
+
+
+def _leftovers(entry: dict) -> builtins.list[Path]:
+    home = home_dir()
+    if not entry.get("legacy"):
+        return [home / "profiles" / entry["id"]]
+    snapshots = sorted(home.glob("olisar.db.pre-*"))  # before-upgrade copies, a move's backup
+    return [home / n for n in _LEGACY_DATABASE] + snapshots + [home / n for n in _LEGACY_REST]
+
+
+def _purge(entry: dict) -> bool:
+    """Delete what's left on disk of a deleted bot. True once nothing is."""
+    from olisar.runtime.tunnel import reap_stale_helper
+
+    home = home_dir()
+    bot_dir = home if entry.get("legacy") else home / "profiles" / entry["id"]
+    with contextlib.suppress(Exception):  # a helper still on its node would keep it
+        reap_stale_helper(str(bot_dir / "tailscale"))
+    done = True
+    for path in _leftovers(entry):
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            elif path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError as exc:
+            log.warning("couldn't remove %s of deleted bot %s yet: %s", path, entry.get("id"), exc)
+            done = False
+    return done
+
+
+def finish_deletions() -> None:
+    """Remove the data of bots deleted from the registry that's still on disk: a deletion
+    that stopped partway (a crash, a file another program held open). Called by the gateway
+    at every start, before any bot does."""
+    reg = _read()
+    pending = reg.get("deleting") or []
+    left = [entry for entry in pending if isinstance(entry, dict) and not _purge(entry)]
+    if left == pending:
+        return
+    if left:
+        reg["deleting"] = left
+    else:
+        reg.pop("deleting", None)
+    _write(reg)
