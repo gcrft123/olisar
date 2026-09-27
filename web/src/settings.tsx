@@ -134,7 +134,7 @@ export function SettingsModal(
           {section === 'size' && <SizeOnly />}
           {section === 'activity' && <Activity />}
           {section === 'bots' && <BotsPane Head={Head} />}
-          {section === 'logs' && <Logs onReport={hasFeedback ? () => goFeedback({ category: 'Bug report', logs: true }) : undefined} />}
+          {section === 'logs' && <Logs onReport={hasFeedback ? (logText) => goFeedback({ category: 'Bug report', logs: true, logText }) : undefined} />}
           {section === 'security' && <Security canEdit={operator !== false} />}
           {section === 'remote' && <Remote />}
           {section === 'server-remote' && <ServerRemote />}
@@ -170,7 +170,7 @@ export function ScreenCorners({ sections = PRE_CONSOLE_SECTIONS }: { sections?: 
 // Bot / Funnel are read from the server VM over SSH (server-hosting mode); This app is the
 // local backend's own log buffer. Bot/Funnel return an "only for server-hosted bots" note
 // when there's no VM configured.
-function Logs({ onReport }: { onReport?: () => void }) {
+function Logs({ onReport }: { onReport?: (logText?: string) => void }) {
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
   const [source, setSource] = useState<'vm' | 'local'>('vm')
@@ -216,7 +216,9 @@ function Logs({ onReport }: { onReport?: () => void }) {
           Nobody opens the logs when things are fine, so the way to report what they show sits
           beside them, and arrives with "Add bot logs" already on. */}
       <div className="act-toolbar">
-        {onReport && <button className="ghost" onClick={onReport}>Send with a bug report</button>}
+        {/* The VM's logs go as shown: the server would attach this backend's own instead,
+            which on the desktop app's server panel is the control panel, not the bot. */}
+        {onReport && <button className="ghost" onClick={() => onReport(source === 'vm' ? text : undefined)}>Send with a bug report</button>}
         <button className="ghost icon-btn" data-tip="Refresh" aria-label="Refresh logs" onClick={load}>
           <Icon.refresh size={15} />
         </button>
@@ -287,6 +289,9 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
   const [email, setEmail] = useState('')
   const [files, setFiles] = useState<{ name: string; type: string; content_b64: string }[]>([])
   const [logsAttached, setLogsAttached] = useState(!!prefill?.logs)
+  // Logs handed over by the screen that opened this form (the server panel's VM logs). While
+  // set, "Add bot logs" attaches these rather than asking the server for its own.
+  const [logText, setLogText] = useState(prefill?.logText ?? '')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
   // The parked failure this report is about, once the server confirms it's ours to claim.
@@ -342,13 +347,15 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
     if (!message.trim()) { toast('Add a message first.', 'warning'); return }
     setBusy(true)
     try {
-      const r = await api.sendFeedback({
+      const body = {
         category, message: message.trim(), email: email.trim(),
-        include_logs: logsAttached, attachments: files,
+        include_logs: logsAttached && !logText, attachments: files,
+        logs: logsAttached ? logText : '',
         // Which logs to attach, not whether: the toggle above decides that. Ignored by the
         // server once the parked failure has expired or if it was never ours.
         report_token: claimed ? report || '' : '',
-      })
+      }
+      const r = await api.sendFeedback(body)
       if (r && r.emailed === false) toast('Sent, but the email didn’t go through. The team will still see it.', 'warning')
       else toast(`Thanks — your ${category.toLowerCase()} was sent.`, 'success')
       // Filed. A refresh or a second visit in this tab shouldn't reopen it.
@@ -374,7 +381,7 @@ function Feedback({ report, prefill }: { report?: string; prefill?: FeedbackPref
           {/* Clears the claimed report too: the next message is a fresh one, and it must
               not quietly ship the previous failure's logs under it. */}
           <button className="ghost" onClick={() => {
-            setDone(false); setMessage(''); setFiles([]); setLogsAttached(false)
+            setDone(false); setMessage(''); setFiles([]); setLogsAttached(false); setLogText('')
             setClaimed(null); setClaimError(''); prefilled.current = ''
           }}>Send another</button>
         </div>

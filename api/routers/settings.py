@@ -155,6 +155,10 @@ async def send_feedback(
     reaches the console the lines that explain it may be hundreds of messages back, and a
     bug report carrying the wrong hour of logs is worse than one carrying none. The toggle
     still decides whether any are attached; the token only decides which.
+
+    ``logs`` from the client is still passed through when ``include_logs`` is off. The
+    desktop app's server panel sends the VM's logs that way, as its Logs pane showed them:
+    they come from the VM over SSH, and this backend's own buffer is the control panel's.
     """
     # Someone the console turned away gets a message through and nothing else: never this
     # install's logs, which span every member's activity. They can't manage this bot, so
