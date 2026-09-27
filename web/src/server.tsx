@@ -162,7 +162,8 @@ export function ServerControlPanel() {
   const [dc, setDc] = useState<{
     app_id: string; redirect: string; added: boolean; intents_missing: string[]; bot_name?: string; bot_avatar?: string
   } | null>(null)
-  const dcFine = !!dc && dc.added && !dc.intents_missing.length
+  // An answer about another address (the device was just renamed) says nothing about this one.
+  const dcFine = !!dc && dc.redirect === `${(st?.url || '').replace(/\/$/, '')}/auth/callback` && dc.added && !dc.intents_missing.length
   usePoll(() => api.serverDiscord(st?.url || '').then((r: any) => { if (r?.ok) setDc(r) }), dcFine ? 60000 : 5000, !!st?.url)
   // Once seen missing, the redirect row stays to show its tick.
   const signinMissing = useRef(false)
@@ -182,6 +183,14 @@ export function ServerControlPanel() {
       setFixing(false)
     }
   }
+
+  // A rename under Settings moves the console to a new address. Read it now rather than at the
+  // next poll, so the redirect Discord doesn't list yet brings the stats screen back.
+  useEffect(() => {
+    const onChange = () => { void refresh() }
+    window.addEventListener('olisar:tunnel-changed', onChange)
+    return () => window.removeEventListener('olisar:tunnel-changed', onChange)
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Whether the last reading had an automatic update in flight. Read by `refresh` below as
   // well as the effect that announces one landing, so it's declared before both.
