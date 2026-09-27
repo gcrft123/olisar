@@ -456,6 +456,105 @@ class DisconnectTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(task.cancelled())
 
 
+_FAKE_HELPER = """\
+import sys, time
+print("OLISAR_FUNNEL_URL=https://fake-node.example.ts.net", flush=True)
+time.sleep(600)
+"""
+
+
+def _alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    # A child that has exited but not been waited for is still "there"; ps says it's a zombie.
+    out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout
+    return bool(out.strip()) and not out.strip().startswith("Z")
+
+
+def _gone(pid: int, timeout: float = 10.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not _alive(pid):
+            return True
+        time.sleep(0.1)
+    return False
+
+
+@unittest.skipIf(sys.platform == "win32", "uses ps and POSIX signals")
+class FunnelHelperTests(unittest.IsolatedAsyncioTestCase):
+    """The Tailscale helper is a process of its own, and nothing ties it to the bot's: one that
+    outlives its backend keeps the bot's node and public address, serving a dead port."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.state_dir = str(Path(self._tmp.name) / "tail scale")  # a space, as in "Application Support"
+        helper = Path(self._tmp.name) / "olisar-funnel"
+        helper.write_text(f"#!{sys.executable}\n{_FAKE_HELPER}")
+        helper.chmod(0o755)
+        os.environ["OLISAR_FUNNEL"] = str(helper)
+        self.addCleanup(os.environ.pop, "OLISAR_FUNNEL", None)
+
+    def orphan(self, state_dir: str) -> subprocess.Popen:
+        """A helper as an earlier backend would have left it: running, pid on file."""
+        proc = subprocess.Popen(
+            [os.environ["OLISAR_FUNNEL"], "--hostname", "x", "--target", "http://127.0.0.1:1",
+             "--state", state_dir],
+            stdout=subprocess.DEVNULL,
+        )
+        self.addCleanup(lambda: (proc.poll() is None and proc.kill(), proc.wait()))
+        Path(state_dir).mkdir(parents=True, exist_ok=True)
+        (Path(state_dir) / "olisar-funnel.pid").write_text(f"{proc.pid}\n")
+        time.sleep(0.3)
+        return proc
+
+    async def test_a_helper_left_running_is_stopped_before_a_new_one_starts(self) -> None:
+        from olisar.runtime.tunnel import PIDFILE, FunnelManager
+
+        stale = self.orphan(self.state_dir)
+        funnel = FunnelManager()
+        ok, url = await funnel.start("", "x", "http://127.0.0.1:1", self.state_dir)
+        self.assertEqual((ok, url), (True, "https://fake-node.example.ts.net"))
+        self.assertIsNotNone(stale.wait(10))
+        mine = funnel._proc.pid
+        self.assertEqual((Path(self.state_dir) / PIDFILE).read_text().strip(), str(mine))
+        await funnel.stop()
+        self.assertFalse((Path(self.state_dir) / PIDFILE).exists())
+        self.assertTrue(_gone(mine))
+
+    def test_only_this_bots_helper_is_stopped(self) -> None:
+        """A pid on file that's since gone to some other process is left alone."""
+        from olisar.runtime.tunnel import PIDFILE, reap_stale_helper
+
+        other_bot = self.orphan(str(Path(self._tmp.name) / "other"))
+        Path(self.state_dir).mkdir(parents=True)
+        (Path(self.state_dir) / PIDFILE).write_text(f"{other_bot.pid}\n")
+        self.assertIsNone(reap_stale_helper(self.state_dir))
+        self.assertIsNone(other_bot.poll())
+        self.assertFalse((Path(self.state_dir) / PIDFILE).exists())
+
+    def test_a_worker_past_its_shutdown_deadline_stops_its_helper_first(self) -> None:
+        script = (
+            "import asyncio, sys\n"
+            "from olisar.runtime import server\n"
+            "from olisar.runtime.tunnel import FunnelManager\n"
+            "async def main():\n"
+            "    funnel = FunnelManager()\n"
+            f"    await funnel.start('', 'x', 'http://127.0.0.1:1', {self.state_dir!r})\n"
+            "    print(funnel._proc.pid, flush=True)\n"
+            "    server._exit_now()\n"
+            "asyncio.run(main())\n"
+        )
+        out = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=60,
+            cwd=self._tmp.name, env={**os.environ, "PYTHONPATH": str(REPO), "OLISAR_NO_DOTENV": "1"},
+        )
+        helper = int(out.stdout.split()[0])
+        self.assertTrue(_gone(helper), "the helper outlived its backend")
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
