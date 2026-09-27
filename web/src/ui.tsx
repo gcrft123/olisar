@@ -927,11 +927,16 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
   // Whether the list being gathered is numbered ("1. …"), as the docs site renders it. The
   // console used to join a numbered list into one paragraph.
   let ordered = false
+  // The number a numbered list starts at. A list the text interrupts (a paragraph or a code
+  // block between steps) goes on from where it was, not from 1 again.
+  let start = 1
   let para: string[] = []
   const flushList = (k: string) => {
     if (list.length) {
       const items = list.map((li, j) => <li key={j}>{inline(li, 'li' + k + j, onLink)}</li>)
-      out.push(ordered ? <ol key={'ol' + k}>{items}</ol> : <ul key={'ul' + k}>{items}</ul>)
+      out.push(ordered
+        ? <ol key={'ol' + k} start={start !== 1 ? start : undefined}>{items}</ol>
+        : <ul key={'ul' + k}>{items}</ul>)
       list = []
     }
   }
@@ -992,7 +997,18 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       continue
     }
 
-    if (!line) { flushList(k); flushPara(k); i++; continue }
+    if (!line) {
+      // A loose list, its items a blank line apart the way a model tends to write them, is
+      // still one list. Closing it at every blank line made each step its own list, all of
+      // them numbered 1.
+      if (list.length) {
+        let j = i + 1
+        while (j < lines.length && !lines[j].trim()) j++
+        const after = lines[j]?.trim() ?? ''
+        if (ordered ? /^\d+\.\s+/.test(after) : after.startsWith('- ')) { i = j; continue }
+      }
+      flushList(k); flushPara(k); i++; continue
+    }
     // ## / ### map to h2 / h3: the doc page's own title is the h1, so ## must be the next
     // level down. Rendering it as h3 skipped a level on every documentation page.
     if (line.startsWith('### ')) {
@@ -1007,12 +1023,13 @@ function renderBlocks(lines: string[], kb: string, onLink?: (id: string) => void
       out.push(<h2 key={i} id={slugify(t)}>{inline(t, 'h' + k, onLink)}</h2>)
       i++; continue
     }
-    const num = /^\d+\.\s+(.*)$/.exec(line)
+    const num = /^(\d+)\.\s+(.*)$/.exec(line)
     if (num || line.startsWith('- ')) {
       flushPara(k)
       if (list.length && ordered !== !!num) flushList(k)
+      if (!list.length) start = num ? Number(num[1]) : 1
       ordered = !!num
-      list.push(num ? num[1] : line.slice(2)); i++; continue
+      list.push(num ? num[2] : line.slice(2)); i++; continue
     }
     if (list.length) { list[list.length - 1] += ' ' + line; i++; continue } // wrapped bullet
     para.push(line); i++ // paragraph line (joined across wraps)
