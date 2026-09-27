@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from google.genai import types
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import prompt_overrides
+from olisar import discord_app, prompt_overrides
 from olisar.config import settings
 from olisar.context import (
     CHANNEL_TASK_HISTORY_NOTE,
@@ -56,6 +56,7 @@ from olisar.tools import (
     sandbox_tools,
     tools_with_extensions,
     with_settings_tools,
+    without_settings_tools,
 )
 
 log = logging.getLogger("olisar.pipeline")
@@ -737,6 +738,25 @@ def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
     )
 
 
+async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` may reach the home server's settings from a DM: the operator
+    (``ADMIN_ALLOWLIST``, or an owner of the bot's Discord app as last read), or someone
+    with Manage Server there.
+
+    A DM acts on the home server, and sharing any server with the bot is enough to DM it,
+    so without this a member of some other server could read and change this one's."""
+    owners = discord_app._extract_owner_ids(discord_app.cached_application() or {})
+    if user_id in settings.admin_allowlist or user_id in owners:
+        return True
+    if actions is None:
+        return False
+    try:
+        return bool(await actions.is_admin(user_id, cfg_guild))
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't check whether %s manages the home server", user_id)
+        return False
+
+
 async def generate_reply(
     session: AsyncSession,
     *,
@@ -873,6 +893,10 @@ async def generate_reply(
     reply_tools = tools_with_extensions(
         extra_decls + (ack_declarations() if silent_acks else [])
     )
+    # The settings tools act on cfg_guild, which in a DM is the home server.
+    settings_allowed = bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
+    if not settings_allowed:
+        reply_tools = without_settings_tools(reply_tools)
 
     ctx = ToolContext(
         session=session,
@@ -884,6 +908,7 @@ async def generate_reply(
         message_id=current_message_id,
         actions=actions,
         extension_tools=ext.handlers,
+        settings_allowed=settings_allowed,
     )
     try:
         text = await _run_tool_loop(
