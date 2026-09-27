@@ -60,6 +60,8 @@ The Usage page counted the wrong day and never showed the limit that actually st
 
 What stops Olisar replying is the daily limit on each model it falls back through, so that's what the page now leads with.
 
+Before 2.0 ships, everything since 1.5 went through another pass, with a bot set up from scratch in a test server and the console driven the way an operator drives it. It turned up a tool PIN anyone could keep guessing by asking again, cross-site requests that still reached each bot's own port after the gateway stopped them, a VM update that could move a server back onto 1.5, a marketplace extension that became trusted once its listing was yanked, and a Save button that had quietly stopped checking its fields when the console dropped its cards. Those, and the smaller things found around them, are fixed below.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -84,7 +86,9 @@ What stops Olisar replying is the daily limit on each model it falls back throug
 
 [d0311f6] — A change made from chat shows in the Activity log under the member who asked, with the previous value kept.
 
-[d0311f6] — Until the tool PIN covers them, anyone who can talk to Olisar can make these changes; `OLISAR_PIN_GATED_TOOLS=change_setting,settings_action` puts them behind it now.
+[3f0e9e1] — Access picks, per server, which of Olisar's actions need the tool PIN; changing its own settings from Discord is the first, on by default, and refused while no PIN is set.
+
+[3f0e9e1] — `OLISAR_PIN_GATED_TOOLS` still puts the PIN in front of tools no action covers.
 
 [f2fa419] — Olisar can end a turn with a reaction and no message, after sending a DM, posting to another channel, remembering something, or setting a reminder.
 
@@ -199,6 +203,12 @@ What stops Olisar replying is the daily limit on each model it falls back throug
 [7b730a4] — Olisar learns each model's daily limit from the first time Google turns it away for the day, since Google no longer publishes them.
 
 [27b92f4] — The Usage page lists every model in the fallback chain in order, with whether it's replying, on standby, resting or used up, and what's left of its daily limit.
+
+[0e87a2b] — Each Activity log entry has a Details section with every changed setting's old and new value, and a change asked for in Discord says so.
+
+[f8bbfe9] — Settings → Remote access asks for a Tailscale auth key and device name when the bot has no key saved, so a bot set up without remote access can turn it on without a reset.
+
+[72b33ef] — Holding Enter or Space on the power button powers the bot down, the same as holding the pointer.
 
 ### Changed
 
@@ -402,6 +412,26 @@ What stops Olisar replying is the daily limit on each model it falls back throug
 
 [27b92f4] — The tokens-per-minute chart is gone, along with the 1M cap it drew, which wasn't Google's.
 
+[2173e45] — A release stays a draft until the macOS and Windows installers and the server image are all attached, and only then goes out.
+
+[ae8c445] — The tool PIN prompt says what it would approve, the setting and its new value or the action and its target, and its wording can't be changed from chat.
+
+[c2f42a1] — In a DM, only the operator or someone with Manage Server on the home server can read or change its settings from chat.
+
+[40f4e9c] — A chime-in nobody asked for can't open or change Olisar's settings.
+
+[560abc9] — A chime-in only draws on channels everyone in the server can read, plus the channel it's posted in.
+
+[92c67e9] — A page or site added as a knowledge source from chat is refused when it points at a local or private network address, and so are its redirects and re-reads.
+
+[88a39c2] — Setting or removing the tool PIN, and changing the update channel, are the operator's alone; other admins see whether a PIN is set.
+
+[82a225d] — The update channel picker is only in the desktop app, since the app picks the channel a server follows; a server's own console says so.
+
+[9ec666c] — Report drafts and setup's Gemini step call the bot by its name, and setup's last button reads Finish & start the bot.
+
+[4769813] — Usage, the sidebar's rate-limited status and the days marked as run out follow the models each server actually replies through, not every model Olisar knows.
+
 ### Fixed
 
 [ce98ef9] — When Olisar can't use the server you picked to share, the notice shows a warning sign instead of an info icon.
@@ -517,6 +547,132 @@ What stops Olisar replying is the daily limit on each model it falls back throug
 [7b730a4] — Memory search gives up straight away once its daily quota is spent, instead of waiting for the reset.
 
 [7b730a4] — Web search waits for midnight Pacific, not UTC, after Google says its daily allowance is spent.
+
+[374f7bb] — Someone asking for a setting change can't keep guessing the tool PIN by asking again: after five wrong tries in an hour, or fifteen from everyone together, the prompts stop, the lockout goes in the Activity log, and it lifts after the hour or when the PIN changes.
+
+[aa3ea3b] — A huge number asked for in chat, like 1e20, is refused instead of stopping Olisar from replying at all.
+
+[4e4bf45] — Olisar answers in words, not only a reaction, after a catch-up, a reminder list, a status or voice check, a settings read, or any extension tool.
+
+[1d343ae] — A failed DM, or a search whose result wasn't read yet, can't be covered by a reaction alone when the model makes several calls in one turn.
+
+[1b2cbd2] — Someone who only shares a different server with Olisar can't search this server's messages, or see its channel list, over DM.
+
+[ee2bbb0] — Feed and resource channels only reach the replies of people who can open them.
+
+[ae02845] — A made-up message link can't slip out in a link's label or in capitals, and removing one no longer squeezes the spacing of code blocks elsewhere in the reply.
+
+[9d0b4e2] — On a server-hosted install, the main server's persona takes the bot's own name the first time it connects, unless someone has already edited it.
+
+[a07f295] — A chime-in still goes out when the only new message is the asker adding to their own question.
+
+[6884996] — `OLISAR_PIN_GATED_TOOLS` matches tool names whatever their case, separated by commas, semicolons or spaces.
+
+[6c07f29] — A list setting changed from chat, like name triggers, is stored as a list when it's written as one.
+
+[d480500] — A fractional count asked for in chat, like 1.5 pages, is refused as the console refuses it, instead of becoming 1.
+
+[8f217cd] — The Activity log keeps the text of a glossary entry deleted from chat, the address and settings of a removed source, and the impression a rebuild replaced.
+
+[ff8867d] — For a Discord app owned by a team, only members who accepted the invite and aren't read-only count as the operator; an invited or read-only member got the API keys.
+
+[119eaf1] — A rate limit from Google or Cloudflare while checking a key no longer marks the key as wrong, and a rate limit from Discord during setup says so instead of blaming the connection.
+
+[119eaf1] — A failed Discord call during setup logs only the error's type, so the bot token or client secret can't reach the logs.
+
+[a96a266] — A marketplace extension whose listing is yanked stays an untrusted imported extension; it became a trusted local one, which a publisher could trigger by yanking their own listing.
+
+[a96a266] — Extensions already turned local that way go back to imported on startup.
+
+[ffa2750] — An extension command, button or tool can only write from a channel the member using it can open, and never from a DM.
+
+[5308853] — Welcome still greets a new member when the welcome channel was just created or the server's roster couldn't be read.
+
+[c08e2fd] — A model Google turned away for the day tries again with a new Gemini key, after billing is turned on, or once an hour, instead of waiting for midnight Pacific even across a restart.
+
+[5e0ba48] — A model out of its daily token quota no longer shows about a million requests left.
+
+[668060d] — "Same time yesterday" on Usage no longer swings on the days the clocks change, or the day after.
+
+[e34a744] — Wiping memory also clears requests by feature and the days the model chain ran out.
+
+[90d44b9] — Cancelling an update as its download reaches 100% stops the install.
+
+[9f3239b] — A downloaded update is checked against the release's size and SHA-256, so a cut-off or damaged download is reported instead of installed.
+
+[2106115] — Quitting while an update unpacks calls it off cleanly, and anything an interrupted update left behind is cleared at the next launch.
+
+[f06ea13] — A release seen before its installer is attached no longer uses up the install notification, and the tray only offers to install and restart when it can.
+
+[a1f07f1] — Settings → Updates says Download instead of Install & restart when a release has no installer for this platform.
+
+[ef95aaf] — A link in the console that isn't a web address no longer opens a window inside the app, and the app window can't be navigated away from the console.
+
+[e386239] — Rendered replies and docs only make http, https and mailto addresses clickable.
+
+[bd29c65] — A server update whose container fails to start is reported as failed and put back on the previous release, instead of being called updated.
+
+[0027b17] — Running `olisar-update.sh` by hand no longer moves a server back to an older release, such as from a beta to the latest stable, unless it's given `--force`.
+
+[b8cd9fe] — When the app can't reach GitHub at launch, it leaves the server alone and tries again next launch, instead of letting the server pick a release that could be older than its own.
+
+[98e225e] — Running server setup again keeps a server that's ahead of the app's channel on its release while still applying the new settings, and stops before changing anything when there's no release to install.
+
+[c477c04] — After a server bot is redeployed with a different token, the control panel's Discord checks and Turn on and restart use the new one.
+
+[ae549c4] — Setting up again a bot first put on a server before 2.0 replaces its install, instead of adding a second one and leaving the old bot running.
+
+[e6412ae] — Bots from two computers added to the same server no longer overwrite each other's install.
+
+[102928d] — A web page can no longer change a bot by posting to its own port, or to the console from another local port; the gateway refused it, but each bot's port didn't.
+
+[518b647] — A page using DNS rebinding can no longer read the console's or a bot's answers.
+
+[c916423] — A console window that another window switched away from can no longer save into the bot it isn't showing; it reloads onto the one now on screen.
+
+[802204a] — A bot's Tailscale helper stops however the bot's process ends, instead of running on after a crash.
+
+[eadb62a] — A bot Discord keeps refusing over an intent is stopped even when Discord's API briefly can't say why.
+
+[31d499e] — A damaged bot list no longer drops every bot but the first.
+
+[ff12409] — Deleting the original bot deletes its database, uploads, Tailscale node and state from disk, so it can't come back.
+
+[e1906c6] — When several bots had remote access before 2.0, one keeps the shared address and the rest get their own.
+
+[fed8469] — The database backup kept after moving a bot between hosts is no longer deleted along with old upgrade snapshots.
+
+[6a47850] — Upgrading works for a data folder with `#` or `?` in its path.
+
+[666a118] — Knowledge's Add & ingest and an extension's Save settings stay off while a number is out of range; a crawl used to start with the last valid depth.
+
+[4054a3b] — Saving Behavior no longer turns the tool PIN requirement back off, and the Activity log records only settings that changed.
+
+[ef56d85] — Admins who aren't the operator see whether the bot is online, instead of Unknown.
+
+[6c8a088] — A bug report sent from the server panel's Logs carries the server's logs shown there, not this computer's.
+
+[cc3e1ac] — Channels no longer says Olisar may chime in unprompted on a server where that's switched off.
+
+[06b742e] — Tab and Escape on a focused toast no longer close or trap the Test chat drawer or the narrow sidebar.
+
+[89507ff] — Switching servers right after finishing a Get started step no longer hides that step on the next server.
+
+[0505448] — A copy button that couldn't copy says so, and shows the link to copy by hand.
+
+[50d64f0] — The Command replies preview underlines `__text__` as Discord does, including around placeholders with underscores.
+
+[c63f16c] — Numbered lists with blank lines between the items keep their numbering.
+
+[70ee571] — Setup turns remote access off whenever it finishes without it, including after connecting to an existing server or reopening setup.
+
+[552b6ef] — Someone refused at sign-in isn't offered bot logs in Feedback, which were never sent.
+
+[0da00e1] — Times across the console, from the Activity log to the member portal, show in your own time zone; they were off by your offset from UTC.
+
+[5d82f53] — PIN prompts show in the Activity log as Asked for the tool PIN.
+
+[e2ee671] — The docs say a yanked marketplace extension stays installed as an imported one, instead of turning local.
 
 ## [1.5.0] — 2026-09-21
 
