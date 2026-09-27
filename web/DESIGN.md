@@ -528,13 +528,15 @@ whether the key in use works, not only that one is set.
 
 A value that's **applied** rather than checked gets its button on the same line: the server
 panel's replacement Tailscale key, whose button recreates the container on it and waits for the
-answer. The input takes the room and the button keeps its width. This isn't a Test button; the
-press does the work, and what it found comes back as a toast.
+answer, and the device name under Settings → Remote access, whose **Rename** moves the console to a
+new address. The input takes the room and the button keeps its width. This isn't a Test button; the
+press does the work, and what it found comes back as a toast. A press that breaks something people
+rely on (the rename retires the old address) asks first, in a warning Dialog that names the result.
 
 ```css
-.onb .key-swap { display: flex; align-items: center; gap: 8px; }
-.onb .key-swap input { flex: 1; min-width: 0; }
-.onb .key-swap button { flex: none; }
+.key-swap { display: flex; align-items: center; gap: 8px; }
+.key-swap input { flex: 1; min-width: 0; }
+.key-swap button { flex: none; }
 ```
 
 ### Choice groups (mode cards, segmented pickers)

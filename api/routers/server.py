@@ -84,6 +84,18 @@ async def tunnel_key(body: TunnelKeyIn) -> dict:
     return await remote.set_tunnel_key(body.key)
 
 
+class TunnelNodeIn(BaseModel):
+    node: str
+
+
+@router.post("/tunnel-node")
+async def tunnel_node(body: TunnelNodeIn) -> dict:
+    """Rename the server bot's Tailscale device, which moves its console to a new address, and
+    recreate its container on it. Waits for the result: ``{ok, url, note}`` or ``{ok: False,
+    error}``."""
+    return await remote.set_tunnel_node(body.node)
+
+
 @router.get("/last-update")
 async def last_update() -> dict:
     """The VM's last update attempt — including one the app applied at launch, unwatched."""

@@ -13,8 +13,9 @@ Covered: the first bot deploys into ``~/olisar`` as it always has; a second bot 
 until the first lets its key in; once in, it deploys alongside rather than over the first,
 under its own Tailscale device name; redeploying a bot reuses its directory, even as a different
 Discord application; adopting a VM that runs two bots asks which one; every command runs in the
-directory of the bot that sent it; an update replaces an older client's update script; and a
-bot whose Tailscale key is refused is reported as such and can be given a new one.
+directory of the bot that sent it; an update replaces an older client's update script; a bot
+whose Tailscale key is refused is reported as such and can be given a new one; and a bot's
+Tailscale device can be renamed, but not to a name another bot on the VM uses.
 """
 
 from __future__ import annotations
@@ -40,7 +41,8 @@ HERE = Path(__file__).resolve().parent
 # A docker that remembers nothing but logs where it was called from — enough for the update
 # script to "pull", pin a digest, start and pass its health gate. A container it brings up
 # publishes the backend's state.json from its .env: a Tailscale key with "dead" in it is one
-# Tailscale refuses, so that bot's console gets no address.
+# Tailscale refuses, so that bot's console gets no address, and otherwise the address starts
+# with the device name.
 DOCKER_STUB = r"""#!/usr/bin/env bash
 echo "$PWD|docker $*" >> "$STUB_LOG"
 case "$1" in
@@ -51,7 +53,8 @@ case "$1" in
         if grep -q '^TAILSCALE_AUTH=.*dead' .env 2>/dev/null; then
           printf '{"public_url": "http://127.0.0.1:8000", "tunnel_error": "tsnet.Up: backend: invalid key: API key does not exist"}\n' > state.json.stub
         else
-          printf '{"public_url": "https://%s.example.ts.net"}\n' "$(basename "$PWD")" > state.json.stub
+          node=$(grep -m1 '^OLISAR_FUNNEL_HOSTNAME=' .env 2>/dev/null | cut -d= -f2-)
+          printf '{"public_url": "https://%s.example.ts.net"}\n' "${node:-$(basename "$PWD")}" > state.json.stub
         fi ;;
     esac
     exit 0 ;;
@@ -372,6 +375,36 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         # Recreated, not restarted: a restart keeps the environment the container was made with.
         self.assertIn("compose up -d --force-recreate", self.log.read_text())
         self.assertEqual((await remote.status())["url"], "https://olisar.example.ts.net")
+
+    async def test_renaming_the_device_moves_the_console(self) -> None:
+        """The name goes in the bot's own .env and the container is recreated on it. A name
+        another bot on the VM already uses is refused, as deploy would have refused it."""
+        await self.as_bot("alpha")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        await self.as_bot("beta")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("222"))
+        self.assertEqual(self.read_env("olisar-beta")["OLISAR_FUNNEL_HOSTNAME"], "olisar-beta")
+
+        await self.as_bot("alpha")
+        taken = await remote.set_tunnel_node("olisar-beta")
+        self.assertFalse(taken["ok"])
+        self.assertIn("Another bot on this server", taken["error"])
+        self.assertFalse((await remote.set_tunnel_node("my bot"))["ok"])
+        self.assertFalse((await remote.set_tunnel_node("x\nDISCORD_TOKEN=evil"))["ok"])
+        self.assertEqual(self.read_env("olisar")["OLISAR_FUNNEL_HOSTNAME"], "olisar")
+
+        self.log.write_text("")
+        moved = await remote.set_tunnel_node(" Everest ")
+        self.assertEqual(moved, {"ok": True, "url": "https://everest.example.ts.net", "note": ""})
+        env_now = self.read_env("olisar")
+        self.assertEqual(env_now["OLISAR_FUNNEL_HOSTNAME"], "everest")
+        self.assertEqual(env_now["TAILSCALE_AUTH"], "tskey-auth-shared")  # the rest is kept
+        [recreate] = [ln for ln in self.log.read_text().splitlines() if "--force-recreate" in ln]
+        self.assertEqual(recreate.split("|")[0], str(self.home / "olisar"))
+        self.assertEqual(self.read_env("olisar-beta")["OLISAR_FUNNEL_HOSTNAME"], "olisar-beta")
+        self.assertEqual((await remote.status())["url"], "https://everest.example.ts.net")
 
     async def test_refuses_something_that_isnt_a_key(self) -> None:
         await self.as_bot("alpha")

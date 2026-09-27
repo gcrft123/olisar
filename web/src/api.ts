@@ -309,6 +309,10 @@ export const api = {
   // error }. Waits out the container's first healthcheck, so it can take a few minutes.
   serverTunnelKey: (key: string) =>
     req('/api/server/tunnel-key', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 420000 }),
+  // Rename the server bot's Tailscale device, which moves its console to a new address, and
+  // recreate it: { ok, url, note } or { ok: false, error }. As slow as a new key.
+  serverTunnelNode: (node: string) =>
+    req('/api/server/tunnel-node', { method: 'POST', body: JSON.stringify({ node }), timeoutMs: 420000 }),
   // What the server's bot has been doing, for the final server screen's memories: replies,
   // joins, impressions, memories, glossary facts, its status, knowledge, reminders, images.
   // { ok, supported, items, members, health } (see activity.ts). Never a DM.
@@ -345,6 +349,13 @@ export const api = {
   enableTunnel: (b: { auth_key?: string; hostname?: string } = {}) =>
     req('/api/tunnel/enable', { method: 'POST', body: JSON.stringify(b) }),
   disableTunnel: () => req('/api/tunnel/disable', { method: 'POST' }),
+  // Rename the Tailscale device and bring the funnel back up under it (local only):
+  // { ok, public_url, redirect_uri, note }. The funnel can take up to 100s to come up.
+  renameTunnel: (hostname: string) =>
+    req('/api/tunnel/rename', { method: 'POST', body: JSON.stringify({ hostname }), timeoutMs: 240000 }),
+  // Whether Discord lists the console's public sign-in address (local only):
+  // { ok, app_id, redirect, added }, or { ok: false } with remote access off.
+  tunnelDiscord: () => req('/api/tunnel/discord', { timeoutMs: 40000 }),
   // Remote-access status (loopback-readable): { available, running, helper, hostname, public_url }.
   tunnelStatus: () => req('/api/tunnel/status'),
 
