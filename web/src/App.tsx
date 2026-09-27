@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from 'react'
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { api, setGuild as apiSetGuild, setOnUnauthorized, Unauthorized } from './api'
 import { botName, setBotName } from './botname'
 import { Modal, confirmDialog, toast } from './overlays'
@@ -10,7 +10,7 @@ import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
 import { ServerControlPanel } from './server'
-import { Onboarding, Pane, useArrived, useForm, useShell } from './onboarding'
+import { Onboarding, Pane, useArrived, useForm, useInert, useShell } from './onboarding'
 import { SHAPE } from './form'
 import { BotFailed, BotMenu, BotProblem, intentList, useBots, type BotError } from './bots'
 import { SECTIONS as SETTINGS_SECTIONS, FeedbackButton, FeedbackHost, ScreenCorners, SettingsModal, clearPendingReport, pendingReport, type SectionId } from './settings'
@@ -18,6 +18,7 @@ import type { FeedbackPrefill } from './feedback'
 import { PageBoundary, currentPageActions, hasDraft, hasUnsavedChanges, usePoll } from './ui'
 import { DOCS } from './docs'
 import { CommandPalette, usePaletteHotkey, type Command } from './palette'
+import { uiScale } from './theme'
 
 // Settings as the first-run frame offers it: setup and sign-in, then the server panel, which
 // also reads the VM's logs.
@@ -544,6 +545,8 @@ export default function App() {
       </header>
       <div className={'nav-backdrop' + (navOpen ? ' open' : '')} onClick={() => setNavOpen(false)} aria-hidden="true" />
       <aside id="console-nav" className={'sidebar' + (navOpen ? ' open' : '')}>
+        {/* The rail scrolls in here rather than as a whole, so the sheet at its foot stays put. */}
+        <div className="sidebar-scroll">
         {/* With more than one bot, the top of the rail says which one this is — and switches. */}
         {bots.bots.length > 1 ? (
           <BotMenu
@@ -605,26 +608,13 @@ export default function App() {
           )
         })}
         </nav>
-        <div className="spacer" />
-        <div className="sidebar-foot">
-          <BotPower />
-          <WebLink tunnel={tunnel} />
-          <div className="who">
-            Signed in as <b>{me?.username}</b>
-            <br />
-            <span className="muted">
-              {me?.granted_via === 'allowlist' ? 'Allowlisted admin' : 'Manage-server admin'}
-            </span>
-          </div>
-          <div className="foot-row">
-            <button className="ghost" onClick={() => setSettingsOpen(true)}>
-              <Icon.settings size={16} /> Settings
-            </button>
-            <button className="ghost" onClick={async () => { await api.logout(); setAuth('out') }}>
-              <Icon.logout size={16} /> Log out
-            </button>
-          </div>
         </div>
+        <FootSheet
+          me={me}
+          tunnel={tunnel}
+          onSettings={() => setSettingsOpen(true)}
+          onLogout={async () => { await api.logout(); setAuth('out') }}
+        />
       </aside>
       <FeedbackHost onOpen={(p) => { setFeedbackPrefill(p); setSettingsPane('feedback'); setSettingsOpen(true) }} />
       {settingsOpen && (
@@ -973,13 +963,147 @@ function ServerMenu({ guilds, current, onPick, invite }: { guilds: Guild[]; curr
   )
 }
 
+type BotSummary = { tone: string; label: string }
+
+// How far a drag gives past either end, damped the way iOS damps an overscroll: less the
+// further it's pulled, and never more than `max`.
+const rubber = (x: number, max = 24) => (1 - 1 / (x * 0.55 / max + 1)) * max
+
+// Bot power, the web link and the account, in a sheet at the foot of the rail. Laid out in
+// the rail they took a third of its height, and at 800px they pushed Settings and Log out
+// below the fold. Closed, the sheet is a grabber and the bot's status; tap it or drag it up
+// for the rest. It stays mounted while closed, so it slides rather than pops and the bot's
+// status keeps polling.
+function FootSheet({ me, tunnel, onSettings, onLogout }: {
+  me: any; tunnel: TunnelInfo | null; onSettings: () => void; onLogout: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [bot, setBot] = useState<BotSummary>({ tone: 'unknown', label: 'Bot status unknown' })
+  const layer = useRef<HTMLDivElement>(null)
+  const sheet = useRef<HTMLDivElement>(null)
+  const head = useRef<HTMLButtonElement>(null)
+  const body = useRef<HTMLDivElement>(null)
+  const bodyId = useId()
+  const drag = useRef<{
+    y: number; from: number; closed: number; offset: number
+    v: number; lastY: number; lastT: number; scale: number; moved: boolean
+  } | null>(null)
+  // A drag ends in a click on the head, which would toggle the sheet straight back.
+  const dragged = useRef(false)
+
+  // Ahead of useInert, which blurs whatever had focus inside: closing hands focus back to
+  // the head rather than dropping it on <body>.
+  useLayoutEffect(() => {
+    if (!open && body.current?.contains(document.activeElement)) head.current?.focus()
+  }, [open])
+  useInert(body, !open)
+
+  const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    dragged.current = false
+    if (e.button !== 0 || !sheet.current) return
+    const peek = parseFloat(getComputedStyle(sheet.current).getPropertyValue('--foot-peek')) || 0
+    const closed = Math.max(1, sheet.current.offsetHeight - peek)
+    const from = open ? 0 : closed
+    drag.current = { y: e.clientY, from, closed, offset: from, v: 0, lastY: e.clientY, lastT: e.timeStamp, scale: uiScale(), moved: false }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current
+    if (!d || !sheet.current || !layer.current) return
+    // The pointer moves in window pixels; the sheet was measured inside the zoomed root.
+    const dy = (e.clientY - d.y) / d.scale
+    if (!d.moved) {
+      if (Math.abs(dy) < 4) return
+      d.moved = true
+      layer.current.dataset.dragging = ''
+    }
+    const raw = d.from + dy
+    const off = raw < 0 ? -rubber(-raw) : raw > d.closed ? d.closed + rubber(raw - d.closed) : raw
+    const dt = e.timeStamp - d.lastT
+    if (dt > 0) d.v = 0.7 * ((e.clientY - d.lastY) / d.scale / dt) + 0.3 * d.v
+    d.lastY = e.clientY; d.lastT = e.timeStamp; d.offset = off
+    sheet.current.style.transform = `translateY(${off}px)`
+    layer.current.style.setProperty('--foot-open', String(Math.min(1, Math.max(0, 1 - off / d.closed))))
+  }
+  const onPointerUp = (e: React.PointerEvent) => {
+    const d = drag.current
+    drag.current = null
+    if (!d?.moved || !sheet.current || !layer.current) return
+    dragged.current = true
+    setTimeout(() => { dragged.current = false })
+    // Where the sheet would come to rest at the speed it was let go, so a flick settles the
+    // way it was thrown even short of halfway. Held still before letting go, it has none.
+    const v = e.timeStamp - d.lastT > 80 ? 0 : d.v
+    const rest = d.offset + v * 200
+    // Cleared together with the class change, so the transition runs from where it was
+    // dropped rather than from where it started.
+    delete layer.current.dataset.dragging
+    layer.current.style.removeProperty('--foot-open')
+    sheet.current.style.transform = ''
+    setOpen(rest < d.closed / 2)
+  }
+
+  return (
+    <div ref={layer} className={'foot-layer' + (open ? ' open' : '')}>
+      <div className="foot-scrim" aria-hidden="true" onPointerDown={() => setOpen(false)} />
+      <div
+        ref={sheet}
+        className="foot-sheet"
+        onKeyDown={(e) => {
+          // Stopped here so the narrow-width rail, which also closes on Escape, stays open.
+          if (e.key !== 'Escape' || !open) return
+          e.stopPropagation()
+          setOpen(false)
+        }}
+      >
+        <button
+          ref={head}
+          className="foot-head"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onClick={() => { if (!dragged.current) setOpen((o) => !o) }}
+        >
+          <span className="foot-grabber" aria-hidden="true" />
+          <span className="foot-status">
+            <span className="ic" aria-hidden="true"><span className={'foot-dot ' + bot.tone} /></span>
+            <span className={'foot-label ' + bot.tone}>{bot.label}</span>
+          </span>
+        </button>
+        <div ref={body} id={bodyId} className="foot-body">
+          <BotPower onStatus={setBot} />
+          <WebLink tunnel={tunnel} />
+          <div className="who">
+            Signed in as <b>{me?.username}</b>
+            <br />
+            <span className="muted">
+              {me?.granted_via === 'allowlist' ? 'Allowlisted admin' : 'Manage-server admin'}
+            </span>
+          </div>
+          <div className="foot-row">
+            <button className="ghost" onClick={onSettings}>
+              <Icon.settings size={16} /> Settings
+            </button>
+            <button className="ghost" onClick={onLogout}>
+              <Icon.logout size={16} /> Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type BotState = { available: boolean; running: boolean; ready: boolean; can_power: boolean; error?: BotError | null }
 const HOLD_MS = 1400  // press-and-hold duration to power the bot down (matches the CSS ring)
 
 // Operator-only control to take the Discord bot offline (and back). Powering down is a
 // deliberate press-and-hold — a ring fills around the button and only fires if you keep
 // holding — so it can't be hit by accident. Powering on is a single tap.
-function BotPower() {
+function BotPower({ onStatus }: { onStatus?: (s: BotSummary) => void }) {
   const [st, setSt] = useState<BotState | null>(null)
   const [phase, setPhase] = useState<'idle' | 'holding' | 'stopping' | 'starting'>('idle')
   const hold = useRef<number | null>(null)
@@ -1008,10 +1132,36 @@ function BotPower() {
   }, 15000)
 
   if (st && st.available && st.can_power) seen.current = true
+  const known = !!st && seen.current
+
+  const busy = phase === 'stopping' || phase === 'starting'
+  const online = !!st?.running && !!st?.ready && !busy
+  const starting = phase === 'starting' || (!!st?.running && !st?.ready && phase !== 'stopping')
+  const offline = !st?.running && !busy
+
+  // Up but every chat model is parked: connected and unable to answer. Amber, because it
+  // clears on its own — neither healthy nor broken.
+  const limited = online && exhausted
+  const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
+    : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
+  // Stopped on its own, not switched off: Discord refused it (intents, token) or it crashed.
+  const refused = offline && !!st?.error
+  const label = phase === 'holding' ? 'Keep holding…'
+    : phase === 'stopping' ? 'Powering down…'
+    : starting ? 'Starting up…'
+    : limited ? 'Offline: rate-limited'
+    : online ? 'Bot online'
+    : refused ? 'Can’t connect' : 'Bot offline'
+
+  // The sheet this sits in is closed most of the time, and its closed row carries this.
+  const tone = !known ? 'unknown' : refused ? 'refused' : cls
+  const summary = !known ? 'Bot status unknown' : label
+  useEffect(() => { onStatus?.({ tone, label: summary }) }, [tone, summary])  // eslint-disable-line react-hooks/exhaustive-deps
+
   // Returning null deleted the bot-status control from the sidebar whenever the backend was
   // unreachable — the one moment an operator most wants to know the bot's state, answered by
   // an absence. Hold the row and say what is actually known.
-  if (!st || !seen.current) {
+  if (!st || !known) {
     return (
       <div className="botpower unknown" role="status">
         <span className="power-btn" aria-hidden="true"><Icon.bolt size={15} /></span>
@@ -1026,11 +1176,6 @@ function BotPower() {
       </div>
     )
   }
-
-  const busy = phase === 'stopping' || phase === 'starting'
-  const online = st.running && st.ready && !busy
-  const starting = phase === 'starting' || (st.running && !st.ready && phase !== 'stopping')
-  const offline = !st.running && !busy
 
   const clearHold = () => { if (hold.current) { clearTimeout(hold.current); hold.current = null } }
 
@@ -1078,19 +1223,6 @@ function BotPower() {
     if (offline) powerUp()
   }
 
-  // Up but every chat model is parked: connected and unable to answer. Amber, because it
-  // clears on its own — neither healthy nor broken.
-  const limited = online && exhausted
-  const cls = phase === 'holding' ? 'holding' : phase === 'stopping' ? 'stopping'
-    : starting ? 'starting' : limited ? 'limited' : online ? 'online' : 'offline'
-  // Stopped on its own, not switched off: Discord refused it (intents, token) or it crashed.
-  const refused = offline && !!st.error
-  const label = phase === 'holding' ? 'Keep holding…'
-    : phase === 'stopping' ? 'Powering down…'
-    : starting ? 'Starting up…'
-    : limited ? 'Offline: rate-limited'
-    : online ? 'Bot online'
-    : refused ? 'Can’t connect' : 'Bot offline'
   const hint = phase === 'holding' ? 'release to cancel'
     : limited ? 'hold to power down'
     : online ? 'hold to power down'

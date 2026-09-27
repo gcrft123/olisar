@@ -200,6 +200,9 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
   /* Icon cross-fades only (see Button & IconButton). Flatter in, harder out. */
   --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+  /* The rail's foot sheet only (see "Foot sheet"). iOS's sheet curve: fast off the mark,
+     long settle, so a sheet let go mid-drag looks thrown rather than played. */
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-fast: .12s;  --dur-mid: .16s;  --dur-slow: .3s;
 
   /* Raster images only. User art on a near-black ground has no edge of its own: a dark
@@ -382,7 +385,7 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 | Product surfaces | **DiscordPreview**, **DangerZone** |
 | Feedback | **Callout**, **Spinner** |
 | Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast** |
-| Navigation | **NavItem**, **PageNav**, **Tabs**, **Avatar** |
+| Navigation | **NavItem**, **PageNav**, **Tabs**, **Avatar**, **Foot sheet** |
 | Content | **InlineCode**, **CodeBlock**, **CopyField**, **Link** |
 
 ### Button & IconButton
@@ -1158,6 +1161,17 @@ Three idioms: **underline** (hairline `border-bottom`, active item bold `--text`
 - **NavItem** (sidebar row): `padding: 7px 10px; border-radius: var(--radius-sm); color: var(--text-2)`. Hover → `background: var(--bg-inset); color: var(--text)`. Active → same bg, `font-weight: 600`, icon swaps to `-bold`.
 - **PageNav** ("On this page"): retired from Docs, which is two panes now (see **Documentation layout**). If a page index comes back somewhere: a header (list icon + label), a vertical rail (`border-left: 1px solid var(--border)`), items muted (`--text-3`) that brighten on hover; the active item is bold `--text` with a 2px foreground bar on the rail. One level of nesting via extra left padding.
 - **Avatar**: rounded square (`object-fit: cover`), or a tinted initial — `background: var(--accent-soft); color: var(--accent); font-weight: 700`.
+
+### Foot sheet (the rail's bottom drawer)
+
+Bot power, the web link, who's signed in, and Settings / Log out live in an iOS-style sheet at the foot of the rail. Laid out in the rail they took a third of its height, and at 800px they pushed Settings and Log out below the fold. Closed, the sheet shows 49px (`--foot-peek`): a grabber and the bot's status, its dot in the nav's icon column and its label in the nav's label column. Tap it or drag it up for the rest.
+
+- **Shape.** `--panel`, a `--border` hairline on three sides, `--radius` top corners, inset 8px from the rail's edges. The body's 5px padding plus the border lands its content on the rail's 14px column. The grabber is a 36×5 pill in `--border-strong`, brightening to `--text-3` on hover and focus.
+- **Layering.** The rail's content scrolls in `.sidebar-scroll`, which stops `--foot-peek` above the bottom, so the sheet stays put however far the rail is scrolled. The sheet sits in a layer over the whole rail that clips it (`overflow: clip`, not `hidden`, so nothing can scroll it into view) and lets pointers through everywhere but the sheet and an open scrim. Open, it rises over the nav, with `rgba(0,0,0,.45)` over the rest of the rail and an upward shadow, since it's floating now.
+- **Motion.** `transform` only, `.42s var(--ease-sheet)`. Opening cross-fades the status row into the bot's card in the same place (the body is pulled up 26px under the grabber). Whichever is leaving goes first and fast; the one arriving waits `--dur-fast`, so they never sit on top of each other at half strength. Under reduced motion the sheet snaps, and the cross-fade is all that moves.
+- **Drag.** Only the head drags (`touch-action: none`); the body holds the press-and-hold power button. The sheet follows the pointer 1:1 with transitions off, and past either end it gives like an iOS overscroll, damped to 24px at most. A `::after` in the sheet's color fills the gap under it when it's pulled past open. Letting go settles on whichever end the release velocity projects to, so a short flick opens it. A velocity sampled more than 80ms before release counts as zero. Divide pointer deltas by `uiScale()`: the pointer moves in window pixels, and the sheet is measured inside the zoomed root.
+- **Dismiss.** Tap the head, tap the scrim, drag it down, or press Escape. Escape stops there, so the narrow-width rail (which also closes on Escape) stays open.
+- **A11y.** The head is a `<button>` with `aria-expanded` and `aria-controls`. The body stays mounted and is `inert` while closed. Closing moves focus from the body back to the head *before* `inert` goes on, since `inert` would otherwise drop it on `<body>`.
 
 ### DocTable & DataTable
 
