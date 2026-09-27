@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"tailscale.com/tsnet"
+	"tailscale.com/util/dnsname"
 )
 
 func main() {
@@ -43,6 +44,7 @@ func main() {
 	if _, err := srv.Up(ctx); err != nil {
 		fail("couldn't join your tailnet: " + err.Error())
 	}
+	awaitName(srv, *hostname)
 
 	ln, err := srv.ListenFunnel("tcp", ":443")
 	if err != nil {
@@ -71,6 +73,49 @@ func main() {
 		r.Header.Set("X-Forwarded-Proto", "https") // Funnel terminates TLS for us
 	}
 	_ = http.Serve(ln, proxy) // blocks until the listener closes
+}
+
+// awaitName holds off until the node goes by the hostname it was started with. A renamed
+// node can come up under its old name and take the new one a moment later, and Funnel is
+// switched on for whichever name the node has when ListenFunnel asks, so asking too early
+// would publish the old address. A node named by hand in Tailscale's admin console keeps
+// that name whatever it's sent: that one gets a few seconds, then keeps its name.
+func awaitName(srv *tsnet.Server, hostname string) {
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return
+	}
+	want := dnsname.SanitizeHostname(hostname)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st, err := lc.StatusWithoutPeers(context.Background())
+		if err == nil && st.Self != nil && hasName(st.Self.DNSName, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+// hasName reports whether a node's DNS name is the hostname it asked for, or that name with
+// the -1, -2… Tailscale adds when another device in the tailnet already has it.
+func hasName(dnsName, want string) bool {
+	label := strings.ToLower(dnsname.FirstLabel(dnsName))
+	if label == want {
+		return true
+	}
+	n, ok := strings.CutPrefix(label, want+"-")
+	if !ok || n == "" {
+		return false
+	}
+	for _, r := range n {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func publicURL(srv *tsnet.Server) string {
