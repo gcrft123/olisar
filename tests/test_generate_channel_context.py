@@ -177,6 +177,33 @@ class WelcomeUsesTheChannelTest(_Case):
         self.assertIn("warmly welcome rook", task)
         channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
 
+    async def test_a_channel_the_roster_hasnt_caught_yet_still_gets_a_greeting(self) -> None:
+        """Made a minute ago, or the roster sync is failing: no channel context, but the
+        greeting still goes out, written from the persona alone."""
+        new = 555
+        async with self.scope() as s:
+            await sdk_builtins.seed(s)
+            s.add(ExtensionState(
+                guild_id=GUILD, key="welcome", enabled=True,
+                settings={"channel_id": str(new), "prompt": "warmly welcome {user}"},
+            ))
+        channel = SimpleNamespace(send=AsyncMock())
+        guild = SimpleNamespace(id=GUILD, get_channel=lambda cid: channel if cid == new else None)
+
+        await sdk_events._dispatch(guild, "memberJoin", {
+            "event": "memberJoin", "guildId": str(GUILD),
+            "member": {
+                "id": "900", "displayName": "rook", "username": "rook_",
+                "mention": "<@900>", "bot": False,
+            },
+        })
+
+        self.assertEqual(len(self.gemini.calls), 1)
+        self.assertNotIn("You're talking in", self.gemini.system)
+        (role, task), = self.gemini.lines
+        self.assertIn("warmly welcome rook", task)
+        channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
+
 
 class ChannelPromptTest(_Case):
     async def test_a_mention_works_like_an_id(self) -> None:
