@@ -506,6 +506,26 @@ class SharedServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["app_dir"], "olisar-beta")
         self.assertEqual(self.read_env("olisar")["DISCORD_CLIENT_ID"], "111")
 
+    async def test_two_machines_bots_with_one_profile_id_each_get_their_own_install(self) -> None:
+        """Every bot from before one app could run several is profile "default", on every
+        machine, so two machines' bots added to one VM both claimed ~/olisar-default and the
+        second overwrote the first."""
+        await self.as_bot("first")
+        self.authorize(await remote.public_key())
+        await remote.deploy("127.0.0.1", "tester", self.env_file("111"))
+        for machine, client_id in (("machine1", "222"), ("machine2", "333")):
+            await self.as_bot(machine)
+            os.environ["OLISAR_PROFILE_ID"] = "default"
+            self.authorize(await remote.public_key())
+            self.assertTrue((await remote.deploy("127.0.0.1", "tester", self.env_file(client_id)))["ok"])
+        installs = self.installs()
+        self.assertEqual(len(installs), 3, installs)
+        self.assertEqual(self.read_env("olisar-default")["DISCORD_CLIENT_ID"], "222")
+        [second] = [d for d in installs if d not in ("olisar", "olisar-default")]
+        self.assertEqual(self.read_env(second)["DISCORD_CLIENT_ID"], "333")
+        again = await remote.deploy("127.0.0.1", "tester", self.env_file("333"))
+        self.assertEqual(again["app_dir"], second)  # and finds its own again
+
     async def test_the_bot_token_is_read_again_after_a_redeploy(self) -> None:
         """The panel's Discord checks and "Turn on and restart" use the VM's bot token, kept
         once read. A redeploy onto another Discord application (a reset) left them acting on
@@ -662,6 +682,20 @@ class PureHelpersTests(unittest.TestCase):
         # Another bot's now: its mark says so.
         theirs = [{"dir": "olisar", "client_id": "111", "owner": "def"}]
         self.assertEqual(pick(theirs, remembered="olisar"), "olisar-x")
+
+    def test_choose_app_dir_never_takes_another_bot_s_directory_as_its_own(self) -> None:
+        taken = [
+            {"dir": "olisar", "client_id": "1", "owner": "x"},
+            {"dir": "olisar-default", "client_id": "2", "owner": "y"},
+        ]
+        got = remote.choose_app_dir(taken, client_id="3", own="olisar-default", owner="z")
+        self.assertRegex(got, r"^olisar-default[0-9a-f]{4}$")
+        self.assertTrue(remote.valid_app_dir(got))
+        # Still a valid directory name when the id is already as long as one can be.
+        longest = "olisar-" + "a" * 32
+        got = remote.choose_app_dir(taken + [{"dir": longest, "client_id": "4"}], client_id="3", own=longest)
+        self.assertTrue(remote.valid_app_dir(got), got)
+        self.assertNotIn(got, {"olisar", "olisar-default", longest})
 
     def test_remembered_app_dir(self) -> None:
         def cfg(app_dir: str, host: str) -> SimpleNamespace:
