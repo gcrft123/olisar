@@ -168,8 +168,9 @@ _TOOL_LINES: dict[str, str] = {
         "REPLACES the sentence you'd have written about it: \"done\", \"got it\", \"sent\", "
         "\"noted\", \"written down\", \"i'll remember that\". Send the reaction instead of "
         "the sentence, not as well as it. Same for a message that only needs acknowledging "
-        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Not for a "
-        "question, and not when something went wrong — say so.\n"
+        "(\"thanks\", \"sounds good\", an fyi you have nothing to add to). Call it on its "
+        "own, after the other tools have answered. Not for a question, and not when "
+        "something went wrong — say so.\n"
     ),
 }
 
@@ -487,6 +488,7 @@ async def _settle_typed_calls(text: str, ctx: ToolContext, tools: list) -> str |
             await execute_tool("react", {"emoji": emoji}, ctx)
         return rest
     if set(ctx.tools_run) <= _REACTION_TOOLS and "acknowledge" in names:
+        ctx.batch = ["acknowledge"]  # made on its own, whatever the last model turn called
         await execute_tool("acknowledge", {"emoji": reactions[-1]}, ctx)
         if ctx.silent:
             return ""
@@ -659,6 +661,9 @@ async def _run_tool_loop(
 
         contents.append(resp.candidates[0].content)  # the model's tool-call turn
         responses = []
+        # Every call below runs before ctx.silent is looked at, so `acknowledge` checks
+        # this and refuses to be one of several.
+        ctx.batch = [call.name for call in calls]
         for call in calls:
             if call.name in LOOKUP_TOOLS:
                 lookups[call.name] = lookups.get(call.name, 0) + 1

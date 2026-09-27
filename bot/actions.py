@@ -14,7 +14,7 @@ import discord
 
 from bot.replies import chunk_text, mention_policy, sanitize_mentions
 from olisar.persona import strip_breaks
-from olisar.tools import ACK_OK, STATUS_OK
+from olisar.tools import ACK_OK, DM_OK, POSTED_OK, REACT_OK, STATUS_OK
 
 _ACTIVITY_VERB = {
     discord.ActivityType.playing: "playing",
@@ -223,7 +223,7 @@ class BotActions:
         try:
             for chunk in chunk_text(text):
                 await user.send(chunk)
-            return f"sent a DM to {user.display_name}"
+            return f"{DM_OK} {user.display_name}"
         except discord.Forbidden:
             return f"can't DM {user.display_name} — their DMs are closed to me"
         except Exception as exc:  # noqa: BLE001
@@ -300,7 +300,7 @@ class BotActions:
             return f"I don't have permission to post in #{target.name}."
         except Exception as exc:  # noqa: BLE001
             return f"couldn't post in #{target.name}: {exc}"
-        return f"Posted your message in #{target.name}."
+        return f"{POSTED_OK} #{target.name}."
 
     async def user_status(self, query: str, guild_id: int) -> str:
         """A member's live presence (status + current game/app), for the
@@ -538,7 +538,7 @@ class MessageActions(BotActions):
             return "no emoji given"
         try:
             await self.message.add_reaction(emoji)
-            return f"reacted with {emoji}"
+            return f"{REACT_OK} {emoji}"
         except Exception as exc:  # noqa: BLE001
             return f"couldn't react with {emoji}: {exc}"
 

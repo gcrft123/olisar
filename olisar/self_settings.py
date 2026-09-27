@@ -595,6 +595,9 @@ async def _audit(
         ctx.session, actor=ctx.user_id, action=action, target_type=target_type,
         target_id=target_id, after={**after, "via": "chat"}, **extra,
     )
+    # Every change these tools make comes through here, so this is how the tool layer tells
+    # a write that happened from a refusal (olisar.tools._went_through).
+    ctx.settings_writes += 1
 
 
 # Replies chat can read but not change. The PIN prompt is how a person learns what they're
