@@ -567,7 +567,9 @@ export default function App() {
         )}
 
         <ServerMenu guilds={guilds} current={current} onPick={changeGuild} invite={invite} />
-        <GetStarted guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
+        {/* Keyed by server: another server is another list, and nothing from this one's
+            (a step still folding away, a fetch in flight) may land on it. */}
+        <GetStarted key={current.id} guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -1357,11 +1359,11 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
     window.addEventListener('olisar:saved', bump)
     return () => window.removeEventListener('olisar:saved', bump)
   }, [])
-  // Another server is another list: nothing it shows was finished on screen.
-  useEffect(() => {
-    seen.current = null
-    setSpeaks(null); setGone(new Set()); setLeaving(new Set())
-  }, [guild])
+  // A step's fold-away outlives the render that started it, so it's cleared when the list
+  // goes (the list is keyed by server). Left running, a step finished just before switching
+  // servers hid the same step on the next server 1.7 seconds later.
+  const timers = useRef<number[]>([])
+  useEffect(() => () => { timers.current.forEach(clearTimeout) }, [])
   useEffect(() => {
     let alive = true
     api.getChannels()
@@ -1398,10 +1400,10 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
     if (!finished.length) return
     setLeaving((l) => new Set([...l, ...finished]))
     // Not cleared on re-render: the step has to finish going once it has started.
-    setTimeout(() => {
+    timers.current.push(window.setTimeout(() => {
       setGone((g) => new Set([...g, ...finished]))
       setLeaving((l) => new Set([...l].filter((k) => !finished.includes(k))))
-    }, STEP_LEAVE_MS)
+    }, STEP_LEAVE_MS))
   }, [doneState])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const shown = items.filter((i) => !gone.has(i.key))
