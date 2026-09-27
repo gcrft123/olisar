@@ -365,6 +365,18 @@ class ChangingAKey(_Db):
         self.assertEqual((await self.row(ProactivityConfig)).quiet_hours, {})
         self.assertEqual((await self.row(Persona)).server_type, "")
 
+    async def test_a_list_is_read_however_it_is_written(self):
+        """A list argument reaches the tool as its Python repr, which split on commas
+        stored `['olisar'` as a name trigger."""
+        for value in ("['olisar', 'ol']", '["olisar", "ol"]', "olisar, ol", "[olisar, ol]",
+                      ["olisar", "ol"]):
+            with self.subTest(value=value):
+                await self.change("name_triggers", "none")
+                await self.change("name_triggers", value)
+                self.assertEqual((await self.row(GuildConfig)).name_triggers, ["olisar", "ol"])
+        await self.change("name_triggers", "[]")
+        self.assertEqual((await self.row(GuildConfig)).name_triggers, [])
+
     async def test_an_unchanged_value_writes_nothing(self):
         out = await self.change("context_message_limit", "12")
         self.assertIn("already", out)

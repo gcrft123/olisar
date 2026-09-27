@@ -28,6 +28,7 @@ which would otherwise wait on this reply's lock.
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 import re
@@ -301,18 +302,30 @@ def _number(f: _Field, value: str) -> int | float:
 
 
 def _items(value: str) -> list[str]:
+    """A list value the way the model writes one: comma-separated, or a list written out
+    in JSON or in Python (`['olisar', 'ol']`, which is what a list argument turns into
+    as a string). Splitting that one on commas stored `['olisar'` as a name trigger."""
     raw = value.strip()
-    if raw.lower() in ("", "none", "[]"):
+    if raw.lower() in ("", "none"):
         return []
     parts = None
-    if raw.startswith("["):
-        try:
-            parts = [str(x) for x in json.loads(raw)]
-        except (ValueError, TypeError):
-            parts = None
+    if raw.startswith("[") and raw.endswith("]"):
+        for parse in (json.loads, ast.literal_eval):
+            # literal_eval can raise more than ValueError on odd input (see
+            # olisar.pipeline._typed_call); whatever fails is read as plain text.
+            try:
+                parsed = parse(raw)
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(parsed, (list, tuple)):
+                parts = [str(x) for x in parsed]
+                break
+        if parts is None:  # [a, b], unquoted
+            parts = raw[1:-1].split(",")
     if parts is None:
         parts = raw.split(",")
-    return list(dict.fromkeys(p.strip() for p in parts if p.strip()))
+    cleaned = (p.strip().strip("'\"").strip() for p in parts)
+    return list(dict.fromkeys(p for p in cleaned if p))
 
 
 def _edit_text(current: str, value: str, find: str, append: bool) -> str:
@@ -643,7 +656,12 @@ async def _change_reply(ctx: ToolContext, key: str, value: str, find: str, appen
 
 async def change_setting(args: dict, ctx: ToolContext) -> str:
     key = (args.get("key") or "").strip()
-    value = "" if args.get("value") is None else str(args.get("value"))
+    raw = args.get("value")
+    # A list argument is passed on written out as JSON, which _items reads back as a list.
+    if isinstance(raw, (list, tuple)):
+        value = json.dumps([str(x) for x in raw])
+    else:
+        value = "" if raw is None else str(raw)
     find = str(args.get("find") or "")
     append = _truthy(args.get("append"))
     if key.startswith(_REPLY):
