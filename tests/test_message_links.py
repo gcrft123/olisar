@@ -29,7 +29,7 @@ from olisar.memory.retriever import recall
 from olisar.memory.search import _Cand, _only_readable
 from olisar.message_links import channel_filter, link_ids, message_link, strip_unoffered_links
 from olisar.pipeline import _without_invented_links, render_tools_note
-from olisar.tools import SANDBOX_TOOL_NAMES
+from olisar.tools import SANDBOX_TOOL_NAMES, ToolContext
 
 GUILD = 100
 HERE = 200
@@ -124,6 +124,61 @@ class ChannelFilterFailsClosed(unittest.TestCase):
         readable = channel_filter(actions, guild_id=GUILD, requester_id=7, here=HERE)
         self.assertEqual(_run(readable({HERE, OPEN, HIDDEN})), {HERE, OPEN})
         actions.readable_channels.assert_awaited_once_with(GUILD, {OPEN, HIDDEN}, requester_id=7)
+
+
+class NobodyAsked(unittest.TestCase):
+    """A proactive chime-in answers a message that wasn't addressed to Olisar and posts
+    where its author didn't choose to ask, so it searches and recalls by what @everyone
+    can open (requester 0), not by that author's access."""
+
+    def _actions(self):
+        actions = MagicMock()
+        actions.readable_channels = AsyncMock(return_value={OPEN})
+        actions.channel_directory = AsyncMock(return_value="")
+        return actions
+
+    def test_search_goes_by_everyone_not_the_author(self):
+        for addressed, requester in ((False, 0), (True, 7)):
+            with self.subTest(addressed=addressed):
+                actions = self._actions()
+                ctx = ToolContext(
+                    session=None, cfg_guild=GUILD, channel_id=HERE, user_id=7,
+                    display_name="rook", actions=actions, addressed=addressed,
+                )
+                self.assertEqual(_run(ctx.readable()({HERE, OPEN, HIDDEN})), {HERE, OPEN})
+                actions.readable_channels.assert_awaited_once_with(
+                    GUILD, {OPEN, HIDDEN}, requester_id=requester
+                )
+
+    def test_recall_and_the_channel_directory_do_too(self):
+        from olisar import pipeline
+
+        actions, seen = self._actions(), {}
+
+        async def recall(_session, **kw):
+            seen["readable"] = kw["readable"]
+            return ""
+
+        session = MagicMock()
+        session.get = AsyncMock(return_value=None)
+        with (
+            patch.object(pipeline, "_run_tool_loop", new=AsyncMock(return_value="ok")),
+            patch.object(pipeline, "build_contents", new=AsyncMock(return_value=([], set()))),
+            patch.object(pipeline, "people_directory", new=AsyncMock(return_value="")),
+            patch.object(pipeline, "recall", new=recall),
+            patch.object(
+                pipeline, "gather_enabled",
+                new=AsyncMock(return_value=pipeline.GatheredExtensions()),
+            ),
+        ):
+            _run(pipeline.generate_reply(
+                session, guild_id=GUILD, channel_id=HERE, current_message_id=1, bot_user_id=2,
+                user_id=7, display_name="rook", user_text="best mining ship?",
+                actions=actions, addressed=False,
+            ))
+            _run(seen["readable"]({OPEN}))
+        actions.channel_directory.assert_awaited_once_with(GUILD, requester_id=0)
+        actions.readable_channels.assert_awaited_once_with(GUILD, {OPEN}, requester_id=0)
 
 
 def _cand(channel_id: int, *, is_dm: bool = False) -> _Cand:

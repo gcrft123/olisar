@@ -788,7 +788,9 @@ async def generate_reply(
 
     ``addressed`` is False for a reply nobody asked for (a proactive chime-in). The person
     whose message it answers didn't ask Olisar to do anything, so it gets no settings
-    tools: a change made there would be audited under someone who never requested it."""
+    tools: a change made there would be audited under someone who never requested it. Nor
+    does it search or recall with their access, since it posts where they didn't choose
+    to ask: it gets what @everyone can open (olisar.message_links.channel_filter)."""
     # DMs (guild_id 0 == DM_GUILD_ID) borrow a home server's persona, knowledge, and tools
     # (cfg_guild — the caller passes a real guild the bot is in via home_guild_id), while the
     # message history stays keyed to the per-user DM channel. Tell the model it's a private
@@ -850,11 +852,15 @@ async def generate_reply(
     except Exception:
         log.exception("people directory build failed; continuing without it")
 
+    # Whose access decides which channels this reply may draw on: the asker's, or for a
+    # reply nobody asked for, @everyone's (0; see olisar.message_links.channel_filter).
+    viewer = user_id if addressed else 0
+
     # A channel directory (name -> id) so Olisar maps a loose channel reference to the real
     # channel itself and posts by id via send_to_channel — instead of guessing at a name.
     if actions is not None:
         try:
-            channels = await actions.channel_directory(cfg_guild, requester_id=user_id)
+            channels = await actions.channel_directory(cfg_guild, requester_id=viewer)
             if channels:
                 system_instruction += "\n\n" + channels
         except Exception:
@@ -870,7 +876,7 @@ async def generate_reply(
             recent_ids=recent_ids,
             channel_id=channel_id,
             readable=channel_filter(
-                actions, guild_id=cfg_guild, requester_id=user_id, here=channel_id
+                actions, guild_id=cfg_guild, requester_id=viewer, here=channel_id
             ),
         )
         if recalled:
@@ -921,6 +927,7 @@ async def generate_reply(
         actions=actions,
         extension_tools=ext.handlers,
         settings_allowed=settings_allowed,
+        addressed=addressed,
     )
     try:
         text = await _run_tool_loop(

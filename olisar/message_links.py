@@ -91,7 +91,15 @@ def channel_filter(
 
     It checks the asker, not everyone who will read the reply, and that's deliberate. A
     member who can open a private channel and asks about it in a public one gets the answer
-    and the link there, the same as if they'd pasted the link themselves."""
+    and the link there, the same as if they'd pasted the link themselves.
+
+    A reply nobody asked for (a proactive chime-in) has no asker to go by. The author of
+    the message it answers didn't ask for anything, so their access isn't the right
+    measure. Those pass ``requester_id=0``, which is checked as the @everyone role: the
+    channel being posted in, plus what the whole server can open. "Whoever can read the
+    channel being posted in" would be the exact rule, but it's the intersection of every
+    one of those members' access; @everyone is simpler, never wider than that, and only
+    narrower for a server whose @everyone can't see its public channels."""
 
     async def readable(channel_ids: set[int]) -> set[int]:
         allowed = {here} & channel_ids if here else set()
