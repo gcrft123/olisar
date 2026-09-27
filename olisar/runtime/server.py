@@ -248,6 +248,17 @@ async def _init_database() -> None:
     await seed_defaults()
     await seed_builtins()
 
+    from olisar.gemini.rate_limiter import restore_spent
+
+    try:
+        spent = await restore_spent()
+    except Exception:
+        # Costs one refused request per spent model, which then parks it again.
+        log.exception("couldn't restore which models are out of requests today")
+    else:
+        if spent:
+            log.info("%d model(s) already out of requests for today; parked until the reset", spent)
+
 
 async def _self_check() -> bool:
     """Confirm sqlite-vec + FTS5 loaded (the #1 packaging risk). Returns True on

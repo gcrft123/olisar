@@ -754,7 +754,7 @@ The console draws no cards. A group of settings is a **Section**: a hairline abo
 - **`actions`** holds a control that acts on the whole group (a range picker, a refresh button): top right when stacked, under the hint in the rail.
 - **Hairlines go between setting rows only.** A legend, a toolbar, a callout, or a list that rules its own rows is spaced by 16px. A line between a filter box and the list it filters cuts one control in two.
 - **A collection is a list, not a card grid.** Members and the marketplace are rows under hairlines. A grid of cards makes each one as tall as its wordiest neighbour and draws a box around what is a name, a line of text and a button.
-- **Two panes side by side are split by a vertical hairline** (the Extensions list and detail, the Usage charts), never two boxes with a gap between them.
+- **Two panes side by side are split by a vertical hairline** (the Extensions list and detail, Usage's "Left today" and "Replying with"), never two boxes with a gap between them.
 - **The section title is an unnamed `<section>`'s `h2`.** A named section is a region landmark, and five or six regions a page is noise in the landmark list; the heading is the navigation stop.
 
 Two things that will bite you if you rebuild it:
@@ -952,14 +952,17 @@ name always ships beside the dot. The dot is redundant encoding, not the encodin
 
 ### StatTile (metric) & Spinner
 
-A single metric: an eyebrow, a big mono number, and a delta or caption under it. Several sit in one strip divided by vertical hairlines, not in boxed tiles; the four on Usage are one reading of today, and four borders said four unrelated things. The spinner is a minimal accent ring for quiet loading states; inside a badge, use the badge's own `busy` state instead (see **Badge**).
+A single metric: an eyebrow, a big number, and a delta or caption under it. Several sit in one strip divided by vertical hairlines, not in boxed tiles; the four on Usage are one reading of today, and four borders said four unrelated things. The spinner is a minimal accent ring for quiet loading states; inside a badge, use the badge's own `busy` state instead (see **Badge**).
+
+The big figure is **Plex Sans 600**, not mono: at 26px, and at the 60px of Usage's "Left today", mono's dotted zeros read as a code sample. Figures at reading size (tables, legends, axes) stay mono.
 
 ```css
-.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--border); }
-.u-kpi { padding: 24px 24px 28px; border-left: 1px solid var(--border); }
+.u-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.u-kpi { padding: 4px 24px 6px; border-left: 1px solid var(--border); }
 .u-kpi:first-child { border-left: 0; padding-left: 0; }
-.u-big { font-family: var(--font-mono); font-size: 26px; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-/* 2 × 2 below 1120px (the second row takes a top rule), one column below 560px. */
+.u-big { font-size: 26px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; }
+.u-big s { text-decoration: none; color: var(--text-3); font-size: 17px; font-weight: 500; }  /* "/ 10" */
+/* 2 × 2 below 780px of the page's own width, one column below 480px (container queries). */
 
 .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border-strong);
   border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; }
@@ -1194,14 +1197,17 @@ Bot power, the web link, who's signed in, and Settings / Log out live in an iOS-
 
 ### LineChart (usage/metrics)
 
-Data-driven inline `<svg>` (no chart lib), used on the **Usage** page. Recipe:
+Data-driven inline `<svg>` (no chart lib). The **Usage** page draws its charts this way. Recipe:
 - **Series colours** come from the selectable accent hues, applied as a `color:` class (`.us0`=blue, `.us1`=teal, `.us2`=violet, `.us3`=amber, `.us4`=green, `.us5`=rose) so SVG shapes pick them up via `stroke="currentColor"` / `fill="currentColor"` — never hardcode chart hex (the design linter forbids it). One **primary** series draws heavier (`stroke-width 2.6`) with a flat translucent area fill (`fill-opacity .12`, no gradient — the system is flat).
 - **Smooth lines** via a horizontal-midpoint cubic path (control x at the midpoint of each pair, y at the endpoints).
 - **Grid + axes**: hairline baseline (`--border`), 1–2 dashed gridlines (`stroke-dasharray 2 6`), mono `--text-3` tick + day labels (strided when dense).
 - **Limit line**: a dashed `--danger` rule (`stroke-opacity .55`, `stroke-dasharray 5 4`) with a small mono `--danger` caption — the rate-limit ceiling. Include one on any chart with a cap.
 - **Endpoint tags**: a filled series-colour dot (`stroke: --panel`) at the last point with the value in mono beside it.
 - **Meters/bars** (RPM, quota): an inset track (`--bg-inset`) with a `currentColor` fill; the fill turns `--warn` past ~75% of cap.
-- **DonutChart** (composition, e.g. by-process share): a `--bg-inset` track ring with per-segment arcs drawn as `<circle>` strokes (`stroke-linecap: round`, a small angular gap between segments), coloured **distinctly** by rank via the `.us*` hue classes (`currentColor`). A mono total sits in the centre; a legend below pairs a rounded-square colour chip with the label, value, and percent. Segment order matches the legend order.
+- **Quota meters on Usage fill with what's left, not what's used** (`.u-mini`: the accent, clipped in from the left by `--used`). Every figure on that page is a "left" figure, and a fill that meant the opposite of the number beside it read wrong. They don't turn amber: falling back down the chain is normal, and the pace line under "Left today" is what warns. Quota Google took that Olisar never counted is hatched.
+- **DonutChart** (composition, e.g. a member's breakdown): a `--bg-inset` track ring with per-segment arcs drawn as `<circle>` strokes (`stroke-linecap: round`, a small angular gap between segments), coloured **distinctly** by rank via the `.us*` hue classes (`currentColor`). A mono total sits in the centre; a legend below pairs a rounded-square colour chip with the label, value, and percent. Segment order matches the legend order.
+- **Usage's By feature ring** is the exception to coloring by rank: each feature keeps its hue whatever the range (`.u-f0`–`.u-f5`: blue, amber, teal, rose, violet, `--text-3`), in the one order that clears the colorblind check for neighbors round the ring. Rank order put green beside rose, 4.5 apart under deuteranopia where the check wants 8. The legend sits beside the ring with a bar per row, since bars carry the comparison a ring is bad at.
+- **Bar chart** (requests per day): 4px rounded data ends, square at the baseline; past days `color-mix(--text-3 55%, --bg)`, today the accent, a day that ran out `color-mix(--warn 70%, --bg)`, under the same dashed `--danger` limit rule. Hover shows a `--panel` readout above the bar.
 
 **Every chart ships its numbers twice.** A `role="img"` SVG with a summary label is a picture with
 a caption — the values themselves are unreachable to a screen reader, and "requests per day" names

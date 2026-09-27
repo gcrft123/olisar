@@ -59,6 +59,10 @@ hiddenimports = []
 # sqlite_vec.loadable_path(), so PyInstaller's import analysis never sees it.
 binaries += collect_dynamic_libs("sqlite_vec")
 datas += collect_data_files("sqlite_vec")
+# Time zone data for zoneinfo: Google's quota day runs on Pacific time (olisar.gemini.quota),
+# and a frozen build can't count on the system's zoneinfo.
+datas += collect_data_files("tzdata")
+hiddenimports += collect_submodules("tzdata")
 
 # quickjs (#2 packaging risk): the C-extension that runs sandboxed SDK extensions.
 # A failed bundle is surfaced by the sandbox self-check on /api/health.

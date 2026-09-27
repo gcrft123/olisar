@@ -109,7 +109,7 @@ The tabs on the left:
 - Members — what it has picked up about each person.
 - Extensions — optional packages of extra features.
 - API keys — your own Gemini and Cloudflare keys.
-- Usage — how much of the free model quota you're using.
+- Usage — how much of today's free model quota is left, and where it's going.
 
 The drawer at the bottom of the sidebar has [Settings](#console-settings) too: app-wide preferences that aren't
 tied to any one server. Tap it or drag it up to open it.
@@ -929,13 +929,15 @@ by reading members' live Discord presence and voice state **only when asked**. I
 
 Olisar runs entirely on **free-tier** models. For each kind of work there's a **fallback chain**: it
 starts at the preferred model and, if that one has hit its limit or is overloaded, it briefly parks it
-and drops to the next model in the list. Only if every model is unavailable does a reply fail — and then
-it says so in character rather than going quiet.
+and drops to the next model in the list. A model Google has turned away for the rest of the day is
+skipped until the daily reset at midnight Pacific. Only if every model is unavailable does a reply fail —
+and then it says so in character rather than going quiet.
 
 > [!NOTE]
 > **About the limits**
 > The "throttle" below is Olisar's own conservative per-minute cap to stay under the free tier, not an
-> official Google number. Real free-tier limits also include daily caps that vary by model.
+> official Google number. Each model also has a daily limit on the free tier, and the Usage
+> tab shows what's left of each.
 
 
 #### General (chat & reasoning)
@@ -2113,37 +2115,50 @@ A quick checklist before installing third-party code:
 
 ### Usage & rate limits
 
-The Usage tab shows how much of the free Gemini quota Olisar is actually spending, and how
-close it is to the limits. Everything here counts **every call this install makes, across all servers**
-— unlike the configuration tabs, it isn't filtered by the server switcher.
+The Usage tab shows how much of today's free Gemini allowance is left and where it's going.
+It counts **every call this install makes, across all servers**, so the server switcher doesn't filter it.
 
-#### Today's numbers
-The four tiles at the top are always **today**: requests, tokens, and the highest requests-per-minute and
-tokens-per-minute you've hit, each against the free tier's cap. The bars turn amber past 75% of a cap —
-that's the point where a busy minute starts falling back down the [model chain](#models).
+#### Left today
+Every chat model has its own daily limit, and Olisar falls back through them in order (see
+[Models](#models)), so what's left today is what's left on every model that can still answer. A model
+Google has stopped counts as zero, even if Olisar counted fewer requests than its limit.
 
-#### Requests over time
-The chart breaks requests down by model over a window you choose: **7 days**, **30 days**, or **Forever**.
-Longer windows group the points automatically — daily up to two months, then weekly, then monthly — and the
-dashed line is the daily request limit. The window also governs the **Tokens / min** and **By process**
-cards beside it; the tiles above stay on today.
-
-#### Requests / min (live)
-Per-model meters, refreshed every few seconds, showing the current minute against each model's cap; `cd`
-marks a model that's resting after hitting its limit. If the console loses contact with the bot, the dot
-turns amber and reads **not responding** — the numbers you're seeing are the last reading, not the current
-one.
-
-#### By model & by process
-**By model** is today's spend per model with its peak minute against its own cap. **By process** answers
-"what's using the quota?" — conversation, summaries, memory writes, embeddings, image descriptions and so
-on, as a share of the window's requests.
+**Replying with** names the first model that can take a request right now. Under both, a line projects
+today's pace: whether the allowance lasts until the reset, or roughly when it runs out. Memory search and
+web search have daily limits of their own, so they sit beside it rather than in the total.
 
 > [!NOTE]
-> **Limits reset daily**
-> Free-tier limits reset at **00:00 UTC**. When a model hits its limit Olisar rests it for two minutes and
-> drops to the next one in its chain, so heavy use shows up as slower, lower-tier replies rather than
-> failures. See [Models](#models).
+> **When the limits reset**
+> Google resets the daily limits at **midnight Pacific time**, and the page shows that time in your own
+> time zone. Google no longer publishes its free-tier daily limits, so the page starts from the last
+> published figures and switches to Google's own number the first time Google turns a model away for the day.
+
+
+#### Fallback chain
+One row per chat model, in the order Olisar tries them, with what's left of each model's daily limit.
+
+| Status | Means |
+| --- | --- |
+| Replying | The first model that can take a request |
+| Standby | Further down the chain, waiting its turn |
+| Used up | Out for the day. Olisar stops asking it until the reset |
+| Back in 0:48 | Resting after a per-minute limit. It comes back on its own |
+
+A hatched stretch on a used-up model's meter is quota Google says is gone that Olisar never used. The
+limit is shared by everything on the same Google Cloud project, so something else on that project used it.
+
+If the console loses contact with the bot, the **Live** badge turns amber and reads **Not responding**,
+and the figures dim: they're the last reading, not the current one.
+
+#### By feature
+Where the requests went today, or over the last 7 or 30 days: replies, summaries, member impressions, the
+glossary, image descriptions, and everything else, which lists its parts underneath. Memory search isn't
+counted here, since it has its own limit.
+
+#### Stats
+Requests and tokens today against the same time yesterday, the busiest minute against that model's
+per-minute limit, and the last time every model ran out. Under them, requests per day for the last two
+weeks against the chain's daily total, with the days it ran out in amber.
 
 ### Privacy & data
 
