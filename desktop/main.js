@@ -294,9 +294,12 @@ function rebuildTray() {
       }]
     : []
   const update = updater.getAvailableUpdate()
+  // A release this build can't install itself (no installer for it on the release) only
+  // offers the download, which is what the click does then.
+  const selfUpdate = updater.canSelfUpdate() && update && update.hasInstaller
   const updateItems = update
     ? [{
-        label: (updater.canSelfUpdate() ? 'Install update & restart' : 'Download update') + ` — v${update.version}`,
+        label: (selfUpdate ? 'Install update & restart' : 'Download update') + ` — v${update.version}`,
         click: () => updater.installUpdate(update),
       }]
     : [{ label: 'Check for Updates…', click: checkForUpdatesInteractive }]
