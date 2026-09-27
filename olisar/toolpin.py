@@ -274,6 +274,44 @@ async def gate(session: AsyncSession, guild_id: int, tool_name: str) -> str:
     return tool_name if tool_name in gated_tools() else ""
 
 
+# How much of a value the prompt quotes. Enough to tell one change from another; a prompt
+# is a Discord message, and a whole system prompt wouldn't fit in one.
+_QUOTE_CHARS = 200
+
+
+def _quote(value: object) -> str:
+    """``value`` on one line, cut short, in quotes, with Markdown defused so it reads as
+    the text it is rather than as formatting around the prompt's own words."""
+    text = " ".join(str(value if value is not None else "").split())
+    if len(text) > _QUOTE_CHARS:
+        text = f"{text[:_QUOTE_CHARS]}… ({len(text):,} chars)"
+    return '"' + re.sub(r"([\\*`~|>\[\]])", r"\\\1", text) + '"'
+
+
+def describe(tool: str, args: dict) -> str:
+    """What one gated call would do, in words, for the PIN prompt. The person typing the
+    PIN is the one authorizing it, and "run change_setting" doesn't say which setting or
+    what it becomes."""
+    args = args or {}
+    if tool == "change_setting":
+        key = _quote(args.get("key") or "")
+        value = args.get("value")
+        if str(args.get("find") or "").strip():
+            return f"replace {_quote(args['find'])} with {_quote(value)} in {key}"
+        if str(args.get("append") or "").strip().lower() in ("true", "1", "yes", "on"):
+            return f"add {_quote(value)} to the end of {key}"
+        if value in (None, ""):
+            return f"reset {key} to its default"
+        return f"change {key} to {_quote(value)}"
+    if tool == "settings_action":
+        out = _quote(args.get("action") or "")
+        if str(args.get("target") or "").strip():
+            out += f" on {_quote(args['target'])}"
+        extra = [f"{k} {_quote(args[k])}" for k in ("depth", "pages", "hours") if args.get(k)]
+        return ", ".join([out, *extra])
+    return ", ".join(f"{k} {_quote(v)}" for k, v in args.items()) or "no arguments"
+
+
 def denial_note(tool: str, outcome: str, *, attempts: int = MAX_ATTEMPTS) -> str:
     """What the model is told when a gated call wasn't confirmed."""
     head = _DENIALS.get(outcome, _DENIALS[REFUSED])

@@ -17,7 +17,8 @@ almost all of them:
 Who may call these isn't decided here. The writes sit behind the tool PIN on any server
 that keeps "self_edit" in its ``pin_actions`` (the default), and ``olisar.toolpin.gate``
 checks each call before it reaches this module. ``pin_actions`` itself is deliberately not
-one of the keys below: the setting that guards these tools can't be one they change.
+one of the keys below: the setting that guards these tools can't be one they change. Nor
+can the PIN prompt's wording, which is how the person typing the PIN sees what it approves.
 
 Every change is committed as soon as it's made, rather than with the rest of the reply.
 The model tells the user "done" from the result string, so the result has to be true
@@ -595,10 +596,17 @@ async def _audit(
     )
 
 
+# Replies chat can read but not change. The PIN prompt is how a person learns what they're
+# approving, so the tools it gates mustn't be able to reword it.
+_CONSOLE_ONLY_REPLIES = frozenset({"tool_pin_prompt"})
+
+
 async def _change_reply(ctx: ToolContext, key: str, value: str, find: str, append: bool) -> str:
     name = key[len(_REPLY):]
     if name not in DEFAULT_COMMAND_MESSAGES:
         return f"No reply called {key!r}. open_settings replies lists them."
+    if name in _CONSOLE_ONLY_REPLIES:
+        return f"{key} not changed: it can only be changed from the console."
     config = await ctx.session.get(GuildConfig, ctx.cfg_guild)
     if config is None:
         config = GuildConfig(guild_id=ctx.cfg_guild)

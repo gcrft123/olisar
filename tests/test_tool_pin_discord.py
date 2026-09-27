@@ -332,6 +332,37 @@ class PinFlowTests(unittest.IsolatedAsyncioTestCase):
         await self._enter(view, "4821", user=_User())
         await task
 
+    async def test_the_prompt_says_what_it_would_approve(self):
+        task = asyncio.create_task(
+            discord_pin.request_pin(
+                self.channel, tool="change_setting", guild_id=GUILD, user_id=99,
+                timeout=30.0, details='change "name" to "Rook"',
+            )
+        )
+        message, view = await self._posted(task)
+        self.assertIn('**change_setting** (change "name" to "Rook")', message.content)
+        await self._enter(view, "4821", user=_User())
+        await task
+
+    async def test_a_wording_without_the_details_still_shows_them(self):
+        """A server's own wording from before there was a {details} slot."""
+        async with self._scope() as session:
+            session.add(GuildConfig(
+                guild_id=GUILD, command_messages={"tool_pin_prompt": "key please for {tool}"},
+            ))
+        task = asyncio.create_task(
+            discord_pin.request_pin(
+                self.channel, tool="change_setting", guild_id=GUILD, user_id=99,
+                timeout=30.0, details='change "name" to "Rook"',
+            )
+        )
+        message, view = await self._posted(task)
+        self.assertEqual(
+            message.content, 'key please for change_setting\nchange "name" to "Rook"'
+        )
+        await self._enter(view, "4821", user=_User())
+        await task
+
     async def test_nowhere_to_post_is_not_an_approval(self):
         outcome = await discord_pin.request_pin(
             None, tool="react", guild_id=GUILD, user_id=99, timeout=5,

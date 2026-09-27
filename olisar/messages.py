@@ -45,9 +45,12 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
     # outcome lines to go with it — the prompt is deleted once it's answered, and what
     # happened is in Olisar's own reply rather than in a second system message. `{seconds}`
     # is the wait, for an operator who wants to put the deadline in their own wording.
+    # `{details}` is what the call would do (the key and its new value, say), because the
+    # PIN authorizes that and not the tool in general; a wording without it gets it added
+    # on a line of its own (bot/toolpin.py).
     "tool_pin_prompt": (
-        "I need a PIN before I can run **{tool}**. See Settings > Security in the "
-        "console or ask an admin if you don't have access."
+        "I need a PIN before I can run **{tool}** ({details}). See Settings > Security in "
+        "the console or ask an admin if you don't have access."
     ),
     "privacy": (
         "**How I handle your data**\n"
@@ -88,7 +91,7 @@ PLACEHOLDERS: dict[str, list[str]] = {
     # privacy text should know the slot exists and that it can render as nothing.
     "privacy": ["portal"],
     "privacy_portal": ["url"],
-    "tool_pin_prompt": ["tool", "seconds"],
+    "tool_pin_prompt": ["tool", "details", "seconds"],
 }
 
 
