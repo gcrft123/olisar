@@ -1270,6 +1270,24 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
   }
   const endHold = () => { clearHold(); setPhase((p) => (p === 'holding' ? 'idle' : p)) }
   const onPointerDown = () => { didPowerDown.current = false; if (online) startHold() }
+  // The keyboard holds the same way. Enter and Space on an online bot fired a click, which
+  // does nothing there, so powering down was out of reach without a pointer. Now the first
+  // keydown starts the hold (a held key repeats; the repeats are ignored and must not click)
+  // and letting go or leaving the button cancels it. Off or refused, the key still clicks.
+  const holdKey = (e: React.KeyboardEvent) => e.key === ' ' || e.key === 'Enter'
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!holdKey(e)) return
+    if (e.repeat) { e.preventDefault(); return }
+    didPowerDown.current = false
+    if (!online) return
+    e.preventDefault()
+    startHold()
+  }
+  const onKeyUp = (e: React.KeyboardEvent) => {
+    if (!holdKey(e) || phase !== 'holding') return
+    e.preventDefault()
+    endHold()
+  }
   const onClick = () => {
     if (didPowerDown.current) { didPowerDown.current = false; return }  // swallow the post-hold release
     if (offline) powerUp()
@@ -1292,6 +1310,9 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
         onPointerUp={endHold}
         onPointerLeave={endHold}
         onPointerCancel={endHold}
+        onKeyDown={onKeyDown}
+        onKeyUp={onKeyUp}
+        onBlur={endHold}
         onClick={onClick}
       >
         <svg className="power-ring" viewBox="0 0 44 44" aria-hidden="true">
