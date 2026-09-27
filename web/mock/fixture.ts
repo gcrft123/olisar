@@ -14,12 +14,16 @@ export type MockEnv = {
   fresh?: string
   /** MOCK_ROLE: '' | 'admin' — sign in as a Manage Server admin, not the operator. */
   role?: string
+  /** BOT_MOCK: '' | 'updating' | 'starting' | 'limited' | 'offline' | 'refused' — the bot's state
+   *  in the sidebar's drawer. Online by default. */
+  bot?: string
 }
 
 export function configureMock(env: MockEnv): void {
   SETUP = env.setup || ''
   FRESH = env.fresh || ''
   MOCK_ROLE = env.role || ''
+  BOT = env.bot || ''
   // A fresh install starts with every channel off and no keys saved.
   channels = MOCK_CHANNELS.map((c) => ({ ...c, mode: FRESH ? 'off' : c.mode }))
   keys = Object.fromEntries(Object.entries(MOCK_KEYS).map(([k, v]) => [k, { ...v, dashboard: FRESH ? false : v.dashboard }]))
@@ -134,7 +138,7 @@ function mockLive() {
   const jitter = (n: number) => Math.max(0, Math.round(n + (Math.sin(Date.now() / 3000) * 2)))
   return {
     ts: new Date().toISOString(),
-    exhausted: false,
+    exhausted: BOT === 'limited',
     models: [
       { model: 'gemini-flash-latest', rpm: jitter(7), cap: 10, cooldown: false },
       { model: 'gemini-flash-lite-latest', rpm: jitter(4), cap: 15, cooldown: false },
@@ -445,6 +449,20 @@ let SETUP = ''
 // the sidebar's bot card shows it.
 let FRESH = ''
 let MOCK_ROLE = ''
+// `BOT_MOCK` holds the bot in one state, so the sidebar's drawer can be seen in each. `updating`
+// is a VM part-way through moving onto a release, the one state a bot on this machine can't
+// get into.
+let BOT = ''
+const MOCK_OK = { available: true, running: true, ready: true, can_power: true }
+function mockBot() {
+  switch (BOT) {
+    case 'updating': return { ...MOCK_OK, updating: { to: '2.0' } }
+    case 'starting': return { ...MOCK_OK, ready: false }
+    case 'offline': return { ...MOCK_OK, running: false, ready: false }
+    case 'refused': return { ...MOCK_OK, running: false, ready: false, error: { kind: 'token' } }
+    default: return MOCK_OK   // 'limited' is online, with every model parked (see mockLive)
+  }
+}
 const FRESH_STATE = { reconnected: false }
 // `consoleErr`: the server bot deployed with a key Tailscale refused, until a new one is given.
 const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '', bootAt: 0 }
@@ -719,7 +737,7 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
       return send({ available: true, running: false, ready: false, can_power: true,
         error: { kind: 'intents', missing: ['message_content'], app_id: MOCK_APP_ID } })
     }
-    return send({ available: true, running: true, ready: true, can_power: true })
+    return send(mockBot())
   }
   // Running a beta, so switching to Stable shows the "you'll stay on it" line.
   if (url.startsWith('/api/settings/updates/channel')) {

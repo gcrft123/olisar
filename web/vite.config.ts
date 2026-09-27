@@ -5,11 +5,11 @@ import { configureMock, handle } from './mock/fixture'
 // ── Dev-only fixture ─────────────────────────────────────────────────────────
 // `USAGE_MOCK=1 npm run dev` serves canned API responses for the whole console from
 // mock/fixture.ts. Off by default (normal dev proxies to :8000, prod is unaffected).
-// SETUP_MOCK, FRESH_MOCK and MOCK_ROLE pick which state it starts in (see MockEnv).
+// SETUP_MOCK, FRESH_MOCK, MOCK_ROLE and BOT_MOCK pick which state it starts in (see MockEnv).
 const MOCK = !!process.env.USAGE_MOCK
 
 function mockPlugin(): Plugin {
-  configureMock({ setup: process.env.SETUP_MOCK, fresh: process.env.FRESH_MOCK, role: process.env.MOCK_ROLE })
+  configureMock({ setup: process.env.SETUP_MOCK, fresh: process.env.FRESH_MOCK, role: process.env.MOCK_ROLE, bot: process.env.BOT_MOCK })
   return {
     name: 'olisar-usage-mock',
     configureServer(server) {

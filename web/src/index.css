@@ -109,6 +109,9 @@
      under the cursor lands rather than settles. Kept separate because using it anywhere
      with travel makes the move look clipped. */
   --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+  /* The rail's foot sheet only. iOS's sheet curve: it leaves as fast as a drag lets go of it
+     and takes its time arriving, which is what makes a flick look thrown rather than played. */
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
   --dur-fast: 0.12s; --dur-mid: 0.16s; --dur-slow: 0.3s;
   /* Raster images only — avatars, the logo, server icons. User-supplied art on a #020203
      ground has no edge of its own: a dark avatar dissolves into the surface and a light one
@@ -193,13 +196,21 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.014em; }
 
 /* The rail scrolls on its own once it's taller than the window. It's pinned to the window's
    height, so whatever didn't fit used to hang below the window where no scroll could reach it:
-   with Get started open it's 970px at 110%, and the desktop window goes down to 620. */
+   with Get started open it's 970px at 110%, and the desktop window goes down to 620.
+   The scrolling is .sidebar-scroll's, and it stops above the foot sheet's closed height, so
+   the sheet stays at the bottom however far the rail is scrolled. */
 .sidebar {
+  --foot-peek: 49px;   /* the closed sheet: its head plus its top border */
   border-right: 1px solid var(--border);
   background: var(--bg-sidebar);
-  padding: 18px 14px;
+  display: flex; flex-direction: column;
+  padding-bottom: calc(var(--foot-peek) + env(safe-area-inset-bottom));
+  position: sticky; top: 0; height: var(--vh);
+}
+.sidebar-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 18px 14px 12px;
   display: flex; flex-direction: column; gap: 2px;
-  position: sticky; top: 0; height: var(--vh); overflow-y: auto;
 }
 
 /* The rail is a fixed 244px track, which at 375px leaves 43px of usable content — so below
@@ -285,8 +296,149 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 .nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 .nav-item .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; }
 
-.sidebar .spacer { flex: 1; }
-.sidebar-foot { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
+/* ── Foot sheet (bot power, web link, account) ───────────────────────────── */
+/* A layer over the whole rail, so the sheet can rise over the nav and the scrim can dim it.
+   Pointers pass through it everywhere but the sheet and an open scrim. It clips, because the
+   closed sheet hangs below the rail; `clip` rather than `hidden`, since a `hidden` box is
+   still a scroll container that focus or scrollIntoView could scroll the sheet up in. It
+   stops above the home indicator on a phone. */
+.foot-layer {
+  position: absolute; inset: 0 0 env(safe-area-inset-bottom);
+  overflow: clip; pointer-events: none;
+}
+.foot-scrim {
+  position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45);
+  opacity: 0; transition: opacity 0.42s var(--ease-sheet);
+}
+.foot-layer.open .foot-scrim { opacity: 1; pointer-events: auto; }
+/* Inset from the rail's edges so it reads as a sheet laid over it, and its body lines up
+   with the nav column above: 8 + the 1px border + the body's 5 is the rail's 14. Closed,
+   only --foot-peek of it is above the rail's bottom edge. */
+.foot-sheet {
+  position: absolute; left: 8px; right: 8px; bottom: 0; isolation: isolate;
+  max-height: calc(100% - 40px);
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border); border-bottom: 0;
+  border-radius: var(--radius) var(--radius) 0 0;
+  pointer-events: auto;
+  transform: translateY(calc(100% - var(--foot-peek)));
+  transition: transform 0.42s var(--ease-sheet), box-shadow 0.42s var(--ease-sheet);
+}
+.foot-layer.open .foot-sheet { transform: none; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.5); }
+/* Dragged up past open, the sheet lifts off the bottom edge. This fills the gap in its own
+   color, so it reads as stretching rather than floating. */
+.foot-sheet::after {
+  content: ''; position: absolute; top: 100%; left: -1px; right: -1px; height: 40px;
+  background: var(--panel); border: 1px solid var(--border); border-block: 0;
+}
+/* While a finger has it, the sheet follows the finger and nothing eases. */
+.foot-layer[data-dragging] .foot-sheet,
+.foot-layer[data-dragging] .foot-scrim,
+.foot-layer[data-dragging] .foot-status { transition: none; }
+.foot-layer[data-dragging] .foot-scrim { opacity: var(--foot-open); }
+/* The row is gone by a third of the way up and the card starts at a quarter, so the two
+   never sit on top of each other at half strength. */
+.foot-layer[data-dragging] .foot-status { opacity: calc(1 - var(--foot-open) * 3); }
+
+/* The grabber, and under it the bot's status: a bolt in the nav's icon column, "Bot" in its
+   label column, and the badge at the end of the row. */
+.foot-head {
+  flex: none; width: 100%; height: 48px; padding: 7px 15px 0;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 7px;
+  background: transparent; border: 0; border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+  color: var(--text-2); font-weight: 500; font-size: 13px;
+  touch-action: none; user-select: none;
+}
+.foot-head:hover { background: transparent; }
+.foot-head:active:not(:disabled) { transform: none; }
+.foot-head:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.foot-layer[data-dragging] .foot-head { cursor: grabbing; }
+.foot-grabber {
+  align-self: center; width: 36px; height: 5px; border-radius: 3px; background: var(--border-strong);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.foot-head:hover .foot-grabber, .foot-head:focus-visible .foot-grabber { background: var(--text-3); }
+/* Open, the card covers all of the head but the grabber, which would cut the ring off
+   halfway down; the grabber takes it instead. */
+.foot-layer.open .foot-head:focus-visible { box-shadow: none; }
+.foot-layer.open .foot-head:focus-visible .foot-grabber { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+/* Open, the bot's card takes this row's place (see .foot-body). */
+.foot-status {
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+  transition: opacity var(--dur-mid) var(--ease-out) var(--dur-fast);
+}
+.foot-layer.open .foot-status { opacity: 0; transition: opacity var(--dur-fast) var(--ease-out); }
+.foot-status .ic { display: grid; place-items: center; width: 19px; height: 19px; flex: none; color: var(--text-3); }
+.foot-status .badge { margin-left: auto; }
+.foot-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The closed sheet's edge in the badge's color, thrown faintly onto the rail above it: a halo
+   and a tint (::before), and a border that's brightest along the top and fades down the sides
+   (::after, a masked gradient, since border-image ignores the radius). Behind the head's
+   content, and gone once the sheet opens. The outer span shows and hides it; the inner one
+   carries the breathing, so the two opacities don't fight. */
+.foot-glow {
+  position: absolute; inset: -1px -1px 0; z-index: -1; border-radius: inherit;
+  pointer-events: none; opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+.foot-sheet[data-glow] .foot-glow { opacity: 1; }
+.foot-layer.open .foot-glow { opacity: 0; }
+.foot-layer[data-dragging] .foot-glow { opacity: calc(1 - var(--foot-open) * 3); transition: none; }
+.foot-sheet[data-glow="success"] { --glow: var(--ok); }
+.foot-sheet[data-glow="info"] { --glow: var(--info); }
+.foot-sheet[data-glow="warning"] { --glow: var(--warn); }
+.foot-sheet[data-glow="danger"] { --glow: var(--danger); }
+.foot-glow-in { position: absolute; inset: 0; border-radius: inherit; }
+.foot-glow-in::before, .foot-glow-in::after { content: ''; position: absolute; inset: 0; border-radius: inherit; }
+.foot-glow-in::before {
+  background: linear-gradient(color-mix(in srgb, var(--glow) 5%, transparent), transparent var(--foot-peek));
+  box-shadow: 0 -10px 22px -12px color-mix(in srgb, var(--glow) 45%, transparent);
+}
+.foot-glow-in::after {
+  padding: 1px;
+  /* Faded out by the bottom of what shows while closed, not the bottom of the whole sheet. */
+  background: linear-gradient(color-mix(in srgb, var(--glow) 42%, var(--border)), var(--border) var(--foot-peek));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+/* Starting or stopping: a light slides back and forth along the top edge. An oscillation
+   eases at both ends, so this is ease-in-out rather than the file's --ease-out. */
+.foot-glow::before {
+  content: ''; position: absolute; top: -8px; left: 0; width: 40%; height: 16px;
+  border-radius: 50%; opacity: 0;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 40%, transparent), transparent);
+}
+.foot-sheet[data-glow-motion="slide"] .foot-glow::before {
+  opacity: 1; animation: foot-glow-slide 1.6s ease-in-out infinite alternate;
+}
+/* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
+.foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
+/* Its center runs from 15% to 85% of the edge, clear of the rounded corners. */
+@keyframes foot-glow-slide { from { transform: translateX(-12.5%); } to { transform: translateX(162.5%); } }
+@keyframes foot-glow-breathe { 50% { opacity: 0.3; } }
+
+/* Pulled up under the grabber, over the status row: opening cross-fades the row into the
+   bot's card in the same place, the way a mini-player turns into the full one. Closed, it's
+   inert, so a click on the row reaches the head beneath it. */
+.foot-body {
+  min-height: 0; overflow-y: auto; margin-top: -26px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 0 5px 14px;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+/* Whichever is leaving goes first and fast; the one arriving waits for it. */
+.foot-layer.open .foot-body { transition: opacity var(--dur-slow) var(--ease-out) var(--dur-fast); }
+.foot-layer:not(.open) .foot-body { opacity: 0; }
+.foot-layer[data-dragging] .foot-body { opacity: calc((var(--foot-open) - 0.25) * 2); transition: none; }
+@media (prefers-reduced-motion: reduce) {
+  /* Nothing travels: the sheet is where it's going at once, and the cross-fade is all
+     that moves. The sliding light becomes a slow breath, and the breath slows. */
+  .foot-sheet { transition: none; }
+  .foot-sheet[data-glow-motion="slide"] .foot-glow::before { animation: none; opacity: 0; }
+  .foot-sheet[data-glow-motion] .foot-glow-in { animation: foot-glow-breathe 4.8s ease-in-out infinite; }
+  .foot-sheet[data-glow-motion="steady"] .foot-glow-in { animation: none; }
+}
 .who { font-size: 12px; color: var(--text-2); padding: 2px 10px; line-height: 1.45; }
 .who b { color: var(--text); font-weight: 600; }
 .foot-row { display: flex; align-items: center; gap: 8px; }
@@ -400,9 +552,10 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 
 .botpower.stopping .power-btn { color: var(--danger); border-color: var(--danger); animation: bp-shutdown 0.9s ease-out; }
 
-.botpower.starting .power-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); }
-.botpower.starting .power-ring { animation: bp-spin 0.9s linear infinite; }
-.botpower.starting .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
+/* Updating looks like starting: the bot is on its way back, and there's nothing to press. */
+.botpower.starting .power-btn, .botpower.updating .power-btn { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); }
+.botpower.starting .power-ring, .botpower.updating .power-ring { animation: bp-spin 0.9s linear infinite; }
+.botpower.starting .power-ring circle, .botpower.updating .power-ring circle { opacity: 1; stroke: var(--accent); stroke-dasharray: 28 92; stroke-dashoffset: 0; transition: none; }
 
 /* Connected but every chat model is parked: up, and not answering. Amber, because it
    is neither healthy nor broken, and it clears on its own. */
@@ -422,7 +575,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 @keyframes bp-shutdown { 0% { box-shadow: 0 0 0 3px var(--danger-soft); } 45% { box-shadow: 0 0 0 9px var(--danger-soft); } 100% { box-shadow: 0 0 0 0 transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .botpower.stopping .power-btn { animation: none; }   /* a one-shot flourish; nothing is lost */
-  .botpower.starting .power-ring { animation-duration: 2.4s; }  /* still says "starting" */
+  .botpower.starting .power-ring, .botpower.updating .power-ring { animation-duration: 2.4s; }  /* still says "starting" */
 }
 
 /* width:100% is load-bearing: .main is a grid item with `margin: 0 auto`, and auto
@@ -479,13 +632,16 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   .sidebar {
     position: fixed; inset: 0 auto 0 0; z-index: 130;
     width: min(292px, calc(var(--vw) * 0.86)); height: var(--dvh); max-height: none;
-    padding-top: max(18px, env(safe-area-inset-top));
-    padding-left: max(14px, env(safe-area-inset-left));
     visibility: hidden;
     transform: translateX(-100%); box-shadow: var(--shadow-modal);
     transition: transform var(--dur-slow) var(--ease-out), visibility var(--dur-slow);
   }
   .sidebar.open { transform: none; visibility: visible; }
+  .sidebar-scroll {
+    padding-top: max(18px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+  }
+  .foot-sheet { left: max(8px, env(safe-area-inset-left)); }
   .nav-backdrop {
     position: fixed; inset: 0; z-index: 120; display: block;
     background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(2px);

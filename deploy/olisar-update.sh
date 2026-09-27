@@ -140,6 +140,26 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
+# ── tell the console ─────────────────────────────────────────────────────────
+# The running container keeps serving the console through the pull, which is the slow part.
+# This file in its data directory is how the console knows to say "Updating…" rather than
+# carry on as if nothing were happening (olisar/updates.py, `updating`). Only a running
+# container can be told. The trap takes the file away on every way out, from whichever
+# container is up by then: the new one, or the one rolled back to. If none is, the file stays
+# behind, and the backend ignores one that names its own version or has gone stale.
+UPDATING_FILE="/var/lib/olisar/updating.json"
+mark_updating() {
+  case "$TAG" in *[!A-Za-z0-9._-]*) return 0 ;; esac
+  is_running || return 0
+  $DC exec -T olisar sh -c "printf '{\"tag\": \"%s\", \"at\": \"%s\"}\n' '$TAG' '$(date -u +%Y-%m-%dT%H:%M:%SZ)' > $UPDATING_FILE" >/dev/null 2>&1 || true
+}
+clear_updating() {
+  is_running || return 0
+  $DC exec -T olisar rm -f "$UPDATING_FILE" >/dev/null 2>&1 || true
+}
+mark_updating
+trap clear_updating EXIT
+
 # ── pull and resolve the tag to an immutable digest ──────────────────────────
 if ! PULL_OUT="$($SUDO docker pull "${IMAGE}:${TAG}" 2>&1)"; then
   emit false pull-failed "docker pull ${IMAGE}:${TAG} failed"

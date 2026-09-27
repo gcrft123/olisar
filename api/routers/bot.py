@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.auth.deps import require_admin
-from olisar import discord_app, runtime_config
+from olisar import discord_app, runtime_config, updates
 from olisar.db.models import AdminUser
 
 log = logging.getLogger("olisar.api.bot")
@@ -42,6 +42,8 @@ def _state(mgr) -> dict:
         "ready": bool(bot is not None and bot.is_ready()),
         # Why it stopped, if it did so on its own: {kind: intents | token | other, ...}.
         "error": mgr.error if mgr is not None else None,
+        # {to: "2.1"} while the VM's update script is moving this install onto a release.
+        "updating": updates.updating(),
     }
 
 
