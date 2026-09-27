@@ -216,7 +216,9 @@ def choose_app_dir(
       3. an install of this same application — replace it (a redeploy, or a retry of one
          that failed partway, or one set up before installs were marked)
       4. ``~/olisar`` if nothing is there — a VM with one bot looks exactly as it always has
-      5. otherwise this bot's own ``~/olisar-<id>``
+      5. otherwise this bot's own ``~/olisar-<id>``, with a random suffix if another bot is
+         already there: every bot from before one app could run several has the profile id
+         "default", on every machine (the one random step, so this is pure apart from it)
     """
     if owner:
         for install in installs:
@@ -230,9 +232,14 @@ def choose_app_dir(
         for install in installs:
             if install.get("client_id") == client_id:
                 return install["dir"]
-    if not any(i.get("dir") == APP_DIR for i in installs):
+    taken = {i.get("dir") for i in installs}
+    if APP_DIR not in taken:
         return APP_DIR
-    return own
+    # Whatever is in ``own`` would have matched above if it were this bot's.
+    candidate = own
+    while candidate in taken:
+        candidate = f"{own[:len(APP_DIR) + 1 + 28]}{secrets.token_hex(2)}"
+    return candidate
 
 
 def distinct_node(node: str, taken: set[str], app_dir: str) -> str:
