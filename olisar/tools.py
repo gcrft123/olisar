@@ -71,13 +71,23 @@ class DiscordActions(Protocol):
     async def acknowledge(self, emoji: str) -> str: ...
 
 
-# The lookup tools, as opposed to the ones that change something. Two rules lean on the
-# distinction: the pipeline's per-reply call cap (a model left alone re-queries these with
-# reworded arguments until the iteration budget is gone), and `acknowledge` (a reply that
-# searched for something owes an answer, so silence is refused once one of these has run).
+# The search tools the pipeline caps per reply: a model left alone re-queries these with
+# reworded arguments until the iteration budget is gone.
 LOOKUP_TOOLS = frozenset(
     {"search_messages", "recall_memory", "query_knowledge", "web_search"}
 )
+
+# The tools that change something and report only whether they did. These are the only
+# ones that may come before a silent `acknowledge`, since all that's left to say after one
+# is "done". Anything else (a search, a catch-up, a presence check, the settings read, any
+# extension's tool) returns something the person asked to hear, so silence after it is
+# refused. A list of what's allowed rather than of what isn't, so a new tool starts out
+# owing an answer.
+ACTION_TOOLS = frozenset({
+    "send_dm", "send_to_channel", "remember", "remember_server_fact", "add_reminder",
+    "cancel_reminder", "set_status", "react", "generate_image", "set_dm_indexing",
+    "change_setting", "settings_action",
+})
 
 
 @dataclass
@@ -104,7 +114,7 @@ class ToolContext:
     # action, so "rename yourself and rewrite your bio" asks once rather than per call.
     pin_approved: set = field(default_factory=set)
     # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
-    # silence after a lookup; nothing else depends on the ordering yet.
+    # silence after anything but an action; nothing else depends on the ordering yet.
     tools_run: list = field(default_factory=list)
     # The emoji Olisar reacted with instead of replying — set only once the reaction has
     # actually landed. Non-empty means this turn is over and nothing gets sent, so it must
@@ -541,7 +551,8 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     identical from the channel — Olisar read the message and did nothing:
 
     * nothing to react to (the ``/ask`` path builds ``BotActions``, which has no message);
-    * a lookup ran this turn, so a reaction would be the answer going missing;
+    * something other than an action ran this turn (``ACTION_TOOLS``), so a reaction would
+      be the answer going missing;
     * the reaction itself didn't land, which is the one case where silence would also hide
       the reason it didn't.
 
@@ -549,7 +560,7 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     """
     if ctx.actions is None:
         return _ACK_NO_SURFACE
-    used = [name for name in ctx.tools_run if name in LOOKUP_TOOLS]
+    used = [n for n in ctx.tools_run if n not in ACTION_TOOLS and n != "acknowledge"]
     if used:
         return _ACK_AFTER_LOOKUP.format(tools=", ".join(dict.fromkeys(used)))
     picked = first_emoji(emoji) or DEFAULT_ACK_EMOJI

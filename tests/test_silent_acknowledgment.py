@@ -33,6 +33,7 @@ from olisar.memory.writer import ACK_MARKER
 from olisar.pipeline import _ALL_TOOL_KEYS, _CORE_TOOL_KEYS, _run_tool_loop, render_tools_note
 from olisar.tools import (
     ACK_OK,
+    ACTION_TOOLS,
     DEFAULT_ACK_EMOJI,
     LOOKUP_TOOLS,
     SANDBOX_TOOL_NAMES,
@@ -160,6 +161,25 @@ class NotAfterALookup(unittest.TestCase):
         ctx = _ctx(_actions(f"{ACK_OK} 👍"), tools_run=["send_dm", "remember"])
         asyncio.run(_acknowledge("👍", ctx))
         self.assertEqual(ctx.silent, "👍")
+
+    def test_everything_but_an_action_blocks_silence(self):
+        """The list used to name four search tools, so a catch-up, a presence check, the
+        settings read or any extension's tool could end in a reaction and no answer."""
+        for tool in ("catchup", "list_reminders", "get_user_status", "who_is_in_voice",
+                     "open_settings", "roll_dice"):
+            with self.subTest(tool=tool):
+                ctx = _ctx(_actions(f"{ACK_OK} 👍"), tools_run=["send_dm", tool, "acknowledge"])
+                self.assertIn(tool, asyncio.run(_acknowledge("👍", ctx)))
+                self.assertEqual(ctx.silent, "")
+
+    def test_the_actions_are_real_tools(self):
+        """A misspelt name here would quietly refuse silence after that action."""
+        from olisar import self_settings, tools
+
+        declared = {d.name for d in tools._DECLARATIONS}
+        declared |= {d.name for d in self_settings.WRITE_DECLARATIONS}
+        self.assertLessEqual(ACTION_TOOLS, declared)
+        self.assertFalse(ACTION_TOOLS & LOOKUP_TOOLS)
 
     def test_the_reaction_is_never_attempted_after_a_lookup(self):
         actions = _actions(f"{ACK_OK} 👍")
