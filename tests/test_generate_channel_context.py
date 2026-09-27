@@ -20,13 +20,15 @@ import unittest
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from bot.cogs import sdk_events
 from olisar.context import CONTEXT_NOTE, TASK_HEADING
 from olisar.db.models import (
     Base,
+    ExtensionState,
     Guild,
     GuildChannelInfo,
     GuildFact,
@@ -34,6 +36,7 @@ from olisar.db.models import (
     Persona,
     utcnow,
 )
+from olisar.extensions import sdk_builtins
 from olisar.sandbox.capabilities import Invocation, PermissionError_, dispatch
 
 GUILD, OTHER_GUILD = 1, 2
@@ -82,6 +85,7 @@ class _Case(unittest.IsolatedAsyncioTestCase):
         self.scope = scope
         self.gemini = _Gemini()
         self._patches = [
+            patch.object(sdk_events, "session_scope", scope),
             patch("olisar.gemini.client.get_gemini", return_value=self.gemini),
         ]
         for p in self._patches:
@@ -133,6 +137,45 @@ class _Case(unittest.IsolatedAsyncioTestCase):
                 session=session, trusted=trusted,
             )
             return await dispatch(inv, "generate", "run", [opts])
+
+
+class WelcomeUsesTheChannelTest(_Case):
+    """The real welcome.js, seeded the way the app seeds it, fired by a member join."""
+
+    async def test_the_greeting_is_written_from_the_welcome_channel(self) -> None:
+        async with self.scope() as s:
+            await sdk_builtins.seed(s)
+            s.add(ExtensionState(
+                guild_id=GUILD, key="welcome", enabled=True,
+                settings={"channel_id": str(WELCOME), "prompt": "warmly welcome {user}"},
+            ))
+        channel = SimpleNamespace(send=AsyncMock())
+        guild = SimpleNamespace(
+            id=GUILD, get_channel=lambda cid: channel if cid == WELCOME else None,
+        )
+
+        await sdk_events._dispatch(guild, "memberJoin", {
+            "event": "memberJoin", "guildId": str(GUILD),
+            "member": {
+                "id": "900", "displayName": "rook", "username": "rook_",
+                "mention": "<@900>", "bot": False,
+            },
+        })
+
+        self.assertEqual(len(self.gemini.calls), 1)
+        system, lines = self.gemini.system, self.gemini.lines
+        self.assertIn("You're talking in #welcome.", system)
+        self.assertIn('"say hi to whoever just landed"', system)
+        self.assertIn("write something for #welcome", system)
+        self.assertIn(CONTEXT_NOTE, system)
+        self.assertIn("Friday ops night starts 8pm UTC", system)
+        self.assertEqual(lines[0], ("user", "kaz: anyone bringing a hauler friday?"))
+        self.assertEqual(lines[1], ("model", "bringing the caterpillar"))
+        role, task = lines[-1]
+        self.assertEqual(role, "user")
+        self.assertTrue(task.startswith(TASK_HEADING + "\n"))
+        self.assertIn("warmly welcome rook", task)
+        channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
 
 
 class ChannelPromptTest(_Case):
