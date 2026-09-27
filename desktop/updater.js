@@ -20,6 +20,7 @@ const https = require('https')
 const fs = require('fs')
 const path = require('path')
 const os = require('os')
+const crypto = require('crypto')
 const { spawn, execFile } = require('child_process')
 const { app, dialog, shell, Notification } = require('electron')
 
@@ -163,6 +164,10 @@ async function fetchUpdate() {
     downloadUrl: asset ? asset.browser_download_url : (rel.html_url || RELEASES_PAGE),
     pageUrl: rel.html_url || RELEASES_PAGE,
     hasInstaller: !!asset,
+    // What the installer should be, per GitHub: its size, and "sha256:<hex>" (assets uploaded
+    // before GitHub started recording digests have none). The download is checked against both.
+    size: (asset && asset.size) || 0,
+    digest: (asset && asset.digest) || null,
   }
 }
 
@@ -374,16 +379,42 @@ function downloadFile(url, dest, onProgress, signal, redirects = 0) {
   })
 }
 
+function sha256(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256')
+    fs.createReadStream(file)
+      .on('error', reject)
+      .on('data', (c) => hash.update(c))
+      .on('end', () => resolve(hash.digest('hex')))
+  })
+}
+
+// Content-Length only catches a download cut short when the server sends one. A response that
+// ends by closing the connection has none, so cut off early it looked finished, and a file
+// damaged on the way looked fine too. So the file has to be the one the release lists: the
+// same size, and the same SHA-256 when GitHub has one. Anything else is deleted.
+async function verifyDownload(file, { size, digest }) {
+  const corrupted = (why) => {
+    try { fs.rmSync(file, { force: true }) } catch { /* ignore */ }
+    return plain(`The download was corrupted (${why}).`)
+  }
+  const got = fs.statSync(file).size
+  if (size && got !== size) throw corrupted(`${got} bytes of ${size}`)
+  const want = /^sha256:([0-9a-f]{64})$/i.exec(String(digest || ''))
+  if (want && (await sha256(file)) !== want[1].toLowerCase()) throw corrupted("its SHA-256 doesn't match the release's")
+}
+
 // What a called-off install throws, and the only error installUpdate reports as a cancel.
 const cancelled = () => Object.assign(new Error('The update was cancelled.'), { name: 'AbortError' })
 
-// The download step, the one the screen's Cancel reaches. Once the last chunk is in, the
-// request is over and aborting it does nothing, so a Cancel pressed at 100% used to be ignored
-// and the install carried on. It's checked here when the download settles instead, and wins
-// over however the download ended: the install stops either way.
+// The download step, the one the screen's Cancel reaches: fetching the installer and checking
+// it. Once the last chunk is in, the request is over and aborting it does nothing, so a Cancel
+// pressed at 100% used to be ignored and the install carried on. It's checked here when the
+// step settles instead, and wins over however the step ended: the install stops either way.
 async function download(update, dest, onDownload, signal) {
   try {
     await downloadFile(update.downloadUrl, dest, onDownload, signal)
+    await verifyDownload(dest, update)
   } catch (err) {
     if (!signal.aborted) throw err
   } finally {
@@ -537,4 +568,4 @@ module.exports = {
   getProgress, isCommitted, cancelInstall, dismissFailure,
 }
 // Exported for unit tests only.
-module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile, describeFailure }
+module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile, verifyDownload, describeFailure }
