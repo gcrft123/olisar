@@ -116,6 +116,15 @@ class ToolContext:
     # Every tool name this reply has called, in order. `acknowledge` reads it to refuse
     # silence after anything but an action; nothing else depends on the ordering yet.
     tools_run: list = field(default_factory=list)
+    # The calls the model made in the turn now being run (olisar.pipeline._run_tool_loop).
+    # They all run before anyone checks for silence, so `acknowledge` won't share one.
+    batch: list = field(default_factory=list)
+    # Calls this reply that didn't go through: an action that reported a failure or
+    # errored, or any call the PIN gate refused. Silence after one would hide it.
+    failed: list = field(default_factory=list)
+    # How many audited changes the settings tools have made. A settings write that didn't
+    # add one didn't change anything (execute_tool reads it to tell success from refusal).
+    settings_writes: int = 0
     # The emoji Olisar reacted with instead of replying — set only once the reaction has
     # actually landed. Non-empty means this turn is over and nothing gets sent, so it must
     # never be set optimistically: a failed reaction that still silenced the reply would be
@@ -419,8 +428,9 @@ _ACK_DECLARATIONS = [
             "write is a confirmation: 'done', 'got it', 'sent', 'noted', 'written down', "
             "\"i'll remember that\". Call this instead of writing one. Also use it when "
             "their message needs no answer at all: 'thanks', 'sounds good', an FYI. It ENDS "
-            "the reply, so call it last and write nothing alongside it. Never use it to "
-            "duck a question, and never to avoid saying that something failed."
+            "the reply, so call it last, on its own once the other tools' results are back, "
+            "and write nothing alongside it. Never use it to duck a question, and never to "
+            "avoid saying that something failed."
         ),
         parameters=_obj(
             {"emoji": _str("one emoji to react with, e.g. 👍 or 🔥 — defaults to 👍")}, []
@@ -508,6 +518,27 @@ def _summarize(text: str, limit: int = 200) -> str:
 # How ``DiscordActions.set_status`` opens a success, so the status can be recorded only
 # once Discord took it.
 STATUS_OK = "status set to:"
+# How the other Discord actions open a success (bot/actions.py). Anything else they return
+# is prose about why it didn't happen.
+DM_OK = "sent a DM to"
+POSTED_OK = "Posted your message in"
+REACT_OK = "reacted with"
+
+# How each action's result opens when it went through (the settings writes are judged by
+# whether they wrote an audit row instead; see execute_tool). Any other result, like a
+# refusal or an error, is a failure, and `acknowledge` won't let silence follow one.
+_ACTION_DONE: dict[str, tuple[str, ...]] = {
+    "send_dm": (DM_OK,),
+    "send_to_channel": (POSTED_OK,),
+    "react": (REACT_OK,),
+    "set_status": (STATUS_OK,),
+    "generate_image": ("Posted the image",),
+    "remember": ("Saved",),
+    "remember_server_fact": ("Added to the server glossary", "Already in the glossary"),
+    "add_reminder": ("Reminder set",),
+    "cancel_reminder": ("Cancelled reminder",),
+    "set_dm_indexing": ("Okay", "Done"),
+}
 
 
 async def _note_activity(ctx: ToolContext, **row) -> None:
@@ -542,15 +573,26 @@ _ACK_AFTER_LOOKUP = (
     "You looked something up this turn ({tools}), so a reaction isn't an answer — you owe "
     "them what you found, or a plain admission that you found nothing. Reply normally."
 )
+_ACK_IN_BATCH = (
+    "Not reacted: acknowledge has to be a call on its own, and you made it alongside "
+    "{tools}, whose results you hadn't seen yet. Read them and answer in words."
+)
+_ACK_AFTER_FAILURE = (
+    "Not reacted: {tools} didn't go through this turn, and a reaction would hide that. "
+    "Answer in words and say plainly what didn't work."
+)
 
 
 async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     """React to the message being answered and mark the turn finished, or explain why not.
 
-    Three ways this refuses, and all three exist because the failure they prevent looks
+    Five ways this refuses, and all of them exist because the failure they prevent looks
     identical from the channel — Olisar read the message and did nothing:
 
     * nothing to react to (the ``/ask`` path builds ``BotActions``, which has no message);
+    * it shares a model turn with other calls, which all run before the reply is checked
+      for silence, so a DM that failed or a search result would go unsaid;
+    * an action didn't go through earlier in the reply (``ctx.failed``);
     * something other than an action ran this turn (``ACTION_TOOLS``), so a reaction would
       be the answer going missing;
     * the reaction itself didn't land, which is the one case where silence would also hide
@@ -560,6 +602,11 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
     """
     if ctx.actions is None:
         return _ACK_NO_SURFACE
+    if len(ctx.batch) > 1:
+        others = [n for n in ctx.batch if n != "acknowledge"] or ["another acknowledge"]
+        return _ACK_IN_BATCH.format(tools=", ".join(dict.fromkeys(others)))
+    if ctx.failed:
+        return _ACK_AFTER_FAILURE.format(tools=", ".join(dict.fromkeys(ctx.failed)))
     used = [n for n in ctx.tools_run if n not in ACTION_TOOLS and n != "acknowledge"]
     if used:
         return _ACK_AFTER_LOOKUP.format(tools=", ".join(dict.fromkeys(used)))
@@ -943,11 +990,24 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
         outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, args, ctx)
         if outcome != toolpin.APPROVED:
             ctx.pin_denied[action] = outcome
+            ctx.failed.append(name)
             log.info("tool %s refused by the PIN gate (%s)", name, outcome)
             return toolpin.denial_note(name, outcome)
         ctx.pin_approved.add(action)
     # Recorded after the PIN gate, so a call that never ran doesn't count as one that did.
     ctx.tools_run.append(name)
+    writes = ctx.settings_writes
     result = await _dispatch(name, args, ctx)
     log.info("tool result: %s -> %s", name, _summarize(result))
+    if name in ACTION_TOOLS and not _went_through(name, result, ctx.settings_writes > writes):
+        ctx.failed.append(name)
     return result
+
+
+def _went_through(name: str, result: str, wrote_settings: bool) -> bool:
+    """Whether an action tool's call did what it was asked. The settings writes add an
+    audit row for every change they make, so that's their test; the rest report success
+    in a fixed form (``_ACTION_DONE``)."""
+    if name in self_settings.TOOL_NAMES:
+        return wrote_settings
+    return str(result or "").startswith(_ACTION_DONE.get(name, ()))
