@@ -772,8 +772,14 @@ async def _kb_remove(ctx: ToolContext, target: str, args: dict) -> str:
     if isinstance(src, str):
         return src
     sid = src.id
+    # What an operator needs to add it back; there's no console Undo for a chat removal.
+    before = {
+        "uri": src.uri, "type": src.type.value, "title": src.title,
+        "crawl_depth": src.crawl_depth, "max_pages": src.max_pages,
+        "refresh_hours": src.refresh_interval_hours,
+    }
     removed = await sources.delete_source(ctx.session, src)
-    await _audit(ctx, "delete_kb_source", "kb_source", sid)
+    await _audit(ctx, "delete_kb_source", "kb_source", sid, before=before)
     await ctx.session.commit()
     return f"Removed source #{sid} and the {removed} passages read from it."
 
@@ -845,8 +851,9 @@ async def _glossary_delete(ctx: ToolContext, target: str, args: dict) -> str:
         if row is None or row.guild_id != ctx.cfg_guild:
             missing.append(fid)
             continue
+        before = {"subject": row.subject, "fact": row.fact}
         await ctx.session.delete(row)
-        await _audit(ctx, "delete_guild_fact", "guild_fact", fid)
+        await _audit(ctx, "delete_guild_fact", "guild_fact", fid, before=before)
         gone.append(fid)
     await ctx.session.commit()
     parts = []
@@ -899,10 +906,14 @@ async def _rebuild_impression(ctx: ToolContext, target: str, args: dict) -> str:
         names = ", ".join(f"{p.display_name} ({p.user_id})" for p in hits[:8])
         return f"Several members match: {names}. Call again with the id."
     member = hits[0]
+    previous = member.persona_summary  # the rebuild writes over it
     result = await build_persona_now(ctx.session, guild_id=ctx.cfg_guild, user_id=member.user_id)
     if not result.get("ok"):
         return result.get("error") or "Couldn't rebuild it."
-    await _audit(ctx, "build_impression", "user_profile", member.user_id)
+    await _audit(
+        ctx, "build_impression", "user_profile", member.user_id,
+        before={"impression": previous},
+    )
     await ctx.session.commit()
     # The impression itself stays out of the result: it's a private profile, and this reply
     # is going to a channel.

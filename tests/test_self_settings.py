@@ -533,6 +533,26 @@ class KnowledgeActions(_Db):
         self.assertIn("Re-indexing 1 channels", await self.action("index_rebuild"))
         self.assertTrue((await self.row(GuildChannelInfo, 2)).backfill_done)
 
+    async def audited(self, action: str):
+        async with self.Session() as s:
+            return (await s.scalars(select(AuditLog).where(AuditLog.action == action))).all()
+
+    async def test_removals_keep_what_was_removed_in_the_log(self):
+        """There's no console Undo for these, so the log is what an operator restores from."""
+        await self.action("kb_add_site", target="https://wiki.example", depth="2", hours="24")
+        async with self.scope() as s:
+            s.add(GuildFact(guild_id=GUILD, subject="MN", fact="MN is Movie Night"))
+        await self.action("kb_remove", target="1")
+        await self.action("glossary_delete", target="1")
+        (source,) = await self.audited("delete_kb_source")
+        self.assertEqual(
+            source.before,
+            {"uri": "https://wiki.example", "type": "website", "title": "https://wiki.example",
+             "crawl_depth": 2, "max_pages": 25, "refresh_hours": 24},
+        )
+        (fact,) = await self.audited("delete_guild_fact")
+        self.assertEqual(fact.before, {"subject": "MN", "fact": "MN is Movie Night"})
+
     async def test_glossary_delete_takes_several_ids_and_only_this_servers(self):
         async with self.scope() as s:
             s.add(GuildFact(guild_id=GUILD, subject="A", fact="a"))
@@ -561,6 +581,23 @@ class RebuildingAnImpression(_Db):
             out = await self.action("rebuild_impression", target="alex")
         self.assertEqual(out, "Rebuilt Alex's impression from 30 messages.")
         self.assertEqual(built.await_args.kwargs["user_id"], 1)
+
+    async def test_the_one_it_replaced_is_kept_in_the_log(self):
+        def alex(session):
+            return session.scalar(select(UserProfile).where(UserProfile.user_id == 1))
+
+        async with self.scope() as s:
+            (await alex(s)).persona_summary = "the old view"
+
+        async def rebuild(session, *, guild_id, user_id):
+            (await alex(session)).persona_summary = "the new view"
+            return {"ok": True, "messages": 30}
+
+        with patch("olisar.memory.personas.build_persona_now", new=rebuild):
+            await self.action("rebuild_impression", target="alex")
+        async with self.Session() as s:
+            entry = (await s.scalars(select(AuditLog))).one()
+        self.assertEqual(entry.before, {"impression": "the old view"})
 
     async def test_nobody_by_that_name(self):
         self.assertIn("No member", await self.action("rebuild_impression", target="zed"))
