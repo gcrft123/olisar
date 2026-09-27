@@ -402,20 +402,23 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
 }
-/* Starting or stopping: a light slides back and forth along the top edge. An oscillation
-   eases at both ends, so this is ease-in-out rather than the file's --ease-out. */
+/* Starting or stopping: a light slides back and forth along the edge, from partway down one
+   side, around both top corners, to the same depth on the other. It rides --glow-path, the
+   border's centerline traced by FootSheet, turning with it (offset-rotate) so it bends through
+   each corner rather than running straight off past it. Short enough to turn within the corner's
+   radius. An oscillation eases at both ends, so this is ease-in-out rather than --ease-out. */
 .foot-glow::before {
-  content: ''; position: absolute; top: -8px; left: 0; width: 40%; height: 16px;
+  content: ''; position: absolute; top: 0; left: 0; width: 44px; height: 16px;
   border-radius: 50%; opacity: 0;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 40%, transparent), transparent);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--glow) 45%, transparent), transparent);
+  offset-path: var(--glow-path, none); offset-rotate: auto; offset-anchor: center;
 }
 .foot-sheet[data-glow-motion="slide"] .foot-glow::before {
-  opacity: 1; animation: foot-glow-slide 1.6s ease-in-out infinite alternate;
+  opacity: 1; animation: foot-glow-slide 2.4s ease-in-out infinite alternate;
 }
 /* Rate-limited: the glow breathes, since the bot is up and waiting for the limit to lift. */
 .foot-sheet[data-glow-motion="breathe"] .foot-glow-in { animation: foot-glow-breathe 3.2s ease-in-out infinite; }
-/* Its center runs from 15% to 85% of the edge, clear of the rounded corners. */
-@keyframes foot-glow-slide { from { transform: translateX(-12.5%); } to { transform: translateX(162.5%); } }
+@keyframes foot-glow-slide { from { offset-distance: 0%; } to { offset-distance: 100%; } }
 @keyframes foot-glow-breathe { 50% { opacity: 0.3; } }
 
 /* Pulled up under the grabber, over the status row: opening cross-fades the row into the

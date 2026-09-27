@@ -1028,6 +1028,32 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
   }, [open])
   useInert(body, !open)
 
+  // The light that slides while the bot starts or stops rides the edge itself: up the left
+  // side, around both top corners and down the right, instead of straight along the top and
+  // off past the corners. A motion path needs lengths, so it's traced from the glow's box
+  // (which covers the sheet's border) along the border's centerline, and again on a resize.
+  const glow = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const el = glow.current
+    if (!el) return
+    const trace = () => {
+      const w = el.offsetWidth
+      const cs = getComputedStyle(el)
+      const h = 0.5  // half the 1px border
+      const r = Math.max(h, parseFloat(cs.borderTopLeftRadius) || 0)
+      const peek = parseFloat(cs.getPropertyValue('--foot-peek')) || 49
+      // Down the sides as far as the edge still shows lit, about halfway to the peek's foot.
+      const side = r + (peek - r) * 0.45
+      const a = `A ${r - h} ${r - h} 0 0 1`
+      el.style.setProperty('--glow-path',
+        `path('M ${h} ${side} L ${h} ${r} ${a} ${r} ${h} L ${w - r} ${h} ${a} ${w - h} ${r} L ${w - h} ${side}')`)
+    }
+    trace()
+    const ro = new ResizeObserver(trace)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
   const onPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     dragged.current = false
     if (e.button !== 0 || !sheet.current) return
@@ -1106,7 +1132,7 @@ function FootSheet({ me, tunnel, onSettings, onLogout }: {
             <Badge tone={badge.tone} {...badge.glyph}>{badge.word}</Badge>
           </span>
         </button>
-        <span className="foot-glow" aria-hidden="true"><span className="foot-glow-in" /></span>
+        <span ref={glow} className="foot-glow" aria-hidden="true"><span className="foot-glow-in" /></span>
         <div ref={body} id={bodyId} className="foot-body">
           <BotPower onStatus={setBot} />
           <WebLink tunnel={tunnel} />
