@@ -52,7 +52,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from api.trust import LOOPBACK, require_local_request
+from api.trust import LOOPBACK, ConsoleGuard, loopback_origin_regex, require_local_request
 from olisar.runtime import profiles
 from olisar.runtime.console_files import ConsoleFiles
 from olisar.runtime.paths import home_dir, web_dist_dir
@@ -443,28 +443,6 @@ def adopt_shared_tailscale() -> str | None:
 # ── forwarding ─────────────────────────────────────────────────────────────────
 
 
-def _foreign_origin(request: Request) -> bool:
-    """A browser request that changes something, sent by a page that isn't this console.
-
-    Any website the operator has open can send a simple POST to 127.0.0.1 (``no-cors``), and a
-    body-less one — reset a bot, reconnect the server's bot — gets through without CORS ever being
-    asked. Browsers stamp those with the page's Origin, and the console's own pages are always
-    on loopback, so anything else is refused before it reaches a bot. Requests with no Origin
-    (the desktop shell, curl) aren't from a web page and pass."""
-    if request.method in ("GET", "HEAD", "OPTIONS"):
-        return False
-    origin = request.headers.get("origin")
-    if origin is None:
-        return False
-    host = (urlsplit(origin).hostname or "").lower()
-    return host not in LOOPBACK
-
-
-def require_console_origin(request: Request) -> None:
-    if _foreign_origin(request):
-        raise HTTPException(status_code=403, detail="not from this console")
-
-
 def _request_headers(request: Request) -> list[tuple[str, str]]:
     """The client's headers, as the worker should see them.
 
@@ -595,7 +573,7 @@ class ShareIn(BaseModel):
 def _bots_router(pool: Pool) -> APIRouter:
     router = APIRouter(
         prefix="/api/bots", tags=["bots"],
-        dependencies=[Depends(require_local_request), Depends(require_console_origin)],
+        dependencies=[Depends(require_local_request)],
     )
 
     def need(profile_id: str) -> Worker:
@@ -744,15 +722,19 @@ def _bots_router(pool: Pool) -> APIRouter:
 def create_app(pool: Pool) -> FastAPI:
     app = FastAPI(title="Olisar Gateway")
     app.state.pool = pool
-    # Same rule as the bot's own API: admit the dev Vite server on any loopback port. Its
-    # headers replace (not duplicate) the ones a forwarded response already carries.
+    # The console is this server, so CORS only admits it under its other loopback names: a
+    # page on any other port (a local dev server) is not the console and can't read what the
+    # bots answer. These headers replace (not duplicate) the ones a forwarded response carries.
     app.add_middleware(
         CORSMiddleware,
-        allow_origin_regex=r"http://(127\.0\.0\.1|localhost)(:\d+)?",
+        allow_origin_regex=loopback_origin_regex(urlsplit(pool.console_url).port or 80),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Outermost: a write from any page but the console's own (see ``is_foreign_origin``) is
+    # refused here, before it can reset a bot or reach one.
+    app.add_middleware(ConsoleGuard)
     app.include_router(_bots_router(pool))
 
     def target(request: Request) -> Worker | None:
@@ -784,8 +766,6 @@ def create_app(pool: Pool) -> FastAPI:
     @app.api_route("/api/{rest:path}", methods=methods)
     @app.api_route("/auth/{rest:path}", methods=methods)
     async def to_bot(request: Request, rest: str = "") -> Response:
-        if _foreign_origin(request):
-            return JSONResponse({"detail": "not from this console"}, status_code=403)
         worker = target(request)
         if worker is None:
             return JSONResponse({"detail": "No bot is selected."}, status_code=503)
