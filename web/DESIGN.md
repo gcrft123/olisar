@@ -1078,7 +1078,7 @@ system ends up with some dialogs that close on Escape and some that don't. The s
 | | |
 |---|---|
 | Semantics | `role="dialog"`, `aria-modal="true"`, `aria-labelledby` on the card's own `<h2>`/`.confirm-title` (or `aria-label` when there's no visible title) |
-| Focus | move to the first focusable on open — unless an `autoFocus` input already claimed it — trap Tab/Shift-Tab inside, and **return focus to the trigger** on close |
+| Focus | move to the first focusable on open — unless an `autoFocus` input already claimed it — trap Tab/Shift-Tab inside, and **return focus to the trigger** on close, after Enter or Space has come up |
 | Escape | always closes, except while an irreversible action is in flight (`dismissable={false}` during a publish, a move, an install) |
 | Backdrop | closes on **`mousedown` on the backdrop itself** — an `onClick` handler fires when a text selection starts inside the card and releases outside it, closing the dialog mid-drag |
 | Exit | a `.14s` fade + `translateY(6px)` on the way out — softer and shorter than the `.22s` entrance, ease-out both directions |
@@ -1098,6 +1098,9 @@ Two things that will bite you if you rebuild it:
   silently does nothing. This looked exactly like a broken keyframe.
 - **Copy `scrollTop` into the clone.** A tall scrollable sheet that snaps to the top for its last
   140ms is a worse artifact than no animation at all.
+- **Return focus after Enter or Space comes up.** Those keys click a button, and the keyup
+  goes to whatever is focused when the key is released. Handing focus back to the trigger in
+  the same turn gives it that click, and the dialog that just closed opens again.
 
 The visual recipe above is unchanged; the shell only adds behaviour. A drawer that stays
 mounted while closed (so it slides rather than pops) sets `inert` while hidden — `aria-hidden`
