@@ -70,6 +70,7 @@ case "$1" in
   inspect)
     case "$3" in
       *State.StartedAt*) echo 'running|healthy|2026-09-26T08:15:02.123456789Z|"2026-09-26T09:14:32.4Z""2026-09-26T09:15:02.5Z"' ;;
+      *Config.Image*) echo "|$(grep -m1 'image:' docker-compose.yml | awk '{print $2}')" ;;
       *State.Status*) echo running ;;
       *State.Health*) echo healthy ;;
     esac

@@ -61,7 +61,7 @@ if command -v flock >/dev/null 2>&1; then
   exec 9>"${TMPDIR:-/tmp}/olisar-update.lock" && flock -w 1800 9 || true
 fi
 
-TAG=""; DIGEST=""; PREV_DIGEST=""; ROLLED_BACK=false; UPDATED=false
+TAG=""; DIGEST=""; PREV_DIGEST=""; PREV_VERSIONS=""; FAIL_LOG=""; ROLLED_BACK=false; UPDATED=false
 
 emit() {  # emit <ok:true|false> <status> <message>
   cat > "$DIR/last-update.json" <<EOF
@@ -104,23 +104,55 @@ is_running() {
   [ "$($SUDO docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null)" = "running" ]
 }
 
-# Wait for the container to be up AND passing its healthcheck. Bails early on an explicit
-# "unhealthy" verdict rather than burning the whole timeout. An image with no HEALTHCHECK
-# (anything built before we added one) can only be judged on "running".
-wait_healthy() {
-  local deadline=$((SECONDS + HEALTH_TIMEOUT)) cid st hl
+image_id() {  # image_id <image-ref> — that image's ID on this host, "" if it isn't here
+  $SUDO docker image inspect --format '{{.Id}}' "$1" 2>/dev/null
+}
+
+# Wait for the container to be running <image-ref> AND passing its healthcheck. The image
+# matters: when `up` doesn't replace the container, the old one is still there, and its
+# health says nothing about the image just pinned. It counts as that image by its image ID
+# or by the reference compose created it from (the pinned digest). Bails early on an
+# explicit "unhealthy" verdict rather than burning the whole timeout. An image with no
+# HEALTHCHECK (anything built before we added one) can only be judged on "running".
+wait_healthy() {  # wait_healthy <image-ref>
+  local ref="$1" want deadline=$((SECONDS + HEALTH_TIMEOUT)) cid img st hl
+  want="$(image_id "$ref")"
   while [ $SECONDS -lt $deadline ]; do
     cid="$(container_id)"
     if [ -n "$cid" ]; then
-      st="$($SUDO docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null)"
-      hl="$($SUDO docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null)"
-      [ "$hl" = "unhealthy" ] && return 1
-      if [ "$st" = "running" ] && { [ "$hl" = "healthy" ] || [ -z "$hl" ]; }; then return 0; fi
-      if [ "$st" = "exited" ] || [ "$st" = "dead" ]; then return 1; fi
+      img="$($SUDO docker inspect --format '{{.Image}}|{{.Config.Image}}' "$cid" 2>/dev/null)"
+      if { [ -n "$want" ] && [ "${img%%|*}" = "$want" ]; } || [ "${img#*|}" = "$ref" ]; then
+        st="$($SUDO docker inspect --format '{{.State.Status}}' "$cid" 2>/dev/null)"
+        hl="$($SUDO docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null)"
+        [ "$hl" = "unhealthy" ] && return 1
+        if [ "$st" = "running" ] && { [ "$hl" = "healthy" ] || [ -z "$hl" ]; }; then return 0; fi
+        if [ "$st" = "exited" ] || [ "$st" = "dead" ]; then return 1; fi
+      fi
     fi
     sleep 3
   done
   return 1
+}
+
+# ${TAG} didn't come up: put the previous image back, if there is one, say how that went,
+# and stop. Whether the rollback recovered is judged on the previous image running healthy,
+# not on `up` succeeding: when the new one never started, the old container may still be up.
+roll_back() {  # roll_back <what went wrong> <status: recovered> <status: didn't> <status: nothing to go back to>
+  if [ -z "$PREV_DIGEST" ]; then
+    emit false "$4" "${TAG} $1 and there is no previous image to roll back to"
+  else
+    write_compose "${IMAGE}@${PREV_DIGEST}"
+    if [ -n "$PREV_VERSIONS" ]; then printf '%s\n' "$PREV_VERSIONS" > "$DIR/versions.json"; else rm -f "$DIR/versions.json"; fi
+    ROLLED_BACK=true
+    $DC up -d >/dev/null 2>&1
+    if wait_healthy "${IMAGE}@${PREV_DIGEST}"; then
+      emit false "$2" "${TAG} $1; rolled back to the previous image"
+    else
+      emit false "$3" "${TAG} $1 and the rollback did not recover"
+    fi
+  fi
+  echo "$FAIL_LOG" >&2
+  exit 1
 }
 
 # ── what's deployed now ──────────────────────────────────────────────────────
@@ -181,8 +213,12 @@ if [ "$DIGEST" = "$PREV_DIGEST" ] && [ "$FORCE" -eq 0 ]; then
   # leaves an unchanged one alone). Skipping this for a running container left a redeploy's
   # new keys unread: it kept the environment it started with, a dead Tailscale key included.
   if [ "$START" -eq 1 ]; then
-    $DC up -d >/dev/null 2>&1
-    if wait_healthy; then
+    if ! UP_OUT="$($DC up -d 2>&1)"; then
+      emit false up-failed "already on ${TAG} but docker compose up failed"
+      echo "$UP_OUT" | tail -20 >&2
+      exit 1
+    fi
+    if wait_healthy "${IMAGE}@${DIGEST}"; then
       if [ "$WAS_RUNNING" -eq 1 ]; then
         emit true up-to-date "already on ${TAG}; applied its configuration"
       else
@@ -198,6 +234,7 @@ if [ "$DIGEST" = "$PREV_DIGEST" ] && [ "$FORCE" -eq 0 ]; then
 fi
 NEW_REF="${IMAGE}@${DIGEST}"
 
+PREV_VERSIONS="$(cat "$DIR/versions.json" 2>/dev/null)"
 cat > "$DIR/versions.json" <<EOF
 {
   "tag": "$TAG",
@@ -217,8 +254,12 @@ if [ "$WAS_RUNNING" -eq 0 ] && [ "$START" -eq 0 ]; then
   exit 0
 fi
 
-$DC up -d >/dev/null 2>&1
-if wait_healthy; then
+# A failed `up` usually leaves the old container running, healthy, on the old image: it is
+# a failed update, whatever the health gate would say about that container.
+if ! FAIL_LOG="$($DC up -d 2>&1)"; then
+  roll_back "could not be started" up-failed up-failed up-failed
+fi
+if wait_healthy "$NEW_REF"; then
   UPDATED=true
   $SUDO docker image prune -f >/dev/null 2>&1 || true
   emit true updated "updated to ${TAG} and healthy"
@@ -227,17 +268,4 @@ fi
 
 # ── health gate failed → roll back ───────────────────────────────────────────
 FAIL_LOG="$($DC logs --tail 50 --no-color 2>/dev/null | tail -50)"
-if [ -n "$PREV_DIGEST" ]; then
-  write_compose "${IMAGE}@${PREV_DIGEST}"
-  $DC up -d >/dev/null 2>&1
-  ROLLED_BACK=true
-  if wait_healthy; then
-    emit false rolled-back "${TAG} failed its healthcheck; rolled back to the previous image"
-  else
-    emit false rollback-unhealthy "${TAG} failed its healthcheck and the rollback did not recover"
-  fi
-else
-  emit false unhealthy "${TAG} failed its healthcheck and there is no previous image to roll back to"
-fi
-echo "$FAIL_LOG" >&2
-exit 1
+roll_back "failed its healthcheck" rolled-back rollback-unhealthy unhealthy
