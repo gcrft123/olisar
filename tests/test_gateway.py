@@ -318,6 +318,19 @@ def _get(url: str, *, method: str = "GET", body: dict | None = None, timeout: fl
         return r.status, json.loads(r.read() or b"null")
 
 
+def _isolated_env(data_dir: str, **extra: str) -> dict[str, str]:
+    """An environment for a real gateway that can't reach a real bot: no Discord or Olisar
+    settings inherited from the shell, no ``.env`` (config reads one from the working
+    directory, and a developer's has a live token in it), and an explicitly empty token."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("DISCORD_", "OLISAR_"))}
+    env.update(
+        OLISAR_DATA_DIR=data_dir, OLISAR_NO_DOTENV="1", DISCORD_TOKEN="",
+        PYTHONPATH=os.pathsep.join(filter(None, (str(REPO), env.get("PYTHONPATH")))),
+        PYTHONUNBUFFERED="1", **extra,
+    )
+    return env
+
+
 def _workers() -> list[int]:
     out = subprocess.run(["pgrep", "-f", "olisar.runtime --worker"], capture_output=True, text=True).stdout
     return [int(p) for p in out.split()]
@@ -330,12 +343,11 @@ class RealProcessesTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         port = _free_port()
         base = f"http://127.0.0.1:{port}"
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("DISCORD_", "OLISAR_"))}
-        env.update(OLISAR_DATA_DIR=tmp.name, PYTHONUNBUFFERED="1")
+        env = _isolated_env(tmp.name)
         before = set(_workers())
         gw = subprocess.Popen(
             [sys.executable, "-m", "olisar.runtime", "--gateway", "--port", str(port)],
-            cwd=str(REPO), env=env,
+            cwd=tmp.name, env=env,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
         )
         self.addCleanup(lambda: gw.poll() is None and gw.kill())
@@ -382,12 +394,11 @@ class RealProcessesTest(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         port = _free_port()
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("DISCORD_", "OLISAR_"))}
-        env.update(OLISAR_DATA_DIR=tmp.name, OLISAR_PARENT_PIPE="1", PYTHONUNBUFFERED="1")
+        env = _isolated_env(tmp.name, OLISAR_PARENT_PIPE="1")
         before = set(_workers())
         gw = subprocess.Popen(
             [sys.executable, "-m", "olisar.runtime", "--gateway", "--port", str(port)],
-            cwd=str(REPO), env=env, stdin=subprocess.PIPE,
+            cwd=tmp.name, env=env, stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
         )
         self.addCleanup(lambda: gw.poll() is None and gw.kill())
