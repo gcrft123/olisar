@@ -48,6 +48,7 @@ import {
   Eraser,
   Star,
   HamburgerMenu,
+  MenuDots,
   Eye,
   EyeClosed,
   CloseCircle,
@@ -117,6 +118,7 @@ export const Icon = {
   eraser: Eraser,
   star: Star,
   menu: HamburgerMenu,
+  dots: MenuDots,
   eye: Eye,
   eyeOff: EyeClosed,
 } as const

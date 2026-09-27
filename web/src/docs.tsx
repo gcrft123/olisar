@@ -330,8 +330,8 @@ it where Discord allows.
 Once the server runs healthy and Discord has the address, the panel moves into the window's top-left
 corner and the rest of the window shows what the bot has been doing: who it answered and how it was
 called, who joined, what it learned about people and about the server, and the sources it read. Click
-one to read it in full. Anything that needs a look, like a stopped or unhealthy server, brings the full
-panel back.
+one to read it in full. Anything that needs a look, like a stopped or unhealthy server, or a bot
+powered down from the console, brings the full panel back.
 
 ## Several bots on one server
 

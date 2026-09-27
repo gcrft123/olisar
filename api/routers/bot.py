@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from api.auth.deps import require_admin
+from api.trust import is_local_request
 from olisar import discord_app, runtime_config, updates
 from olisar.db.models import AdminUser
 
@@ -52,6 +53,29 @@ async def status(request: Request, admin: AdminUser = Depends(require_admin)) ->
     return {**_state(_supervisor(request)), "can_power": bool(admin.is_allowlisted)}
 
 
+async def _switch(mgr, on: bool) -> dict:
+    from olisar.runtime.server import publish_bot_running
+
+    if on:
+        await mgr.start()
+        # start() publishes once the task exists. A start that didn't (no token) leaves the
+        # previous fact alone, so a bot that isn't set up isn't reported as powered down.
+    else:
+        await mgr.stop()
+        await publish_bot_running(False)
+    return _state(mgr)
+
+
+def _from_this_machine(request: Request) -> bool:
+    """A loopback request that didn't come from a page.
+
+    ``docker exec`` curling the container sends no Origin. The console's own pages do, and a
+    guild admin signed in there must not reach this: powering the bot stays on ``/power``,
+    which demands the operator.
+    """
+    return is_local_request(request) and not request.headers.get("origin")
+
+
 @router.post("/power")
 async def power(body: PowerIn, request: Request, admin: AdminUser = Depends(require_admin)) -> dict:
     if not admin.is_allowlisted:
@@ -59,12 +83,24 @@ async def power(body: PowerIn, request: Request, admin: AdminUser = Depends(requ
     mgr = _supervisor(request)
     if mgr is None:
         raise HTTPException(status_code=400, detail="bot control isn't available here")
-    if body.on:
-        await mgr.start()
-    else:
-        await mgr.stop()
     log.info("bot powered %s by operator %s", "on" if body.on else "off", admin.discord_user_id)
-    return _state(mgr)
+    return await _switch(mgr, body.on)
+
+
+@router.post("/local")
+async def local_power(body: PowerIn, request: Request) -> dict:
+    """Start or stop the Discord bot from this machine, with no console session.
+
+    The desktop app reaches this through ``docker exec`` on the VM. Anywhere else gets a 404,
+    the same as a route that isn't there.
+    """
+    if not _from_this_machine(request):
+        raise HTTPException(status_code=404, detail="Not Found")
+    mgr = _supervisor(request)
+    if mgr is None:
+        raise HTTPException(status_code=400, detail="bot control isn't available here")
+    log.info("bot powered %s from this machine", "on" if body.on else "off")
+    return await _switch(mgr, body.on)
 
 
 @router.post("/reconnect")

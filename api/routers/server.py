@@ -60,6 +60,12 @@ async def power(body: PowerIn) -> dict:
     return await remote.power(body.action)
 
 
+@router.post("/bot-on")
+async def bot_on() -> dict:
+    """Start the Discord bot inside the running container. The container stays up."""
+    return await remote.turn_bot_on()
+
+
 @router.get("/discord")
 async def discord(url: str = "") -> dict:
     """What Discord says about the server's bot: whether the console's sign-in address

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './api'
 import { avatarOf, createActivity, type ActivityItem, type Person } from './activity'
@@ -30,6 +30,8 @@ type Status = {
   url?: string
   /** Why a running server's console has no address (Tailscale refused the key, most often). */
   console_error?: string
+  /** Discord bot inside the container. Absent on an image that doesn't report it, which reads as up. */
+  bot_running?: boolean | null
   host?: string
   /** The app is updating the VM (see remote.autoupdate). */
   auto_updating?: boolean
@@ -62,8 +64,8 @@ function noteFor(r: UpdateResult | null | undefined): { text: string; tone: Tone
 // Each reading of the server has a label, a badge, and a form: the form is the server's state,
 // quietly. Dim while it's checked, gathering as it starts, whole and calm while it runs, a gap
 // sweeping up through it while it updates, a steady tremor while it's unhealthy or can't be
-// reached, and drawn in, still and dim once it's stopped.
-type Phase = 'checking' | 'starting' | 'running' | 'updating' | 'unhealthy' | 'unreachable' | 'stopping' | 'stopped'
+// reached, drawn in and dim once the bot is powered down, and the same once the container is stopped.
+type Phase = 'checking' | 'starting' | 'running' | 'updating' | 'unhealthy' | 'unreachable' | 'stopping' | 'stopped' | 'powered_down'
 type Orb = { shape: number; v?: number; energy: number; mood: Mood; regather?: boolean; pulse?: number }
 const PHASES: Record<Phase, { label: string; chip: BadgeGlyph & { tone: BadgeTone }; orb: Orb }> = {
   checking: { label: 'Checking…', chip: { tone: 'info', busy: true }, orb: { shape: SHAPE.whole, v: 0.92, energy: 0.3, mood: { dim: 0.45 } } },
@@ -74,6 +76,8 @@ const PHASES: Record<Phase, { label: string; chip: BadgeGlyph & { tone: BadgeTon
   unreachable: { label: 'Unreachable', chip: { tone: 'danger', icon: 'close-circle' }, orb: { shape: SHAPE.whole, v: 1, energy: 1.2, mood: { tremor: 0.3, dim: 0.9 } } },
   stopping: { label: 'Stopping…', chip: { tone: 'info', busy: true }, orb: { shape: SHAPE.whole, v: 0.8, energy: 0.6, mood: { dim: 0.75 } } },
   stopped: { label: 'Stopped', chip: { tone: 'warning', icon: 'stop-circle' }, orb: { shape: SHAPE.whole, v: 0.7, energy: -0.8, mood: { dim: 0.5 } } },
+  // The container is up and the Discord bot is not: the console's power button, not Stop server.
+  powered_down: { label: 'Powered down', chip: { tone: 'warning', icon: 'stop-circle' }, orb: { shape: SHAPE.whole, v: 0.7, energy: -0.8, mood: { dim: 0.5 } } },
 }
 
 function upFor(ms: number): string {
@@ -96,7 +100,8 @@ function upFor(ms: number): string {
  *  console's sign-in address, that folds away into the final screen (brain.ts): the form in
  *  the middle of the window, the title, status and controls small in the corner, and memories
  *  of what the bot has been doing around the form. Anything that needs a look brings the
- *  stats screen back.
+ *  stats screen back, including a bot powered down from the console. The container is still
+ *  up, and the panel says so instead of the final screen.
  *
  *  Opening the panel only *reads* status. It used to fire an image pull from a mount effect,
  *  which locked every button — including "Open console" — for minutes. Updates start in the
@@ -109,7 +114,7 @@ export function ServerControlPanel() {
   const bots = useBots()
   const arrived = useArrived()
   const [st, setSt] = useState<Status | null>(null)
-  const [busy, setBusy] = useState<'' | 'up' | 'stop'>('')
+  const [busy, setBusy] = useState<'' | 'up' | 'stop' | 'on'>('')
   const [err, setErr] = useState('')
   // The last update attempt that needs attention (rolled back or failed). A toast announced
   // it and was dismissed; this keeps it on the panel, with a way to report it, until an update
@@ -233,7 +238,9 @@ export function ServerControlPanel() {
     // rather than an interval: a probe over SSH can take longer than 4 seconds.
     const life = { cancelled: false, poll: undefined as ReturnType<typeof setTimeout> | undefined }
     const again = (last: Status) => {
-      const soon = !!last.running && last.health === 'starting'
+      // Starting, or the bot was just powered down: both change again in a few seconds, and
+      // 15s leaves the panel saying Running after the console has already switched it off.
+      const soon = (!!last.running && last.health === 'starting') || last.bot_running === false
       life.poll = setTimeout(async () => { if (!life.cancelled) again(await refresh()) }, soon ? 4000 : 15000)
     }
     ;(async () => {
@@ -280,6 +287,20 @@ export function ServerControlPanel() {
     try {
       const r = await api.serverPower(action)
       if (!r?.ok) setErr(r?.error || 'That didn’t work.')
+    } catch (e: any) {
+      setErr(e?.message || 'Couldn’t reach the server.')
+    } finally {
+      await refresh()
+      setBusy('')
+    }
+  }
+
+  // The console's power-on, from here. The container stays up; only the Discord bot starts.
+  async function turnOn() {
+    setErr(''); setBusy('on')
+    try {
+      const r = await api.serverBotOn()
+      if (!r?.ok) setErr(r?.error || 'Couldn’t turn the bot on.')
     } catch (e: any) {
       setErr(e?.message || 'Couldn’t reach the server.')
     } finally {
@@ -338,6 +359,8 @@ export function ServerControlPanel() {
   // The backend's launch-time update outranks every other reading: mid-update the container
   // is *meant* to be recreated, so "Stopped" or "Unreachable" would be alarming and wrong.
   const updating = !!st?.auto_updating
+  // The console switched the Discord bot off. The container is still up, so this isn't Stopped.
+  const poweredDown = running && reachable && !unhealthy && !starting && st?.bot_running === false
   const phase: Phase = updating ? 'updating'
     : busy === 'stop' ? 'stopping'
     : busy === 'up' ? 'starting'
@@ -346,6 +369,7 @@ export function ServerControlPanel() {
     : !running ? 'stopped'
     : unhealthy ? 'unhealthy'
     : starting ? 'starting'
+    : poweredDown ? 'powered_down'
     : 'running'
   const { label: stateLabel, chip } = PHASES[phase]
   // The chip pops each time the reading changes ("Checking…" to "Running"), but not on first
@@ -361,7 +385,7 @@ export function ServerControlPanel() {
   const startedAt = st?.started_at ? Date.parse(st.started_at) : NaN
   const [, tick] = useState(0)
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 15000); return () => clearInterval(t) }, [])
-  const uptime = phase === 'running' || phase === 'unhealthy'
+  const uptime = phase === 'running' || phase === 'unhealthy' || phase === 'powered_down'
     ? (Number.isFinite(startedAt) ? upFor(Date.now() - startedAt) : null)
     : phase === 'stopped' ? 'Not running' : phase === 'unreachable' ? 'Unknown' : '…'
 
@@ -422,7 +446,9 @@ export function ServerControlPanel() {
 
   const bot = { name: dc?.bot_name || bots.current?.name || 'Olisar', avatar: dc?.bot_avatar || '' }
   const openConsole = () => { if (st?.url) window.open(st.url, '_blank', 'noopener') }
-  const powerButton = running && phase !== 'stopping'
+  const powerButton = phase === 'powered_down'
+    ? <button data-morph="power" disabled={actionsLocked || loading || !reachable} onClick={() => power('stop')}>{busy === 'stop' ? 'Working…' : 'Stop server'}</button>
+    : running && phase !== 'stopping'
     ? <button className="caution" data-morph="power" disabled={actionsLocked} onClick={() => power('stop')}>{busy ? 'Working…' : 'Stop server'}</button>
     : <button data-morph="power" disabled={actionsLocked || loading || !reachable} onClick={() => power('up')}>{busy ? 'Working…' : 'Start server'}</button>
 
@@ -545,9 +571,14 @@ export function ServerControlPanel() {
       {dc?.redirect && signinMissing.current && <SigninRedirect dc={dc} brain={brain} />}
 
       <GapClose brain={brain}>
-        <button className="primary" data-morph="console" disabled={!st?.url || updating} onClick={openConsole}>Open console ↗</button>
+        {phase === 'powered_down' && (
+          <button className="primary" data-fade disabled={actionsLocked} onClick={turnOn}>
+            {busy === 'on' ? 'Working…' : 'Turn on'}
+          </button>
+        )}
+        <button className={phase === 'powered_down' ? undefined : 'primary'} data-morph="console" disabled={!st?.url || updating} onClick={openConsole}>Open console ↗</button>
         {powerButton}
-        <button ref={reconnectBtn} className="ghost" data-fade disabled={actionsLocked} onClick={openReconnect}>Reconnect</button>
+        <MoreMenu disabled={actionsLocked} btnRef={reconnectBtn} onReconnect={openReconnect} />
       </GapClose>
     </div>
   )
@@ -628,6 +659,57 @@ function SigninRedirect({ dc, brain }: { dc: { app_id: string; redirect: string;
         <RedirectRow url={dc.redirect} added={dc.added} />
       </Field>
       {!dc.added && <div className="check-line wiz-appear" role="status"><span className="spinner" /> Waiting for Discord to list it…</div>}
+    </div>
+  )
+}
+
+// Reconnect, behind the three-dot button. There is no shared menu component — the server and
+// bot switchers each draw `.server-menu` themselves — so this one does too.
+function MoreMenu({ disabled, onReconnect, btnRef }: {
+  disabled: boolean
+  onReconnect: () => void
+  btnRef: RefObject<HTMLButtonElement>
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const item = useRef<HTMLButtonElement>(null)
+  const menuId = useId()
+  useEffect(() => { if (disabled) setOpen(false) }, [disabled])
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      btnRef.current?.focus()
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    const t = setTimeout(() => item.current?.focus(), 0)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); clearTimeout(t) }
+  }, [open, btnRef])
+  return (
+    <div className={'srv-more' + (open ? ' open' : '')} ref={ref} data-fade>
+      <button
+        ref={btnRef}
+        className="ghost icon-btn"
+        aria-label="More"
+        data-tip="More"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Icon.dots size={18} weight="Bold" />
+      </button>
+      {open && (
+        <div id={menuId} className="server-menu" role="menu" aria-label="More">
+          <button ref={item} role="menuitem" className="server-menu-item" onClick={() => { setOpen(false); onReconnect() }}>
+            Reconnect
+          </button>
+        </div>
+      )}
     </div>
   )
 }

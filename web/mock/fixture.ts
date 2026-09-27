@@ -8,7 +8,8 @@
 
 export type MockEnv = {
   /** SETUP_MOCK: '' | '1' | 'second' | 'intents' — open on the setup wizard; 'server' — on the
-   *  server panel of a server that has been up a few hours, which goes to the final screen. */
+   *  server panel of a server that has been up a few hours, which goes to the final screen.
+   *  'down' — that panel with the bot powered down from the console. */
   setup?: string
   /** FRESH_MOCK: '' | '1' | 'refused' | 'refused-console' — a console just after setup. */
   fresh?: string
@@ -532,7 +533,7 @@ function mockBot() {
 }
 const FRESH_STATE = { reconnected: false }
 // `consoleErr`: the server bot deployed with a key Tailscale refused, until a new one is given.
-const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '', bootAt: 0 }
+const SETUP_STATE = { done: '' as '' | 'local' | 'server', unread: false, consoleErr: '', bootAt: 0, botOn: false }
 const MOCK_KEY_REFUSED = 'Tailscale rejected the auth key: it has expired, was revoked, or was already used. Use a new one.'
 // When each thing the wizard waits on was first polled for, so it can "happen" a few seconds
 // later as if the operator had done it: the intents coming on, the redirect URLs being added,
@@ -672,7 +673,8 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     if (as === 'server') { SETUP_STATE.bootAt = Date.now(); ACTIVITY.seeded = 0 }
   }
   // `SETUP_MOCK=server`: an install that finished long ago, on a server up for a few hours.
-  if (SETUP === 'server' && !SETUP_STATE.done) {
+  // `SETUP_MOCK=down`: the same, with the Discord bot powered down from the console.
+  if ((SETUP === 'server' || SETUP === 'down') && !SETUP_STATE.done) {
     SETUP_STATE.done = 'server'
     SETUP_STATE.bootAt = Date.now() - (3 * 3600 + 720) * 1000
     SETUP_WAIT.signin = Date.now() - 60000
@@ -681,7 +683,7 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
   if (url.startsWith('/api/setup/status')) {
     // The read straight after finishing sees the finished install, which is what routes the
     // wizard into the console. Any read after that is a reload, and starts setup over.
-    const done = SETUP_STATE.unread || SETUP === 'server' ? SETUP_STATE.done : ''
+    const done = SETUP_STATE.unread || SETUP === 'server' || SETUP === 'down' ? SETUP_STATE.done : ''
     SETUP_STATE.unread = false
     if (!done) {
       SETUP_STATE.done = ''
@@ -755,8 +757,13 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
       health: up < 3000 ? 'starting' : 'healthy', version: '2.0.0-beta.1', revision: '', digest: '', logs: '',
       started_at: new Date(boot).toISOString(), health_at: lastCheck ? new Date(lastCheck).toISOString() : '',
       url: SETUP_STATE.consoleErr ? '' : tsUrl(RENAMED.server), console_error: SETUP_STATE.consoleErr,
+      ...(SETUP === 'down' ? { bot_running: SETUP_STATE.botOn } : {}),
     }), true
   }
+  if (url.startsWith('/api/server/bot-on')) return later(600, () => {
+    SETUP_STATE.botOn = true
+    send({ ok: true, running: true })
+  })
   if (url.startsWith('/api/server/activity')) return later(500, () => send(mockActivity()))
   if (url.startsWith('/api/server/tunnel-key')) return body((b) => later(3000, () => {
     if (bad(b.key)) return send({ ok: false, error: MOCK_KEY_REFUSED })

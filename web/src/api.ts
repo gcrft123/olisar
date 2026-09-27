@@ -313,6 +313,9 @@ export const api = {
   serverPower: (action: 'up' | 'stop') =>
     // Boots the pinned digest — no pull, so this is quick now.
     req('/api/server/power', { method: 'POST', body: JSON.stringify({ action }), timeoutMs: 120000 }),
+  // Start the Discord bot inside the running container. Distinct from serverPower('up'),
+  // which boots a stopped container.
+  serverBotOn: () => req('/api/server/bot-on', { method: 'POST', timeoutMs: 60000 }),
   // The VM's last update attempt. The backend applies one by itself whenever it comes up
   // ahead of the VM, which `serverStatus().auto_updating` reports while it's going.
   serverLastUpdate: () => req('/api/server/last-update', { timeoutMs: 40000 }),
