@@ -1669,7 +1669,6 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
 .onb .disclosure { margin: 4px 0 16px; }
 .onb .disclosure > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--text-2); font-size: 12.5px; font-weight: 550; }
 .onb .disclosure-body .desc { color: var(--text-2); font-size: 12px; line-height: 1.5; margin: 0 0 12px; }
-.onb .callout-actions { margin-top: 10px; }
 .pubkey-err { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 /* A wrong value: the field takes the danger colour, focus ring included, until it's edited.
    A refused Continue shakes it (onboarding.tsx shake). */
@@ -2139,6 +2138,8 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .callout.warning { --cc: var(--warn); }
 .callout.danger { --cc: var(--danger); }
 .callout.note, .callout.info { --cc: var(--accent); }
+/* A callout's own action (Turn on and restart, Resume now) sits under its text. */
+.callout-actions { margin-top: 10px; }
 .callout-body ul { margin: 6px 0 0; padding-left: 18px; }
 .callout-body li { margin: 2px 0; }
 
