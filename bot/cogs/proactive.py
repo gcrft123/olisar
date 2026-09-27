@@ -394,6 +394,7 @@ class Proactive(commands.Cog):
                     ),
                     channel_name=room_name,
                     channel_topic=room_topic,
+                    addressed=False,
                 )
 
         # No report button here, unlike the addressed paths: nobody asked Olisar anything,

@@ -202,6 +202,16 @@ class InADirectMessage(_Replying, unittest.TestCase):
         self.assertFalse(ctx.settings_open)
 
 
+class InAReplyNobodyAskedFor(_Replying, unittest.TestCase):
+    """A proactive chime-in answers someone who didn't ask Olisar to do anything."""
+
+    def test_it_gets_none_of_them(self):
+        """tests/test_proactive_gates.py checks the chime-in says nobody asked."""
+        seen = self.reply(guild_id=GUILD, is_admin=True, addressed=False)
+        self.assertFalse(self_settings.TOOL_NAMES & seen["tools"])
+        self.assertFalse(seen["ctx"].settings_allowed)
+
+
 class TheBoundsAreTheConsoles(unittest.TestCase):
     """Each key's range is the one the console's API validates, and each key is one the
     console's API accepts at all."""

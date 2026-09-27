@@ -256,13 +256,14 @@ class ChimeRechecksBeforeSendingTest(_DbCase):
         self.cog.bot = SimpleNamespace(get_channel=lambda _cid: channel, user=SimpleNamespace(id=9))
         reply = SimpleNamespace(silent=False, text="the Prospector, if you're solo", emoji=None)
         send = AsyncMock(return_value=[])
+        self.generate = AsyncMock(return_value=reply)
 
         @contextlib.asynccontextmanager
         async def quiet(_channel):
             yield
 
         with (
-            patch.object(proactive, "generate_reply", AsyncMock(return_value=reply)),
+            patch.object(proactive, "generate_reply", self.generate),
             patch.object(proactive, "composing", quiet),
             patch.object(proactive, "send_paced", send),
             patch.object(proactive, "record_bot_messages", AsyncMock()),
@@ -275,6 +276,12 @@ class ChimeRechecksBeforeSendingTest(_DbCase):
         sent, send = await self._chime()
         self.assertTrue(sent)
         send.assert_awaited_once()
+
+    async def test_the_reply_is_marked_as_one_nobody_asked_for(self) -> None:
+        """Which is what keeps the settings tools out of it (olisar.pipeline)."""
+        await self._store(1003, "best mining ship?", age=20)
+        await self._chime()
+        self.assertIs(self.generate.await_args.kwargs["addressed"], False)
 
     async def test_drops_the_reply_when_olisar_already_answered(self) -> None:
         await self._store(1003, "best mining ship?", age=20)

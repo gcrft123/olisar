@@ -774,11 +774,16 @@ async def generate_reply(
     reply_to: tuple[str, str] | None = None,
     channel_name: str = "",
     channel_topic: str = "",
+    addressed: bool = True,
 ) -> Reply:
     """Produce Olisar's reply for one incoming message/prompt.
 
     ``images`` (``(data, mime)`` pairs from the triggering message) are shown to
-    the model directly, so Olisar can react to screenshots/pictures in real time."""
+    the model directly, so Olisar can react to screenshots/pictures in real time.
+
+    ``addressed`` is False for a reply nobody asked for (a proactive chime-in). The person
+    whose message it answers didn't ask Olisar to do anything, so it gets no settings
+    tools: a change made there would be audited under someone who never requested it."""
     # DMs (guild_id 0 == DM_GUILD_ID) borrow a home server's persona, knowledge, and tools
     # (cfg_guild — the caller passes a real guild the bot is in via home_guild_id), while the
     # message history stays keyed to the per-user DM channel. Tell the model it's a private
@@ -894,7 +899,9 @@ async def generate_reply(
         extra_decls + (ack_declarations() if silent_acks else [])
     )
     # The settings tools act on cfg_guild, which in a DM is the home server.
-    settings_allowed = bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
+    settings_allowed = addressed and (
+        bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
+    )
     if not settings_allowed:
         reply_tools = without_settings_tools(reply_tools)
 
