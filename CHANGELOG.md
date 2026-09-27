@@ -54,6 +54,8 @@ Installing an update from the desktop app changed a button to "Installing…", a
 
 A bot's web address came from the device name typed during setup, and nothing in the app could change it after that. Settings → Remote access now renames it, for a bot on this machine or on a server. Discord refuses sign-ins at the new address until it's registered there, so the pane shows the new redirect URL and ticks it off once Discord lists it.
 
+A welcome message was written from the persona and the new member's name, and nothing else. Olisar reads the room when someone calls it in a channel, but the greeting never saw the channel it went into, so it came out the same in the middle of a conversation as in an empty channel, and could describe a room that wasn't there. Welcome now writes it the way a reply in that channel would come out, and extensions can do the same.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -187,6 +189,8 @@ A bot's web address came from the device name typed during setup, and nothing in
 [390cb7d] — The server panel's Settings has a Remote access section, which renames a server bot's device the same way.
 
 [390cb7d] — After a rename, Remote access shows the new redirect URL to add in Discord and ticks it off once Discord lists it.
+
+[b33d67b] — `host.generate` takes a `channelId` and writes as if the bot had been called in that channel, from its name, topic and recent conversation and the server's glossary; built-in and locally-authored extensions only.
 
 ### Changed
 
@@ -375,6 +379,8 @@ A bot's web address came from the device name typed during setup, and nothing in
 [5123186] — Confirmations stay for 5 seconds instead of 3.6, not counting time the toasts are paused.
 
 [390cb7d] — The Remote access switch only shows on the machine the desktop app runs on; an admin signed in over the web link couldn't use it.
+
+[af9e85d] — Welcome greets a new member from the welcome channel's name, topic and recent conversation.
 
 ### Fixed
 
