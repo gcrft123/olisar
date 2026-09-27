@@ -6,7 +6,8 @@ import { FeedbackButton } from './settings'
 import { logTail, reportBody } from './feedback'
 import { SHAPE } from './form'
 import { handOff, Pane, shake, useForm, usePulseOn, useShell } from './onboarding'
-import { Badge, Field, Segmented, Select, Text, usePoll } from './ui'
+import { Badge, Field, Segmented, Select, Text, copyText, usePoll } from './ui'
+import { toast } from './overlays'
 
 export type SetupPrefill = {
   discord_token?: string
@@ -42,7 +43,10 @@ export function Cb({ file, code }: { file: string; code: string }) {
           className="cb-copy"
           aria-label="Copy"
           data-tip={done ? 'Copied' : 'Copy'}
-          onClick={() => { navigator.clipboard?.writeText(code); setDone(true); setTimeout(() => setDone(false), 1400) }}
+          onClick={async () => {
+            if (!(await copyText(code))) { toast('Couldn’t copy. Select the text to copy it yourself.', 'danger'); return }
+            setDone(true); setTimeout(() => setDone(false), 1400)
+          }}
         >
           <CopyGlyph copied={done} />
         </button>
@@ -223,7 +227,10 @@ function ArrivingLine({ id, children }: { id: string; children: ReactNode }) {
 export function CopyText({ text, label = 'Copy' }: { text: string; label?: string }) {
   const [done, setDone] = useState(false)
   return (
-    <button className="ghost" onClick={() => { navigator.clipboard?.writeText(text); setDone(true); setTimeout(() => setDone(false), 1200) }}>
+    <button className="ghost" onClick={async () => {
+      if (!(await copyText(text))) { toast(`Couldn’t copy it: ${text}`, 'danger'); return }
+      setDone(true); setTimeout(() => setDone(false), 1200)
+    }}>
       {done ? <><Icon.check size={13} weight="Bold" /> Copied</> : label}
     </button>
   )

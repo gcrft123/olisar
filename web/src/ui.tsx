@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { Icon, CopyGlyph, BadgeIcon, SEAL_TINT, SpinnerRing, type BadgeIconName } from './icons'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
+import { toast } from './overlays'
 
 // A titled group with no box. It replaced Card: a page of cards whose fields were themselves
 // bordered boxes read as boxes inside boxes; here the hairline between groups and the rows
@@ -849,16 +850,43 @@ function highlight(code: string, lang: string): React.ReactNode {
   return out
 }
 
+/** Put text on the clipboard, and answer whether it got there. `navigator.clipboard` is
+ *  missing on a plain-http address that isn't localhost, and a write can be refused, so the
+ *  older execCommand route is tried before giving up. Copy buttons used to fire the write
+ *  and report success whatever happened; a caller now says so when it didn't work. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch { /* refused: try the older route */ }
+  const back = document.activeElement as HTMLElement | null
+  const box = document.createElement('textarea')
+  box.value = text
+  box.setAttribute('readonly', '')
+  box.style.position = 'fixed'
+  box.style.opacity = '0'
+  document.body.appendChild(box)
+  try {
+    box.select()
+    return document.execCommand('copy')
+  } catch {
+    return false
+  } finally {
+    box.remove()
+    back?.focus?.()
+  }
+}
+
 // A docs code-preview box (DESIGN.md): filename head + a trailing copy button whose
 // glyph cross-fades to a green check-circle on click (icons.tsx CopyGlyph).
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(code)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked — code is still selectable */ }
+    if (!(await copyText(code))) { toast('Couldn’t copy. Select the code to copy it yourself.', 'danger'); return }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
   return (
     <div className="codeblock">
