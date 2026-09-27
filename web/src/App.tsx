@@ -1158,7 +1158,10 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
       .catch(() => {})
   }, 15000)
 
-  if (st && st.available && st.can_power) seen.current = true
+  // Any admin gets the state; only the operator gets the switch. Waiting for a reply that
+  // could power the bot left every other admin on "Bot status unknown" for good, although
+  // /api/bot/status tells them whether it's running.
+  if (st && st.available) seen.current = true
   const known = !!st && seen.current
 
   // The VM is being moved onto a release. The backend goes away partway through, and `st`
@@ -1202,6 +1205,25 @@ function BotPower({ onStatus }: { onStatus?: (s: BotPowerState) => void }) {
               "checking…" forever, which is exactly the dead-poll-as-idle-poll failure the
               design guide warns about. */}
           <div className="bp-hint">{poll.stale ? "can't reach the backend" : 'checking…'}</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Someone who can see the bot but not power it: the same row, with nothing to press.
+  if (!st.can_power) {
+    const note = updating ? `to ${st.updating?.to}`
+      : refused ? 'the operator can reconnect it'
+      : offline ? 'the operator can start it' : ' '
+    return (
+      <div className={'botpower readonly ' + cls + (refused ? ' refused' : '')} role="status">
+        <span className="power-btn" aria-hidden="true">
+          <svg className="power-ring" viewBox="0 0 44 44"><circle cx="22" cy="22" r="19" /></svg>
+          <Icon.bolt size={17} weight="Bold" />
+        </span>
+        <div className="botpower-text">
+          <div className="bp-status">{label}</div>
+          <div className="bp-hint">{note}</div>
         </div>
       </div>
     )
