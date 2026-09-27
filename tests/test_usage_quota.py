@@ -410,6 +410,32 @@ class ServerChainTests(_Db):
         self.assertEqual([m["model"] for m in data["chain"]], RANKED_NAMES)
 
 
+class WipeTests(_Db):
+    async def test_a_brain_wipe_clears_every_usage_table(self):
+        """Otherwise a wiped install goes on showing the days the chain ran out."""
+        from sqlalchemy import text
+
+        from olisar.db.models import UsageMinutePeak
+        from olisar.memory import purge
+
+        async with self.scope() as session:
+            for table in purge._BRAIN_EMBEDDING_TABLES:  # vec0 in the app; stand-ins here
+                await session.execute(text(f"CREATE TABLE {table} (x)"))
+            session.add(Guild(id=1))
+        await rl.record_usage(RANKED_NAMES[0], 10, source="conversation")
+        for name in RANKED_NAMES:
+            await rl.mark_spent(name)
+        tables = (GeminiUsage, UsageHour, UsageDay, UsageSource, UsageMinutePeak)
+        for table in tables:
+            self.assertTrue(await self.rows(table), table.__name__)
+        async with self.scope() as session:
+            await purge.wipe_brain(session, guild_ids=[1])
+        for table in tables:
+            self.assertEqual(await self.rows(table), [], table.__name__)
+        summary = await usage_router.summary(None)
+        self.assertIsNone(summary["last_ran_out"])
+
+
 class KeySwapTests(_Db):
     """The whole path: Google refuses key A for the day, the operator pastes key B."""
 
