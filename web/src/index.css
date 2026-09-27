@@ -357,6 +357,10 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
   transition: background var(--dur-fast) var(--ease-out);
 }
 .foot-head:hover .foot-grabber, .foot-head:focus-visible .foot-grabber { background: var(--text-3); }
+/* Open, the card covers all of the head but the grabber, which would cut the ring off
+   halfway down; the grabber takes it instead. */
+.foot-layer.open .foot-head:focus-visible { box-shadow: none; }
+.foot-layer.open .foot-head:focus-visible .foot-grabber { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
 /* Open, the bot's card takes this row's place (see .foot-body). */
 .foot-status {
   display: flex; align-items: center; gap: 10px; min-width: 0;
