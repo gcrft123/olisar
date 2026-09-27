@@ -16,6 +16,7 @@ refusal rather than approval:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import tempfile
 import unittest
@@ -75,6 +76,14 @@ class GateConfigTests(unittest.TestCase):
     def test_the_override_parses_a_list(self):
         with patch.object(toolpin.settings, "pin_gated_tools", "react, send_dm"):
             self.assertEqual(toolpin.gated_tools(), frozenset({"react", "send_dm"}))
+
+    def test_the_override_takes_any_separator_and_case(self):
+        """A tool the operator thinks is gated and isn't is the failure to avoid here."""
+        with patch.object(toolpin.settings, "pin_gated_tools", " React;send_dm\tSET_status\n"):
+            self.assertEqual(
+                toolpin.gated_tools(), frozenset({"react", "send_dm", "set_status"})
+            )
+            self.assertEqual(asyncio.run(toolpin.gate(None, GUILD, "set_status")), "set_status")
 
     def test_self_edit_covers_every_settings_write(self):
         """A write tool added to self_settings without being listed here would run

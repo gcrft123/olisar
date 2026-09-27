@@ -247,10 +247,12 @@ def gated_tools() -> frozenset[str]:
     """The tools ``OLISAR_PIN_GATED_TOOLS`` gates on every server, whatever each one chose.
 
     Empty in every shipped configuration. It exists so the flow can be driven end to end
-    against a real Discord server for a tool no action covers.
+    against a real Discord server for a tool no action covers. Names are compared in lower
+    case and may be separated by commas, semicolons or any whitespace: a gate that
+    silently misses "React" or "react;send_dm" is a tool thought gated that isn't.
     """
     raw = getattr(settings, "pin_gated_tools", "") or ""
-    return frozenset(t.strip() for t in raw.replace(" ", ",").split(",") if t.strip())
+    return frozenset(t for t in re.split(r"[,;\s]+", raw.lower()) if t)
 
 
 async def server_actions(session: AsyncSession, guild_id: int) -> list[str]:
@@ -271,7 +273,7 @@ async def gate(session: AsyncSession, guild_id: int, tool_name: str) -> str:
     action = _ACTION_OF.get(tool_name)
     if action and action in await server_actions(session, guild_id):
         return action
-    return tool_name if tool_name in gated_tools() else ""
+    return tool_name if tool_name.lower() in gated_tools() else ""
 
 
 # How much of a value the prompt quotes. Enough to tell one change from another; a prompt
