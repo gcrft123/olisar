@@ -46,8 +46,15 @@ defineExtension({
         instruction + "\nKeep it to 1-3 sentences. Output only the message.";
 
       // channelId: written as if the bot had been called in the welcome channel, so it sees
-      // that channel's name, topic and recent conversation.
-      const text = await host.generate({ task: task, channelId: channelId, maxTokens: 600 });
+      // that channel's name, topic and recent conversation. The bot only knows a channel
+      // once its roster sync has picked it up (not yet, for one made a minute ago), so when
+      // that fails the greeting is written from the persona alone rather than not at all.
+      let text;
+      try {
+        text = await host.generate({ task: task, channelId: channelId, maxTokens: 600 });
+      } catch (err) {
+        text = await host.generate({ task: task, maxTokens: 600 });
+      }
       if (!text) return;
       const mention = member.mention ? member.mention + " " : "";
       await host.discord.send(channelId, mention + text);
