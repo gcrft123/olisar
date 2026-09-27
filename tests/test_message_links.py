@@ -243,10 +243,31 @@ class ReadableChannels(unittest.TestCase):
         actions = self._actions(self._guild(channels, member=MagicMock(id=7)))
         self.assertEqual(_run(actions.readable_channels(GUILD, {1, 2, 3}, requester_id=7)), {1})
 
-    def test_non_member_is_checked_as_everyone(self):
+    def test_a_non_member_can_open_nothing(self):
+        """Checked as @everyone, someone who shared only another server with the bot could
+        DM it and read this one's public channels."""
         channels = {1: _channel(_Perms())}
         guild = self._guild(channels, member=None)
-        _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7))
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7)), set()
+        )
+        channels[1].permissions_for.assert_not_called()
+
+    def test_a_failed_member_lookup_opens_nothing_either(self):
+        channels = {1: _channel(_Perms())}
+        guild = self._guild(channels, member=None)
+        guild.fetch_member = AsyncMock(side_effect=discord.HTTPException(MagicMock(status=500), "x"))
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=7)), set()
+        )
+
+    def test_no_requester_is_checked_as_everyone(self):
+        """How a reply nobody asked for is scoped (olisar.message_links.channel_filter)."""
+        channels = {1: _channel(_Perms())}
+        guild = self._guild(channels, member=None)
+        self.assertEqual(
+            _run(self._actions(guild).readable_channels(GUILD, {1}, requester_id=0)), {1}
+        )
         channels[1].permissions_for.assert_called_once_with(guild.default_role)
 
     def test_private_thread_needs_membership(self):
@@ -256,6 +277,24 @@ class ReadableChannels(unittest.TestCase):
         self.assertEqual(_run(actions.readable_channels(GUILD, {1}, requester_id=7)), set())
         thread.fetch_member = AsyncMock(return_value=MagicMock())
         self.assertEqual(_run(actions.readable_channels(GUILD, {1}, requester_id=7)), {1})
+
+    def test_the_channel_directory_lists_nothing_for_a_non_member(self):
+        """It listed every channel the bot could see whenever the asker wasn't a cached
+        member, which is everyone who reaches the bot through another server's DM."""
+        me, member = MagicMock(name="bot"), MagicMock(id=7)
+        public = SimpleNamespace(name="general", id=1, permissions_for=lambda who: _Perms())
+        staff = SimpleNamespace(
+            name="staff", id=2,
+            permissions_for=lambda who: _Perms(view_channel=who is me),
+        )
+        guild = self._guild({}, member=None)
+        guild.me, guild.text_channels = me, [public, staff]
+        self.assertEqual(_run(self._actions(guild).channel_directory(GUILD, requester_id=7)), "")
+
+        guild.get_member.return_value = member
+        listing = _run(self._actions(guild).channel_directory(GUILD, requester_id=7))
+        self.assertIn("#general (id 1)", listing)
+        self.assertNotIn("staff", listing)
 
     def test_deleted_channel_is_hidden_and_not_fetched_twice(self):
         _DELETED_CHANNELS.discard(42)
