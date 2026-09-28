@@ -5,9 +5,14 @@
 //   ?update           macOS: download, unpack, shut down, restart, then reopen with the toast
 //   ?update=windows   Windows' steps, which have no unpack
 //   ?update=failed    the download fails partway
+//   ?update=stable    reopened on a stable release, with its What's new card (src/whatsnew.tsx):
+//                     the newest card in src/whats-new/, or `&whatsnew=2.1` for that one. Closing
+//                     the card keeps it closed for the rest of the tab's session
 //
 // Cancel, Try again and Back to Olisar all work. `olisarMockUpdate()` in the console starts
 // another, e.g. after editing a page, to see the unsaved-changes warning.
+
+import { isNewer } from '../src/version'
 
 type Phase = 'download' | 'unpack' | 'shutdown' | 'restart' | 'failed'
 type Progress = { phase: Phase; received?: number; [k: string]: unknown }
@@ -31,6 +36,13 @@ export function installDesktopMock(): void {
   let timer: ReturnType<typeof setTimeout> | undefined
   let settle: ((r: Result) => void) | null = null
   let told = false
+  // Just reopened on the new version, rather than about to install one.
+  const reopened = mode === 'done' || mode === 'stable'
+  const WN_CLOSED = 'olisar.mock.whatsNewClosed'
+  const cards = Object.keys(import.meta.glob('../src/whats-new/*.json'))
+    .map((p) => p.slice(p.lastIndexOf('/') + 1, -'.json'.length))
+  const card = new URLSearchParams(location.search).get('whatsnew')
+    || cards.reduce((a, b) => (isNewer(b, a) ? b : a), cards[0] || '2.0')
 
   const push = (p: Progress | null) => { progress = p; listeners.forEach((f) => f(p)) }
   const finish = (r: Result) => { settle?.(r); settle = null }
@@ -79,10 +91,12 @@ export function installDesktopMock(): void {
       dismiss: async () => { if (progress?.phase === 'failed') push(null) },
       // Once, like the app: StrictMode asks twice.
       justUpdated: async () => {
-        if (mode !== 'done' || told) return null
+        if (!reopened || told) return null
         told = true
-        return { from: '2.0.beta-4', to: '2.0.beta-5' }
+        return mode === 'stable' ? { from: `${card}.beta-5`, to: card } : { from: '2.0.beta-4', to: '2.0.beta-5' }
       },
+      whatsNew: async () => (mode === 'stable' && !sessionStorage.getItem(WN_CLOSED) ? card : null),
+      closeWhatsNew: async () => { sessionStorage.setItem(WN_CLOSED, '1') },
       onProgress: (fn: (p: Progress | null) => void) => {
         listeners.push(fn)
         return () => { listeners = listeners.filter((f) => f !== fn) }
@@ -91,5 +105,5 @@ export function installDesktopMock(): void {
   }
   ;(window as any).olisarMockUpdate = () => { void start() }
   // A moment of the console first, so the takeover is seen.
-  if (mode !== 'done') setTimeout(() => { void start() }, 1200)
+  if (!reopened) setTimeout(() => { void start() }, 1200)
 }

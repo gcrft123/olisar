@@ -64,6 +64,43 @@ The check names the exact string the files need when they're off, and refuses a 
 isn't spelled as above (`v2.0.0`, `v2.0-beta.1`). CI runs it first (the `version-check` job)
 and **fails the release fast** if anything is out of sync, so a mismatch can't silently ship.
 
+### The What's new card (stable releases)
+
+The first time the desktop app opens on a new stable release, it shows a card on what came with
+it: a banner, two or three points, and a link to the release's notes
+([`web/src/whatsnew.tsx`](web/src/whatsnew.tsx)). A stable release **can't be tagged without
+one**: the `version-check` job fails before it opens the draft, so nothing is built or published.
+A beta gets the "Updated to" toast instead and needs nothing.
+
+Each card is two files in [`web/src/whats-new/`](web/src/whats-new), named for the release as
+people read it: `2.1.webp`, the banner, and `2.1.json`, its alt text and points. Make both with
+one command, from the release poster (16:9, 1280×720 or larger; the 3840×2160 renders are what
+it's for):
+
+```sh
+uv run scripts/whats_new.py add 2.1 --poster poster.png \
+  --alt "v2.1: what the poster's own words say" \
+  --point "Stable and Beta release tracks" \
+  --point "Across-the-board bot improvements"
+```
+
+Leave any of those out and it asks for them. Running it again for the same release changes
+only what you pass, so `--point`s alone rewrite the points and keep the banner. It brings the
+poster down to a 1280×720 WebP (about 50 KB) and checks the card against the rules the release
+enforces: 2 or 3 points of 80 characters at most, and alt text that says what the banner
+shows, including any words set in it. `uv run` brings Pillow for the conversion, and nothing
+else from the project.
+
+To see it, run the console against the mock (`cd web && USAGE_MOCK=1 npx vite`) and open
+`/?update=stable&whatsnew=2.1`. Before tagging, check it the way CI will:
+
+```sh
+python3 scripts/whats_new.py check v2.1
+```
+
+The card's **Full changelog** link opens the release's tag page, so paste the notes into the
+release (§4) before it's published.
+
 ## 2. Signing & notarization (macOS, one-time setup)
 
 The macOS `.dmg` is signed with a **Developer ID Application** certificate and **notarized**
@@ -206,6 +243,9 @@ From the repo root (a Homebrew Python 3.13, [uv](https://docs.astral.sh/uv/), No
 and Go for the sidecar):
 
 ```sh
+# 0. the checks CI would run first (a beta passes the second)
+python3 scripts/check_release_version.py v2.1 && python3 scripts/whats_new.py check v2.1
+
 # 1. (once) build the Tailscale Funnel helper — see desktop/resources/README.md
 cd desktop/funnel-sidecar && GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../resources/olisar-funnel . && cd ../..
 
@@ -309,7 +349,7 @@ the bot token and ends with an invite link.
 - Groups are `### New`, `### Changed`, `### Fixed`, in that order; omit the empty ones.
 - One change per bullet, said plainly. Menu paths use `>`.
 - The last bullet of a group can be `Other:` and a comma-separated list of small changes.
-- Every stable release comes with a 16:9 poster. Betas don't need one.
+- Every stable release comes with a 16:9 poster, and its [What's new card](#the-whats-new-card-stable-releases) is cut from it. Betas don't need one.
 
 CI opens the GitHub Release with an **empty body**, so paste the title and notes in, into the
 draft while the builds run or once it's published (publishing leaves them alone):

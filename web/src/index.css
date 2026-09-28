@@ -3077,6 +3077,48 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
   .toast[data-starting-style], .toast[data-ending-style] { opacity: 0; transform: var(--rest); }
 }
 
+/* ── What's new (bottom-left card after a stable update) ──────────────────── */
+/* whatsnew.tsx. A floating card, not a dialog: the page stays usable around it. It sits right in
+   the corner, over the rail and its bot drawer, until it's closed. It renders inside #root, so an
+   open dialog makes it inert along with the page and the dialog's backdrop (140) covers it, as
+   the test chat drawer (100) and the narrow-width rail (130) do. */
+.wn {
+  position: fixed; left: 24px; bottom: 24px; z-index: 70;
+  width: min(400px, calc(var(--vw) - 48px));
+  max-height: calc(var(--vh) - 48px);
+  overflow: hidden auto;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow-modal);
+  animation: modal-in 0.22s var(--ease-out) both;
+}
+.wn.closing {
+  pointer-events: none;
+  animation: modal-out-fade 0.14s linear both, modal-out-drop 0.14s var(--ease-out) both;
+}
+/* Every image in the console carries an edge; the card's border is this one's on three
+   sides, so it only needs the fourth. */
+.wn-banner {
+  display: block; width: 100%; height: auto; aspect-ratio: 16 / 9; object-fit: cover;
+  border-bottom: 1px solid var(--img-edge);
+}
+/* A ghost IconButton over the banner's corner, 8px in from the card's 16px radius, so its
+   8px corner sits concentric inside it on hover. */
+.wn-close { position: absolute; top: 8px; right: 8px; border-radius: var(--radius-xs); }
+.wn-body { padding: 16px 18px 18px; }
+.wn-title { font-size: 15px; letter-spacing: -0.01em; }
+.wn-points { list-style: none; margin: 10px 0 14px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.wn-points li { position: relative; padding-left: 16px; color: var(--text-2); font-size: 13px; line-height: 1.5; }
+/* A 4px dot centred on the first line (half of 1.5em, less half the dot). */
+.wn-points li::before {
+  content: ""; position: absolute; left: 4px; top: calc(0.75em - 2px);
+  width: 4px; height: 4px; border-radius: 50%; background: var(--text-3);
+}
+.wn-link { font-size: 13px; font-weight: 550; }
+@media (prefers-reduced-motion: reduce) {
+  .wn { animation-name: fade-in; }
+  .wn.closing { animation: fade-out 0.14s linear both; }
+}
+
 /* ── Confirm dialog (centered; replaces native confirm/prompt) ───────────── */
 .confirm-dialog {
   position: relative; width: min(440px, calc(var(--vw) * 0.92)); padding: 24px 26px;

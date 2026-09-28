@@ -375,7 +375,7 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 
 Self-contained CSS + markup for the core set. Class names are illustrative — adapt to your conventions. All buttons/inputs share a **34px height**, the same radius, and the same border so they line up.
 
-**The system has 33 components. Every one is covered below:**
+**The system has 34 components. Every one is covered below:**
 
 | Group | Components |
 |---|---|
@@ -384,7 +384,7 @@ Self-contained CSS + markup for the core set. Class names are illustrative — a
 | Data display | **Section**, **Badge**, **Tag**, **RoleChip**, **StatTile**, **DocTable**, **DataTable**, **ActivityLedger**, **ScrollFade** |
 | Product surfaces | **DiscordPreview**, **DangerZone** |
 | Feedback | **Callout**, **Spinner** |
-| Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast** |
+| Overlays | **Dialog**, **Modal**, **SaveDock**, **ActionMenu**, **HoverCard**, **Toast**, **What's new** |
 | Navigation | **NavItem**, **PageNav**, **Tabs**, **Avatar**, **Foot sheet** |
 | Content | **InlineCode**, **CodeBlock**, **CopyField**, **Link** |
 
@@ -699,7 +699,8 @@ and returns to the Install button when the screen goes.
 The form follows the steps with the server panel's readings: the updating sweep while it
 downloads and unpacks, quieter while it shuts down, the stopped form as it restarts, the
 unhealthy tremor (and a `reject()`) when it fails. After the restart the console toasts
-"Updated to v…" once.
+"Updated to v…" once, unless the new version is a stable release with a **What's new** card,
+which says it instead.
 
 ### Skip link
 
@@ -1063,6 +1064,35 @@ toasts are absolutely positioned inside a fixed, zero-height viewport:
 .toast.warning { --tc: var(--warn); --tc-border: var(--warn-border); }
 .toast.info    { --tc: var(--info); --tc-border: var(--info-border); }
 ```
+
+### What's new (the card after a stable update)
+
+The first time the desktop app opens on a new stable release, a card in the bottom-left corner
+says what came with it (`whatsnew.tsx`): the release's 16:9 banner, two or three one-line points,
+and **Full changelog ↗** to the release on GitHub. Each release's banner and points are files
+in `web/src/whats-new/`, made with `scripts/whats_new.py` (see RELEASING.md), and a stable
+release can't be tagged without them. A beta gets the "Updated to v…" toast instead.
+
+```
++--------------------------------+
+|                            [x] |
+|        banner, 16:9            |
+|                                |
++--------------------------------+
+| What's new in v2.0             |
+|  • one point                   |
+|  • another                     |
+| Full changelog ↗               |
++--------------------------------+
+```
+
+- **Shape.** 400px wide, `--panel`, a `--border-strong` hairline, `--radius`, `--shadow-modal`: it floats. The banner runs edge to edge with an `--img-edge` hairline under it (the card's border is its edge on the other three sides). The title is 15px/600, the points 13px `--text-2` behind 4px `--text-3` dots, the link 13px/550 in the accent.
+- **The ×** is a ghost `sm` IconButton over the banner's upper-right corner, 8px in, with an 8px radius so its hover fill sits concentric in the card's 16px corner. It carries `data-tip="Close"` and its own `aria-label`.
+- **It stays until the × closes it,** across restarts too: the shell keeps the release waiting in a `whats-new` file in the app's data folder and drops it when the card closes, or when the app moves to any other version first. Escape closes it while focus is inside. The link doesn't close it.
+- **Right in the corner,** 24px in from the left and bottom edges, over the rail and its bot drawer's closed row until it's closed. At z-index 70 it's above the page, the rail, the Test chat button and the SaveDock.
+- **Not a dialog.** It opens on its own, so it takes no focus and traps none; it's an `<aside>` named by its title, last in the tab order. It renders inside `#root`, so an open dialog makes it inert with the rest of the page and covers it, as the test chat drawer and the narrow-width rail do.
+- **Motion.** It arrives 600ms after the page with its banner already decoded, on the Dialog's `modal-in`, and leaves on the shell's .14s exit. Reduced motion fades both ways.
+- **Copy.** The points are the release's headline changes in a few words each, like `Stable and Beta release tracks`: one line apiece, no closing period. The banner's `alt` includes any words set in it.
 
 ### Overlays (Dialog / Modal / SaveDock / ActionMenu / HoverCard)
 

@@ -635,7 +635,7 @@ async function cleanUpLeftovers() {
 
 module.exports = {
   init, checkForUpdates, getAvailableUpdate, openDownload, installUpdate, isInstalling, canSelfUpdate, displayVersion,
-  getProgress, isCommitted, cancelInstall, abandonInstall, dismissFailure, cleanUpLeftovers,
+  isNewer, isBeta, getProgress, isCommitted, cancelInstall, abandonInstall, dismissFailure, cleanUpLeftovers,
 }
 // Exported for unit tests only.
 module.exports._internal = { isNewer, parseVersion, pickRelease, assetForPlatform, swapScript, currentAppPath, downloadFile, verifyDownload, describeFailure }

@@ -64,6 +64,8 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 
 Powering a bot down from its console on a server stopped it in Discord and left the desktop app on the screen of what the bot has been doing, still marked Running. The desktop app now comes back to the server panel and says the bot is powered down, with a way to turn it back on without stopping the server.
 
+After an update, the desktop app said which version it was on and nothing about what had changed; finding out meant going to GitHub for the release notes. The first time it opens on a new stable release, a card in the corner now shows the release's main changes with a link to the full notes, and stays until it's closed.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -211,6 +213,16 @@ Powering a bot down from its console on a server stopped it in Discord and left 
 [f8bbfe9] — Settings → Remote access asks for a Tailscale auth key and device name when the bot has no key saved, so a bot set up without remote access can turn it on without a reset.
 
 [72b33ef] — Holding Enter or Space on the power button powers the bot down, the same as holding the pointer.
+
+[c0965f0] — The first time the desktop app opens on a new stable release, a card in the bottom-left corner shows the release's banner, its headline changes and a link to its full notes.
+
+[c0965f0] — The card stays until its × closes it, including across restarts, and takes the place of the "Updated to" toast for that release.
+
+[df3a4b2] — An install coming from 1.5, or from 2.0.beta-1 or -2, which recorded no version, counts as updated, so it gets the card and the "Updated to" toast.
+
+[76118c4] — A stable release can't be tagged without its What's new card: the release workflow checks for it before it opens the draft release.
+
+[76118c4] — `scripts/whats_new.py add` makes a release's card from its poster, and `check` tests it the way the release workflow does.
 
 ### Changed
 
