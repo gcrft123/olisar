@@ -349,7 +349,7 @@ the bot token and ends with an invite link.
 - Groups are `### New`, `### Changed`, `### Fixed`, in that order; omit the empty ones.
 - One change per bullet, said plainly. Menu paths use `>`.
 - The last bullet of a group can be `Other:` and a comma-separated list of small changes.
-- Every stable release comes with a 16:9 poster. Betas don't need one.
+- Every stable release comes with a 16:9 poster, and its [What's new card](#the-whats-new-card-stable-releases) is cut from it. Betas don't need one.
 
 CI opens the GitHub Release with an **empty body**, so paste the title and notes in, into the
 draft while the builds run or once it's published (publishing leaves them alone):
