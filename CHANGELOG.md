@@ -218,6 +218,8 @@ After an update, the desktop app said which version it was on and nothing about 
 
 [c0965f0] — The card stays until its × closes it, including across restarts, and takes the place of the "Updated to" toast for that release.
 
+[df3a4b2] — An install coming from 1.5, or from 2.0.beta-1 or -2, which recorded no version, counts as updated, so it gets the card and the "Updated to" toast.
+
 [76118c4] — A stable release can't be tagged without its What's new card: the release workflow checks for it before it opens the draft release.
 
 [76118c4] — `scripts/whats_new.py add` makes a release's card from its poster, and `check` tests it the way the release workflow does.
