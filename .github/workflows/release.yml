@@ -50,6 +50,16 @@ jobs:
           TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: python3 scripts/check_release_version.py
 
+      # A stable release opens the desktop app on a card saying what's new in it: a banner cut
+      # from the release poster, two or three points, and a link to these notes. Its files have
+      # to be in the tagged commit, so a stable tag without them stops here, before anything is
+      # opened or built. `uv run scripts/whats_new.py add 2.1` makes them. A beta has no card
+      # and passes; a dispatch run, with no tag, checks every card already in the repo.
+      - name: Assert the What's new card is ready
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: python3 scripts/whats_new.py check
+
       # Opened once, here, for the build jobs to attach to. Left to them, both would try to
       # create it, and GitHub lets two drafts share a tag where it refuses two releases.
       - name: Open the release as a draft
