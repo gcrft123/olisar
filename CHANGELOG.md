@@ -214,6 +214,14 @@ After an update, the desktop app said which version it was on and nothing about 
 
 [72b33ef] — Holding Enter or Space on the power button powers the bot down, the same as holding the pointer.
 
+[c0965f0] — The first time the desktop app opens on a new stable release, a card in the bottom-left corner shows the release's banner, its headline changes and a link to its full notes.
+
+[c0965f0] — The card stays until its × closes it, including across restarts, and takes the place of the "Updated to" toast for that release.
+
+[76118c4] — A stable release can't be tagged without its What's new card: the release workflow checks for it before it opens the draft release.
+
+[76118c4] — `scripts/whats_new.py add` makes a release's card from its poster, and `check` tests it the way the release workflow does.
+
 ### Changed
 
 [42d5291] — Powering a server bot down from its console shows Powered down on the desktop app, with Turn on, and leaves the server running.
