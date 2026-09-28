@@ -236,28 +236,18 @@ On **Windows**, which isn't signed, `npm run dist:win` builds the installer into
 
 ## 4. Write the release notes
 
-[`CHANGELOG.md`](CHANGELOG.md) **is** the release notes. Entries go under `## [Unreleased]`
-as the work is done, by hand — never generated from commit subjects or `git log` afterwards.
-A version with nothing written under it shouldn't go out.
+A release has two write-ups: the changelog, which records every change, and the GitHub
+Release notes, which tell the people running Olisar what they'll notice.
+
+### The changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) entries go under `## [Unreleased]` as the work is done, by
+hand — never generated from commit subjects or `git log` afterwards. A version with nothing
+written under it shouldn't go out.
 
 A beta doesn't get a heading and leaves `## [Unreleased]` in place, so the section keeps
-growing through the betas. A beta's notes are only what was written there since the previous
-beta, or since the last stable release for a `.beta-1`: the summary paragraphs and entries that
-`git diff v2.1.beta-1 -- CHANGELOG.md` shows as added, under the group headings they sit in.
-An entry reworded since then isn't a new change, so it stays out.
-
-Cutting a stable release renames that section to `## [2.1] — YYYY-MM-DD` (em dash, ISO
-date) and leaves `## [Unreleased]` empty above it. Its notes are the whole section, so they
-cover every beta that led up to it, and it ships verbatim.
-
-CI opens the GitHub Release with an **empty body**, so paste the notes in, into the draft while
-the builds run or once it's published (publishing leaves them alone):
-
-```sh
-gh release edit v2.1 --notes-file notes.md   # notes.md = the notes, without the section heading
-```
-
-Title the release **`v2.1 — <short summary>`** (or **`v2.1.beta-1 — <short summary>`**).
+growing through the betas. Cutting a stable release renames that section to
+`## [2.1] — YYYY-MM-DD` (em dash, ISO date) and leaves `## [Unreleased]` empty above it.
 
 The shape of a section:
 
@@ -283,6 +273,50 @@ The reasoning lives here.
 - A commit that changed several things gets several entries; an entry covering more than one
   commit gets split by commit.
 - The summary carries the why, the entries carry the what. Don't restate one in the other.
+
+### The GitHub Release notes
+
+The release notes are written from the changelog for a Discord server owner running Olisar, not
+a contributor, so they skip what that reader wouldn't notice (CI, tests, internals) and group
+small things together. Be specific, but not so specific it takes knowing the code to follow.
+
+A beta's notes cover only what reached `## [Unreleased]` since the previous beta, or since the
+last stable release for a `.beta-1`; `git diff v2.1.beta-1 -- CHANGELOG.md` shows it. An entry
+reworded since then isn't a new change, so it stays out. A stable release's notes cover every
+beta that led up to it.
+
+Title the release **`v2.1: <what it does>`** (or **`v2.1.beta-1: <what it does>`**), in plain
+words and joining two headline changes with `+`, as in `v2.1: Redesigned onboarding + faster
+replies`. The notes are a summary of at most 250 words, then bullets:
+
+```markdown
+Setup used to take three trips to the Discord Developer Portal. It now reads what it can from
+the bot token and ends with an invite link.
+
+### New
+* Bot controls, settings, and log out are in a drawer on the sidebar.
+* Change the bot's Tailscale link by renaming it under Settings > Remote access.
+* Other: tooltips, settings hint text.
+
+### Changed
+* Settings edits from Discord are gated behind the tool PIN.
+* Other: onboarding shape size, sidebar animation tweaks.
+
+### Fixed
+* Olisar no longer answers the same message twice.
+```
+
+- Groups are `### New`, `### Changed`, `### Fixed`, in that order; omit the empty ones.
+- One change per bullet, said plainly. Menu paths use `>`.
+- The last bullet of a group can be `Other:` and a comma-separated list of small changes.
+- Every stable release comes with a 16:9 poster. Betas don't need one.
+
+CI opens the GitHub Release with an **empty body**, so paste the title and notes in, into the
+draft while the builds run or once it's published (publishing leaves them alone):
+
+```sh
+gh release edit v2.1 --title "v2.1: …" --notes-file notes.md
+```
 
 ## 5. Verify
 
