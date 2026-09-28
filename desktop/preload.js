@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('olisar', {
     dismiss: () => ipcRenderer.invoke('updates:dismiss'),
     // { from, to } once after an update lands, otherwise null.
     justUpdated: () => ipcRenderer.invoke('updates:just-updated'),
+    // The stable release whose "What's new" card is waiting ("2.0"), until closeWhatsNew();
+    // otherwise null. Unlike justUpdated it holds across launches.
+    whatsNew: () => ipcRenderer.invoke('updates:whats-new'),
+    closeWhatsNew: () => ipcRenderer.invoke('updates:close-whats-new'),
     // The update screen's feed: the install's progress each time it moves, or null when it
     // ends without restarting. Returns the unsubscribe.
     onProgress: (fn) => {

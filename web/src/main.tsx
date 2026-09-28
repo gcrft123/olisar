@@ -4,6 +4,7 @@ import { SolarProvider } from '@solar-icons/react'
 import App from './App'
 import { Overlays } from './overlays'
 import { UpdateScreen } from './updating'
+import { WhatsNew } from './whatsnew'
 import { applyScale, watchPixelRatio } from './theme'
 import './index.css'
 
@@ -25,6 +26,7 @@ Promise.all([ready, bridge]).then(() => createRoot(document.getElementById('root
       <App />
       <Overlays />
       <UpdateScreen />
+      <WhatsNew />
     </SolarProvider>
   </React.StrictMode>,
 ))

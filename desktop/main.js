@@ -403,6 +403,30 @@ function registerUpdateIpc() {
     updatedFrom = null
     return from ? { from: updater.displayVersion(from), to: updater.displayVersion(app.getVersion()) } : null
   })
+  ipcMain.handle('updates:whats-new', () => {
+    let v = ''
+    try { v = fs.readFileSync(whatsNewFile(), 'utf8').trim() } catch { return null }
+    return v === app.getVersion() ? updater.displayVersion(v) : null
+  })
+  ipcMain.handle('updates:close-whats-new', () => {
+    try { fs.rmSync(whatsNewFile(), { force: true }) } catch { /* it shows again next launch */ }
+  })
+}
+
+// After an update to a stable release, the window shows a card on what's new in it
+// (web/src/whatsnew.tsx). The release waits in this file until the card is closed, so quitting
+// before then brings the card back at the next launch. Any other version change drops a card
+// still waiting, since it describes a release this install has moved on from. A beta gets
+// only the "Updated to" toast.
+function whatsNewFile() { return path.join(app.getPath('userData'), 'whats-new') }
+
+function recordWhatsNew() {
+  if (!updatedFrom) return
+  const now = app.getVersion()
+  try {
+    if (!updater.isBeta(now) && updater.isNewer(now, updatedFrom)) fs.writeFileSync(whatsNewFile(), now)
+    else fs.rmSync(whatsNewFile(), { force: true })
+  } catch { /* no card is the worst case */ }
 }
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
@@ -427,6 +451,7 @@ async function boot() {
   registerUpdateIpc()
   updater.cleanUpLeftovers()  // an update cut off last time: its temp files, mount, staged copy
   await clearCacheOnNewVersion()
+  recordWhatsNew()
   backendPort = await choosePort()
   startBackend(backendPort)
   createTray()
