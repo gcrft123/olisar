@@ -5,6 +5,7 @@ import { CheckMark, CloseX, Icon } from './icons'
 import { restoreFocus, toast } from './overlays'
 import { hasDraft, hasUnsavedChanges } from './ui'
 import { isNewer } from './version'
+import { hasWhatsNew } from './whatsnew'
 
 // ── The update screen ───────────────────────────────────────────────────────────
 // Installing an update takes the desktop app down: it downloads, unpacks, stops every bot,
@@ -81,9 +82,10 @@ export function UpdateScreen() {
     // reflects every event sent before it, and anything later arrives after it.
     const off = du.onProgress?.(setP)
     du.state().then((s) => { if (s && s.progress !== undefined) setP(s.progress) }).catch(() => {})
-    // The window closed on the old version and opened on this one: say it worked.
+    // The window closed on the old version and opened on this one: say it worked. A stable
+    // release with a What's new card (whatsnew.tsx) says it there instead.
     du.justUpdated?.().then((r) => {
-      if (r && isNewer(r.to, r.from)) toast(`Updated to v${r.to}`, 'success')
+      if (r && isNewer(r.to, r.from) && !hasWhatsNew(r.to)) toast(`Updated to v${r.to}`, 'success')
     }).catch(() => {})
     return off
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps

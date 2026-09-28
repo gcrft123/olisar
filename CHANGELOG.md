@@ -64,6 +64,8 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 
 Powering a bot down from its console on a server stopped it in Discord and left the desktop app on the screen of what the bot has been doing, still marked Running. The desktop app now comes back to the server panel and says the bot is powered down, with a way to turn it back on without stopping the server.
 
+After an update, the desktop app said which version it was on and nothing about what had changed; finding out meant going to GitHub for the release notes. The first time it opens on a new stable release, a card in the corner now shows the release's main changes with a link to the full notes, and stays until it's closed.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
