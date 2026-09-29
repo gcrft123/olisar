@@ -62,9 +62,13 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from api.trust import (
+    LOCAL_HEADER,
+    LOCAL_TOKEN_ENV,
     LOOPBACK,
     SAFE_METHODS,
     ConsoleGuard,
+    announce_local_token,
+    local_token,
     loopback_origin_regex,
     require_local_request,
 )
@@ -218,6 +222,7 @@ class Worker:
             "OLISAR_PROFILE_ID": self.profile_id,
             "OLISAR_CONSOLE_URL": self.console_url,
             "OLISAR_GATEWAY_TOKEN": self.token,
+            LOCAL_TOKEN_ENV: local_token(),
             "OLISAR_COOKIE_SUFFIX": "" if legacy else f"_{self.profile_id}",
             "PYTHONUNBUFFERED": "1",
             "PYTHONUTF8": "1",
@@ -610,7 +615,7 @@ async def internal(worker: Worker, method: str, path: str, *, json: dict | None 
         raise HTTPException(status_code=503, detail="that bot is still starting")
     try:
         r = await client.request(
-            method, path, json=json, headers={INTERNAL_HEADER: worker.token},
+            method, path, json=json, headers={INTERNAL_HEADER: worker.token, LOCAL_HEADER: local_token()},
             timeout=httpx.Timeout(timeout, connect=10.0),
         )
     except (httpx.HTTPError, RuntimeError) as exc:
@@ -904,6 +909,7 @@ async def run(host: str, port: int) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     pool = Pool(console_url=f"http://127.0.0.1:{port}")
+    announce_local_token(home_dir(), pool.console_url)
     app = create_app(pool)
     config = uvicorn.Config(app, host=host, port=port, loop="asyncio", log_config=None, access_log=False)
     server = uvicorn.Server(config)

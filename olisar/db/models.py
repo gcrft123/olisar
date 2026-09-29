@@ -751,6 +751,10 @@ class AppConfig(Base):
     server_ssh_user: Mapped[str] = mapped_column(Text, default="ubuntu")
     server_ssh_pubkey: Mapped[str] = mapped_column(Text, default="")
     server_ssh_privkey: Mapped[str] = mapped_column(Text, default="")
+    # The SSH host key each server presented the first time the app connected, one
+    # ``host keytype base64`` line per server. Every later connection must present the same
+    # key, or it's refused: the app sends a server the bot's secrets and whole database.
+    server_known_hosts: Mapped[str] = mapped_column(Text, default="")
     # Which directory on the VM holds this bot's install: one VM can run several bots, each
     # its own compose project. Blank = ``~/olisar``, the only one there was before that.
     server_app_dir: Mapped[str] = mapped_column(Text, default="")

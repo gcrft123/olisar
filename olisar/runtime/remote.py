@@ -273,22 +273,87 @@ async def public_key() -> str:
     return pub
 
 
+def known_hosts(text: str) -> dict[str, str]:
+    """``server_known_hosts`` as {host: "keytype base64"}."""
+    out: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3:
+            out[parts[0].lower()] = f"{parts[1]} {parts[2]}"
+    return out
+
+
+class HostKeyChanged(RuntimeError):
+    """A server presented a different SSH host key than the first time the app connected."""
+
+
+class _HostKeyCheck(asyncssh.SSHClient):
+    """Asked about a host key asyncssh doesn't already trust: accepted only when the app
+    has never connected to this host before (trust on first use), and kept to be pinned."""
+
+    def __init__(self, first_use: bool) -> None:
+        self.first_use = first_use
+        self.new_key: asyncssh.SSHKey | None = None
+
+    def validate_host_public_key(self, host, addr, port, key) -> bool:
+        if not self.first_use:
+            return False
+        self.new_key = key
+        return True
+
+
+async def _pinned_host_keys() -> dict[str, str]:
+    cfg = await _load()
+    return known_hosts(getattr(cfg, "server_known_hosts", "") if cfg else "")
+
+
+async def _save_pinned_host_keys(pinned: dict[str, str]) -> None:
+    await runtime_config.save(server_known_hosts="".join(f"{h} {k}\n" for h, k in sorted(pinned.items())))
+
+
+async def _pin_host_key(host: str, key: asyncssh.SSHKey) -> None:
+    pinned = await _pinned_host_keys()
+    keytype, data = key.export_public_key().decode().split()[:2]
+    pinned[host] = f"{keytype} {data}"
+    await _save_pinned_host_keys(pinned)
+
+
 async def _connect(host: str, user: str, *, connect_timeout: float = CONNECT_TIMEOUT):
-    """Open an SSH connection with the app's private key. Caller must close it."""
+    """Open an SSH connection with the app's private key. Caller must close it.
+
+    The server's host key is pinned the first time the app connects to it, and every later
+    connection has to present the same one. Without that, anyone who can answer on the
+    server's address would be sent the bot's .env and database."""
     cfg = await _load()
     priv = cfg.server_ssh_privkey if cfg else ""
     if not priv:
         raise RuntimeError("no SSH key yet — generate one first")
     ck = asyncssh.import_private_key(priv)
-    return await asyncssh.connect(
-        host, username=user, client_keys=[ck], known_hosts=None,
-        connect_timeout=connect_timeout,
-        # A silently-dead peer (the VM rebooted, a NAT dropped the flow) would otherwise
-        # leave a `conn.run` waiting on the OS TCP timeout — tens of minutes, during which
-        # an automatic update holds the panel in "Updating…". Keepalives turn that into a
-        # raised ConnectionLost in about a minute.
-        keepalive_interval=KEEPALIVE_INTERVAL, keepalive_count_max=4,
-    )
+    name = host.strip().lower()
+    pinned = known_hosts(getattr(cfg, "server_known_hosts", "") or "").get(name)
+    check = _HostKeyCheck(first_use=pinned is None)
+    trusted = [asyncssh.import_public_key(pinned)] if pinned else []
+    try:
+        conn = await asyncssh.connect(
+            host, username=user, client_keys=[ck], known_hosts=(trusted, [], []),
+            client_factory=lambda: check, connect_timeout=connect_timeout,
+            # A silently-dead peer (the VM rebooted, a NAT dropped the flow) would otherwise
+            # leave a `conn.run` waiting on the OS TCP timeout — tens of minutes, during which
+            # an automatic update holds the panel in "Updating…". Keepalives turn that into a
+            # raised ConnectionLost in about a minute.
+            keepalive_interval=KEEPALIVE_INTERVAL, keepalive_count_max=4,
+        )
+    except asyncssh.HostKeyNotVerifiable:
+        raise HostKeyChanged(
+            f"{host} answered with a different SSH host key than the one Olisar saved the first "
+            "time it connected, so nothing was sent to it. If you rebuilt or replaced the "
+            "server, reset this bot's hosting and set the server up again. If you didn't, "
+            "something may be intercepting the connection."
+        ) from None
+    if check.new_key is not None:
+        await _pin_host_key(name, check.new_key)
+        log.info("pinned the SSH host key of %s", host)
+    return conn
 
 
 async def _run(conn, cmd: str, *, timeout: float = 180.0) -> str:
@@ -1308,14 +1373,19 @@ async def power(action: str) -> dict:
 
 # Ask the running container to start its Discord bot. The console's power button does this
 # in-process; from the desktop the only way in is loopback, which ``docker exec`` can reach
-# and the funnel cannot. The program is base64'd so it can ride on the same stdin as the
+# and the funnel cannot, with the local token the container wrote to its data directory. The program is base64'd so it can ride on the same stdin as the
 # shell script that launches it (``bash -s``), and python is in the image.
 _BOT_ON_PY = """
-import json, urllib.error, urllib.request
+import json, os, urllib.error, urllib.request
+try:
+    with open(os.path.join(os.environ.get("OLISAR_DATA_DIR", ""), "local-token")) as f:
+        token = f.read().strip()
+except OSError:
+    token = ""
 req = urllib.request.Request(
     "http://127.0.0.1:8000/api/bot/local",
     data=b'{"on": true}',
-    headers={"Content-Type": "application/json"},
+    headers={"Content-Type": "application/json", "X-Olisar-Local": token},
     method="POST",
 )
 try:

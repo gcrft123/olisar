@@ -16,10 +16,9 @@ Two invariants:
 from __future__ import annotations
 
 import base64
-import ipaddress
 import logging
 import re
-import socket
+import socket  # noqa: F401 (tests patch capabilities.socket.getaddrinfo)
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -31,7 +30,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import runtime_keys
+from olisar import netguard, runtime_keys
 from olisar.db.models import ExtensionKV, ExtensionState, KBSource, KBSourceType, KBStatus, utcnow
 from olisar.memory.facts import upsert_facts
 from olisar.message_links import ChannelFilter
@@ -228,17 +227,33 @@ def get_blob(inv: Invocation, blob_id: str) -> BlobRecord:
 
 
 # ── fetch (with SSRF guard) ──────────────────────────────────────────────────
+_REDIRECTS = {301, 302, 303, 307, 308}
+_FETCH_MAX_REDIRECTS = 5
+
+
 def _is_public_host(host: str) -> bool:
+    return netguard.is_public_host(host)
+
+
+async def _vetted_client(url: httpx.URL, timeout: float, cookies: httpx.Cookies) -> httpx.AsyncClient:
+    """A client that can only reach ``url``'s host, at an address checked to be public.
+
+    Every hop is vetted on its own: redirects aren't followed by httpx, since a public
+    host answering 307 to 127.0.0.1 would otherwise carry the request, method and body
+    included, to the operator's own loopback routes."""
+    if url.scheme not in ("http", "https"):
+        raise ValueError("only http(s) URLs are allowed")
+    host = url.raw_host.decode("ascii")
+    if not host:
+        raise ValueError("that URL has no host")
     try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return False
-    for *_, sockaddr in infos:
-        ip = ipaddress.ip_address(sockaddr[0])
-        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast
-                or ip.is_reserved or ip.is_unspecified):
-            return False
-    return True
+        address = await netguard.resolve_public(host)
+    except netguard.NonPublicHost:
+        raise ValueError("that host isn't allowed (private/loopback addresses are blocked)") from None
+    return httpx.AsyncClient(
+        timeout=timeout, follow_redirects=False, trust_env=False, cookies=cookies,
+        transport=netguard.PinnedTransport(host, address),
+    )
 
 
 async def _fetch(inv: Invocation, url: str, init: dict | None = None) -> dict:
@@ -250,8 +265,6 @@ async def _fetch(inv: Invocation, url: str, init: dict | None = None) -> dict:
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         raise ValueError("only http(s) URLs are allowed")
-    if not parts.hostname or not _is_public_host(parts.hostname):
-        raise ValueError("that host isn't allowed (private/loopback addresses are blocked)")
     method = str(init.get("method") or "GET").upper()
     if method not in _FETCH_METHODS:
         raise ValueError(f"method {method} not allowed")
@@ -269,28 +282,43 @@ async def _fetch(inv: Invocation, url: str, init: dict | None = None) -> dict:
     max_bytes = _FETCH_BLOB_MAX_BYTES if response_blob else _FETCH_MAX_BYTES
     timeout = _FETCH_BLOB_TIMEOUT if (body_blob_id or response_blob) else _FETCH_TIMEOUT
 
-    async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=True, max_redirects=5,
-    ) as c:
-        async with c.stream(method, url, headers=headers, content=body) as resp:
-            chunks: list[bytes] = []
-            total = 0
-            async for chunk in resp.aiter_bytes():
-                total += len(chunk)
-                if total > max_bytes:
-                    raise ValueError(
-                        f"response too large (max {max_bytes // (1024 * 1024)} MB"
-                        + ("; use responseBlob: false for smaller text APIs"
-                           if response_blob else
-                           "; use responseBlob: true to store as a host blob")
-                        + ")"
-                    )
-                chunks.append(chunk)
-            raw = b"".join(chunks)
-            status = resp.status_code
-            resp_headers = {k.lower(): v for k, v in resp.headers.items()}
-            content_type = resp_headers.get("content-type")
-            encoding = resp.encoding
+    target = httpx.URL(url)
+    request: httpx.Request | None = None
+    cookies = httpx.Cookies()
+    for hop in range(_FETCH_MAX_REDIRECTS + 1):
+        async with await _vetted_client(target, timeout, cookies) as c:
+            if request is None:
+                request = c.build_request(method, target, headers=headers, content=body)
+            resp = await c.send(request, stream=True)
+            cookies = c.cookies
+            try:
+                if resp.status_code in _REDIRECTS and resp.next_request is not None:
+                    if hop == _FETCH_MAX_REDIRECTS:
+                        raise ValueError(f"too many redirects (max {_FETCH_MAX_REDIRECTS})")
+                    request = resp.next_request
+                    target = request.url
+                    continue
+                chunks: list[bytes] = []
+                total = 0
+                async for chunk in resp.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise ValueError(
+                            f"response too large (max {max_bytes // (1024 * 1024)} MB"
+                            + ("; use responseBlob: false for smaller text APIs"
+                               if response_blob else
+                               "; use responseBlob: true to store as a host blob")
+                            + ")"
+                        )
+                    chunks.append(chunk)
+                raw = b"".join(chunks)
+                status = resp.status_code
+                resp_headers = {k.lower(): v for k, v in resp.headers.items()}
+                content_type = resp_headers.get("content-type")
+                encoding = resp.encoding
+                break
+            finally:
+                await resp.aclose()
 
     if response_blob:
         # Prefer Content-Disposition filename when present.
