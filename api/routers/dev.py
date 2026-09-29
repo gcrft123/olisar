@@ -1,10 +1,11 @@
 """Developer console proxy — platform-moderator tools over the marketplace registry.
 
 The registry owns the developer whitelist + moderation state; this router proxies those
-calls with the bot's publisher token (the registry maps token → publisher Discord id →
-developer allowlist, and re-issues a fresh token on a 401). Management routes also require
-the caller be this bot's operator. Moderation *standing* is readable by any admin, so a
-warned/banned operator still sees their notice in the console.
+calls with the bot's publisher token. The registry maps token → the publisher's
+Discord-verified id → developer allowlist, so the publisher must have finished Discord
+verification; on a 401 we re-register for a fresh token and retry. Management routes also
+require the caller be this bot's operator. Moderation *standing* is readable by any admin,
+so a warned/banned operator still sees their notice in the console.
 """
 
 from __future__ import annotations

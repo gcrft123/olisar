@@ -3,11 +3,11 @@
 
 CREATE TABLE IF NOT EXISTS publishers (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
-  discord_id   TEXT,
+  discord_id   TEXT,                     -- set only by /v1/publishers/verify (Discord OAuth)
   handle       TEXT NOT NULL,
   public_key   TEXT NOT NULL,            -- Ed25519 public key (base64)
   fingerprint  TEXT NOT NULL UNIQUE,     -- "sha256:<hex>" of the public key
-  verified     INTEGER NOT NULL DEFAULT 0,  -- Discord-verified publisher (later)
+  verified     INTEGER NOT NULL DEFAULT 0,  -- 1 once discord_id came from Discord OAuth
   token_hash   TEXT,                     -- sha256 of the publisher's bearer token
   created_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -44,6 +44,16 @@ CREATE TABLE IF NOT EXISTS versions (
   UNIQUE (namespace, name, version)
 );
 
+-- Single-use nonces for /v1/publishers/register. A publisher proves it holds its key by
+-- signing "olisar-registry/register:<nonce>:<handle>"; the nonce is deleted on first use
+-- and expired rows are pruned whenever a new challenge is issued.
+CREATE TABLE IF NOT EXISTS publisher_challenges (
+  nonce      TEXT PRIMARY KEY,           -- 64 hex chars (32 random bytes)
+  expires_at INTEGER NOT NULL            -- unix seconds
+);
+
+CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at);
+
 CREATE INDEX IF NOT EXISTS idx_extensions_name ON extensions (name);
 CREATE INDEX IF NOT EXISTS idx_extensions_category ON extensions (category);
 CREATE INDEX IF NOT EXISTS idx_versions_ext ON versions (namespace, name);
@@ -58,8 +68,9 @@ CREATE TABLE IF NOT EXISTS usage (
   period       TEXT NOT NULL DEFAULT ''     -- YYYY-MM (resets class_a)
 );
 
--- Platform-owner developer whitelist (by Discord id). A token whose publisher's
--- discord_id is listed here may use the /v1/dev/* moderation + management routes.
+-- Platform-owner developer whitelist (by Discord id). A token whose publisher is
+-- verified (verified = 1) and whose discord_id is listed here may use the /v1/dev/*
+-- moderation + management routes.
 CREATE TABLE IF NOT EXISTS developers (
   discord_id TEXT PRIMARY KEY,
   note       TEXT,
