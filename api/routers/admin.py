@@ -616,6 +616,25 @@ async def put_channel(body: ChannelModeIn, gctx: GuildContext = Depends(require_
 
     removed: int | None = None
     async with session_scope() as session:
+        # The channel has to be one of this server's. X-Guild-Id only says which server the
+        # caller administers, and a mode set here on another server's channel would pull that
+        # channel's snapshots into this server's context. A channel the roster no longer has
+        # (deleted in Discord) can still be changed when this server already has a row for it,
+        # so a stale "resource" can be turned off.
+        info = await session.get(GuildChannelInfo, body.channel_id)
+        if info is not None:
+            ours = info.guild_id == gctx.guild_id
+        else:
+            known = await session.scalar(
+                select(ChannelAllowlist.id).where(
+                    ChannelAllowlist.guild_id == gctx.guild_id,
+                    ChannelAllowlist.channel_id == body.channel_id,
+                )
+            )
+            ours = known is not None
+        if not ours:
+            raise HTTPException(status_code=404, detail="unknown channel")
+
         if body.mode is not None:
             try:
                 mode = ChannelMode(body.mode)
