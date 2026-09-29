@@ -1920,21 +1920,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
     await startReview()
   }
 
-  // Push the current local source to an already-published extension. If the version
-  // number hasn't moved, warn — the registry overwrites it in place, so anyone who
-  // already installed it won't be offered an update unless the version is bumped.
+  // Push the current local source to an already-published extension. The registry never
+  // changes a published version, so edited source has to ship under a new version number;
+  // say so up front instead of running the minute-long review only to be refused.
   const pushUpdate = async () => {
     if (publishing) return
     if (pub && !pub.version_is_new && pub.has_changes) {
-      const ok = await confirmDialog({
-        title: `Re-publish v${pub.local_version} in place?`,
-        message:
-          `The version number hasn't changed, so anyone who already installed it won't be offered ` +
-          `an update. Bump the version in your code to ship it as one.`,
-        confirmLabel: 'Push anyway',
-        tone: 'warning',
-      })
-      if (!ok) return
+      toast(`v${pub.local_version} is already published. Bump the version in your code to push this update.`, 'warning')
+      return
     }
     await startReview()
   }
