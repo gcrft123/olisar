@@ -301,6 +301,9 @@ async def record_message(
         content=content,
         reply_to_message_id=reply_to,
         trigger=(trigger or None) if author_is_bot else None,
+        # The glossary miner reads only people, so a bot's row is done from the start;
+        # left unmined it would sit in the miner's backlog for good.
+        fact_mined=author_is_bot,
     )
     session.add(msg)
 

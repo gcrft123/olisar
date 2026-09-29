@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.context import name_map
@@ -139,23 +139,55 @@ async def run_glossary() -> None:
     """Mine un-mined messages in memory/both channels for durable guild facts once a
     channel has accumulated enough un-mined text. Independent of summarization and on
     a much lower threshold, so the glossary grows actively."""
-    targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
-    for guild_id in await _memory_guilds():
-        try:
-            async with session_scope() as session:
-                config = await session.get(GuildConfig, guild_id)
-                threshold = config.glossary_mine_token_threshold if config else 1500
-                channel_ids = (
-                    await session.scalars(
-                        select(ChannelAllowlist.channel_id).where(
-                            ChannelAllowlist.guild_id == guild_id,
-                            ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
-                        )
+    guild_ids = await _memory_guilds()
+    try:
+        async with session_scope() as session:
+            thresholds = dict(
+                (
+                    await session.execute(
+                        select(
+                            GuildConfig.guild_id, GuildConfig.glossary_mine_token_threshold
+                        ).where(GuildConfig.guild_id.in_(guild_ids))
                     )
                 ).all()
-            targets.extend((guild_id, cid, threshold) for cid in channel_ids)
-        except Exception:
-            log.exception("failed to scan channels for glossary mining (guild %s)", guild_id)
+            )
+            # Every memory channel's unmined backlog in one query that reads only unmined
+            # rows, rather than a query per channel and DM every tick whether or not
+            # anything new was said there.
+            backlog = (
+                await session.execute(
+                    select(
+                        ChannelAllowlist.guild_id,
+                        ChannelAllowlist.channel_id,
+                        func.count(Message.id),
+                        func.sum(func.length(Message.content)),
+                    )
+                    .join(
+                        Message,
+                        and_(
+                            Message.channel_id == ChannelAllowlist.channel_id,
+                            Message.fact_mined == False,  # noqa: E712
+                            Message.author_is_bot == False,  # noqa: E712
+                        ),
+                    )
+                    .where(
+                        ChannelAllowlist.guild_id.in_(guild_ids),
+                        ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+                    )
+                    .group_by(ChannelAllowlist.guild_id, ChannelAllowlist.channel_id)
+                )
+            ).all()
+    except Exception:
+        log.exception("failed to scan channels for glossary mining")
+        return
+
+    targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
+    for guild_id, channel_id, count, chars in backlog:
+        threshold = thresholds.get(guild_id, 1500)
+        # chars // 4 + count bounds estimate_tokens summed over these rows from above (each
+        # counts at least one), so this only skips channels the check below would skip too.
+        if count >= GLOSSARY_MINE_MIN_MESSAGES and (chars or 0) // 4 + count >= threshold:
+            targets.append((guild_id, channel_id, threshold))
 
     for guild_id, channel_id, threshold in targets:
         try:
