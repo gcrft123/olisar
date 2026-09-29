@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 import discord
 from fastapi import Cookie, Depends, Header, HTTPException, Request
 
+from api.auth.oauth import MOCK_USER_ID
 from api.auth.sessions import (
     COOKIE_NAME,
     MEMBER_COOKIE_NAME,
@@ -116,6 +117,9 @@ async def _still_operator(user_id: int) -> bool | None:
     (api/auth/oauth.py): in ``ADMIN_ALLOWLIST``, or an owner or team member of the bot's
     Discord app. None when the app can't be read right now (no token, Discord unreachable)."""
     if user_id in settings.admin_allowlist:
+        return True
+    # Mock auth (dev only) makes its user the operator at sign-in, on no allowlist or team.
+    if settings.mock_auth and user_id == MOCK_USER_ID:
         return True
     if await discord_app.application(max_age=_OPERATOR_RECHECK_SECONDS) is None:
         return None

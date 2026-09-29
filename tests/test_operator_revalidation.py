@@ -104,6 +104,23 @@ class OperatorRecheckTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.get("/api/keys", app), 200)
         app.assert_not_awaited()
 
+    async def test_the_mock_operator_stays_one_while_mock_auth_is_on(self) -> None:
+        """OLISAR_MOCK_AUTH signs its user in as the operator; a token set for testing
+        alongside it mustn't take that away five minutes later."""
+        from api.auth.oauth import MOCK_USER_ID
+
+        async with session_scope() as s:
+            s.add(AdminUser(discord_user_id=MOCK_USER_ID, username="mockoperator",
+                            is_allowlisted=True, granted_via=AdminGrant.allowlist,
+                            managed_guild_ids=[str(HOME)], last_login=utcnow()))
+        self.cookie = f"{COOKIE_NAME}={await sign_sid(await create_session(MOCK_USER_ID))}"
+        app = mock.AsyncMock(return_value=APP_WITHOUT_THEM)
+        with mock.patch.object(settings, "mock_auth", True):
+            self.assertEqual(await self.get("/api/keys", app), 200)
+        deps._last_check.clear()
+        with mock.patch.object(settings, "mock_auth", False):
+            self.assertEqual(await self.get("/api/keys", app), 403)
+
     async def test_an_unreadable_app_keeps_the_standing_from_sign_in(self) -> None:
         """No token, or Discord down: the operator may be here to fix exactly that."""
         self.assertEqual(await self.get("/api/keys", mock.AsyncMock(return_value=None)), 200)
