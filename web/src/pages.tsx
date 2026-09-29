@@ -1305,8 +1305,7 @@ function ClearMemoryCard({ serverName }: { serverName?: string }) {
       message: (
         <>
           This erases everything {botName()} has learned about this server: conversation memory, summaries, the
-          search index, remembered facts, the glossary, usage stats, its read on each member, and the
-          knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
+          search index, remembered facts, the glossary, its read on each member, and the knowledge base. Its persona, behavior, channel modes, and command replies are kept.{' '}
           <strong style={{ color: 'var(--danger)' }}>This can't be undone.</strong>
         </>
       ),

@@ -423,7 +423,11 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     async with session_scope() as session:
         # Admit if allowlisted (the operator) or you have Manage Server on at least
         # one guild Olisar is actually in. The allowlist gets every guild later.
-        bot_guilds = set(await session.scalars(select(Guild.id).where(Guild.active.is_(True))))
+        # A server waiting for the operator's approval doesn't count: whoever added the bot
+        # there doesn't get a console, or a member portal, out of it.
+        bot_guilds = set(await session.scalars(
+            select(Guild.id).where(Guild.active.is_(True), Guild.approved.is_(True))
+        ))
         if not (allowlisted or any(int(g) in bot_guilds for g in managed)):
             # Not an admin of any server Olisar is in — but they may still be an ordinary
             # member of one, which the member portal admits (their own data only). The

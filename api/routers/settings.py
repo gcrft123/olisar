@@ -46,8 +46,9 @@ async def require_operator_or_local(
 
 
 @router.get("/logs")
-async def get_logs(lines: int = 500, _: AdminUser | None = Depends(require_admin_or_local)) -> dict:
-    """Recent backend log lines (bot + API), newest last."""
+async def get_logs(lines: int = 500, _: AdminUser | None = Depends(require_operator_or_local)) -> dict:
+    """Recent backend log lines (bot + API), newest last. Every server's activity is in them,
+    so they're the operator's."""
     lines = max(1, min(lines, 4000))
     return {"lines": logbuffer.tail(lines)}
 

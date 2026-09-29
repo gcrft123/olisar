@@ -134,6 +134,9 @@ export const api = {
 
   me: () => req('/api/me'),
   guilds: () => req('/api/guilds'),
+  pendingGuilds: () => req('/api/guilds/pending'),
+  approveGuild: (id: string) => req(`/api/guilds/${id}/approve`, { method: 'POST' }),
+  leaveGuild: (id: string) => req(`/api/guilds/${id}/leave`, { method: 'POST' }),
   // The link that adds the bot to a server: { url, available }. Unavailable to anyone but the
   // operator when the bot is private, since Discord only lets its owner add it.
   invite: () => req('/api/invite'),

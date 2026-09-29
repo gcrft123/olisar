@@ -6,7 +6,9 @@ Nothing ever read it: the only record an operator saw of clearing a server's mem
 toast that removed itself after 3.6 seconds. This exposes it.
 
 Scope: the table has no ``guild_id`` column, so entries are install-wide and are reported
-as such rather than being filtered into a per-server view they can't honestly support.
+as such rather than being filtered into a per-server view they can't honestly support. That
+makes the log the operator's: it carries every server's persona prompts, glossary and
+extension settings, which Manage Server on one server mustn't reach.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 
-from api.auth.deps import require_admin
+from api.auth.deps import require_operator
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, AuditLog, UserProfile
 
@@ -74,6 +76,8 @@ LABELS: dict[str, str] = {
     # One per PIN prompt in Discord, whatever the answer (bot/toolpin.py). The outcome and
     # the wrong attempts are in `after`, so they show under the entry's Details.
     "tool_pin": "Asked for the tool PIN",
+    "approve_guild": "Approved a server",
+    "leave_guild": "Left a server waiting for approval",
 }
 
 
@@ -89,7 +93,7 @@ def _where(after: object) -> tuple[object, str | None]:
 @router.get("")
 async def list_audit(
     limit: int = Query(100, ge=1, le=500),
-    _: AdminUser = Depends(require_admin),
+    _: AdminUser = Depends(require_operator),
 ) -> dict:
     """The most recent entries, newest first."""
     async with session_scope() as session:

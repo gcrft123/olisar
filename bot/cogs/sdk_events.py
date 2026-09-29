@@ -21,6 +21,7 @@ from sqlalchemy import select
 
 from bot.cogs.sdk_commands import _build_view, _to_discord_files, _to_embed
 from bot.replies import chunk_text
+from olisar import guild_approval
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import is_enabled
@@ -129,6 +130,8 @@ async def _targets_for(guild_id: int, event_name: str) -> list[tuple[str, str, l
 
 async def _dispatch(guild: discord.Guild, event_name: str, ctx: dict) -> None:
     """Run every matching extension's handler. One failing extension can't stop the others."""
+    if guild_approval.is_pending(guild.id):
+        return
     for ext_key, compiled, perms in await _targets_for(guild.id, event_name):
         bridge = _EventBridge(guild, ext_key)
         try:

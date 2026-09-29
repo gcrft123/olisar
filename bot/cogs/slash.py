@@ -469,10 +469,12 @@ class Slash(commands.Cog):
         enabled: bool,
         level: app_commands.Choice[str] | None = None,
     ) -> None:
+        # The server it was run in: the group is guild-only, and Manage Server there is all
+        # the permission this checks.
         async with session_scope() as session:
-            pconf = await session.get(ProactivityConfig, settings.target_guild_id)
+            pconf = await session.get(ProactivityConfig, interaction.guild_id)
             if pconf is None:
-                pconf = ProactivityConfig(guild_id=settings.target_guild_id)
+                pconf = ProactivityConfig(guild_id=interaction.guild_id)
                 session.add(pconf)
             pconf.enabled = enabled
             if level is not None:

@@ -118,6 +118,9 @@ class Guild(Base):
     name: Mapped[str] = mapped_column(String(128), default="")
     icon: Mapped[str] = mapped_column(String(256), default="")  # icon URL, for the dashboard switcher
     active: Mapped[bool] = mapped_column(Boolean, default=True)  # False once the bot is removed
+    # Whether the operator has let the bot work here (olisar/guild_approval.py). A server
+    # someone else added waits until they do. Servers from before this existed stay approved.
+    approved: Mapped[bool] = mapped_column(Boolean, default=True)
     privacy_notice_ack: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # The last roster sync (bot/cogs/members.py): when it finished and how many members it

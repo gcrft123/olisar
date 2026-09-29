@@ -94,6 +94,19 @@ async def delete_embedding(session: AsyncSession, table: str, rowid: int) -> Non
     )
 
 
+async def delete_embeddings(
+    session: AsyncSession, table: str, rowids: Sequence[int], *, batch: int = 500
+) -> None:
+    """Delete the embeddings of ``rowids``, a batch at a time."""
+    assert table in VECTOR_TABLES, f"unknown vector table {table!r}"
+    ids = [int(r) for r in rowids]
+    for start in range(0, len(ids), batch):
+        chunk = ids[start:start + batch]
+        await session.execute(
+            text(f"DELETE FROM {table} WHERE rowid IN ({','.join(str(i) for i in chunk)})")
+        )
+
+
 async def knn(
     session: AsyncSession, table: str, query_vector: Sequence[float], k: int = 5
 ) -> list[tuple[int, float]]:

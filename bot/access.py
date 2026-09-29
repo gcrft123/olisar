@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import discord
 
-from olisar import moderation
+from olisar import guild_approval, moderation
 from olisar.access import access_allowed
 from olisar.config import settings
 
@@ -39,6 +39,8 @@ def resolve_member(bot: discord.Client, user: discord.abc.User) -> discord.Membe
     if member is not None:
         return member
     for guild in bot.guilds:  # fall back to any shared guild (target may be stale)
+        if guild_approval.is_pending(guild.id):
+            continue  # not one the operator has let the bot work in
         member = guild.get_member(user.id)
         if member is not None:
             return member

@@ -138,6 +138,11 @@ manages the other server. Adding it takes **Manage Server** there. The link asks
 uses: reading and sending messages (threads included), embeds, files, and reactions. As it joins, Olisar
 sets that server up with sensible defaults and it appears in your switcher. Configure it like any other.
 
+A server added by someone other than the bot's operator waits for the operator's approval first. Until then
+Olisar doesn't answer there, its commands refuse, and its admins can't sign in to the console. The operator
+sees it at the top of the console with **Approve** and **Leave server**. The first server Olisar joins, the
+home server, and servers the operator owns are approved as they join.
+
 > [!TIP]
 > **Don't see a server you just got access to?**
 > Olisar checks your Manage Server permissions when you sign in. If you were just given it (or just added
