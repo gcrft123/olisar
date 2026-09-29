@@ -177,7 +177,7 @@ and the release job just builds unsigned:
 | `MACOS_CERTIFICATE_PASSWORD` | The password you set when exporting the `.p12` |
 | `APPLE_ID` | An Apple ID on the developer team |
 | `APPLE_APP_SPECIFIC_PASSWORD` | An [app-specific password](https://support.apple.com/en-us/102654) for that Apple ID |
-| `APPLE_TEAM_ID` | `2R2HK79MH6` (also pinned in `desktop/package.json` as `build.mac.notarize.teamId`) |
+| `APPLE_TEAM_ID` | `2R2HK79MH6` (also pinned in `desktop/package.json` as `config.appleTeamId`, which the build uses when this is unset) |
 
 **Prove them before you tag.** Run the **macOS signing preflight** workflow (Actions →
 *macOS signing preflight* → *Run workflow*). It runs the same

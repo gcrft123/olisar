@@ -9,14 +9,17 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder",
-    "dist:mac": "electron-builder --mac --publish never",
+    "dist:mac": "APPLE_TEAM_ID=${APPLE_TEAM_ID:-$npm_package_config_appleTeamId} electron-builder --mac --publish never",
     "dist:win": "electron-builder --win --publish never",
     "notarize:dmg": "node build/notarize-dmg.js",
     "release:mac": "npm run dist:mac && npm run notarize:dmg"
   },
+  "config": {
+    "appleTeamId": "2R2HK79MH6"
+  },
   "devDependencies": {
-    "electron": "^31.7.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.olisar.desktop",
@@ -42,7 +45,7 @@
         "/Contents/Resources/backend/_internal/babel/locale-data/",
         "/Contents/Resources/backend/_internal/pytz/zoneinfo/"
       ],
-      "notarize": { "teamId": "2R2HK79MH6" }
+      "notarize": true
     },
     "dmg": {
       "sign": true
