@@ -321,6 +321,10 @@ declare const host: {
   fetch(url: string, init?: FetchInit): Promise<FetchResponse>;
   kb: { addSource(seed: KbSeed): Promise<boolean> };
   glossary: { add(fact: GlossarySeed): Promise<number> };
+  /**
+   * This extension's own storage in the current server. Keys are up to 128 characters and
+   * each value up to 1 MB as JSON; an extension keeps at most 10,000 keys and 32 MB per server.
+   */
   kv: {
     get(key: string): Promise<any>;
     set(key: string, value: any): Promise<void>;
