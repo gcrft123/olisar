@@ -30,7 +30,7 @@ from sqlalchemy import select
 
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
-from olisar.extensions import is_enabled
+from olisar.extensions import command_names, is_enabled
 from olisar.sandbox import SandboxError, run_command, run_component
 from olisar.sandbox.capabilities import (
     MAX_SDK_BASE64_BYTES,
@@ -631,16 +631,21 @@ class SdkCommands(commands.Cog):
         self._dynamic_registered = False
 
     async def _load_command_specs(self) -> list[tuple[str, dict]]:
+        """Every installed extension's commands, in the order they claim names in."""
         out: list[tuple[str, dict]] = []
         async with session_scope() as session:
-            for pkg in (await session.scalars(select(ExtensionPackage))).all():
+            query = select(ExtensionPackage).order_by(*command_names.claim_order())
+            for pkg in (await session.scalars(query)).all():
                 for cmd in (pkg.manifest or {}).get("commands", []) or []:
                     if cmd.get("name"):
                         out.append((pkg.key, cmd))
         return out
 
     async def rebuild(self) -> None:
-        """Re-derive all SDK commands and sync them to every guild. Idempotent."""
+        """Re-derive all SDK commands and sync them to every guild. Idempotent.
+
+        A command never replaces one already in the tree: Olisar's own commands keep their
+        names, and between extensions the first to claim a name keeps it."""
         for name in list(self._registered):
             try:
                 self.bot.tree.remove_command(name)
@@ -652,10 +657,21 @@ class SdkCommands(commands.Cog):
         except Exception:
             log.exception("loading SDK command specs failed")
             return
+        taken = set(command_names.BUILTIN_COMMANDS) | {c.name for c in self.bot.tree.get_commands()}
+        claimed: dict[str, str] = {}
         for ext_key, cmd in specs:
             try:
                 command = _make_command(ext_key, cmd)
-                self.bot.tree.add_command(command, override=True)
+                if command.name in taken:
+                    owner = claimed.get(command.name)
+                    log.warning(
+                        "extension %s declares /%s, which %s; skipped", ext_key, command.name,
+                        f"the {owner} extension already has" if owner else "is one of Olisar's own commands",
+                    )
+                    continue
+                self.bot.tree.add_command(command)
+                taken.add(command.name)
+                claimed[command.name] = ext_key
                 self._registered.add(command.name)
             except Exception:
                 log.exception("building SDK command %s/%s failed", ext_key, cmd.get("name"))
