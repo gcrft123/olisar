@@ -29,19 +29,22 @@ def dm_home_guild_id(bot: discord.Client) -> int:
     return guilds[0].id if guilds else target
 
 
-def resolve_member(bot: discord.Client, user: discord.abc.User) -> discord.Member | None:
-    """A guild Member for ``user``: itself if already a Member, else the DM sender found in
-    the home guild, so the same role rules apply in DMs. None if they aren't a member there.
+def resolve_member(
+    bot: discord.Client, user: discord.abc.User, guild_id: int | None = None
+) -> discord.Member | None:
+    """A guild Member for ``user``: itself if already a Member, else ``user`` found in
+    ``guild_id`` (where a command was run), or for a DM (no ``guild_id``) in the home guild,
+    so the same role rules apply in DMs. None if they aren't a member there.
 
-    Only the home guild counts, because a DM is checked against the home guild's lists. It
-    used to fall back to any guild the bot shares with them, and then Manage Server in some
-    other guild passed the home guild's allow list."""
+    Only the home guild counts in a DM, because a DM is checked against the home guild's
+    lists. It used to fall back to any guild the bot shares with them, and then Manage
+    Server in some other guild passed the home guild's allow list."""
     if isinstance(user, discord.Member):
         return user
-    home = bot.get_guild(dm_home_guild_id(bot))
-    if home is None or guild_approval.is_pending(home.id):
+    guild = bot.get_guild(guild_id or dm_home_guild_id(bot))
+    if guild is None or guild_approval.is_pending(guild.id):
         return None  # not one the operator has let the bot work in
-    return home.get_member(user.id)
+    return guild.get_member(user.id)
 
 
 def _role_ids(member: discord.Member | None) -> set[int]:
