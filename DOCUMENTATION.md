@@ -366,15 +366,19 @@ cd web && npm install && npm run build && cd ..        # build the dashboard onc
 OLISAR_DATA_DIR=/tmp/olisar uv run python -m olisar.runtime --port 8800
 ```
 
-Open `http://127.0.0.1:8800/` — you'll get the same first-run wizard, then the console. That runs one bot,
-the way the Docker image does. Add `--gateway` to run it the way the desktop app does: every bot on the
-install, each in its own process, behind one console with the bot switcher.
+It prints a link, `http://127.0.0.1:8800/auth/local?token=…`. Open that one rather than the bare address:
+the setup wizard, remote access and the other controls that only work on this machine also need the
+per-launch token it carries (the desktop app sends it for you), and the link hands it to your browser as a
+cookie. You'll get the same first-run wizard, then the console. That runs one bot, the way the Docker image
+does. Add `--gateway` to run it the way the desktop app does: every bot on the install, each in its own
+process, behind one console with the bot switcher.
 
-For dashboard development with hot reload, run the API and the Vite dev server separately:
+For dashboard development with hot reload, run the API and the Vite dev server separately, and pick the
+token yourself so you can open the link through Vite:
 
 ```sh
-uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
-cd web && npm run dev                                   # dev server on :5173
+OLISAR_LOCAL_TOKEN=dev uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
+cd web && npm run dev                                   # then open http://localhost:5173/auth/local?token=dev
 ```
 
 Build the desktop installer:

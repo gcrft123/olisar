@@ -32,7 +32,7 @@ from api.auth.sessions import (
     sign_member_sid,
     sign_sid,
 )
-from api.trust import is_local_request
+from api.trust import LOCAL_COOKIE, is_local_request, is_loopback_request, local_token
 from olisar import discord_app, runtime_config
 from olisar.config import settings
 from olisar.db.engine import session_scope
@@ -483,6 +483,19 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     # Desktop flow parks the session for the app to claim over loopback (its cookie jar isn't
     # the browser's); otherwise set the cookie and redirect to the dashboard.
     return await _finish_login(request, sid, desktop_nonce)
+
+
+@router.get("/local")
+async def local_sign_in(request: Request, token: str = "") -> Response:
+    """Hand a browser on this machine the local token as a cookie, from the link a backend
+    without the desktop shell prints when it starts. The desktop window sends the token
+    itself and never comes here."""
+    if not (token and is_loopback_request(request)
+            and secrets.compare_digest(token.encode(), local_token().encode())):
+        raise HTTPException(status_code=404, detail="Not Found")
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(LOCAL_COOKIE, token, httponly=True, samesite="strict", path="/")
+    return resp
 
 
 @router.post("/desktop/claim")

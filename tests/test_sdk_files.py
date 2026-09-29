@@ -21,6 +21,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+import httpx
 from discord import app_commands
 
 from bot.cogs.sdk_commands import (
@@ -41,6 +42,22 @@ from olisar.sandbox.capabilities import (
     store_blob,
 )
 from olisar.sandbox.runner import run_command
+
+
+def _fetch_answering(handler):
+    """Patches for host.fetch: a real httpx client that ``handler`` answers, and DNS that
+    says every name is a public address, so nothing leaves the machine."""
+    real = httpx.AsyncClient
+
+    def client(*a, **kw):
+        kw["transport"] = httpx.MockTransport(handler)
+        return real(*a, **kw)
+
+    async def resolve(host):
+        return "93.184.216.34"
+
+    return (patch("olisar.sandbox.capabilities.httpx.AsyncClient", client),
+            patch("olisar.netguard.resolve_public", resolve))
 
 
 def _run(coro):
@@ -228,39 +245,17 @@ class TestFetchBlobs(unittest.TestCase):
         inv = Invocation(ext_key="t", permissions={"fetch"}, guild_id=1)
         store_blob(inv, b"INPUT", filename="in.bin")
 
-        class FakeStream:
-            status_code = 200
-            headers = {
+        seen: list[bytes] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request.content)
+            return httpx.Response(200, content=b"OUTDATA", headers={
                 "content-type": "application/gzip",
                 "content-disposition": 'attachment; filename="out.gz"',
-            }
-            encoding = "utf-8"
+            })
 
-            async def aiter_bytes(self):
-                yield b"OUTDATA"
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-        class FakeClient:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            def stream(self, method, url, headers=None, content=None):
-                self.seen_content = content
-                FakeClient.last_content = content
-                return FakeStream()
-
-        with patch("olisar.sandbox.capabilities.httpx.AsyncClient", FakeClient):
+        client, dns = _fetch_answering(handler)
+        with client, dns:
             r = _run(
                 dispatch(
                     inv,
@@ -276,43 +271,16 @@ class TestFetchBlobs(unittest.TestCase):
                     ],
                 )
             )
-        self.assertEqual(FakeClient.last_content, b"INPUT")
+        self.assertEqual(seen, [b"INPUT"])
         self.assertEqual(r["blobId"], "b2")
         self.assertEqual(inv.blobs["b2"].data, b"OUTDATA")
         self.assertEqual(inv.blobs["b2"].filename, "out.gz")
 
     def test_response_too_large_raises(self):
         inv = Invocation(ext_key="t", permissions={"fetch"}, guild_id=1)
-
-        class FakeStream:
-            status_code = 200
-            headers = {}
-            encoding = "utf-8"
-
-            async def aiter_bytes(self):
-                # one chunk larger than base64 fetch cap
-                yield b"x" * (MAX_SDK_BASE64_BYTES + 10)
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-        class FakeClient:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            def stream(self, *a, **k):
-                return FakeStream()
-
-        with patch("olisar.sandbox.capabilities.httpx.AsyncClient", FakeClient):
+        # one chunk larger than base64 fetch cap
+        client, dns = _fetch_answering(lambda r: httpx.Response(200, content=b"x" * (MAX_SDK_BASE64_BYTES + 10)))
+        with client, dns:
             with self.assertRaises(ValueError):
                 _run(
                     dispatch(
@@ -537,33 +505,10 @@ defineExtension({
         att = FakeAttachment(b"ORIGINAL", filename="photo.png", content_type="image/png")
         bridge = FakeBridge({"file": att})
 
-        class FakeStream:
-            status_code = 200
-            headers = {"content-type": "application/octet-stream"}
-            encoding = "utf-8"
-
-            async def aiter_bytes(self):
-                yield b"COMPRESSED"
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-        class FakeClient:
-            def __init__(self, *a, **k):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *a):
-                return None
-
-            def stream(self, method, url, headers=None, content=None):
-                assert content == b"ORIGINAL"
-                return FakeStream()
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.content == b"ORIGINAL"
+            return httpx.Response(200, content=b"COMPRESSED",
+                                  headers={"content-type": "application/octet-stream"})
 
         compiled = r"""
 defineExtension({
@@ -591,7 +536,8 @@ defineExtension({
   }],
 });
 """
-        with patch("olisar.sandbox.capabilities.httpx.AsyncClient", FakeClient):
+        client, dns = _fetch_answering(handler)
+        with client, dns:
             _run(
                 run_command(
                     ext_key="compress",
