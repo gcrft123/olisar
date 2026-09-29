@@ -64,6 +64,8 @@ Before 2.0 ships, everything since 1.5 went through another pass, with a bot set
 
 Powering a bot down from its console on a server stopped it in Discord and left the desktop app on the screen of what the bot has been doing, still marked Running. The desktop app now comes back to the server panel and says the bot is powered down, with a way to turn it back on without stopping the server.
 
+After an update, the desktop app said which version it was on and nothing about what had changed; finding out meant going to GitHub for the release notes. The first time it opens on a new stable release, a card in the corner now shows the release's main changes with a link to the full notes, and stays until it's closed.
+
 A security review found six things bad enough to fix before anything else ships. Anyone could add a public bot to a server of their own and, with Manage Server there, sign in to the console and read every server's audit log and logs, or wipe other servers' memory. Any member could get a reply to ping @everyone. An extension could reach the controls that only work on the operator's machine by bouncing a request off a redirect, or replace /killswitch with a command of its own. The marketplace registry handed developer access, or another publisher's handle, to whoever asked for it. And a reply that saved something held the database through its model calls, so other members' messages were dropped while it ran.
 
 Servers someone else adds now wait for the operator, and one server's admin reaches only that server. Crowd pings are off until a server's admin turns them on. Being on the operator's computer is no longer enough to reach its machine-only controls: the desktop app holds a token for them. Extensions can't take Olisar's command names, the registry wants proof of the key, and a reply lets go of the database after each tool.
@@ -215,6 +217,16 @@ Servers someone else adds now wait for the operator, and one server's admin reac
 [f8bbfe9] — Settings → Remote access asks for a Tailscale auth key and device name when the bot has no key saved, so a bot set up without remote access can turn it on without a reset.
 
 [72b33ef] — Holding Enter or Space on the power button powers the bot down, the same as holding the pointer.
+
+[c0965f0] — The first time the desktop app opens on a new stable release, a card in the bottom-left corner shows the release's banner, its headline changes and a link to its full notes.
+
+[c0965f0] — The card stays until its × closes it, including across restarts, and takes the place of the "Updated to" toast for that release.
+
+[df3a4b2] — An install coming from 1.5, or from 2.0.beta-1 or -2, which recorded no version, counts as updated, so it gets the card and the "Updated to" toast.
+
+[76118c4] — A stable release can't be tagged without its What's new card: the release workflow checks for it before it opens the draft release.
+
+[76118c4] — `scripts/whats_new.py add` makes a release's card from its poster, and `check` tests it the way the release workflow does.
 
 [e15dc11] — A server someone other than the operator adds the bot to waits for the operator's approval, with Approve and Leave server at the top of the console.
 

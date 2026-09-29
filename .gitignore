@@ -68,3 +68,7 @@ CLAUDE.md
 # Recorded UI proof runs. record.py regenerates these on demand and the .mp4/.webm are
 # several MB each — a git object store is the wrong place for them.
 design/proof/out/
+
+# The v2.0 poster work: Blender scene scripts, the live poster editor, and their renders
+# (the editor's geometry export alone is 19 MB). Kept out of the repo on purpose.
+design/v2-poster/
