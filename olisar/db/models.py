@@ -825,10 +825,12 @@ class KBSource(Base):
     max_pages: Mapped[int] = mapped_column(Integer, default=50)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # Only ever read from public addresses. Set on sources a member added from chat, which
-    # are crawled with that guard on every request (olisar.knowledge.crawler); what an
-    # operator adds from the console may be on their own network, and stays readable.
-    public_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Every source is read from public addresses only, whoever added it: a server admin can
+    # add one from the console or a slash command, and Olisar runs inside the operator's
+    # network. The ingest worker applies that to all of them and doesn't read this column,
+    # so rows from before, which may say False, get it too. Kept because older databases
+    # have it as NOT NULL with no default.
+    public_only: Mapped[bool] = mapped_column(Boolean, default=True)
     last_ingested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

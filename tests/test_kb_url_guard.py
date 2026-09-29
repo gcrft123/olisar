@@ -1,4 +1,4 @@
-"""Knowledge sources added from chat are only read from public addresses.
+"""Knowledge sources are only read from public addresses.
 
 Run:  uv run python -m unittest tests.test_kb_url_guard -v
 
@@ -11,21 +11,34 @@ and again on every request its crawls make, redirects included.
 Checking wasn't enough on its own: the crawler checked a name, then httpx looked it up again
 to connect, so a name that answered with a public address for the check and 127.0.0.1 for
 the connection (DNS rebinding) still reached the LAN. Each request now connects to the
-address that was checked. The crawls here run against a real HTTP server on loopback, with
-name resolution stubbed so a made-up public name points at it; nothing leaves the machine.
+address that was checked.
+
+Only chat-added sources were guarded, though. ``/olisar learn-url`` and ``learn-site``, the
+console, extension seeds and the Star Citizen seed queued sources that were read from
+anywhere, and any server's admin can use the first two. Every source is public-only now,
+including rows stored before this that say otherwise.
+
+The crawls here run against a real HTTP server on loopback, with name resolution stubbed so
+a made-up public name points at it, and the database is a temp SQLite file; nothing leaves
+the machine.
 """
 
 from __future__ import annotations
 
+import contextlib
 import socket
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from aiohttp import web
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from olisar import netguard
-from olisar.db.models import KBSourceType
-from olisar.knowledge import crawler, ingest
+from olisar.db.models import Base, KBSource, KBSourceType, KBStatus
+from olisar.knowledge import crawler, ingest, sources
 
 PUBLIC = "public.test"  # passes as public; its connections land on the loopback test server
 
@@ -83,7 +96,9 @@ class ResolvedAddresses(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("private", await crawler.non_public_reason(url))
 
 
-class Crawling(unittest.IsolatedAsyncioTestCase):
+class _Site(unittest.IsolatedAsyncioTestCase):
+    """The loopback server, reachable as public.test, and the stubbed resolution."""
+
     async def asyncSetUp(self):
         self.hits: list[str] = []
         self.robots: str | None = None
@@ -127,6 +142,8 @@ class Crawling(unittest.IsolatedAsyncioTestCase):
     def url(self, path: str, host: str = PUBLIC) -> str:
         return f"http://{host}:{self.port}{path}"
 
+
+class Crawling(_Site):
     async def test_a_public_page_is_read(self):
         pages = await crawler.crawl(self.url("/wiki"), max_depth=0, public_only=True)
         self.assertEqual(len(pages), 1)
@@ -165,19 +182,65 @@ class Crawling(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pages, [])
         self.assertEqual(self.hits, ["/robots.txt"])
 
-    async def test_an_operators_own_source_is_read_as_before(self):
-        """Sources from the console may be on the operator's own network."""
-        pages = await crawler.crawl(self.url("/to-loopback", "127.0.0.1"), max_depth=0)
-        self.assertEqual(len(pages), 1)
-        self.assertIn("hunter2", pages[0].text)
 
-    async def test_ingest_passes_the_flag_through(self):
-        for stype, fn in ((KBSourceType.url, "fetch_page"), (KBSourceType.website, "crawl")):
-            with self.subTest(stype=stype), patch.object(
-                ingest, fn, new=AsyncMock(return_value=[] if fn == "crawl" else None)
-            ) as spy:
-                await ingest._gather(stype, self.url("/"), 1, 5, public_only=True)
-            self.assertIs(spy.await_args.kwargs["public_only"], True)
+class EverySource(_Site):
+    """Ingestion, end to end: a queued source is claimed, crawled and settled."""
+
+    async def asyncSetUp(self):
+        await super().asyncSetUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.engine = create_async_engine(f"sqlite+aiosqlite:///{Path(tmp.name) / 'kb.db'}")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
+        p = patch.object(ingest, "session_scope", self.scope)
+        p.start()
+        self.addCleanup(p.stop)
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+        await super().asyncTearDown()
+
+    @contextlib.asynccontextmanager
+    async def scope(self):
+        async with self.Session() as session:
+            yield session
+            await session.commit()
+
+    async def ingest(self, uri: str, **row) -> KBSource:
+        async with self.scope() as s:
+            s.add(KBSource(guild_id=1, type=KBSourceType.url, uri=uri, **row))
+        self.assertTrue(await ingest.process_pending_sources())
+        async with self.Session() as s:
+            return (await s.scalars(select(KBSource))).one()
+
+    async def test_a_source_stored_as_readable_from_anywhere_is_still_public_only(self):
+        """A row from before this, e.g. one the console added, that says public_only False."""
+        src = await self.ingest(self.url("/admin", "127.0.0.1"), public_only=False)
+        self.assertIs(src.status, KBStatus.error)
+        self.assertEqual(src.error, "not read: 127.0.0.1 points at a private or local address")
+        self.assertEqual(self.hits, [])
+
+    async def test_a_redirect_onto_the_network_reads_nothing(self):
+        src = await self.ingest(self.url("/to-loopback"), public_only=False)
+        self.assertIs(src.status, KBStatus.error)
+        self.assertEqual(self.hits, ["/robots.txt", "/to-loopback"])
+
+    async def test_a_public_source_is_read(self):
+        src = await self.ingest(self.url("/wiki"))
+        self.assertIs(src.status, KBStatus.ready)
+
+    async def test_new_sources_are_stored_public_only(self):
+        """learn-url, learn-site, extension seeds and the Star Citizen seed build the row
+        without naming the flag, and the console goes through new_source."""
+        async with self.scope() as s:
+            s.add(KBSource(guild_id=1, type=KBSourceType.website, uri="https://a.example"))
+            s.add(sources.new_source(guild_id=1, type="url", uri="https://b.example",
+                                     crawl_depth=0, max_pages=1, refresh_hours=0, added_by=None))
+        async with self.Session() as s:
+            flags = (await s.scalars(select(KBSource.public_only))).all()
+        self.assertEqual(flags, [True, True])
 
 
 if __name__ == "__main__":

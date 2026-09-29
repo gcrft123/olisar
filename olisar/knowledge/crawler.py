@@ -4,10 +4,10 @@ Same-domain breadth-first crawl with a depth and page cap, honoring robots.txt,
 sending a clear User-Agent, and pausing between requests. Main content is
 extracted with trafilatura (strips nav/boilerplate); links come from BeautifulSoup.
 
-A source a member added from chat is crawled ``public_only``: every request, redirects
-included, has to go to a host that resolves only to public addresses, and connects to the
-address that was checked (see :mod:`olisar.netguard`). Olisar runs inside someone's
-network, and without that a member could have it read a router's admin page or a cloud
+Ingestion crawls every source ``public_only``: every request, redirects included, has to
+go to a host that resolves only to public addresses, and connects to the address that was
+checked (see :mod:`olisar.netguard`). Olisar runs inside someone's network, and without
+that anyone who can add a source could have it read a router's admin page or a cloud
 metadata endpoint into the knowledge base and then ask about it.
 """
 

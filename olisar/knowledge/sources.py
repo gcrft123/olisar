@@ -29,10 +29,8 @@ def new_source(
     max_pages: int,
     refresh_hours: int,
     added_by: int | None,
-    public_only: bool = False,
 ) -> KBSource:
-    """A queued source, for the caller to add to its session. ``public_only`` for one a
-    member added from chat (see ``KBSource.public_only``)."""
+    """A queued source, for the caller to add to its session."""
     return KBSource(
         guild_id=guild_id,
         type=KBSourceType(type),
@@ -42,7 +40,6 @@ def new_source(
         crawl_depth=crawl_depth,
         max_pages=max_pages,
         added_by=added_by,
-        public_only=public_only,
         refresh_interval_hours=refresh_hours,
         # Measured from the first read, not from now: the source is about to be read
         # anyway, and stamping "now" would make an hourly schedule fire twice up front.
