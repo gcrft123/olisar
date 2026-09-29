@@ -5,18 +5,16 @@ sending a clear User-Agent, and pausing between requests. Main content is
 extracted with trafilatura (strips nav/boilerplate); links come from BeautifulSoup.
 
 A source a member added from chat is crawled ``public_only``: every request, redirects
-included, has to go to a host that resolves only to public addresses (see
-:func:`non_public_reason`). Olisar runs inside someone's network, and without that a
-member could have it read a router's admin page or a cloud metadata endpoint into the
-knowledge base and then ask about it.
+included, has to go to a host that resolves only to public addresses, and connects to the
+address that was checked (see :mod:`olisar.netguard`). Olisar runs inside someone's
+network, and without that a member could have it read a router's admin page or a cloud
+metadata endpoint into the knowledge base and then ask about it.
 """
 
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
-import socket
 from dataclasses import dataclass
 from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -25,63 +23,80 @@ import httpx
 import trafilatura
 from bs4 import BeautifulSoup
 
+from olisar import netguard
+from olisar.netguard import NonPublicHost
+
 log = logging.getLogger("olisar.knowledge.crawler")
 
 USER_AGENT = "OlisarBot/1.0 (Discord community knowledge crawler)"
 TIMEOUT = 15.0
 DELAY_SECONDS = 0.5
-
-
-class NonPublicHost(ValueError):
-    """A ``public_only`` crawl was pointed at a host that isn't on the public internet."""
+MAX_REDIRECTS = 10
 
 
 async def _resolve(host: str) -> list[str]:
     """Every address ``host`` resolves to."""
-    infos = await asyncio.get_running_loop().getaddrinfo(host, None, type=socket.SOCK_STREAM)
-    return [info[4][0] for info in infos]
-
-
-def _is_public(address: str) -> bool:
-    ip = ipaddress.ip_address(address.split("%")[0])  # drop an IPv6 zone
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    # is_global rules out loopback, private, link-local, shared (CGNAT), reserved and
-    # unspecified ranges; multicast isn't a web server either.
-    return ip.is_global and not ip.is_multicast
+    return await netguard.lookup(host)
 
 
 async def non_public_reason(url: str) -> str:
     """Why ``url`` mustn't be fetched for a ``public_only`` source, or "" when its host
     resolves only to public addresses. The addresses are what's checked, not the name: a
-    public-looking name can point anywhere, and one private address among several is
-    enough to refuse, since there's no telling which one the connection would use."""
+    public-looking name can point anywhere. This answers whoever is adding the source; a
+    crawl still resolves, checks and pins every request it makes."""
     host = urlparse(url).hostname
     if not host:
         return "it has no host"
     try:
-        addresses = [str(ipaddress.ip_address(host))]
-    except ValueError:
-        try:
-            addresses = await _resolve(host)
-        except (OSError, UnicodeError):
-            return f"{host} doesn't resolve"
-    for address in addresses:
-        try:
-            public = _is_public(address)
-        except ValueError:
-            public = False
-        if not public:
-            return f"{host} points at a private or local address"
-    return "" if addresses else f"{host} doesn't resolve"
+        netguard.public_address(host, await _resolve(host))
+    except NonPublicHost as exc:
+        return str(exc)
+    return ""
 
 
-async def _refuse_non_public(request: httpx.Request) -> None:
-    """httpx request hook for a ``public_only`` crawl. Runs for every request the client
-    makes, redirects included, so a public page can't bounce the crawler onto the LAN."""
-    reason = await non_public_reason(str(request.url))
-    if reason:
-        raise NonPublicHost(reason)
+class _Fetcher:
+    """The GETs of one crawl.
+
+    Redirects are followed here, a hop at a time, rather than by httpx. For a
+    ``public_only`` crawl each hop's host is resolved and checked before it's contacted,
+    and the connection goes to the address that was checked, so neither a redirect nor a
+    name that answers differently the second time it's looked up (DNS rebinding) can point
+    the crawler at the LAN. A client per host lasts the whole crawl, so a site's pages
+    share connections and the site is resolved once."""
+
+    def __init__(self, *, public_only: bool) -> None:
+        self._public_only = public_only
+        self._clients: dict[str, httpx.AsyncClient] = {}
+
+    async def __aenter__(self) -> _Fetcher:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        for client in self._clients.values():
+            await client.aclose()
+
+    async def _client(self, url: httpx.URL) -> httpx.AsyncClient:
+        host = url.raw_host.decode("ascii") if self._public_only else ""
+        client = self._clients.get(host)
+        if client is None:
+            pinned = {}
+            if self._public_only:
+                address = await netguard.resolve_public(host)
+                pinned["transport"] = netguard.PinnedTransport(host, address)
+            client = httpx.AsyncClient(
+                headers={"User-Agent": USER_AGENT}, timeout=TIMEOUT, **pinned
+            )
+            self._clients[host] = client
+        return client
+
+    async def get(self, url: str) -> httpx.Response:
+        target = httpx.URL(url)
+        for _ in range(MAX_REDIRECTS + 1):
+            resp = await (await self._client(target)).get(target)
+            if resp.next_request is None:
+                return resp
+            target = resp.next_request.url
+        raise httpx.TooManyRedirects(f"more than {MAX_REDIRECTS} redirects", request=resp.request)
 
 
 @dataclass
@@ -91,10 +106,10 @@ class Page:
     text: str
 
 
-async def _load_robots(client: httpx.AsyncClient, start_url: str) -> RobotFileParser:
+async def _load_robots(fetcher: _Fetcher, start_url: str) -> RobotFileParser:
     rp = RobotFileParser()
     try:
-        resp = await client.get(urljoin(start_url, "/robots.txt"))
+        resp = await fetcher.get(urljoin(start_url, "/robots.txt"))
         rp.parse(resp.text.splitlines() if resp.status_code == 200 else [])
     except Exception:
         rp.parse([])  # no robots reachable -> allow
@@ -128,23 +143,18 @@ async def crawl(
     root_netloc = urlparse(start_url).netloc
     if not root_netloc:
         raise ValueError(f"invalid URL: {start_url}")
-    hooks = {}
     if public_only:
         # Checked up front as well, so a refused start page is the source's error rather
         # than an empty read.
         reason = await non_public_reason(start_url)
         if reason:
             raise NonPublicHost(f"not read: {reason}")
-        hooks = {"request": [_refuse_non_public]}
 
     pages: list[Page] = []
     seen: set[str] = set()
-    headers = {"User-Agent": USER_AGENT}
 
-    async with httpx.AsyncClient(
-        headers=headers, timeout=TIMEOUT, follow_redirects=True, event_hooks=hooks
-    ) as client:
-        robots = await _load_robots(client, start_url)
+    async with _Fetcher(public_only=public_only) as fetcher:
+        robots = await _load_robots(fetcher, start_url)
         queue: list[tuple[str, int]] = [(start_url, 0)]
 
         while queue and len(pages) < max_pages:
@@ -156,7 +166,7 @@ async def crawl(
                 log.info("robots.txt disallows %s", url)
                 continue
             try:
-                resp = await client.get(url)
+                resp = await fetcher.get(url)
             except Exception:
                 continue
             if resp.status_code != 200:
