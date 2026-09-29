@@ -32,6 +32,14 @@ USER_AGENT = "OlisarBot/1.0 (Discord community knowledge crawler)"
 TIMEOUT = 15.0
 DELAY_SECONDS = 0.5
 MAX_REDIRECTS = 10
+# TIMEOUT bounds each wait on the server, not a whole response, so a server sending a byte
+# every few seconds could hold a crawl forever. A request, redirects included, gets this long.
+REQUEST_DEADLINE = 20.0
+# A page is held in memory to be parsed, so no more than this is read of one: 10 MB, the
+# largest document the knowledge base takes as an upload. The rest is never downloaded.
+MAX_PAGE_BYTES = 10 * 1024 * 1024
+# RFC 9309 has crawlers read at least the first 500 KiB of a robots.txt; that's all we read.
+MAX_ROBOTS_BYTES = 500 * 1024
 
 
 async def _resolve(host: str) -> list[str]:
@@ -89,14 +97,35 @@ class _Fetcher:
             self._clients[host] = client
         return client
 
-    async def get(self, url: str) -> httpx.Response:
+    async def get_text(self, url: str, *, limit: int, html_only: bool = False) -> str | None:
+        """``url``'s body as text, or None unless the answer is a 200 (and, with
+        ``html_only``, HTML). Only the first ``limit`` bytes are read, and the request has
+        REQUEST_DEADLINE to finish, redirects included (TimeoutError past it)."""
         target = httpx.URL(url)
-        for _ in range(MAX_REDIRECTS + 1):
-            resp = await (await self._client(target)).get(target)
-            if resp.next_request is None:
-                return resp
-            target = resp.next_request.url
+        async with asyncio.timeout(REQUEST_DEADLINE):
+            for _ in range(MAX_REDIRECTS + 1):
+                client = await self._client(target)
+                async with client.stream("GET", target) as resp:
+                    if resp.next_request is not None:
+                        target = resp.next_request.url
+                        continue
+                    if resp.status_code != 200:
+                        return None
+                    if html_only and "text/html" not in resp.headers.get("content-type", ""):
+                        return None
+                    body = await _read(resp, limit)
+                    return body.decode(resp.encoding or "utf-8", errors="replace")
         raise httpx.TooManyRedirects(f"more than {MAX_REDIRECTS} redirects", request=resp.request)
+
+
+async def _read(resp: httpx.Response, limit: int) -> bytearray:
+    body = bytearray()
+    async for chunk in resp.aiter_bytes():
+        body += chunk[: limit - len(body)]
+        if len(body) >= limit:
+            log.info("read only the first %d bytes of %s", limit, resp.url)
+            break
+    return body
 
 
 @dataclass
@@ -109,8 +138,8 @@ class Page:
 async def _load_robots(fetcher: _Fetcher, start_url: str) -> RobotFileParser:
     rp = RobotFileParser()
     try:
-        resp = await fetcher.get(urljoin(start_url, "/robots.txt"))
-        rp.parse(resp.text.splitlines() if resp.status_code == 200 else [])
+        text = await fetcher.get_text(urljoin(start_url, "/robots.txt"), limit=MAX_ROBOTS_BYTES)
+        rp.parse(text.splitlines() if text is not None else [])
     except Exception:
         rp.parse([])  # no robots reachable -> allow
     return rp
@@ -166,15 +195,12 @@ async def crawl(
                 log.info("robots.txt disallows %s", url)
                 continue
             try:
-                resp = await fetcher.get(url)
+                html = await fetcher.get_text(url, limit=MAX_PAGE_BYTES, html_only=True)
             except Exception:
                 continue
-            if resp.status_code != 200:
-                continue
-            if "text/html" not in resp.headers.get("content-type", ""):
+            if html is None:
                 continue
 
-            html = resp.text
             text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
             if text.strip():
                 pages.append(Page(url=url, title=_title_of(html), text=text))

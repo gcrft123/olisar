@@ -36,8 +36,8 @@ MAX_INTERVAL_HOURS = 8760
 # A source is claimed by flipping it to ``crawling``; if the process dies before it writes
 # the result, the row is stranded there and its schedule stops forever. Anything still
 # claimed after this long is treated as abandoned and re-queued. The ceiling is deliberately
-# far above a real crawl — 100 pages at the crawler's 0.5s delay and 15s timeout is ~34
-# minutes in the worst case — so this can only fire on a claim nobody is holding.
+# far above a real crawl — 100 pages at the crawler's 0.5s delay and 20s request deadline
+# is ~34 minutes in the worst case — so this can only fire on a claim nobody is holding.
 STALE_CLAIM_HOURS = 2
 
 _IN_FLIGHT = (KBStatus.crawling, KBStatus.chunking)
