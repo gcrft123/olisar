@@ -25,6 +25,7 @@ from olisar.db.models import (
     CONTEXT_MODES,
     GuildChannelInfo,
 )
+from olisar.memory.writer import opted_out
 from olisar.message_links import ChannelFilter
 
 FEED_KEEP = 3              # feed channels: keep only the last N messages
@@ -42,14 +43,19 @@ async def replace_context_items(
     items: list[dict],
 ) -> None:
     """Replace a channel's stored snapshot with ``items`` (oldest-first), each a
-    dict of ``{message_id, author_name, content}``. Wholesale replace keeps the
-    snapshot honest about edits and deletions in the source channel."""
+    dict of ``{message_id, author_id, author_name, content}``. Wholesale replace keeps the
+    snapshot honest about edits and deletions in the source channel.
+
+    A post by someone who asked not to be remembered here is left out, as it would be from
+    conversation memory and the search index (olisar.memory.writer.opted_out)."""
     await session.execute(
         delete(ChannelContextItem).where(ChannelContextItem.channel_id == channel_id)
     )
+    authors = {it.get("author_id") for it in items if it.get("author_id")}
+    unwanted = {a for a in authors if await opted_out(session, a, guild_id)}
     for it in items:
         content = (it.get("content") or "").strip()
-        if not content:
+        if not content or it.get("author_id") in unwanted:
             continue
         session.add(
             ChannelContextItem(

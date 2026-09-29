@@ -438,6 +438,22 @@ class UserProfile(Base):
     )
 
 
+class MemoryOptOut(Base):
+    """Someone who asked Olisar to stop remembering them (``/forget-me stop_remembering``).
+
+    ``UserProfile.memory_opt_out`` is per server, and a profile only exists where they've
+    been seen, so the flag alone missed their first DM afterwards and every server the bot
+    joined later. This row is the promise itself: a profile created from now on starts
+    opted out (``olisar.memory.writer.upsert_profile``), and a writer with no profile to
+    read asks here. A profile that exists still decides for its own server, so the member
+    portal's per-server switch keeps working."""
+
+    __tablename__ = "memory_opt_out"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class UserMemory(Base):
     __tablename__ = "user_memory"
 
