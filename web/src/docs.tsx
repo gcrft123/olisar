@@ -1478,7 +1478,7 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 | \`host.secret(ref)\` | \`secret:<ref>\` | Read an operator-approved key by reference (e.g. \`host.secret("uex_api_key")\`). You never see the literal value while authoring. |
 | \`host.kb.addSource(seed)\` | \`kb.write\` | Add a URL/website to the server's knowledge base. Idempotent. |
 | \`host.glossary.add(fact)\` | \`glossary.write\` | Add a \`{ subject, fact }\` to the glossary. |
-| \`host.kv.get/set/delete\` | \`kv\` | A small per-server key/value store your extension owns. |
+| \`host.kv.get/set/delete\` | \`kv\` | A small per-server key/value store your extension owns. Keys up to 128 characters, values up to 1 MB as JSON, 10,000 keys and 32 MB per server; a \`set\` past them throws. |
 | \`host.settings.get(key?)\` | — | Read what an admin typed in your settings pane. No permission needed. |
 | \`host.embed(spec)\` | — | Build a Discord embed to pass to \`reply({ embed })\`. |
 | \`host.log(msg)\` | — | Write a line to the bot log. Always available. |
