@@ -714,6 +714,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 channel_id=ctx.channel_id,
                 readable=ctx.readable(),
                 member=await _asker_in_guild(ctx),
+                dm=ctx.is_dm,
             )
             return block or "Nothing relevant found in memory."
 
