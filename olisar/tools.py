@@ -17,7 +17,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import self_settings, toolpin
+from olisar import budgets, self_settings, toolpin
 from olisar.db.models import (
     MASS_MENTIONS,
     GeminiUsage,
@@ -163,6 +163,8 @@ class ToolContext:
     in_guild: bool | None = None
     # How many images this reply has asked for; capped at IMAGES_PER_REPLY.
     images: int = 0
+    # How many DMs this reply has tried to send; capped at DMS_PER_REPLY.
+    dms: int = 0
 
     def readable(self) -> ChannelFilter:
         """The channels this reply's asker can open, for filtering search and recall. For a
@@ -881,8 +883,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         if name == "send_dm":
             if ctx.actions is None:
                 return "Can't send DMs from here."
-            target = args.get("user_id") or ctx.user_id
-            return await ctx.actions.send_dm(target, args.get("message") or "")
+            return await _send_dm(args, ctx)
 
         if name == "send_to_channel":
             if ctx.actions is None:
@@ -1134,3 +1135,55 @@ def _went_through(name: str, result: str, wrote_settings: bool) -> bool:
     if name in self_settings.TOOL_NAMES:
         return wrote_settings
     return str(result or "").startswith(_ACTION_DONE.get(name, ()))
+
+
+# How many DMs one reply may send (budgets.DMS_PER_DAY caps a member's day). Asking Olisar
+# to DM a few people is the feature; one message fanning out to dozens is not.
+DMS_PER_REPLY = 5
+_DM_REPLY_CAP = (
+    "Not sent: that's the {cap} DMs one reply can send. Don't call send_dm again this turn; "
+    "tell them who you did message, and that they can ask again for the rest."
+)
+_DM_DAY_CAP = (
+    "Not sent: they've had you DM {cap} people in the last day, the most one member can. "
+    "Tell them plainly you can't DM anyone else for them until tomorrow."
+)
+_DM_ASKER_NOT_MEMBER = (
+    "Not sent: you only DM other people for members of this server, and the person asking "
+    "isn't one. Tell them you can't do that for them."
+)
+_DM_RECIPIENT_NOT_MEMBER = (
+    "Not sent: that person isn't a member of this server, and you only DM its members. "
+    "Tell them you couldn't reach them."
+)
+
+
+async def _send_dm(args: dict, ctx: ToolContext) -> str:
+    """send_dm within its limits. The recipient has to be a member of the server the
+    conversation is in (the home server in a DM), and so does the person asking; a reply
+    sends at most DMS_PER_REPLY; and a member can have budgets.DMS_PER_DAY people messaged
+    for them in a day. A DM to the person asking is held only to the per-reply cap.
+
+    Without these, send_dm took any user id and any text, as often as the model called it,
+    and anyone sharing a server with the bot had a relay to every member of every server it
+    was in."""
+    raw = args.get("user_id") or ctx.user_id
+    try:
+        target = int(raw)
+    except (TypeError, ValueError):
+        return f"'{raw}' isn't a valid user id"
+    if ctx.dms >= DMS_PER_REPLY:
+        return _DM_REPLY_CAP.format(cap=DMS_PER_REPLY)
+    someone_else = target != ctx.user_id
+    if someone_else:
+        if not await _asker_in_guild(ctx):
+            return _DM_ASKER_NOT_MEMBER
+        if not await ctx.actions.is_member(target, ctx.cfg_guild):
+            return _DM_RECIPIENT_NOT_MEMBER
+        if budgets.dms_left(ctx.user_id) <= 0:
+            return _DM_DAY_CAP.format(cap=budgets.DMS_PER_DAY)
+    ctx.dms += 1
+    result = await ctx.actions.send_dm(target, args.get("message") or "")
+    if someone_else and str(result).startswith(DM_OK):
+        budgets.note_dm(ctx.user_id)
+    return result

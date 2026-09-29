@@ -1,4 +1,4 @@
-"""How many replies one member, or one server, can have from Olisar.
+"""How much one member, or one server, can have Olisar do.
 
 Every reply is a handful of model calls (up to six tool rounds, two continuations and a
 forced answer) against a quota the whole install shares, and nothing limited how many one
@@ -11,6 +11,10 @@ sizes are set so a conversation never notices them: a member gets eight replies 
 back and then one every 15 seconds, and a server thirty and then one every 4 seconds.
 Someone flooding the bot runs dry within a few messages.
 
+DMs sent on someone's behalf are counted per member over a rolling day (DMS_PER_DAY).
+Asking Olisar to DM a few people is the feature; relaying a message to a server's members
+one reply after another is how it becomes a phishing relay.
+
 Kept in memory, like the proactive cooldowns. A restart refills everyone, which is harmless.
 """
 
@@ -22,6 +26,8 @@ MEMBER_BURST = 8
 MEMBER_PER_MINUTE = 4.0
 SERVER_BURST = 30
 SERVER_PER_MINUTE = 15.0
+DMS_PER_DAY = 20
+_DAY = 24 * 3600.0
 
 # Past this many tracked keys, full buckets are dropped (an unknown key starts full anyway).
 _PRUNE_AT = 5000
@@ -54,6 +60,8 @@ _members = TokenBucket(MEMBER_BURST, MEMBER_PER_MINUTE)
 _servers = TokenBucket(SERVER_BURST, SERVER_PER_MINUTE)
 # Members refused since their last reply who have already been told so.
 _told: set[int] = set()
+# When each member last had Olisar DM someone else for them, over the past day.
+_dms: dict[int, list[float]] = {}
 
 
 def take_reply(user_id: int, guild_id: int) -> bool:
@@ -76,3 +84,19 @@ def first_refusal(user_id: int) -> bool:
         return False
     _told.add(user_id)
     return True
+
+
+def dms_left(user_id: int) -> int:
+    """How many more people ``user_id`` can have Olisar DM for them today (a rolling day)."""
+    now = time.monotonic()
+    recent = [t for t in _dms.get(user_id, ()) if now - t < _DAY]
+    if recent:
+        _dms[user_id] = recent
+    else:
+        _dms.pop(user_id, None)
+    return DMS_PER_DAY - len(recent)
+
+
+def note_dm(user_id: int) -> None:
+    """Count a DM Olisar sent to someone else for ``user_id``."""
+    _dms.setdefault(user_id, []).append(time.monotonic())
