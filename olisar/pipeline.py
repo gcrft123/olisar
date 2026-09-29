@@ -1024,9 +1024,14 @@ async def channel_task_prompt(
     if room:
         system_instruction += "\n\n" + room
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
-    # Best-effort, as recall is on a reply: the text still gets written without it.
+    # Best-effort, as recall is on a reply: the text still gets written without it. What's
+    # written is for everyone in the channel, and there's no Discord here to ask what they
+    # can open, so the glossary keeps to facts learned in this channel or in none.
     try:
-        memory = await server_memory(session, guild_id)
+        memory = await server_memory(
+            session, guild_id,
+            readable=channel_filter(None, guild_id=guild_id, requester_id=0, here=channel_id),
+        )
         if memory:
             system_instruction += "\n\n" + memory
     except Exception:

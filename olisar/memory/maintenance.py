@@ -231,23 +231,22 @@ async def mine_glossary_now(guild_id: int) -> dict:
         if not rows:
             return {"ok": True, "added": 0, "mined": 0, "remaining": 0}
         names = await name_map(session, {m.author_id for m in rows})
-        items = [(m.id, m.author_id, m.content) for m in rows]
+        items = [(m.id, m.author_id, m.content, m.channel_id) for m in rows]
 
     # 2) Mine in batches, each its own short transaction (model call + writes) — mirrors
     #    the per-channel auto pass so no write lock is held across many network calls.
     added_total = mined_total = 0
-    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
-        batch = items[i : i + GLOSSARY_MINE_BATCH]
+    for channel_id, batch in _channel_batches(items, lambda it: it[3]):
         transcript = "\n".join(
-            f"{names.get(aid, str(aid))}: {content}" for (_id, aid, content) in batch
+            f"{names.get(aid, str(aid))}: {content}" for (_id, aid, content, _ch) in batch
         )
         async with session_scope() as session:
             added_total += await extract_and_store_facts(
-                session, guild_id=guild_id, channel_id=None, transcript=transcript
+                session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
             )
             await session.execute(
                 update(Message)
-                .where(Message.id.in_([mid for (mid, _a, _c) in batch]))
+                .where(Message.id.in_([mid for (mid, _a, _c, _ch) in batch]))
                 .values(fact_mined=True)
             )
         mined_total += len(batch)
@@ -275,8 +274,9 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
     """Operator-triggered DEEP glossary mine over the full message search index (the
     ``search_message`` table, which spans EVERY channel — including ones excluded from
     conversational memory). Samples the most recent ``GLOSSARY_MANUAL_INDEX_CAP`` messages
-    and mines them in batches. Nothing is flagged (the index has no mined marker), and
-    re-running is safe: upsert dedups and merely reinforces facts already known."""
+    and mines them in batches, a channel at a time. Nothing is flagged (the index has no
+    mined marker), and re-running is safe: upsert dedups and merely reinforces facts
+    already known."""
     async with session_scope() as session:
         rows = (
             await session.scalars(
@@ -287,7 +287,7 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
             )
         ).all()
         items = [
-            (s.author_name or str(s.author_id), s.content)
+            (s.author_name or str(s.author_id), s.content, s.channel_id)
             for s in rows
             if (s.content or "").strip()
         ]
@@ -296,14 +296,31 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
     items.reverse()  # oldest-first, so the model reads the sample chronologically
 
     added_total = 0
-    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
-        batch = items[i : i + GLOSSARY_MINE_BATCH]
-        transcript = "\n".join(f"{name}: {content}" for (name, content) in batch)
+    for channel_id, batch in _channel_batches(items, lambda it: it[2]):
+        transcript = "\n".join(f"{name}: {content}" for (name, content, _ch) in batch)
         async with session_scope() as session:
             added_total += await extract_and_store_facts(
-                session, guild_id=guild_id, channel_id=None, transcript=transcript
+                session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
             )
     return {"ok": True, "added": added_total, "sampled": len(items)}
+
+
+def _channel_batches(items: list, channel_of) -> list[tuple[int, list]]:
+    """``items`` as ``(channel_id, batch)`` pairs of at most GLOSSARY_MINE_BATCH, none of
+    which spans two channels. Order is kept within each channel.
+
+    A fact mined from a batch keeps that batch's channel, and a reply only carries it for
+    someone who can open the channel (facts.glossary_block). A batch across channels would
+    leave its facts with no channel at all, and a fact from a staff channel would reach
+    every member."""
+    by_channel: dict[int, list] = {}
+    for item in items:
+        by_channel.setdefault(channel_of(item), []).append(item)
+    return [
+        (channel_id, rows[i : i + GLOSSARY_MINE_BATCH])
+        for channel_id, rows in by_channel.items()
+        for i in range(0, len(rows), GLOSSARY_MINE_BATCH)
+    ]
 
 
 async def run_personas() -> None:
