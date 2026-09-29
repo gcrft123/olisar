@@ -240,7 +240,7 @@ class RecallScope(unittest.TestCase):
     """Older messages: this channel, or a channel of this server the asker can open."""
 
     def _recall(self, rows, *, channel_id=HERE):
-        async def knn(_session, table, _qvec, k=5):
+        async def knn(_session, table, _qvec, k=5, *, guild_ids):
             return [(r.id, 0.1) for r in rows] if table == "message_embedding" else []
 
         async def readable(ids):

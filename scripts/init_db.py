@@ -14,12 +14,16 @@ import json
 import os
 
 from olisar.config import settings
-from olisar.db.engine import get_engine, session_scope
+from olisar.db.engine import current_db_path, get_engine, session_scope
 from olisar.db.models import (
     Base,
 )
 from olisar.guild_setup import ensure_guild_defaults
-from olisar.memory.vectors import create_fts_tables, create_vector_tables
+from olisar.memory.vectors import (
+    create_fts_tables,
+    create_vector_tables,
+    partition_vector_tables,
+)
 
 
 def _default_literal(column) -> str:
@@ -135,6 +139,9 @@ async def create_schema() -> None:
         await conn.run_sync(_mark_bot_rows_mined)
         await create_vector_tables(conn, settings.embed_dim)
         await create_fts_tables(conn)
+    # Vector tables from before they were partitioned by guild are rebuilt in committed
+    # batches, which can't happen inside the transaction above.
+    await asyncio.to_thread(partition_vector_tables, current_db_path())
 
 
 async def migrate_model_default() -> int:

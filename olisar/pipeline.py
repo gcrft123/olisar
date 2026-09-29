@@ -900,6 +900,7 @@ async def generate_reply(
                 actions, guild_id=cfg_guild, requester_id=viewer, here=channel_id
             ),
             member=in_guild,
+            dm=not guild_id,
         )
         if recalled:
             system_instruction += "\n\n" + recalled
