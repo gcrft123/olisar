@@ -14,9 +14,11 @@ almost all of them:
   ``change_setting`` can swap one passage (``find``) or add to the end (``append``), so
   changing a sentence of the system prompt doesn't mean re-typing all of it.
 
-Who may call these isn't decided here. The writes sit behind the tool PIN on any server
-that keeps "self_edit" in its ``pin_actions`` (the default), and ``olisar.toolpin.gate``
-checks each call before it reaches this module. ``pin_actions`` itself is deliberately not
+Who may call these isn't decided here. A reply only offers them to someone with Manage
+Server on the server they act on, or the operator (``olisar.pipeline._manages_server``).
+The writes also sit behind the tool PIN on any server that keeps "self_edit" in its
+``pin_actions`` (the default), and ``olisar.toolpin.gate`` checks each call before it
+reaches this module. ``pin_actions`` itself is deliberately not
 one of the keys below: the setting that guards these tools can't be one they change. Nor
 can the PIN prompt's wording, which is how the person typing the PIN sees what it approves.
 
