@@ -745,13 +745,15 @@ def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
     )
 
 
-async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
-    """Whether ``user_id`` may reach the home server's settings from a DM: the operator
+async def _manages_server(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` may reach ``cfg_guild``'s settings from chat: the operator
     (``ADMIN_ALLOWLIST``, or an owner of the bot's Discord app as last read), or someone
-    with Manage Server there.
+    with Manage Server there, the same people who could change them in the console.
 
-    A DM acts on the home server, and sharing any server with the bot is enough to DM it,
-    so without this a member of some other server could read and change this one's."""
+    In a server channel, without this any member could read the system prompt back and,
+    on a server that took the PIN off settings changes, rewrite it. In a DM, which acts on
+    the home server and which sharing any server with the bot is enough to send, a member
+    of some other server could read and change this one's."""
     owners = discord_app._extract_owner_ids(discord_app.cached_application() or {})
     if user_id in settings.admin_allowlist or user_id in owners:
         return True
@@ -760,7 +762,7 @@ async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild:
     try:
         return bool(await actions.is_admin(user_id, cfg_guild))
     except Exception:  # noqa: BLE001
-        log.exception("couldn't check whether %s manages the home server", user_id)
+        log.exception("couldn't check whether %s manages guild %s", user_id, cfg_guild)
         return False
 
 
@@ -931,10 +933,11 @@ async def generate_reply(
     reply_tools = tools_with_extensions(
         extra_decls + (ack_declarations() if silent_acks else [])
     )
-    # The settings tools act on cfg_guild, which in a DM is the home server.
-    settings_allowed = addressed and (
-        bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
-    )
+    # The settings tools act on cfg_guild, which in a DM is the home server. Reading them
+    # (the system prompt, the knowledge base's sources) and changing them are both for whoever
+    # could do it in the console. The tool PIN is a second lock on the changes, and a server
+    # can take that one off.
+    settings_allowed = addressed and await _manages_server(actions, user_id, cfg_guild)
     if not settings_allowed:
         reply_tools = without_settings_tools(reply_tools)
     if not in_guild:
