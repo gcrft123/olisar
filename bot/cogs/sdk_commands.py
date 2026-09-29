@@ -28,6 +28,7 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 
+from bot.replies import SAFE_MENTIONS
 from olisar import guild_approval
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
@@ -226,6 +227,12 @@ class _SdkModal(discord.ui.Modal):
             self._future.set_result(values)
 
 
+def _mentions_for(trusted: bool) -> discord.AllowedMentions:
+    """What an extension's message may ping: a third-party extension nobody, a first-party one
+    the people it names (never @everyone, @here or a role, whoever the reply is for)."""
+    return SAFE_MENTIONS if trusted else discord.AllowedMentions.none()
+
+
 class _DiscordBridge:
     """Implements the sandbox DiscordBridge protocol for one slash interaction.
 
@@ -237,9 +244,10 @@ class _DiscordBridge:
     bytes without putting base64 into the initial interaction payload.
     """
 
-    def __init__(self, interaction: discord.Interaction, ext_key: str):
+    def __init__(self, interaction: discord.Interaction, ext_key: str, *, trusted: bool = False):
         self.it = interaction
         self.ext_key = ext_key
+        self.mentions = _mentions_for(trusted)
         self._responded = False
         # Whether this interaction's replies should stay private. Set by the first
         # reply({ ephemeral }); followUps inherit it unless they set ephemeral explicitly.
@@ -287,6 +295,7 @@ class _DiscordBridge:
             "content": p.get("content"),
             "embed": _to_embed(p.get("embed")),
             "ephemeral": ephemeral,
+            "allowed_mentions": self.mentions,
         }
         if view is not None:
             kwargs["view"] = view
@@ -400,9 +409,10 @@ class _ComponentBridge:
     """DiscordBridge for one persistent-component click: reply ephemerally to the
     clicker, or edit the source message in place (live tally / attendee list)."""
 
-    def __init__(self, interaction: discord.Interaction, ext_key: str):
+    def __init__(self, interaction: discord.Interaction, ext_key: str, *, trusted: bool = False):
         self.it = interaction
         self.ext_key = ext_key
+        self.mentions = _mentions_for(trusted)
         self._responded = False
         self.blobs: dict[str, BlobRecord] = {}
 
@@ -412,7 +422,8 @@ class _ComponentBridge:
     async def reply(self, payload: Any) -> None:
         p = self._unpack(payload)
         view = _build_view(p.get("components") or [], ext_key=self.ext_key)
-        kwargs: dict[str, Any] = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
+        kwargs: dict[str, Any] = {"content": p.get("content"), "embed": _to_embed(p.get("embed")),
+                                  "allowed_mentions": self.mentions}
         if view is not None:
             kwargs["view"] = view
         files = _to_discord_files(p.get("files"), blobs=self.blobs)
@@ -427,7 +438,7 @@ class _ComponentBridge:
 
     async def update(self, payload: Any) -> None:
         p = self._unpack(payload)
-        kwargs: dict = {}
+        kwargs: dict = {"allowed_mentions": self.mentions}
         if p.get("content") is not None:
             kwargs["content"] = p["content"]
         if p.get("embed") is not None:
@@ -490,7 +501,7 @@ async def _dispatch_component(it: discord.Interaction, ext_key: str, handler_id:
         "guildId": str(gid), "channelId": str(it.channel_id), "messageId": str(mid),
         "userId": str(it.user.id), "displayName": it.user.display_name,
     }
-    bridge = _ComponentBridge(it, ext_key)
+    bridge = _ComponentBridge(it, ext_key, trusted=trusted)
     async with _message_lock(gid, mid):  # serialize edits + KV read-modify-write
         try:
             async with session_scope() as session:
@@ -562,7 +573,7 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
             compiled, perms = pkg.compiled_js, list(pkg.permissions or [])
             # First-party extensions may use host secrets; imported/marketplace can't.
             trusted = (pkg.origin or "local") == "local"
-        bridge = _DiscordBridge(interaction, ext_key)
+        bridge = _DiscordBridge(interaction, ext_key, trusted=trusted)
         bridge.capture_attachments(opts)
         data = {
             "options": {k: _ser(v) for k, v in opts.items()},

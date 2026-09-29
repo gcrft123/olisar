@@ -837,11 +837,12 @@ so it stays sparse.
 
 **Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
 reply. Tick any of **@everyone**, **@here**, and **All roles**. Olisar can still *say* "@everyone" but the
-ping is neutralized, so nobody gets pinged. Leave them unticked to let it mention normally.
+ping is neutralized, so nobody gets pinged. All three start ticked, because any member can get a reply to
+say "@everyone"; untick one to let Olisar ping it.
 
 > [!TIP]
 > **Stop accidental mass-pings**
-> Blocking **@everyone**/**@here** is the safe default for a chatty bot: it can reference the words without
+> Blocking **@everyone**/**@here** is the default for a reason: a chatty bot can reference the words without
 > lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. `@Mods`).
 
 

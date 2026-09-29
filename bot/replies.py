@@ -18,7 +18,7 @@ from contextvars import ContextVar
 import discord
 
 from olisar.db.engine import session_scope
-from olisar.db.models import GuildConfig
+from olisar.db.models import MASS_MENTIONS, GuildConfig
 from olisar.memory.writer import record_message
 from olisar.persona import split_messages
 
@@ -51,12 +51,34 @@ def sanitize_mentions(text: str, blocked) -> str:
     return text
 
 
+# What anything the bot sends may ping unless it says otherwise: the people named in it, and
+# nobody en masse. Set on the client, so a send that passes no policy of its own (a reminder,
+# an image, an extension's post) can't ping @everyone, @here or a role.
+SAFE_MENTIONS = discord.AllowedMentions(everyone=False, roles=False, users=True, replied_user=False)
+
+
 def mention_policy(blocked) -> discord.AllowedMentions:
-    """AllowedMentions for an Olisar reply: roles are blocked here; @everyone/@here are
-    handled by sanitize_mentions; the replied-to author is never pinged."""
+    """AllowedMentions for an Olisar reply: roles unless blocked; @everyone/@here only when
+    the server allows at least one of them, and then sanitize_mentions breaks the text of
+    whichever is still blocked. The replied-to author is never pinged."""
+    b = set(blocked or [])
     return discord.AllowedMentions(
-        everyone=True, users=True, roles=("roles" not in set(blocked or [])), replied_user=False
+        everyone=not {"everyone", "here"} <= b, users=True, roles="roles" not in b,
+        replied_user=False,
     )
+
+
+async def send_with_policy(channel, text: str, **kwargs) -> discord.Message:
+    """Send ``text`` to ``channel`` under its server's mention policy."""
+    blocked = await blocked_mentions_for(channel)
+    return await channel.send(
+        sanitize_mentions(text, blocked), allowed_mentions=mention_policy(blocked), **kwargs
+    )
+
+
+def blocked_mentions_of(cfg: GuildConfig | None) -> list:
+    """A server's blocked mention types. A server with no settings yet blocks all three."""
+    return list(cfg.blocked_mentions or []) if cfg is not None else list(MASS_MENTIONS)
 
 
 async def blocked_mentions_for(channel) -> list:
@@ -66,8 +88,7 @@ async def blocked_mentions_for(channel) -> list:
     if guild is None:
         return []
     async with session_scope() as session:
-        cfg = await session.get(GuildConfig, guild.id)
-        return list(cfg.blocked_mentions or []) if cfg else []
+        return blocked_mentions_of(await session.get(GuildConfig, guild.id))
 
 
 def chunk_text(text: str, limit: int = DISCORD_LIMIT) -> list[str]:
