@@ -9,7 +9,10 @@ Permissions are also **re-validated live on every request**: Manage Server can b
 revoked in Discord after login, so on each call we re-derive — from the bot's own view
 of the guild — which of the servers the session claims the user still actually manages.
 If they've lost it everywhere, the session is revoked immediately rather than lingering
-until it expires. Allowlisted operators are exempt (admitted by user id, not roles).
+until it expires. Operators are admitted by user id, not roles, so theirs is a different
+re-check: every few minutes, the test sign-in uses (in ``ADMIN_ALLOWLIST``, or an owner or
+team member of the bot's Discord app) is applied again. Someone who no longer passes it keeps
+only what Manage Server gives them.
 
 ``require_member`` / ``require_member_guild`` are the member portal's counterparts. They
 ask a strictly weaker question — *are you still in a server Olisar is in* — and grant
@@ -19,6 +22,7 @@ and refuse to serve a server whose operator hasn't opened the portal.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -36,15 +40,23 @@ from api.auth.sessions import (
     get_member_for_token,
 )
 from api.trust import is_local_request
+from olisar import discord_app
+from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, Guild, GuildConfig, MemberUser, utcnow
+from olisar.db.models import AdminGrant, AdminUser, Guild, GuildConfig, MemberUser, utcnow
 
-# When each non-allowlisted admin was last verified against the live bot. Bounds how long a
-# session may coast while the bot is unavailable (restarting, or powered off) before it must
+log = logging.getLogger("olisar.api.auth")
+
+# When each admin was last verified: a non-allowlisted one against the live bot, an operator
+# against the allowlist and the app's team. For the former it bounds how long a session may
+# coast while the bot is unavailable (restarting, or powered off) before it must
 # re-authenticate — so a just-revoked admin can't ride a powered-down bot. Cleared on restart
 # (the bot is up at startup, so sessions re-verify on their next request).
 _last_check: dict[int, datetime] = {}
 _OFFLINE_GRACE_SECONDS = 300  # 5 min: comfortably covers restarts; bounds powered-down exposure
+# How often an operator's standing is read again. The app object is cached for every caller,
+# so this is one Discord request per interval for the whole install, not one per request.
+_OPERATOR_RECHECK_SECONDS = 300
 
 
 def _live_bot(request: Request):
@@ -99,11 +111,50 @@ def _recently_verified(admin: AdminUser) -> bool:
     return newest is not None and (utcnow() - newest).total_seconds() < _OFFLINE_GRACE_SECONDS
 
 
+async def _still_operator(user_id: int) -> bool | None:
+    """Whether ``user_id`` still passes the test that sign-in uses for the operator
+    (api/auth/oauth.py): in ``ADMIN_ALLOWLIST``, or an owner or team member of the bot's
+    Discord app. None when the app can't be read right now (no token, Discord unreachable)."""
+    if user_id in settings.admin_allowlist:
+        return True
+    if await discord_app.application(max_age=_OPERATOR_RECHECK_SECONDS) is None:
+        return None
+    return user_id in await discord_app.owner_ids()
+
+
+async def _recheck_operator(admin: AdminUser) -> None:
+    """Take the operator's powers from someone who no longer passes that test, so being
+    removed from the allowlist or the app's team takes effect within minutes rather than when
+    the 14-day session expires. When Discord can't answer, the standing from sign-in holds:
+    the operator may be in the console to fix the very token that's failing."""
+    uid = admin.discord_user_id
+    last = _last_check.get(uid)
+    if last is not None and (utcnow() - last).total_seconds() < _OPERATOR_RECHECK_SECONDS:
+        return
+    _last_check[uid] = utcnow()
+    if await _still_operator(uid) is not False:
+        return
+    _last_check.pop(uid, None)
+    async with session_scope() as session:
+        row = await session.get(AdminUser, uid)
+        if row is not None:
+            row.is_allowlisted = False
+            row.granted_via = AdminGrant.manage_guild
+    admin.is_allowlisted = False
+    admin.granted_via = AdminGrant.manage_guild
+    log.warning(
+        "user %s is no longer in ADMIN_ALLOWLIST or the bot app's team; "
+        "their console access is now what Manage Server gives them", uid,
+    )
+
+
 async def _revalidate(request: Request, admin: AdminUser, token: str) -> None:
     """Re-check the admin's Discord permissions so a Manage-Server revocation takes
     effect on the next request, not only when the session expires."""
     if admin.is_allowlisted:
-        return  # the operator — admitted by user id, not by Discord roles
+        await _recheck_operator(admin)
+        if admin.is_allowlisted:
+            return  # the operator — admitted by user id, not by Discord roles
     bot = _live_bot(request)
     if bot is None:
         # Can't verify against Discord right now (bot restarting or powered off). Coast on
