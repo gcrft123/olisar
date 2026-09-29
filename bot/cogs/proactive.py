@@ -74,6 +74,7 @@ class Proactive(commands.Cog):
         self.bot = bot
         self._last_proactive: dict[int, float] = {}  # per-guild last chime (monotonic)
         self._channel_cooldown: dict[int, float] = {}  # per-channel (ids are unique)
+        self._user_cooldown: dict[tuple[int, int], float] = {}  # per (guild, member)
         self._recent: dict[int, list[float]] = {}  # per-guild timestamps for the hourly cap
         self._last_considered: dict[int, int] = {}
         # Separate state for the passive-reaction path so it never interferes with chiming.
@@ -205,6 +206,11 @@ class Proactive(commands.Cog):
                 age = _age_seconds(latest.created_at)
                 if age < MIN_AGE or age > MAX_AGE:
                     continue
+                # Olisar chimed in on this person moments ago, maybe in another channel.
+                # Not marked considered: once the cooldown is up, it's fair game.
+                last_on_them = self._user_cooldown.get((guild_id, latest.author_id), 0.0)
+                if now - last_on_them < pconf.user_cooldown_sec:
+                    continue
                 self._last_considered[cid] = latest.message_id  # don't re-evaluate
                 if not self._may_answer(guild_id, latest.author_id, gconf):
                     continue
@@ -246,6 +252,7 @@ class Proactive(commands.Cog):
             ts = time.monotonic()
             self._last_proactive[guild_id] = ts
             self._channel_cooldown[cid] = ts
+            self._user_cooldown[(guild_id, author_id)] = ts
             recent.append(ts)
             log.info(
                 "proactive chimed in guild=%s ch=%s conf=%.2f bar=%.2f follow_up=%.2f",
