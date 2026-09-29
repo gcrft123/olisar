@@ -2127,6 +2127,54 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
   )
 }
 
+// An extension's manifest is whatever its code declared. One the panel can't render (a
+// settings label that's an object, say) used to throw past it and take the whole Extensions
+// page down, and since the rail opens on its first extension, every visit hit it again with
+// no way left to turn the extension off. This keeps the rail up and, in the panel, the two
+// controls that get rid of it: the enable toggle and, for the operator, Delete.
+class ExtensionBoundary extends React.Component<
+  { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onDeleted: () => void; children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error) { console.error('[olisar] extension panel failed', error) }
+  remove = async () => {
+    const key = String(this.props.e.key)
+    if (!(await confirmDialog({
+      title: `Delete extension "${key}"?`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+      requirePhrase: { phrase: `delete ${key}` },
+    }))) return
+    try { await api.deleteAuthoring(key); this.props.onDeleted() }
+    catch (err: any) { toast('Delete failed: ' + err.message, 'danger') }
+  }
+  render() {
+    if (!this.state.error) return this.props.children
+    const { e } = this.props
+    const name = String(e.name || e.key)
+    return (
+      <div className="ext-detail-body">
+        <div className="ext-dhead">
+          <div className="grow"><div className="ext-dtitle">{name}</div></div>
+          <div className="ext-dactions">
+            {this.props.isOperator && e.editable && <button className="danger" onClick={this.remove}>Delete</button>}
+            <Toggle value={!!e.enabled} onChange={(v) => this.props.onToggle(e.key, v)} ariaLabel={`Enable ${name}`} />
+          </div>
+        </div>
+        <div className="ext-block">
+          <div className="callout danger">
+            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">This extension's details didn't load.</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+}
+
 // The consent gate shared by file-import and marketplace-install: shows what the
 // extension adds, its signature status, and the capabilities it requests; the operator
 // grants a (possibly narrower) set. The server re-verifies and enforces granted ⊆ requested.
@@ -2927,7 +2975,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
         <section className="ext-detail">
           {effective ? (
-            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
+            <ExtensionBoundary key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onDeleted={() => { setSelKey(null); ed.reload() }}>
+              <ExtensionDetail e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
+            </ExtensionBoundary>
           ) : (
             <div className="ext-overview">
               <div className="ext-stats">
