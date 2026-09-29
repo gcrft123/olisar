@@ -126,6 +126,19 @@ async def forget_user(
     """Delete a user's messages, remembered facts, and persona across the given
     guild scopes (pass the home guild + the DM sentinel 0). Optionally opt them
     out of future recording. Returns counts for the confirmation message."""
+    if opt_out:
+        # "Stop recording me from now on" covers everywhere: every profile they have, in
+        # any server, and (MemoryOptOut) any server or DM Olisar first sees them in later.
+        # Flagging only the profiles in guild_ids let their next DM, or a server the bot
+        # joined afterwards, start a fresh profile that recorded them again. Done first, so
+        # it's committed with the first batch below: the bot keeps storing messages while a
+        # purge runs, and theirs stop at once, even if the purge is cut off partway.
+        await session.execute(
+            update(UserProfile).where(UserProfile.user_id == user_id).values(memory_opt_out=True)
+        )
+        if await session.get(MemoryOptOut, user_id) is None:
+            session.add(MemoryOptOut(user_id=user_id))
+
     # Messages (+ their vectors). The bulky parts go in committed batches (see _purge).
     messages = await _purge(
         session, Message,
@@ -173,7 +186,7 @@ async def forget_user(
         )
     )
 
-    # Clear the synthesized persona on every matching profile; optionally opt out.
+    # Clear the synthesized persona on every matching profile.
     profiles = (
         await session.scalars(
             select(UserProfile).where(
@@ -185,16 +198,6 @@ async def forget_user(
         profile.persona_summary = ""
         profile.persona_updated_at = None
         profile.messages_since_persona = 0
-    if opt_out:
-        # "Stop recording me from now on" covers everywhere: every profile they have, in
-        # any server, and (MemoryOptOut) any server or DM Olisar first sees them in later.
-        # Flagging only the profiles in guild_ids let their next DM, or a server the bot
-        # joined afterwards, start a fresh profile that recorded them again.
-        await session.execute(
-            update(UserProfile).where(UserProfile.user_id == user_id).values(memory_opt_out=True)
-        )
-        if await session.get(MemoryOptOut, user_id) is None:
-            session.add(MemoryOptOut(user_id=user_id))
 
     if messages + indexed + facts >= PURGE_BATCH:
         _truncate_wal_afterwards(session)
