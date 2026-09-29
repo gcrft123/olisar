@@ -823,6 +823,14 @@ export function SetupWizard(
                 </div>
               </div>
             )}
+            {bot?.bot_public && (
+              <div className="callout warning wiz-appear">
+                <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+                <div className="callout-body">
+                  <strong>Public Bot</strong> is on, so anyone can add this bot to their server. Olisar waits for your approval before it works in a server you didn’t add it to. If only you should add it, turn Public Bot off on {A(`${PORTAL}/${bot.id}/bot`, 'the Bot page')}.
+                </div>
+              </div>
+            )}
           </>
         )}
 

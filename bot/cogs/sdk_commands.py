@@ -28,6 +28,7 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 
+from olisar import guild_approval
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
 from olisar.extensions import command_names, is_enabled
@@ -676,6 +677,8 @@ class SdkCommands(commands.Cog):
             except Exception:
                 log.exception("building SDK command %s/%s failed", ext_key, cmd.get("name"))
         for guild in self.bot.guilds:
+            if guild_approval.is_pending(guild.id):
+                continue
             try:
                 self.bot.tree.copy_global_to(guild=guild)
                 await self.bot.tree.sync(guild=guild)

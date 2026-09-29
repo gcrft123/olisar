@@ -26,7 +26,7 @@ from api.schemas import (
     ProactivityIn,
     SandboxChatIn,
 )
-from olisar import discord_app, key_checks, runtime_config, runtime_keys, toolpin
+from olisar import discord_app, guild_approval, key_checks, runtime_config, runtime_keys, toolpin
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.memory.purge import wipe_brain
@@ -76,12 +76,15 @@ async def me(request: Request, admin: AdminUser = Depends(require_admin)):
 @router.get("/guilds")
 async def get_guilds(admin: AdminUser = Depends(require_admin)):
     """The servers this admin may manage: every guild Olisar is in if allowlisted,
-    otherwise the ones where they have Manage Server. Drives the dashboard switcher."""
+    otherwise the ones where they have Manage Server. Drives the dashboard switcher.
+    Servers waiting for the operator's approval aren't among them."""
     managed = set(admin.managed_guild_ids or [])
     async with session_scope() as session:
         rows = (
             await session.scalars(
-                select(Guild).where(Guild.active.is_(True)).order_by(Guild.name)
+                select(Guild)
+                .where(Guild.active.is_(True), Guild.approved.is_(True))
+                .order_by(Guild.name)
             )
         ).all()
     return [
@@ -89,6 +92,61 @@ async def get_guilds(admin: AdminUser = Depends(require_admin)):
         for g in rows
         if admin.is_allowlisted or str(g.id) in managed
     ]
+
+
+@router.get("/guilds/pending")
+async def pending_guilds(_: AdminUser = Depends(require_operator)):
+    """Servers the bot was added to that wait for the operator's approval."""
+    async with session_scope() as session:
+        rows = (
+            await session.scalars(
+                select(Guild)
+                .where(Guild.active.is_(True), Guild.approved.is_(False))
+                .order_by(Guild.created_at)
+            )
+        ).all()
+    return [{"id": str(g.id), "name": g.name or str(g.id), "icon": g.icon} for g in rows]
+
+
+def _live_bot(request: Request):
+    supervisor = getattr(request.app.state, "bot_supervisor", None)
+    bot = getattr(supervisor, "bot", None) if supervisor is not None else None
+    return bot if bot is not None and bot.is_ready() else None
+
+
+@router.post("/guilds/{guild_id}/approve")
+async def approve_guild(guild_id: int, request: Request, admin: AdminUser = Depends(require_operator)):
+    """Let the bot work in a server someone else added it to."""
+    if not await guild_approval.approve(guild_id):
+        raise HTTPException(status_code=404, detail="the bot isn't in that server")
+    async with session_scope() as session:
+        await record_audit(session, actor=admin.discord_user_id, action="approve_guild",
+                           target_type="guild", target_id=guild_id)
+    bot = _live_bot(request)
+    cog = bot.get_cog("Guilds") if bot is not None else None
+    if cog is not None:
+        await cog.approved(guild_id)
+    return {"ok": True}
+
+
+@router.post("/guilds/{guild_id}/leave")
+async def leave_guild(guild_id: int, request: Request, admin: AdminUser = Depends(require_operator)):
+    """Take the bot out of a server waiting for approval, instead of approving it."""
+    async with session_scope() as session:
+        row = await session.get(Guild, guild_id)
+        if row is None or not row.active:
+            raise HTTPException(status_code=404, detail="the bot isn't in that server")
+        if row.approved:
+            raise HTTPException(status_code=409, detail="that server is approved")
+    bot = _live_bot(request)
+    guild = bot.get_guild(guild_id) if bot is not None else None
+    if guild is None:
+        raise HTTPException(status_code=409, detail="the bot has to be online to leave a server")
+    await guild.leave()
+    async with session_scope() as session:
+        await record_audit(session, actor=admin.discord_user_id, action="leave_guild",
+                           target_type="guild", target_id=guild_id)
+    return {"ok": True}
 
 
 @router.get("/invite")
@@ -299,19 +357,19 @@ async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_
     return {"ok": True}
 
 
-_DM_GUILD_ID = 0  # DM-stored memory lives under guild 0 (matches the conversation cog)
-
-
 @router.post("/clear-memory")
 async def clear_memory(gctx: GuildContext = Depends(require_guild_admin)) -> dict:
     """Erase everything Olisar has *learned* about this server — conversation memory,
     summaries, the search index, remembered facts, the glossary, resource/feed snapshots,
-    usage stats, its read on each person, and the knowledge base — while keeping its
-    persona, behaviour, channel roles, and command replies. Irreversible; per-user
-    opt-outs survive. (Replaces the old /self-destruct command; now driven from
-    Settings → Bot behind a typed-phrase confirmation.)"""
+    its read on each person, and the knowledge base — while keeping its persona, behaviour,
+    channel roles, and command replies. Irreversible; per-user opt-outs survive. (Replaces
+    the old /self-destruct command; now driven from Settings → Bot behind a typed-phrase
+    confirmation.)
+
+    Only this server: DMs aren't any one server's, and usage stats are the whole install's
+    (the daily web-search cap counts from them), so neither is Manage Server's to erase."""
     async with session_scope() as session:
-        counts = await wipe_brain(session, guild_ids=[gctx.guild_id, _DM_GUILD_ID])
+        counts = await wipe_brain(session, guild_ids=[gctx.guild_id])
         await record_audit(
             session, actor=gctx.admin.discord_user_id, action="clear_memory",
             target_type="guild", target_id=gctx.guild_id, after=counts,

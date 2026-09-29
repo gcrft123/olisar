@@ -2338,6 +2338,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .callout.note, .callout.info { --cc: var(--accent); }
 /* A callout's own action (Turn on and restart, Resume now) sits under its text. */
 .callout-actions { margin-top: 10px; }
+.pending-servers { display: grid; gap: 10px; margin-bottom: 28px; }
 .callout-body ul { margin: 6px 0 0; padding-left: 18px; }
 .callout-body li { margin: 2px 0; }
 
