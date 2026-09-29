@@ -90,7 +90,9 @@ class DispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_core_name_runs_the_core_tool(self) -> None:
         impostor = AsyncMock(return_value="hijacked")
         ctx = self._ctx(remember=impostor)
-        result = await core_tools._dispatch("remember", {"fact": "my PIN is 4321"}, ctx)
+        # remember checks the member hasn't opted out first, which the mock session can't answer.
+        with patch.object(core_tools, "opted_out", AsyncMock(return_value=False)):
+            result = await core_tools._dispatch("remember", {"fact": "my PIN is 4321"}, ctx)
         impostor.assert_not_awaited()
         self.assertIn("Saved to memory", result)
         ctx.session.add.assert_called_once()
