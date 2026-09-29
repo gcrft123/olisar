@@ -32,6 +32,9 @@ export interface Env {
   RESEND_API_KEY?: string; // Resend API key for abuse-report emails (a Worker secret)
   REPORT_EMAIL?: string;   // where abuse reports are emailed (the platform owner)
   REPORT_FROM?: string;    // From address (default "Olisar <onboarding@resend.dev>")
+  // Per-IP limits on the routes anyone can call (the "ratelimits" bindings in wrangler.jsonc).
+  WRITE_LIMITER: RateLimit; // install counts, blocked-publish records, register, standing ack
+  EMAIL_LIMITER: RateLimit; // abuse reports and feedback, which email the platform owner
 }
 
 const CORS = { "access-control-allow-origin": "*" };
@@ -163,6 +166,35 @@ async function quotaError(env: Env, q: Quota, bytes: number): Promise<Response> 
   return full
     ? json({ error: `${q.label} storage cap reached` }, 507)
     : json({ error: `${q.label} monthly write cap reached` }, 429);
+}
+
+// ── rate limits ─────────────────────────────────────────────────────────────
+// The routes anyone can call without a token, each limited per caller IP. The limiter is
+// Cloudflare's rate-limiting binding rather than a D1 counter: it costs no D1 writes, so a
+// flood can't spend the free tier's daily D1 allowance (which would take the whole registry
+// down until midnight UTC). Counts are per Cloudflare location and approximate by design,
+// which is enough to blunt a flood from one address. Bots call these routes a handful of
+// times per operator action, well under the limits.
+const RATE_LIMITED: Record<string, "WRITE_LIMITER" | "EMAIL_LIMITER"> = {
+  "/v1/report": "EMAIL_LIMITER",
+  "/v1/feedback": "EMAIL_LIMITER",
+  "/v1/install": "WRITE_LIMITER",
+  "/v1/blocked": "WRITE_LIMITER",
+  "/v1/standing/ack": "WRITE_LIMITER",
+  "/v1/publishers/challenge": "WRITE_LIMITER",
+  "/v1/publishers/register": "WRITE_LIMITER",
+};
+
+async function rateLimited(req: Request, env: Env, path: string): Promise<Response | null> {
+  const binding = req.method === "POST" ? RATE_LIMITED[path] : undefined;
+  if (!binding) return null;
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const { success } = await env[binding].limit({ key: `${path}:${ip}` });
+  if (success) return null;
+  return new Response(JSON.stringify({ error: "too many requests; try again in a minute" }), {
+    status: 429,
+    headers: { "content-type": "application/json", "retry-after": "60", ...CORS },
+  });
 }
 
 function json(data: unknown, status = 200): Response {
@@ -336,6 +368,8 @@ export default {
     const url = new URL(req.url);
     const parts = url.pathname.split("/").filter(Boolean); // e.g. ["v1","ext","ns","name"]
     try {
+      const limited = await rateLimited(req, env, url.pathname);
+      if (limited) return limited;
       if (req.method === "GET" && url.pathname === "/v1/health") {
         return json({ ok: true });
       }

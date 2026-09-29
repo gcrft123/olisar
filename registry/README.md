@@ -41,9 +41,11 @@ A published version never changes. Publishing a version that already exists with
 
 A yanked version stays yanked, and yanking the whole extension records who did it (`extensions.yanked_by`). If the publisher yanked it, publishing a new version lists it again (the yanked versions stay yanked). If a moderator yanked it (`/v1/dev/yank`), or a ban de-listed it, it takes no new versions. A ban only de-lists extensions that are listed, so lifting it can't bring back a yanked one, and a banned publisher can't verify again with a different Discord account.
 
-## Quotas
+## Quotas and rate limits
 
 Every R2 write reserves its bytes and one write against counters first, in one conditional statement per counter, so concurrent requests can't overshoot a cap or lose each other's counts. The counters are the whole bucket (`usage` id 1: `R2_MAX_BYTES`, `R2_CLASS_A_MAX` per month), the share abuse-report attachments may use (`usage` id 2: `R2_REPORT_MAX_BYTES`, `R2_REPORT_CLASS_A_MAX`; past it a report is still filed and emailed, without the stored copy), and each publisher's share (`publisher_usage`: `PUBLISHER_MAX_BYTES`, and `PUBLISHER_DAILY_PUBLISHES` new versions per UTC day). All are `vars` in `wrangler.jsonc`. Per-publisher byte counts start at zero for bundles published before the counters existed.
+
+The routes that need no token (`/v1/report`, `/v1/feedback`, `/v1/install`, `/v1/blocked`, `/v1/standing/ack`, `/v1/publishers/challenge`, `/v1/publishers/register`) are limited per caller IP and route by the Workers rate-limiting bindings in `wrangler.jsonc`: 5 a minute for the two that send email, 20 a minute for the rest. Over the limit they return 429 with `Retry-After: 60`. The binding keeps its counters outside D1, so a flood can't spend the D1 free tier's daily write allowance. Its counts are per Cloudflare location and approximate.
 
 ## Schema changes
 
