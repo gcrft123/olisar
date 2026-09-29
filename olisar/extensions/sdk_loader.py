@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from olisar import sandbox
 from olisar.db.models import KBSource, KBSourceType, KBStatus
+from olisar.extensions import tool_names
 from olisar.extensions.base import Extension, ExtensionTool
 from olisar.memory.facts import upsert_facts
 
@@ -115,7 +116,8 @@ def build_extension(pkg: "ExtensionPackage") -> Extension:
             handler=_make_tool_handler(pkg.key, pkg.compiled_js, perms, t["name"], trusted),
         )
         for t in manifest.get("tools", [])
-        if t.get("name")
+        # A tool under a core tool's name never loads (see tool_names).
+        if t.get("name") and tool_names.usable(pkg.key, str(t["name"]))
     )
     seeds = manifest.get("seeds") or {}
     has_js = bool(manifest.get("has_on_enable"))
