@@ -65,8 +65,9 @@ async def recall(
             if r.channel_id == channel_id or (r.guild_id == cfg_guild and r.channel_id in ok)
         ]
 
-    # Durable server lore — always carried, no embedding needed (small + relevant).
-    glossary = await glossary_block(session, cfg_guild) if member else ""
+    # Durable server lore — always carried, no embedding needed (small + relevant). Only
+    # what was learned in channels the asker can open, as for the summaries below.
+    glossary = await glossary_block(session, cfg_guild, readable=readable) if member else ""
     if glossary:
         blocks.append(glossary)
         used.append("glossary")
@@ -184,15 +185,18 @@ async def recall(
     return _memory_block(blocks)
 
 
-async def server_memory(session: AsyncSession, cfg_guild: int) -> str:
+async def server_memory(
+    session: AsyncSession, cfg_guild: int, *, readable: ChannelFilter | None = None
+) -> str:
     """The part of recall that doesn't depend on who's asking or what they said: the
     glossary, and the resource and feed channel snapshots (#rules, #announcements).
 
     Recall carries both on every reply, so a turn with no person or message behind it
     (``host.generate`` writing into a channel) gets them too, and knows the server as
-    well as a reply there does."""
+    well as a reply there does. ``readable`` narrows the glossary to facts from the
+    channels it lets through, as recall's does."""
     blocks: list[str] = []
-    glossary = await glossary_block(session, cfg_guild)
+    glossary = await glossary_block(session, cfg_guild, readable=readable)
     if glossary:
         blocks.append(glossary)
     blocks.extend(await channel_context_blocks(session, cfg_guild))
