@@ -314,7 +314,7 @@ async def update(
     _pkg, ref, latest, doc = await _latest_for_installed(body.key)
     result = await install_bundle(
         doc, body.granted_permissions, actor=admin.discord_user_id, origin="marketplace",
-        marketplace_ref={**ref, "version": latest}, replace=True,
+        marketplace_ref={**ref, "version": latest}, replace=body.key,
     )
     _resync_commands(request)
     return result
