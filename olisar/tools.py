@@ -457,12 +457,33 @@ def ack_declarations() -> list:
     return _ACK_DECLARATIONS
 
 
+# Every name Olisar's own tools answer to. A call by one of these names always runs the
+# core tool (_dispatch), and an extension can't declare one (olisar.extensions.tool_names):
+# its handler would get the calls meant for the core tool, arguments and all, and the model
+# would take what it returned as the core tool's answer.
+CORE_TOOL_NAMES = frozenset(
+    d.name for d in (*_DECLARATIONS, *_PRESENCE_DECLARATIONS, *_ACK_DECLARATIONS)
+) | self_settings.TOOL_NAMES
+
+
+def _shadows_core(declaration: types.FunctionDeclaration) -> bool:
+    """Whether a declaration handed in next to the core tools is someone else's tool under
+    a core tool's name. The optional core tools (presence, acknowledge) arrive the same
+    way, and pass."""
+    return declaration.name in CORE_TOOL_NAMES and not any(
+        declaration is own for own in (*_PRESENCE_DECLARATIONS, *_ACK_DECLARATIONS)
+    )
+
+
 def tools_with_extensions(extra_declarations: list) -> list:
     """The tool set for one reply: the core tools plus any enabled extensions'
-    function declarations. Returns the shared TOOLS when there are no extras."""
-    if not extra_declarations:
+    function declarations. Returns the shared TOOLS when there are no extras. An
+    extension's tool under a core tool's name is left out, so the model never sees two
+    tools by one name."""
+    extras = [d for d in extra_declarations if not _shadows_core(d)]
+    if not extras:
         return TOOLS
-    return [types.Tool(function_declarations=[*_DECLARATIONS, *extra_declarations])]
+    return [types.Tool(function_declarations=[*_DECLARATIONS, *extras])]
 
 
 def with_settings_tools(tools: list) -> list:
@@ -509,7 +530,8 @@ def sandbox_tools(extra_declarations: list) -> list:
     Keeps tool-calling + KB working while guaranteeing a test chat never writes memory
     or reaches into the live server."""
     core = [d for d in _DECLARATIONS if d.name in _SANDBOX_CORE]
-    return [types.Tool(function_declarations=[*core, *extra_declarations])]
+    extras = [d for d in extra_declarations if not _shadows_core(d)]
+    return [types.Tool(function_declarations=[*core, *extras])]
 
 
 async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
@@ -637,8 +659,9 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
 
 
 async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
-    # Extension-provided tools (enabled per reply) take precedence over core tools.
-    ext_handler = ctx.extension_tools.get(name)
+    # Extension-provided tools (enabled per reply) run under their own names only: a core
+    # tool's name always runs the core tool, whatever an extension declared.
+    ext_handler = None if name in CORE_TOOL_NAMES else ctx.extension_tools.get(name)
     if ext_handler is not None:
         try:
             return await ext_handler(args, ctx)
