@@ -146,6 +146,26 @@ class BatchedPurgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self._count("SELECT count(*) FROM message"), 0)
         self.assertEqual(await self._count("SELECT count(*) FROM message_embedding"), 0)
 
+    async def test_a_forget_cut_off_partway_has_already_opted_them_out(self):
+        # The bot keeps storing messages while a purge runs, so "stop remembering me" has to
+        # hold from the first committed batch, not only once every batch is done.
+        await self._seed(HOME, MEMBER, 10)
+        real = purge.delete_embedding
+        calls = [0]
+
+        async def dies_on_the_second_batch(session, table, *rowids):
+            calls[0] += 1
+            if calls[0] == 2:
+                raise RuntimeError("process killed")
+            await real(session, table, *rowids)
+
+        with patch.object(purge, "delete_embedding", dies_on_the_second_batch):
+            with self.assertRaises(RuntimeError):
+                async with session_scope() as s:
+                    await purge.forget_user(s, guild_ids=[HOME], user_id=MEMBER, opt_out=True)
+        self.assertEqual(await self._count(
+            f"SELECT count(*) FROM memory_opt_out WHERE user_id = {MEMBER}"), 1)
+
     async def test_clear_memory_stays_in_its_server_and_halts_the_backfill(self):
         await self._seed(HOME, MEMBER, 6)
         await self._seed(OTHER, MEMBER, 2)
