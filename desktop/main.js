@@ -427,6 +427,30 @@ function registerUpdateIpc() {
     updatedFrom = null
     return from ? { from: updater.displayVersion(from), to: updater.displayVersion(app.getVersion()) } : null
   })
+  ipcMain.handle('updates:whats-new', () => {
+    let v = ''
+    try { v = fs.readFileSync(whatsNewFile(), 'utf8').trim() } catch { return null }
+    return v === app.getVersion() ? updater.displayVersion(v) : null
+  })
+  ipcMain.handle('updates:close-whats-new', () => {
+    try { fs.rmSync(whatsNewFile(), { force: true }) } catch { /* it shows again next launch */ }
+  })
+}
+
+// After an update to a stable release, the window shows a card on what's new in it
+// (web/src/whatsnew.tsx). The release waits in this file until the card is closed, so quitting
+// before then brings the card back at the next launch. Any other version change drops a card
+// still waiting, since it describes a release this install has moved on from. A beta gets
+// only the "Updated to" toast.
+function whatsNewFile() { return path.join(app.getPath('userData'), 'whats-new') }
+
+function recordWhatsNew() {
+  if (!updatedFrom) return
+  const now = app.getVersion()
+  try {
+    if (!updater.isBeta(now) && updater.isNewer(now, updatedFrom)) fs.writeFileSync(whatsNewFile(), now)
+    else fs.rmSync(whatsNewFile(), { force: true })
+  } catch { /* no card is the worst case */ }
 }
 
 // ── lifecycle ───────────────────────────────────────────────────────────────
@@ -437,10 +461,25 @@ function registerUpdateIpc() {
 // the previous version's console against the new backend. That happened on 1.5 → 2.0.beta-2,
 // and the server-side fix can't reach a copy already in the cache. Only the HTTP cache goes;
 // cookies and local storage stay.
+//
+// 2.0.beta-3 was the first release to write the marker, so an install that last ran 1.5 (or
+// 2.0.beta-1 or -2) has none, and looked like a new install: it updated to 2.0 with no What's
+// new card and no "Updated to" toast. Its data folder gives it away. Every backend keeps its
+// database there (and 2.0's its bots, in profiles.json and profiles/), and this launch's backend
+// hasn't started yet to make one. Such an install counts as coming from 2.0.beta-2, the newest
+// release that could have left no marker. Nothing shows that version; it only has to sort below
+// this one.
+const BEFORE_MARKER = '2.0.0-beta.2'
+function ranBefore() {
+  const dir = app.getPath('userData')
+  return ['olisar.db', 'profiles.json', 'profiles'].some((n) => fs.existsSync(path.join(dir, n)))
+}
+
 async function clearCacheOnNewVersion() {
   const marker = path.join(app.getPath('userData'), 'last-launched-version')
   let last = ''
-  try { last = fs.readFileSync(marker, 'utf8').trim() } catch { /* first launch */ }
+  try { last = fs.readFileSync(marker, 'utf8').trim() } catch { /* first launch, or before the marker */ }
+  if (!last && ranBefore()) last = BEFORE_MARKER
   if (last === app.getVersion()) return
   if (last) updatedFrom = last
   try { await session.defaultSession.clearCache() } catch { /* a stale page is the worst case */ }
@@ -451,6 +490,7 @@ async function boot() {
   registerUpdateIpc()
   updater.cleanUpLeftovers()  // an update cut off last time: its temp files, mount, staged copy
   await clearCacheOnNewVersion()
+  recordWhatsNew()
   backendPort = await choosePort()
   startBackend(backendPort)
   createTray()
