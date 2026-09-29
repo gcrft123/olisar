@@ -74,6 +74,34 @@ def _add_missing_columns(sync_conn) -> None:
             print(f"  + migrated: added column {table.name}.{column.name}")
 
 
+# Indexes the models no longer declare because a newer one covers them. Nothing else
+# removes an index from a database that already has it.
+_SUPERSEDED_INDEXES = (
+    "ix_message_channel_id",  # channel_id leads ix_message_channel_created
+)
+
+
+def _add_missing_indexes(sync_conn) -> None:
+    """create_all builds a table's indexes only when it creates the table, so an index
+    added to an existing table's model is created here (CREATE INDEX IF NOT EXISTS),
+    and the ones it replaced are dropped."""
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy.schema import CreateIndex
+
+    inspector = sa_inspect(sync_conn)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {ix["name"] for ix in inspector.get_indexes(table.name)}
+        for index in table.indexes:
+            if index.name in existing:
+                continue
+            sync_conn.execute(CreateIndex(index, if_not_exists=True))
+            print(f"  + migrated: added index {index.name}")
+    for name in _SUPERSEDED_INDEXES:
+        sync_conn.exec_driver_sql(f'DROP INDEX IF EXISTS "{name}"')
+
+
 def _drop_repk_tables(sync_conn) -> None:
     """SQLite can't ALTER a primary key, so a table whose PK changed must be dropped
     and recreated by create_all. extension_state went global -> per-guild
@@ -94,6 +122,7 @@ async def create_schema() -> None:
         await conn.run_sync(_drop_repk_tables)
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+        await conn.run_sync(_add_missing_indexes)
         await create_vector_tables(conn, settings.embed_dim)
         await create_fts_tables(conn)
 

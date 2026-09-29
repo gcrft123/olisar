@@ -25,6 +25,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -340,10 +341,16 @@ class GuildRole(Base):
 
 class Message(Base):
     __tablename__ = "message"
+    __table_args__ = (
+        # "The channel's newest N": every reply's history window and the proactive scan.
+        # Walked newest-first it's N index steps; a channel_id-only index meant reading
+        # the whole channel and sorting it. Also serves every channel_id-only lookup.
+        Index("ix_message_channel_created", "channel_id", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)  # local PK (= vec rowid)
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)  # Discord id
     author_id: Mapped[int] = mapped_column(BigInteger, index=True)
     author_is_bot: Mapped[bool] = mapped_column(Boolean, default=False)
