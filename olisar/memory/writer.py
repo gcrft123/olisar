@@ -18,6 +18,7 @@ from olisar.db.models import (
     ChannelMode,
     Guild,
     GuildChannelInfo,
+    MemoryOptOut,
     Message,
     SearchMessage,
     UserProfile,
@@ -169,6 +170,22 @@ async def get_channel_mode(
     return row.mode if row else ChannelMode.off
 
 
+async def opted_out(session: AsyncSession, user_id: int, guild_id: int) -> bool:
+    """Whether ``user_id`` asked not to be remembered in ``guild_id`` (0 for DMs).
+
+    Their profile there says, once they have one; the member portal can change it per
+    server. Where they have none yet, "stop remembering" from /forget-me decides, since it
+    was a promise about everywhere (``MemoryOptOut``)."""
+    flag = await session.scalar(
+        select(UserProfile.memory_opt_out).where(
+            UserProfile.user_id == user_id, UserProfile.guild_id == guild_id
+        )
+    )
+    if flag is not None:
+        return bool(flag)
+    return await session.get(MemoryOptOut, user_id) is not None
+
+
 async def upsert_profile(
     session: AsyncSession,
     guild_id: int,
@@ -194,6 +211,9 @@ async def upsert_profile(
             avatar=avatar or "",
             roles=roles or [],
             joined_at=joined_at,
+            # Someone who told Olisar to stop remembering them starts out opted out in a
+            # server (or their DMs) it's seeing them in for the first time.
+            memory_opt_out=await session.get(MemoryOptOut, user_id) is not None,
         )
         session.add(profile)
         return profile
@@ -404,6 +424,8 @@ async def record_search_message(
         memory_opted, search_opted, pause_until = flags
         if memory_opted or search_opted or _paused(pause_until):
             return False
+    elif await session.get(MemoryOptOut, author_id) is not None:
+        return False  # no profile here yet, so their /forget-me opt-out decides (opted_out)
     # DMs: also honour the per-user DM opt-out (kept on the guild-0 profile).
     if guild_id == 0:
         dm_opted = await session.scalar(

@@ -32,7 +32,7 @@ from olisar.gemini.rate_limiter import pending_grounding
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
-from olisar.memory.writer import record_bot_activity
+from olisar.memory.writer import opted_out, record_bot_activity
 from olisar.memory.search import search_messages
 from olisar.message_links import ChannelFilter, channel_filter
 from olisar.proactivity import first_emoji
@@ -721,6 +721,13 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             fact = (args.get("fact") or "").strip()
             if not fact:
                 return "Nothing to remember."
+            # A DM's fact is filed under the home server, so both have to allow it.
+            for scope in {0 if ctx.is_dm else ctx.cfg_guild, ctx.cfg_guild}:
+                if await opted_out(ctx.session, ctx.user_id, scope):
+                    return (
+                        "Not saved: they've asked you not to remember things about them. "
+                        "Keep nothing, and tell them so if it matters."
+                    )
             kind = {
                 "event": UserMemoryKind.event,
                 "preference": UserMemoryKind.preference,

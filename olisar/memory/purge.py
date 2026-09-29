@@ -17,6 +17,7 @@ from olisar.db.models import (
     GuildFact,
     KBChunk,
     KBSource,
+    MemoryOptOut,
     Message,
     ProactivityState,
     Reminder,
@@ -149,8 +150,16 @@ async def forget_user(
         profile.persona_summary = ""
         profile.persona_updated_at = None
         profile.messages_since_persona = 0
-        if opt_out:
-            profile.memory_opt_out = True
+    if opt_out:
+        # "Stop recording me from now on" covers everywhere: every profile they have, in
+        # any server, and (MemoryOptOut) any server or DM Olisar first sees them in later.
+        # Flagging only the profiles in guild_ids let their next DM, or a server the bot
+        # joined afterwards, start a fresh profile that recorded them again.
+        await session.execute(
+            update(UserProfile).where(UserProfile.user_id == user_id).values(memory_opt_out=True)
+        )
+        if await session.get(MemoryOptOut, user_id) is None:
+            session.add(MemoryOptOut(user_id=user_id))
 
     log.info(
         "forgot user %s: %d messages, %d facts, %d reminders, opt_out=%s",
