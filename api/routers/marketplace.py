@@ -47,7 +47,7 @@ from api.schemas import (
 from olisar.audit import record_audit
 from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, ExtensionPackage, utcnow
+from olisar.db.models import AdminUser, ExtensionPackage, SigningIdentity, utcnow
 from olisar.extensions import signing, user_registry
 from olisar.extensions.review import review_source
 
@@ -384,20 +384,41 @@ async def published(admin: AdminUser = Depends(require_admin)) -> dict:
     return out
 
 
+async def _register_publisher(ident: SigningIdentity, handle: str) -> httpx.Response:
+    """Register ``handle`` on the registry for this bot's key, or rotate its token.
+
+    The registry wants proof we hold the private key, not just the public one (which every
+    signed bundle carries): we fetch a single-use nonce and sign
+    ``signing.register_message(nonce, handle)``. No Discord id is sent; the registry only
+    takes one from the Discord OAuth check in /v1/publishers/verify. Returns the challenge
+    response if that step fails, otherwise the register response."""
+    challenge = await _registry_post("/v1/publishers/challenge", {})
+    if challenge.status_code != 200:
+        return challenge
+    try:
+        nonce = str(challenge.json()["nonce"])
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail="the marketplace sent an invalid challenge") from exc
+    return await _registry_post("/v1/publishers/register", {
+        "public_key": ident.public_key,
+        "handle": handle,
+        "nonce": nonce,
+        "signature": signing.sign(ident.private_key, signing.register_message(nonce, handle)),
+    })
+
+
 @router.post("/register")
 async def register(body: MarketplaceRegisterIn, admin: AdminUser = Depends(require_admin)) -> dict:
     """Claim a publisher handle (namespace) on the registry, bound to this bot's signing
-    key. The private key never leaves the bot; only the public key + handle are sent."""
+    key. The private key never leaves the bot; it signs the registry's challenge, and only
+    the public key, handle, nonce and signature are sent."""
     _operator(admin)
     handle = (body.handle or "").strip().lower()
     if not _NS_RE.match(handle):
         raise HTTPException(status_code=400, detail="handle must be 2-64 chars: a-z, 0-9, _ or -")
     async with session_scope() as session:
         ident = await signing.ensure_identity(session)
-        r = await _registry_post("/v1/publishers/register", {
-            "public_key": ident.public_key, "handle": handle,
-            "discord_id": str(admin.discord_user_id),
-        })
+        r = await _register_publisher(ident, handle)
         if r.status_code != 200:
             raise _registry_error(r, "registration failed")
         data = r.json()
@@ -407,20 +428,19 @@ async def register(body: MarketplaceRegisterIn, admin: AdminUser = Depends(requi
     return {"ok": True, "handle": data["handle"], "fingerprint": data.get("fingerprint")}
 
 
-async def _reregister_token(admin: AdminUser) -> str | None:
+async def _reregister_token(_admin: AdminUser | None = None) -> str | None:
     """Mint a fresh publisher token by re-registering this bot's handle with its own key.
     The registry rotates the token on every register, so a token can silently go stale if
     the same handle+key was re-registered from somewhere else (e.g. a publish script). The
     key never changes, so re-registering keeps the namespace and the verified badge; it just
-    refreshes the token. Returns the new token, or None if we can't recover it."""
+    refreshes the token. Returns the new token, or None if we can't recover it.
+
+    ``_admin`` is unused: the registry no longer takes the operator's Discord id here."""
     async with session_scope() as session:
         ident = await signing.ensure_identity(session)
         if not ident.registry_handle:
             return None
-        r = await _registry_post("/v1/publishers/register", {
-            "public_key": ident.public_key, "handle": ident.registry_handle,
-            "discord_id": str(admin.discord_user_id),
-        })
+        r = await _register_publisher(ident, ident.registry_handle)
         if r.status_code != 200:
             return None
         data = r.json()

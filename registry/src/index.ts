@@ -6,11 +6,14 @@
  * the bot always re-transpiles and verifies the bundle locally, so the registry is a
  * discovery + distribution layer, never a trusted compiler.
  *
- * Routes:
+ * Routes (the main ones; see the router below for the rest):
  *   GET  /v1/health
  *   GET  /v1/search?q=&category=&limit=&offset=
  *   GET  /v1/ext/:namespace/:name              → catalog detail + versions
  *   GET  /v1/ext/:namespace/:name/:version     → the .olx bundle (JSON, from R2)
+ *   POST /v1/publishers/challenge               → single-use nonce for register
+ *   POST /v1/publishers/register                → claim a handle / rotate the token (signed nonce)
+ *   POST /v1/publishers/verify                  → bind a Discord id via Discord OAuth
  *   POST /v1/_dev/publish                       → seed (local only; gated by DEV_SEED)
  */
 
@@ -58,6 +61,17 @@ function bundleKey(contentHash: string): string {
 
 const HANDLE_RE = /^[a-z0-9_-]{2,64}$/;
 
+// Registering (or rotating a token) needs proof the caller holds the private half of
+// `public_key`: it signs registerMessage(nonce, handle) over a single-use nonce from
+// /v1/publishers/challenge. The "olisar-registry/register:" prefix means the message can
+// never equal a bundle's content_hash, so a signature lifted from a published bundle
+// can't be replayed as proof. Must match olisar.extensions.signing.register_message.
+const CHALLENGE_TTL_SECONDS = 300;
+const NONCE_RE = /^[0-9a-f]{64}$/;
+function registerMessage(nonce: string, handle: string): string {
+  return `olisar-registry/register:${nonce}:${handle}`;
+}
+
 function b64bytes(s: string): Uint8Array {
   return Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 }
@@ -95,19 +109,21 @@ async function publisherForToken(env: Env, req: Request): Promise<any | null> {
 }
 
 // A developer (platform moderator) is a publisher whose Discord id is in the `developers`
-// allowlist. The gate distinguishes an unknown/stale token (401, so the bot re-registers
-// and retries) from a valid token that simply isn't a developer (403).
-async function isDeveloper(env: Env, discordId: string): Promise<boolean> {
-  if (!discordId) return false;
+// allowlist AND was set by Discord itself (/v1/publishers/verify, which sets verified = 1).
+// An unverified discord_id is a self-asserted leftover from the old register flow and
+// never grants anything. The gate distinguishes an unknown/stale token (401, so the bot
+// re-registers and retries) from a valid token that simply isn't a developer (403).
+async function isDeveloper(env: Env, pub: any): Promise<boolean> {
+  if (!pub || Number(pub.verified) !== 1 || !pub.discord_id) return false;
   const dev = await env.DB.prepare("SELECT discord_id FROM developers WHERE discord_id = ?")
-    .bind(discordId).first();
+    .bind(String(pub.discord_id)).first();
   return !!dev;
 }
 
 async function requireDeveloper(env: Env, req: Request): Promise<{ pub?: any; resp?: Response }> {
   const pub = await publisherForToken(env, req);
   if (!pub) return { resp: json({ error: "unauthorized" }, 401) };
-  if (!pub.discord_id || !(await isDeveloper(env, String(pub.discord_id)))) {
+  if (!(await isDeveloper(env, pub))) {
     return { resp: json({ error: "not a developer" }, 403) };
   }
   return { pub };
@@ -154,6 +170,9 @@ export default {
       if (req.method === "GET" && parts[0] === "v1" && parts[1] === "ext") {
         if (parts.length === 4) return await detail(parts[2], parts[3], env);
         if (parts.length === 5) return await getBundle(parts[2], parts[3], parts[4], env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/publishers/challenge") {
+        return await publishersChallenge(env);
       }
       if (req.method === "POST" && url.pathname === "/v1/publishers/register") {
         return await publishersRegister(req, env);
@@ -384,6 +403,13 @@ async function ensureSchema(env: Env): Promise<void> {
          reporter_discord_id TEXT, risk_score INTEGER, threshold INTEGER, bullets TEXT,
          created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS publisher_challenges (
+         nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)`,
+    ),
+    env.DB.prepare(
+      `CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at)`,
+    ),
   ]);
   // Add the risk columns to a pre-existing versions table (no-op once present).
   for (const col of ["risk_score INTEGER", "risk_report TEXT"]) {
@@ -417,7 +443,12 @@ async function publishFromBody(req: Request, env: Env): Promise<Response> {
   return storePublish(env, namespace, pub, bundle);
 }
 
-async function storePublish(env: Env, namespace: string, pub: any, bundle: any): Promise<Response> {
+// `ownerId` is set on the self-serve path (the authenticated publisher's own row, which a
+// publish never rewrites). Without it, `pub` describes a publisher row to upsert; only the
+// ADMIN_TOKEN and local DEV_SEED paths do that, and they're trusted to set every field.
+async function storePublish(
+  env: Env, namespace: string, pub: any, bundle: any, ownerId: number | null = null,
+): Promise<Response> {
   const name = String(bundle.id);
   const version = String(bundle.version || "1.0.0");
   const key = bundleKey(bundle.content_hash);
@@ -453,8 +484,8 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
        class_a = excluded.class_a, period = excluded.period`,
   ).bind(stored, classA, period).run();
 
-  let publisherId: number | null = null;
-  if (pub.fingerprint) {
+  let publisherId: number | null = ownerId;
+  if (ownerId === null && pub.fingerprint) {
     await env.DB.prepare(
       `INSERT INTO publishers (discord_id, handle, public_key, fingerprint, verified)
        VALUES (?, ?, ?, ?, ?)
@@ -494,19 +525,63 @@ async function storePublish(env: Env, namespace: string, pub: any, bundle: any):
 }
 
 // ── self-serve publishing ──────────────────────────────────────────────────
-// Register a publisher: a handle (namespace) bound to an Ed25519 public key, on a
-// first-come basis (trust-on-first-use). Re-registering with the same key rotates the
-// token. Discord-verified identity (the "verified" badge) is a later layer.
+// Issue a single-use nonce for /v1/publishers/register. Expired nonces are pruned here, so
+// the table only ever holds the last few minutes' worth.
+async function publishersChallenge(env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const now = Math.floor(Date.now() / 1000);
+  const nonce = randomToken();
+  const expiresAt = now + CHALLENGE_TTL_SECONDS;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM publisher_challenges WHERE expires_at < ?").bind(now),
+    env.DB.prepare("INSERT INTO publisher_challenges (nonce, expires_at) VALUES (?, ?)")
+      .bind(nonce, expiresAt),
+  ]);
+  return json({ nonce, expires_at: expiresAt });
+}
+
+// Register a publisher: a handle (namespace) bound to an Ed25519 public key, first come
+// first served. Re-registering with the same key rotates the token. Either way the caller
+// must sign registerMessage(nonce, handle) with that key, so knowing a public key (every
+// signed bundle carries one) isn't enough to claim it or rotate its owner's token out.
+// A discord_id in the body is ignored: only /v1/publishers/verify, which asks Discord,
+// ever sets it. A new row starts with no discord_id and verified = 0.
 async function publishersRegister(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
-  const body = await req.json<any>();
-  const pub = String(body.public_key || "");
-  const handle = String(body.handle || "").toLowerCase();
+  let body: any;
+  try {
+    body = await req.json<any>();
+  } catch {
+    return json({ error: "expected a JSON body" }, 400);
+  }
+  const pub = String(body?.public_key || "");
+  const handle = String(body?.handle || "").toLowerCase();
+  const nonce = String(body?.nonce || "");
+  const signature = String(body?.signature || "");
   if (!pub || !HANDLE_RE.test(handle)) {
     return json({ error: "a public_key and a handle (2-64 chars, [a-z0-9_-]) are required" }, 400);
   }
+  if (!NONCE_RE.test(nonce) || !signature) {
+    return json({
+      error: "registering needs a signed challenge (nonce + signature from POST "
+        + "/v1/publishers/challenge); update Olisar and try again",
+    }, 400);
+  }
+  // Burn the nonce before checking the proof, so each one gets exactly one attempt.
+  const now = Math.floor(Date.now() / 1000);
+  const used = await env.DB.prepare(
+    "DELETE FROM publisher_challenges WHERE nonce = ? AND expires_at >= ?",
+  ).bind(nonce, now).run();
+  if ((used.meta?.changes ?? 0) !== 1) {
+    return json({ error: "unknown, expired, or already-used challenge; request a new one" }, 403);
+  }
+  if (!(await verifyEd25519(pub, registerMessage(nonce, handle), signature))) {
+    return json({ error: "the signature doesn't prove ownership of this public_key" }, 403);
+  }
   const fp = await fingerprintOf(pub);
-  if (body.discord_id && (await isBanned(env, String(body.discord_id)))) {
+  const existing = await env.DB.prepare("SELECT discord_id FROM publishers WHERE fingerprint = ?")
+    .bind(fp).first<{ discord_id: string | null }>();
+  if (existing?.discord_id && (await isBanned(env, String(existing.discord_id)))) {
     return json({ error: "this account is banned from the marketplace" }, 403);
   }
   const owner = await env.DB.prepare("SELECT fingerprint FROM publishers WHERE handle = ?")
@@ -515,12 +590,13 @@ async function publishersRegister(req: Request, env: Env): Promise<Response> {
     return json({ error: `the handle '${handle}' is already taken` }, 409);
   }
   const token = randomToken();
+  // Rotation keeps discord_id and verified exactly as they were.
   await env.DB.prepare(
     `INSERT INTO publishers (discord_id, handle, public_key, fingerprint, verified, token_hash)
-     VALUES (?, ?, ?, ?, 0, ?)
+     VALUES (NULL, ?, ?, ?, 0, ?)
      ON CONFLICT(fingerprint) DO UPDATE SET handle = excluded.handle,
-       token_hash = excluded.token_hash, discord_id = excluded.discord_id`,
-  ).bind(body.discord_id ?? null, handle, pub, fp, await sha256hex(token)).run();
+       token_hash = excluded.token_hash`,
+  ).bind(handle, pub, fp, await sha256hex(token)).run();
   return json({ ok: true, handle, fingerprint: fp, token });
 }
 
@@ -545,17 +621,13 @@ async function publisherPublish(req: Request, env: Env): Promise<Response> {
   if (!bundle.signature || !(await verifyEd25519(publisher.public_key, bundle.content_hash, bundle.signature))) {
     return json({ error: "invalid bundle signature" }, 403);
   }
-  const pub = {
-    handle: publisher.handle, public_key: publisher.public_key,
-    fingerprint: await fingerprintOf(publisher.public_key),
-    verified: publisher.verified, discord_id: null,
-  };
-  return storePublish(env, publisher.handle, pub, bundle);
+  return storePublish(env, publisher.handle, {}, bundle, Number(publisher.id));
 }
 
 // Bind a verified Discord identity to the authenticated publisher. The bot forwards the
 // operator's short-lived `identify` token; the registry confirms it with Discord itself
-// (so it never just trusts the bot's word) and sets the verified badge.
+// (so it never just trusts the bot's word) and sets the verified badge. This is the only
+// self-serve route that writes a publisher's discord_id or verified flag.
 async function publisherVerify(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const publisher = await publisherForToken(env, req);
@@ -697,9 +769,11 @@ async function fileReport(req: Request, env: Env): Promise<Response> {
   const logs = String(body?.logs || "").slice(0, REPORT_LOGS_MAX);
   const attachments = sanitizeAttachments(body?.attachments);
 
-  // Resolve the publisher (the id the platform owner would warn/ban).
+  // Resolve the publisher (the id the platform owner would warn/ban). Only a Discord-verified
+  // id counts: an unverified one was self-asserted and could name anyone.
   const pub = await env.DB.prepare(
-    `SELECT p.id AS id, p.handle AS handle, p.discord_id AS discord_id
+    `SELECT p.id AS id, p.handle AS handle,
+            CASE WHEN p.verified = 1 THEN p.discord_id END AS discord_id
      FROM extensions e LEFT JOIN publishers p ON p.id = e.publisher_id
      WHERE e.namespace = ? AND e.name = ?`,
   ).bind(namespace, name).first<any>();
@@ -846,8 +920,11 @@ async function devMe(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const pub = await publisherForToken(env, req);
   if (!pub) return json({ error: "unauthorized" }, 401); // stale token → bot re-registers + retries
-  const dev = !!pub.discord_id && (await isDeveloper(env, String(pub.discord_id)));
-  return json({ is_developer: dev, handle: pub.handle, discord_id: pub.discord_id ?? null });
+  const dev = await isDeveloper(env, pub);
+  return json({
+    is_developer: dev, handle: pub.handle, discord_id: pub.discord_id ?? null,
+    verified: Number(pub.verified) === 1,
+  });
 }
 
 async function devExtensions(req: Request, env: Env): Promise<Response> {
@@ -857,7 +934,8 @@ async function devExtensions(req: Request, env: Env): Promise<Response> {
   const { results } = await env.DB.prepare(
     `SELECT e.namespace, e.name, e.category, e.description, e.latest_version, e.downloads, e.status,
             e.created_at, e.updated_at,
-            p.handle AS publisher, p.discord_id AS publisher_discord_id,
+            p.handle AS publisher,
+            CASE WHEN p.verified = 1 THEN p.discord_id END AS publisher_discord_id,
             p.fingerprint AS publisher_fingerprint, p.verified AS publisher_verified,
             v.permissions, v.sdk_version, v.risk_score, v.risk_report, v.published_at
      FROM extensions e

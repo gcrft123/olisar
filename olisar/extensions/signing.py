@@ -9,7 +9,9 @@ signature against it and sees a stable fingerprint to recognise the same publish
 
 Each bot has one signing identity (``SigningIdentity``, created lazily on first export).
 The private key never leaves the server. We sign the bundle's ``content_hash`` string,
-which already commits to id + version + permissions + source.
+which already commits to id + version + permissions + source. The same key also signs the
+marketplace registry's register challenge (``register_message``), which is how the bot
+proves it owns its publisher key.
 """
 
 from __future__ import annotations
@@ -87,6 +89,19 @@ def verify(public_key_b64: str, message: str, signature_b64: str) -> bool:
         return False
 
 
+REGISTER_DOMAIN = "olisar-registry/register"
+
+
+def register_message(nonce: str, handle: str) -> str:
+    """The exact string a publisher signs to register (or rotate its token) on the
+    marketplace registry: proof it holds the private key, over a single-use server nonce.
+
+    The domain prefix keeps it from ever matching a bundle signature, which covers a bare
+    ``content_hash``. Must match ``registerMessage`` in ``registry/src/index.ts``; the
+    registry lowercases the handle before checking, so this does too."""
+    return f"{REGISTER_DOMAIN}:{nonce}:{handle.lower()}"
+
+
 def sign_bundle(doc: dict, private_key_b64: str, public_key_b64: str) -> dict:
     """Sign a built bundle in place: signs its ``content_hash`` and embeds the signature,
     public key and algorithm so an importer can verify offline."""
@@ -139,5 +154,6 @@ def self_check() -> bool:
 
 __all__ = [
     "ALGO", "available", "fingerprint", "generate", "sign", "verify",
+    "REGISTER_DOMAIN", "register_message",
     "sign_bundle", "verify_bundle", "ensure_identity", "self_check",
 ]
