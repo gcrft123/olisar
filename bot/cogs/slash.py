@@ -82,9 +82,10 @@ class Slash(commands.Cog):
     @app_commands.command(name="ask", description="Ask Olisar something.")
     @app_commands.describe(prompt="What do you want to ask?")
     async def ask(self, interaction: discord.Interaction, prompt: str) -> None:
-        # Role gate before deferring, so a denied user gets a clean ephemeral notice. In a
-        # DM the command borrows a real guild the bot is in (DMs use guild_id 0 for memory).
-        cfg_guild = settings.target_guild_id if interaction.guild_id else dm_home_guild_id(self.bot)
+        # Role gate before deferring, so a denied user gets a clean ephemeral notice. The
+        # server it's run in decides who may use it and what the reply may ping; in a DM the
+        # command borrows a real guild the bot is in (DMs use guild_id 0 for memory).
+        cfg_guild = interaction.guild_id or dm_home_guild_id(self.bot)
         async with session_scope() as session:
             cfg = await session.get(GuildConfig, cfg_guild)
             allowed = cfg.allowed_role_ids if cfg else []
@@ -93,7 +94,7 @@ class Slash(commands.Cog):
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
-        member = resolve_member(self.bot, interaction.user)
+        member = resolve_member(self.bot, interaction.user, interaction.guild_id)
         if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
             return
@@ -164,14 +165,15 @@ class Slash(commands.Cog):
         self, interaction: discord.Interaction, hours: int | None = None
     ) -> None:
         async with session_scope() as session:
-            cfg = await session.get(GuildConfig, settings.target_guild_id)
+            # The server it's run in, as for /ask.
+            cfg = await session.get(GuildConfig, interaction.guild_id or dm_home_guild_id(self.bot))
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
             mention_block = blocked_mentions_of(cfg)
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
-        member = resolve_member(self.bot, interaction.user)
+        member = resolve_member(self.bot, interaction.user, interaction.guild_id)
         if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
             return
