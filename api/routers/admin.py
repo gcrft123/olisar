@@ -759,7 +759,7 @@ async def build_impression(user_id: int, gctx: GuildContext = Depends(require_gu
 async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
     """The extension catalog (built-in + SDK) with this server's enabled state."""
     from olisar.db.models import ExtensionPackage
-    from olisar.extensions import all_extensions, user_registry
+    from olisar.extensions import all_extensions, manifest_types, user_registry
 
     async with session_scope() as session:
         await user_registry.load(session)  # warm the SDK-extension cache
@@ -779,9 +779,15 @@ async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
         from olisar.extensions import signing
         return signing.fingerprint(pkg.publisher_key)
 
+    def _texts(value) -> list[str]:
+        return [manifest_types.text(v) for v in value] if isinstance(value, list) else []
+
+    # A manifest stored before manifests were type-checked can hold anything. What goes to
+    # the console is read through manifest_types, so one bad row can't fail the listing
+    # (the loader has already logged it once).
     def _entry(e):
         pkg = pkgs.get(e.key)
-        manifest = (pkg.manifest if pkg else {}) or {}
+        manifest = pkg.manifest if pkg is not None and isinstance(pkg.manifest, dict) else {}
         return {
             "key": e.key,
             "name": e.name,
@@ -801,11 +807,14 @@ async def get_extensions(gctx: GuildContext = Depends(require_guild_admin)):
             "signature_verified": (pkg.signature_verified if pkg else None),
             # What the extension contributes — surfaced in the catalog detail panel.
             "tools": [t.declaration.name for t in e.tools],
-            "commands": [c.get("name") for c in manifest.get("commands", []) if c.get("name")],
-            "permissions": list(pkg.permissions) if pkg else [],
-            "requested_permissions": list(pkg.requested_permissions) if pkg else [],
+            "commands": [
+                manifest_types.text(c["name"])
+                for c in manifest_types.objects_in(manifest.get("commands")) if c.get("name")
+            ],
+            "permissions": _texts(pkg.permissions) if pkg else [],
+            "requested_permissions": _texts(pkg.requested_permissions) if pkg else [],
             "behavior": bool(e.system_note),
-            "settings_schema": manifest.get("settings_schema") or None,
+            "settings_schema": manifest_types.settings_schema(manifest),
         }
 
     return [_entry(e) for e in all_extensions()]

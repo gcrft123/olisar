@@ -14,6 +14,10 @@ since that's what the author wrote.
 
 from __future__ import annotations
 
+import logging
+
+log = logging.getLogger("olisar.extensions.manifest_types")
+
 
 def problems(manifest: dict) -> list[str]:
     """What's wrong with ``manifest``'s types, one line each; empty when nothing is. A
@@ -91,4 +95,58 @@ def problems(manifest: dict) -> list[str]:
     return out
 
 
-__all__ = ["problems"]
+# ── Reading a manifest stored before these checks existed ────────────────────────
+# An extension installed earlier can still carry any of the above. What lists extensions
+# for the console reads its manifest through these, which keep what's usable, turn stray
+# values into text and leave the rest out. One bad row must not fail the whole listing:
+# the operator has to see the extension to turn it off or delete it.
+
+# Extension keys whose stored manifest has been checked. The catalog reloads every few
+# seconds, and a manifest saved since these checks existed can't fail them, so once per
+# extension is enough.
+_checked: set[str] = set()
+
+
+def report_stored(key: str, manifest: object) -> None:
+    """Log, once per extension, that its stored manifest has the wrong types."""
+    if key in _checked:
+        return
+    _checked.add(key)
+    found = problems(manifest) if isinstance(manifest, dict) else ["the manifest must be an object"]
+    if found:
+        log.warning(
+            "extension %s has a stored manifest with the wrong types (%s); showing what's usable",
+            key, "; ".join(found[:5]),
+        )
+
+
+def text(value: object) -> str:
+    """``value`` as text to show: a string as it is, nothing as empty, anything else as
+    its ``str()``."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
+def objects_in(value: object) -> list[dict]:
+    """The object entries of what should be a list of objects."""
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
+
+
+def settings_schema(manifest: dict) -> dict | None:
+    """The settings form to show: the fields that have a key, with their text as text."""
+    schema = manifest.get("settings_schema")
+    if not isinstance(schema, dict):
+        return None
+    fields = []
+    for field in objects_in(schema.get("fields")):
+        if not isinstance(field.get("key"), str) or not field["key"]:
+            continue
+        fields.append({
+            **field,
+            **{k: text(field[k]) for k in ("type", "label", "desc") if field.get(k) is not None},
+        })
+    return {**schema, "fields": fields}
+
+
+__all__ = ["objects_in", "problems", "report_stored", "settings_schema", "text"]
