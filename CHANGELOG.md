@@ -66,6 +66,10 @@ Powering a bot down from its console on a server stopped it in Discord and left 
 
 After an update, the desktop app said which version it was on and nothing about what had changed; finding out meant going to GitHub for the release notes. The first time it opens on a new stable release, a card in the corner now shows the release's main changes with a link to the full notes, and stays until it's closed.
 
+A security review found six things bad enough to fix before anything else ships. Anyone could add a public bot to a server of their own and, with Manage Server there, sign in to the console and read every server's audit log and logs, or wipe other servers' memory. Any member could get a reply to ping @everyone. An extension could reach the controls that only work on the operator's machine by bouncing a request off a redirect, or replace /killswitch with a command of its own. The marketplace registry handed developer access, or another publisher's handle, to whoever asked for it. And a reply that saved something held the database through its model calls, so other members' messages were dropped while it ran.
+
+Servers someone else adds now wait for the operator, and one server's admin reaches only that server. Crowd pings are off until a server's admin turns them on. Being on the operator's computer is no longer enough to reach its machine-only controls: the desktop app holds a token for them. Extensions can't take Olisar's command names, the registry wants proof of the key, and a reply lets go of the database after each tool.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -223,6 +227,10 @@ After an update, the desktop app said which version it was on and nothing about 
 [76118c4] — A stable release can't be tagged without its What's new card: the release workflow checks for it before it opens the draft release.
 
 [76118c4] — `scripts/whats_new.py add` makes a release's card from its poster, and `check` tests it the way the release workflow does.
+
+[e15dc11] — A server someone other than the operator adds the bot to waits for the operator's approval, with Approve and Leave server at the top of the console.
+
+[e15dc11] — Setup warns when the bot's Public Bot setting is on, since anyone can then add it to their server.
 
 ### Changed
 
@@ -451,6 +459,16 @@ After an update, the desktop app said which version it was on and nothing about 
 [9ec666c] — Report drafts and setup's Gemini step call the bot by its name, and setup's last button reads Finish & start the bot.
 
 [4769813] — Usage, the sidebar's rate-limited status and the days marked as run out follow the models each server actually replies through, not every model Olisar knows.
+
+[c8bfc8a] — Every server, existing ones included, starts with @everyone, @here and role pings blocked; an admin can allow them under Don't let Olisar ping.
+
+[e15dc11] — The Activity log and Logs are only for the bot's operator, since they cover every server.
+
+[e15dc11] — Clear memory erases only the selected server's data, and keeps DMs and usage stats, which belong to the whole install.
+
+[db7c47c] — Run from source, Olisar prints a link to open instead of the bare address; it gives the browser the token that setup and remote access need.
+
+[f387002] — Registering as a marketplace publisher proves the bot holds its signing key, and no longer sends the operator's Discord ID.
 
 ### Fixed
 
@@ -697,6 +715,26 @@ After an update, the desktop app said which version it was on and nothing about 
 [e2ee671] — The docs say a yanked marketplace extension stays installed as an imported one, instead of turning local.
 
 [68c2ae6] — In the narrow layout, Settings and the other dialogs opened from the sidebar open above it; they opened underneath, where neither could be clicked and only Escape or a reload got out.
+
+[f387002] — Nobody can register as a marketplace publisher with someone else's Discord ID or public key to get developer access or take over their handle.
+
+[db7c47c] — An extension's fetch can no longer be redirected to this computer, the local network, the tailnet or cloud metadata.
+
+[db7c47c] — Setup, remote access, the bot list and moving a bot need a token only the desktop app has, instead of answering anything on this computer.
+
+[db7c47c] — Connecting to a bot's server checks it's the same server as the first time before sending it anything.
+
+[86b451c] — An extension can't take the name of one of Olisar's own slash commands, such as /killswitch, or another extension's.
+
+[e15dc11] — /olisar proactive changes the server it's run in, not the home server.
+
+[e15dc11] — Clearing one server's memory no longer leaves other servers' knowledge bases unable to answer.
+
+[c8bfc8a] — Reminders, images and extension posts no longer ping @everyone, @here or roles a server has blocked.
+
+[d624aa8] — Other members' messages are no longer dropped while Olisar runs a tool that saves something mid-reply.
+
+[d624aa8] — Usage stats no longer lose counts when several replies finish at once.
 
 ## [1.5.0] — 2026-09-21
 

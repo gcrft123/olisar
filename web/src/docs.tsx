@@ -83,6 +83,11 @@ manages the other server. Adding it takes **Manage Server** there. The link asks
 uses: reading and sending messages (threads included), embeds, files, and reactions. As it joins, Olisar
 sets that server up with sensible defaults and it appears in your switcher. Configure it like any other.
 
+A server added by someone other than the bot's operator waits for the operator's approval first. Until then
+Olisar doesn't answer there, its commands refuse, and its admins can't sign in to the console. The operator
+sees it at the top of the console with **Approve** and **Leave server**. The first server Olisar joins, the
+home server, and servers the operator owns are approved as they join.
+
 :::tip Don't see a server you just got access to?
 Olisar checks your Manage Server permissions when you sign in. If you were just given it (or just added
 the bot), press **Log out** in the drawer at the bottom of the sidebar and sign in again so Olisar picks it up.
@@ -666,10 +671,11 @@ so it stays sparse.
 
 **Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
 reply. Tick any of **@everyone**, **@here**, and **All roles**. Olisar can still *say* "@everyone" but the
-ping is neutralized, so nobody gets pinged. Leave them unticked to let it mention normally.
+ping is neutralized, so nobody gets pinged. All three start ticked, because any member can get a reply to
+say "@everyone"; untick one to let Olisar ping it.
 
 :::tip Stop accidental mass-pings
-Blocking **@everyone**/**@here** is the safe default for a chatty bot: it can reference the words without
+Blocking **@everyone**/**@here** is the default for a reason: a chatty bot can reference the words without
 lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. \`@Mods\`).
 :::
 
@@ -1105,14 +1111,14 @@ success message can't be: "Cleared memory — 12,481 messages, 340 facts, 96 mem
 there tomorrow.
 
 The log covers **this whole install**, not just the server you have selected — one line per action, newest
-first, with the admin who ran it.
+first, with the admin who ran it. Because it spans every server, only the bot's operator sees it.
 
 ## Danger zone
 
 At the bottom of the page, **Clear memory** erases everything Olisar has learned about the **currently
-selected server**: conversation memory, summaries, the search index, remembered facts, the glossary, usage
-stats, its read on each member, and the knowledge base above. Its persona, behavior, channel modes and
-command replies are kept.
+selected server**: conversation memory, summaries, the search index, remembered facts, the glossary, its
+read on each member, and the knowledge base above. Its persona, behavior, channel modes and command replies
+are kept, and so are DMs and usage stats, which belong to the whole install rather than one server.
 
 :::warning There's no undo
 You'll be asked to type \`clear olisar memory\` to confirm, and the dialog names the server it's about to
@@ -2094,7 +2100,7 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 :::tip Still stuck?
 Check the [Usage](tab:usage) tab to see whether you're hammering the quota, then the bot's logs under
 **Settings → Logs** — they name the knowledge-base chunks, indexed messages, web sources, and tools
-behind each reply.
+behind each reply. Logs cover every server, so they're for the bot's operator only.
 :::
 `,
   },

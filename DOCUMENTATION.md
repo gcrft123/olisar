@@ -138,6 +138,11 @@ manages the other server. Adding it takes **Manage Server** there. The link asks
 uses: reading and sending messages (threads included), embeds, files, and reactions. As it joins, Olisar
 sets that server up with sensible defaults and it appears in your switcher. Configure it like any other.
 
+A server added by someone other than the bot's operator waits for the operator's approval first. Until then
+Olisar doesn't answer there, its commands refuse, and its admins can't sign in to the console. The operator
+sees it at the top of the console with **Approve** and **Leave server**. The first server Olisar joins, the
+home server, and servers the operator owns are approved as they join.
+
 > [!TIP]
 > **Don't see a server you just got access to?**
 > Olisar checks your Manage Server permissions when you sign in. If you were just given it (or just added
@@ -366,15 +371,19 @@ cd web && npm install && npm run build && cd ..        # build the dashboard onc
 OLISAR_DATA_DIR=/tmp/olisar uv run python -m olisar.runtime --port 8800
 ```
 
-Open `http://127.0.0.1:8800/` — you'll get the same first-run wizard, then the console. That runs one bot,
-the way the Docker image does. Add `--gateway` to run it the way the desktop app does: every bot on the
-install, each in its own process, behind one console with the bot switcher.
+It prints a link, `http://127.0.0.1:8800/auth/local?token=…`. Open that one rather than the bare address:
+the setup wizard, remote access and the other controls that only work on this machine also need the
+per-launch token it carries (the desktop app sends it for you), and the link hands it to your browser as a
+cookie. You'll get the same first-run wizard, then the console. That runs one bot, the way the Docker image
+does. Add `--gateway` to run it the way the desktop app does: every bot on the install, each in its own
+process, behind one console with the bot switcher.
 
-For dashboard development with hot reload, run the API and the Vite dev server separately:
+For dashboard development with hot reload, run the API and the Vite dev server separately, and pick the
+token yourself so you can open the link through Vite:
 
 ```sh
-uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
-cd web && npm run dev                                   # dev server on :5173
+OLISAR_LOCAL_TOKEN=dev uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
+cd web && npm run dev                                   # then open http://localhost:5173/auth/local?token=dev
 ```
 
 Build the desktop installer:
@@ -828,11 +837,12 @@ so it stays sparse.
 
 **Don't let Olisar ping** bars it from sending specific notifications, even if it writes the mention in a
 reply. Tick any of **@everyone**, **@here**, and **All roles**. Olisar can still *say* "@everyone" but the
-ping is neutralized, so nobody gets pinged. Leave them unticked to let it mention normally.
+ping is neutralized, so nobody gets pinged. All three start ticked, because any member can get a reply to
+say "@everyone"; untick one to let Olisar ping it.
 
 > [!TIP]
 > **Stop accidental mass-pings**
-> Blocking **@everyone**/**@here** is the safe default for a chatty bot: it can reference the words without
+> Blocking **@everyone**/**@here** is the default for a reason: a chatty bot can reference the words without
 > lighting up the whole server. **All roles** additionally stops it from pinging any role (e.g. `@Mods`).
 
 

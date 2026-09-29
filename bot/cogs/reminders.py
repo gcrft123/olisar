@@ -15,6 +15,7 @@ from discord.ext import commands, tasks
 from sqlalchemy import select
 
 from bot.actions import BotActions
+from bot.replies import send_with_policy
 from olisar.db.engine import session_scope
 from olisar.db.models import Reminder
 from olisar.persona import strip_breaks
@@ -71,7 +72,8 @@ class Reminders(commands.Cog):
         if r.target == "channel" and r.channel_id:
             channel = self.bot.get_channel(r.channel_id)
             if channel is not None:
-                await channel.send(f"<@{r.user_id}> {body}")
+                # Any member can set one, so it pings what the server lets Olisar ping.
+                await send_with_policy(channel, f"<@{r.user_id}> {body}")
                 log.info("reminder %s posted in channel %s", r.id, r.channel_id)
                 return
         result = await BotActions(self.bot).send_dm(r.user_id, body)

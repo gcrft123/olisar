@@ -323,12 +323,15 @@ async def _self_check() -> bool:
 
 async def run(host: str, port: int) -> None:
     """Single-bot mode: serve the install's launch-default bot until SIGINT/SIGTERM."""
+    from api import trust
     from olisar.runtime import profiles
+    from olisar.runtime.paths import home_dir
 
     # Adopt the launch default as active, then pin the DB to it. Runs after bootstrap_env()
     # (which set the default DATABASE_PATH), so the profile's own path wins.
     profiles.set_active(profiles.default_id())
     profile_id = profiles.active_id()
+    trust.announce_local_token(home_dir(), f"http://127.0.0.1:{port}")
     await serve_instance(
         profile_id=profile_id,
         db_path=str(profiles.db_path_for(profile_id)),

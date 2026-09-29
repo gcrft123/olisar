@@ -118,6 +118,9 @@ class Guild(Base):
     name: Mapped[str] = mapped_column(String(128), default="")
     icon: Mapped[str] = mapped_column(String(256), default="")  # icon URL, for the dashboard switcher
     active: Mapped[bool] = mapped_column(Boolean, default=True)  # False once the bot is removed
+    # Whether the operator has let the bot work here (olisar/guild_approval.py). A server
+    # someone else added waits until they do. Servers from before this existed stay approved.
+    approved: Mapped[bool] = mapped_column(Boolean, default=True)
     privacy_notice_ack: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     # The last roster sync (bot/cogs/members.py): when it finished and how many members it
@@ -130,6 +133,10 @@ class Guild(Base):
     proactivity: Mapped["ProactivityConfig"] = relationship(
         back_populates="guild", uselist=False
     )
+
+
+# The mention types a server can let Olisar ping, and which it blocks until it does.
+MASS_MENTIONS = ("everyone", "here", "roles")
 
 
 class GuildConfig(Base):
@@ -183,9 +190,14 @@ class GuildConfig(Base):
     see_other_bots: Mapped[bool] = mapped_column(Boolean, default=False)
     # Mention types Olisar may NOT ping in its replies — any of "everyone", "here",
     # "roles". @everyone/@here are neutralised in the reply text (Discord can't separate
-    # the two via allowed_mentions); roles via allowed_mentions. Empty = no restriction.
-    # Enforced in bot/replies.py.
-    blocked_mentions: Mapped[list] = mapped_column(JSON, default=list)
+    # the two via allowed_mentions); roles via allowed_mentions. Enforced in bot/replies.py.
+    # All three are blocked until a server's admin allows them: any member can get a reply
+    # to say "@everyone". The column was ``blocked_mentions`` while an empty list (no
+    # restriction) was the default; the new one is added with all three blocked, which is
+    # how every server, old ones included, now starts.
+    blocked_mentions: Mapped[list] = mapped_column(
+        "mentions_blocked", JSON, default=lambda: list(MASS_MENTIONS)
+    )
     # Deprecated: the rate-limit reply now lives in command_messages["rate_limit"]
     # (editable under Command replies). Column kept to avoid a destructive migration.
     rate_limit_message: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -751,6 +763,10 @@ class AppConfig(Base):
     server_ssh_user: Mapped[str] = mapped_column(Text, default="ubuntu")
     server_ssh_pubkey: Mapped[str] = mapped_column(Text, default="")
     server_ssh_privkey: Mapped[str] = mapped_column(Text, default="")
+    # The SSH host key each server presented the first time the app connected, one
+    # ``host keytype base64`` line per server. Every later connection must present the same
+    # key, or it's refused: the app sends a server the bot's secrets and whole database.
+    server_known_hosts: Mapped[str] = mapped_column(Text, default="")
     # Which directory on the VM holds this bot's install: one VM can run several bots, each
     # its own compose project. Blank = ``~/olisar``, the only one there was before that.
     server_app_dir: Mapped[str] = mapped_column(Text, default="")

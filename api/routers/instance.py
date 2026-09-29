@@ -21,7 +21,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from api.trust import is_local_request
+from api.trust import is_loopback_request
 from olisar import runtime_config, runtime_keys
 from olisar.db.engine import session_scope
 from olisar.db.models import AppConfig, AppSecret
@@ -34,7 +34,7 @@ GATEWAY_HEADER = "x-olisar-gateway"
 def require_gateway(request: Request) -> None:
     expected = os.environ.get("OLISAR_GATEWAY_TOKEN", "")
     given = request.headers.get(GATEWAY_HEADER, "")
-    if not (expected and is_local_request(request) and hmac.compare_digest(given, expected)):
+    if not (expected and is_loopback_request(request) and hmac.compare_digest(given, expected)):
         raise HTTPException(status_code=404, detail="Not Found")
 
 
@@ -50,7 +50,7 @@ _RESET_CONFIG = dict(
     target_guild_id=0, public_base_url="",
     tunnel_enabled=False, tunnel_hostname="", tunnel_node="", tunnel_token="",
     hosting_mode="local", server_host="", server_ssh_user="ubuntu", server_synced_version="",
-    configured=False,
+    server_known_hosts="", configured=False,
 )
 
 

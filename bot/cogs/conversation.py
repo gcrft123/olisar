@@ -39,6 +39,7 @@ from bot.replies import (
     send_paced,
 )
 from bot.triggers import detect_trigger
+from olisar import guild_approval
 from olisar.addressing import AMBIGUOUS, PASSING, confirm_addressed, name_mention_kind
 from olisar.failures import open_report
 from olisar.db.engine import session_scope
@@ -82,6 +83,8 @@ class Conversation(commands.Cog):
 
         is_dm = message.guild is None
         guild_id = DM_GUILD_ID if is_dm else message.guild.id
+        if guild_approval.is_pending(None if is_dm else guild_id):
+            return  # the operator hasn't approved this server: nothing stored, nothing said
 
         # Full text of the message: content + embeds + attachment/sticker markers,
         # so announcement embeds and posted files are stored and searchable, not

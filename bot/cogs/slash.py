@@ -18,7 +18,13 @@ from sqlalchemy import func, select, update
 from bot.access import dm_home_guild_id, member_allowed, resolve_member
 from bot.actions import BotActions
 from bot.content import channel_identity
-from bot.replies import chunk_text, mention_policy, report_view, sanitize_mentions
+from bot.replies import (
+    blocked_mentions_of,
+    chunk_text,
+    mention_policy,
+    report_view,
+    sanitize_mentions,
+)
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -83,7 +89,7 @@ class Slash(commands.Cog):
             cfg = await session.get(GuildConfig, cfg_guild)
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
-            mention_block = list(cfg.blocked_mentions or []) if cfg else []
+            mention_block = blocked_mentions_of(cfg)
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
@@ -161,7 +167,7 @@ class Slash(commands.Cog):
             cfg = await session.get(GuildConfig, settings.target_guild_id)
             allowed = cfg.allowed_role_ids if cfg else []
             blocked = cfg.blocked_role_ids if cfg else []
-            mention_block = list(cfg.blocked_mentions or []) if cfg else []
+            mention_block = blocked_mentions_of(cfg)
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
@@ -469,10 +475,12 @@ class Slash(commands.Cog):
         enabled: bool,
         level: app_commands.Choice[str] | None = None,
     ) -> None:
+        # The server it was run in: the group is guild-only, and Manage Server there is all
+        # the permission this checks.
         async with session_scope() as session:
-            pconf = await session.get(ProactivityConfig, settings.target_guild_id)
+            pconf = await session.get(ProactivityConfig, interaction.guild_id)
             if pconf is None:
-                pconf = ProactivityConfig(guild_id=settings.target_guild_id)
+                pconf = ProactivityConfig(guild_id=interaction.guild_id)
                 session.add(pconf)
             pconf.enabled = enabled
             if level is not None:

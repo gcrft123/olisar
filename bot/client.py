@@ -5,8 +5,11 @@ from __future__ import annotations
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
+from bot.replies import SAFE_MENTIONS
+from olisar import guild_approval
 from olisar.config import settings
 
 log = logging.getLogger("olisar.bot")
@@ -49,15 +52,32 @@ def _build_intents() -> discord.Intents:
     return intents
 
 
+class _Tree(app_commands.CommandTree):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Every slash command, extension commands included, refuses in a server the
+        operator hasn't approved. They aren't synced there, so this is the backstop."""
+        if guild_approval.is_pending(interaction.guild_id):
+            await interaction.response.send_message(
+                "This server is waiting for the bot's operator to approve it.", ephemeral=True,
+            )
+            return False
+        return True
+
+
 class OlisarBot(commands.Bot):
     def __init__(self) -> None:
         super().__init__(
             command_prefix=commands.when_mentioned,  # we lean on slash + triggers, not prefixes
             intents=_build_intents(),
             help_command=None,
+            tree_cls=_Tree,
+            # Nothing the bot sends pings @everyone, @here or a role unless that send says so.
+            allowed_mentions=SAFE_MENTIONS,
         )
 
     async def setup_hook(self) -> None:
+        # Before any cog's on_ready: which servers wait for the operator's approval.
+        await guild_approval.load()
         for ext in INITIAL_COGS:
             await self.load_extension(ext)
             log.info("loaded cog %s", ext)

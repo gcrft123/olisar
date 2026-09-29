@@ -411,29 +411,29 @@ class ServerChainTests(_Db):
 
 
 class WipeTests(_Db):
-    async def test_a_brain_wipe_clears_every_usage_table(self):
-        """Otherwise a wiped install goes on showing the days the chain ran out."""
+    async def test_a_servers_wipe_keeps_the_installs_usage(self):
+        """Usage belongs to the whole install, and the daily web-search cap is counted from
+        it, so clearing one server's memory (Manage Server there is enough) leaves it."""
         from sqlalchemy import text
 
         from olisar.db.models import UsageMinutePeak
         from olisar.memory import purge
 
         async with self.scope() as session:
-            for table in purge._BRAIN_EMBEDDING_TABLES:  # vec0 in the app; stand-ins here
+            for table, _ in purge._BRAIN_EMBEDDINGS:  # vec0 in the app; stand-ins here
                 await session.execute(text(f"CREATE TABLE {table} (x)"))
             session.add(Guild(id=1))
         await rl.record_usage(RANKED_NAMES[0], 10, source="conversation")
         for name in RANKED_NAMES:
             await rl.mark_spent(name)
         tables = (GeminiUsage, UsageHour, UsageDay, UsageSource, UsageMinutePeak)
+        before = {table: len(await self.rows(table)) for table in tables}
         for table in tables:
-            self.assertTrue(await self.rows(table), table.__name__)
+            self.assertTrue(before[table], table.__name__)
         async with self.scope() as session:
             await purge.wipe_brain(session, guild_ids=[1])
         for table in tables:
-            self.assertEqual(await self.rows(table), [], table.__name__)
-        summary = await usage_router.summary(None)
-        self.assertIsNone(summary["last_ran_out"])
+            self.assertEqual(len(await self.rows(table)), before[table], table.__name__)
 
 
 class KeySwapTests(_Db):
