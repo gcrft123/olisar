@@ -28,9 +28,11 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 
+from bot.replies import SAFE_MENTIONS
+from olisar import guild_approval
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
-from olisar.extensions import is_enabled
+from olisar.extensions import command_names, is_enabled
 from olisar.sandbox import SandboxError, run_command, run_component
 from olisar.sandbox.capabilities import (
     MAX_SDK_BASE64_BYTES,
@@ -225,6 +227,12 @@ class _SdkModal(discord.ui.Modal):
             self._future.set_result(values)
 
 
+def _mentions_for(trusted: bool) -> discord.AllowedMentions:
+    """What an extension's message may ping: a third-party extension nobody, a first-party one
+    the people it names (never @everyone, @here or a role, whoever the reply is for)."""
+    return SAFE_MENTIONS if trusted else discord.AllowedMentions.none()
+
+
 class _DiscordBridge:
     """Implements the sandbox DiscordBridge protocol for one slash interaction.
 
@@ -236,9 +244,10 @@ class _DiscordBridge:
     bytes without putting base64 into the initial interaction payload.
     """
 
-    def __init__(self, interaction: discord.Interaction, ext_key: str):
+    def __init__(self, interaction: discord.Interaction, ext_key: str, *, trusted: bool = False):
         self.it = interaction
         self.ext_key = ext_key
+        self.mentions = _mentions_for(trusted)
         self._responded = False
         # Whether this interaction's replies should stay private. Set by the first
         # reply({ ephemeral }); followUps inherit it unless they set ephemeral explicitly.
@@ -286,6 +295,7 @@ class _DiscordBridge:
             "content": p.get("content"),
             "embed": _to_embed(p.get("embed")),
             "ephemeral": ephemeral,
+            "allowed_mentions": self.mentions,
         }
         if view is not None:
             kwargs["view"] = view
@@ -399,9 +409,10 @@ class _ComponentBridge:
     """DiscordBridge for one persistent-component click: reply ephemerally to the
     clicker, or edit the source message in place (live tally / attendee list)."""
 
-    def __init__(self, interaction: discord.Interaction, ext_key: str):
+    def __init__(self, interaction: discord.Interaction, ext_key: str, *, trusted: bool = False):
         self.it = interaction
         self.ext_key = ext_key
+        self.mentions = _mentions_for(trusted)
         self._responded = False
         self.blobs: dict[str, BlobRecord] = {}
 
@@ -411,7 +422,8 @@ class _ComponentBridge:
     async def reply(self, payload: Any) -> None:
         p = self._unpack(payload)
         view = _build_view(p.get("components") or [], ext_key=self.ext_key)
-        kwargs: dict[str, Any] = {"content": p.get("content"), "embed": _to_embed(p.get("embed"))}
+        kwargs: dict[str, Any] = {"content": p.get("content"), "embed": _to_embed(p.get("embed")),
+                                  "allowed_mentions": self.mentions}
         if view is not None:
             kwargs["view"] = view
         files = _to_discord_files(p.get("files"), blobs=self.blobs)
@@ -426,7 +438,7 @@ class _ComponentBridge:
 
     async def update(self, payload: Any) -> None:
         p = self._unpack(payload)
-        kwargs: dict = {}
+        kwargs: dict = {"allowed_mentions": self.mentions}
         if p.get("content") is not None:
             kwargs["content"] = p["content"]
         if p.get("embed") is not None:
@@ -489,7 +501,7 @@ async def _dispatch_component(it: discord.Interaction, ext_key: str, handler_id:
         "guildId": str(gid), "channelId": str(it.channel_id), "messageId": str(mid),
         "userId": str(it.user.id), "displayName": it.user.display_name,
     }
-    bridge = _ComponentBridge(it, ext_key)
+    bridge = _ComponentBridge(it, ext_key, trusted=trusted)
     async with _message_lock(gid, mid):  # serialize edits + KV read-modify-write
         try:
             async with session_scope() as session:
@@ -561,7 +573,7 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
             compiled, perms = pkg.compiled_js, list(pkg.permissions or [])
             # First-party extensions may use host secrets; imported/marketplace can't.
             trusted = (pkg.origin or "local") == "local"
-        bridge = _DiscordBridge(interaction, ext_key)
+        bridge = _DiscordBridge(interaction, ext_key, trusted=trusted)
         bridge.capture_attachments(opts)
         data = {
             "options": {k: _ser(v) for k, v in opts.items()},
@@ -631,16 +643,21 @@ class SdkCommands(commands.Cog):
         self._dynamic_registered = False
 
     async def _load_command_specs(self) -> list[tuple[str, dict]]:
+        """Every installed extension's commands, in the order they claim names in."""
         out: list[tuple[str, dict]] = []
         async with session_scope() as session:
-            for pkg in (await session.scalars(select(ExtensionPackage))).all():
+            query = select(ExtensionPackage).order_by(*command_names.claim_order())
+            for pkg in (await session.scalars(query)).all():
                 for cmd in (pkg.manifest or {}).get("commands", []) or []:
                     if cmd.get("name"):
                         out.append((pkg.key, cmd))
         return out
 
     async def rebuild(self) -> None:
-        """Re-derive all SDK commands and sync them to every guild. Idempotent."""
+        """Re-derive all SDK commands and sync them to every guild. Idempotent.
+
+        A command never replaces one already in the tree: Olisar's own commands keep their
+        names, and between extensions the first to claim a name keeps it."""
         for name in list(self._registered):
             try:
                 self.bot.tree.remove_command(name)
@@ -652,14 +669,27 @@ class SdkCommands(commands.Cog):
         except Exception:
             log.exception("loading SDK command specs failed")
             return
+        taken = set(command_names.BUILTIN_COMMANDS) | {c.name for c in self.bot.tree.get_commands()}
+        claimed: dict[str, str] = {}
         for ext_key, cmd in specs:
             try:
                 command = _make_command(ext_key, cmd)
-                self.bot.tree.add_command(command, override=True)
+                if command.name in taken:
+                    owner = claimed.get(command.name)
+                    log.warning(
+                        "extension %s declares /%s, which %s; skipped", ext_key, command.name,
+                        f"the {owner} extension already has" if owner else "is one of Olisar's own commands",
+                    )
+                    continue
+                self.bot.tree.add_command(command)
+                taken.add(command.name)
+                claimed[command.name] = ext_key
                 self._registered.add(command.name)
             except Exception:
                 log.exception("building SDK command %s/%s failed", ext_key, cmd.get("name"))
         for guild in self.bot.guilds:
+            if guild_approval.is_pending(guild.id):
+                continue
             try:
                 self.bot.tree.copy_global_to(guild=guild)
                 await self.bot.tree.sync(guild=guild)

@@ -5,7 +5,7 @@ bundle blobs (R2). This is the **consume** API the bot's console browses and ins
 from. The bot always re-transpiles and verifies a bundle locally on install, so the
 registry is a discovery + distribution layer — never a trusted compiler.
 
-## Endpoints (read-only)
+## Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -13,10 +13,25 @@ registry is a discovery + distribution layer — never a trusted compiler.
 | GET | `/v1/search?q=&category=&limit=&offset=` | search the catalog |
 | GET | `/v1/ext/:namespace/:name` | extension detail + versions |
 | GET | `/v1/ext/:namespace/:name/:version` | download the `.olx` bundle (JSON) |
+| POST | `/v1/publishers/challenge` | issue a single-use register nonce |
+| POST | `/v1/publishers/register` | claim a handle, or rotate the token (signed nonce) |
+| POST | `/v1/publishers/verify` | bind a Discord id via Discord OAuth (bearer token) |
+| POST | `/v1/publish` | publish a bundle signed by the publisher's key (bearer token) |
+| POST | `/v1/yank` | yank one of your extensions (bearer token) |
 | POST | `/v1/_dev/publish` | **local-only** seeding (gated by `DEV_SEED`) |
 
-The authenticated publish pipeline (Discord OAuth + signature verification + namespacing)
-lands in a later phase; `/v1/_dev/publish` is a local stand-in for it.
+The `/v1/dev/*` moderation routes and the report/standing routes are in `src/index.ts`.
+
+## Publisher registration
+
+A publisher is an Ed25519 key bound to a handle. Knowing a public key isn't enough to claim it (every signed bundle carries one), so registering proves the caller holds the private key:
+
+1. `POST /v1/publishers/challenge` returns `{ "nonce": "<64 hex>", "expires_at": <unix seconds> }`. A nonce is good for 5 minutes and one attempt.
+2. Sign the UTF-8 string `olisar-registry/register:<nonce>:<handle>` with the publisher key (handle lowercased), then `POST /v1/publishers/register` with `{ public_key, handle, nonce, signature }` (key and signature base64). The response carries the bearer token.
+
+Registering again with the same key rotates the token and may rename the handle. The prefix keeps a bundle signature (which covers a bare `content_hash`) from ever passing as a register proof. The bot and `marketplace-extensions/_publish.py` build the message with `olisar.extensions.signing.register_message`.
+
+Register never sets a Discord id; any `discord_id` in the body is ignored. Only `/v1/publishers/verify`, which checks the caller's OAuth token with Discord, sets `discord_id` and `verified = 1`. The `/v1/dev/*` routes require a verified publisher whose Discord id is in the `developers` table.
 
 ## Local development (no Cloudflare account needed)
 

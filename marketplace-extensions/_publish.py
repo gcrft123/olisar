@@ -2,6 +2,11 @@
 signed with the bot's Ed25519 key. Reads the signing identity from the DESKTOP app's
 database (the bot that owns the `olisar` namespace on the registry) so it can't pick up
 a stale key. Run from the repo root:  uv run python marketplace-extensions/_publish.py
+
+Registering proves key ownership the same way the bot does: fetch a single-use nonce from
+the registry and sign ``signing.register_message(nonce, HANDLE)``. The registry rotates the
+token on every register, so running this orphans the app's own token; the app re-registers
+itself on the next 401.
 """
 import asyncio
 import glob
@@ -21,7 +26,6 @@ from olisar.sandbox.transpile import SDK_VERSION
 
 REG = (settings.registry_url or "https://olisar-registry.gabrielyp.workers.dev").rstrip("/")
 HANDLE = "olisar"
-DISCORD_ID = "1089250623490359378"
 AUTHOR_ID = 1089250623490359378
 AUTHOR_NAME = "Olisar"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,14 +39,23 @@ async def main():
     ).fetchone()
     con.close()
     if not (priv_key and pub_key):
-        print("no signing identity in the app DB"); return
+        print("no signing identity in the app DB")
+        return
     print(f"signing key fingerprint={fp}")
 
     async with httpx.AsyncClient(timeout=25) as c:
-        r = await c.post(REG + "/v1/publishers/register",
-                         json={"public_key": pub_key, "handle": HANDLE, "discord_id": DISCORD_ID})
+        r = await c.post(REG + "/v1/publishers/challenge", json={})
         if r.status_code != 200:
-            print("REGISTER FAILED", r.status_code, r.text[:300]); return
+            print("CHALLENGE FAILED", r.status_code, r.text[:300])
+            return
+        nonce = r.json()["nonce"]
+        r = await c.post(REG + "/v1/publishers/register", json={
+            "public_key": pub_key, "handle": HANDLE, "nonce": nonce,
+            "signature": signing.sign(priv_key, signing.register_message(nonce, HANDLE)),
+        })
+        if r.status_code != 200:
+            print("REGISTER FAILED", r.status_code, r.text[:300])
+            return
         data = r.json()
         token = data["token"]
         print(f"handle={data['handle']!r} fingerprint={data.get('fingerprint')}")
@@ -58,7 +71,8 @@ async def main():
             compiled = await transpile.transpile(src)
             m = await sandbox.extract_manifest(compiled)
         except Exception as e:
-            print(f"[FAIL] {os.path.basename(f)}: build error: {e}"); continue
+            print(f"[FAIL] {os.path.basename(f)}: build error: {e}")
+            continue
         doc = bundle.build_bundle(
             ext_id=m["id"], name=m.get("name", m["id"]), version=m.get("version", "1.0.0"),
             category=m.get("category", ""), description=m.get("description", ""),

@@ -16,6 +16,7 @@ const path = require('path')
 const fs = require('fs')
 const net = require('net')
 const http = require('http')
+const crypto = require('crypto')
 
 // Make app.getName() and the userData dir use "Olisar" instead of the npm package
 // name "olisar-desktop" (which would create ~/Library/Application Support/olisar-desktop).
@@ -34,6 +35,13 @@ let tray = null
 let lastHealth = { ok: false, vec: null }
 let lastTunnel = { available: false, running: false }
 let lastDesktop = { show_in_menu_bar: true }
+
+// This launch's local token. Being on this machine isn't enough to reach the backend's
+// machine-only controls (setup, remote access, the bot list, moving a bot to a server): a
+// request there also has to carry this, which only this app knows. The backend gets it at
+// spawn, and this app adds it to its own requests and the window's requests to the console.
+const LOCAL_TOKEN = crypto.randomBytes(32).toString('base64url')
+const LOCAL_HEADER = 'X-Olisar-Local'
 
 // ── backend sidecar ─────────────────────────────────────────────────────────
 
@@ -123,6 +131,7 @@ function startBackend(port) {
       OLISAR_VERSION: app.getVersion(),
       OLISAR_DATA_DIR: app.getPath('userData'),
       OLISAR_PORT: String(port),
+      OLISAR_LOCAL_TOKEN: LOCAL_TOKEN,
       // We hold the backend's stdin open; closing it is how we ask it to stop (see stopBackend).
       OLISAR_PARENT_PIPE: '1',
       ...(funnelPath() ? { OLISAR_FUNNEL: funnelPath() } : {}),
@@ -191,7 +200,10 @@ function reqJson(method, p, body, timeoutMs) {
     const payload = body !== undefined ? JSON.stringify(body) : null
     const r = http.request({
       host: '127.0.0.1', port: backendPort, path: p, method, timeout: timeoutMs || 2500,
-      headers: payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
+      headers: {
+        [LOCAL_HEADER]: LOCAL_TOKEN,
+        ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
+      },
     }, (res) => {
       let buf = ''
       res.on('data', (c) => (buf += c))
@@ -248,6 +260,18 @@ function isWebUrl(url) { const u = parseUrl(url); return !!u && (u.protocol === 
 function isDiscord(url) {
   const u = parseUrl(url)
   return !!u && u.protocol === 'https:' && (u.hostname === 'discord.com' || u.hostname.endsWith('.discord.com'))
+}
+
+// Add the local token to the console's own requests, and nothing else's: not a request to
+// another address, and not one a Discord page in the window (a sign-in) sends back here.
+function sendLocalTokenToConsole() {
+  const consoleOrigin = `http://127.0.0.1:${backendPort}`
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    const headers = details.requestHeaders
+    const fromConsole = !details.referrer || originOf(details.referrer) === consoleOrigin
+    if (originOf(details.url) === consoleOrigin && fromConsole) headers[LOCAL_HEADER] = LOCAL_TOKEN
+    callback({ requestHeaders: headers })
+  })
 }
 
 function createWindow() {
@@ -477,6 +501,7 @@ async function boot() {
     return
   }
   await refreshStatus()
+  sendLocalTokenToConsole()
   createWindow()
   setInterval(refreshStatus, 10000)  // keep the tray status fresh
   // Check for a newer GitHub release shortly after launch, then periodically.

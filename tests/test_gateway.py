@@ -21,11 +21,13 @@ import os
 import signal
 import socket
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -97,11 +99,28 @@ class ForwardingTests(unittest.IsolatedAsyncioTestCase):
         for w in self.pool.workers.values():
             await w.client.aclose()
 
-    def client(self, peer: str = "127.0.0.1") -> httpx.AsyncClient:
+    def client(self, peer: str = "127.0.0.1", *, local_token: bool = True) -> httpx.AsyncClient:
+        """The desktop window: it sends the local token the shell handed the gateway."""
+        from api.trust import LOCAL_HEADER
+        from api.trust import local_token as token
+
         return httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self.app, client=(peer, 50000)),
             base_url="http://127.0.0.1:8723",
+            headers={LOCAL_HEADER: token()} if local_token else None,
         )
+
+    async def test_being_on_this_machine_isnt_enough_for_the_bot_list(self) -> None:
+        """Another account on this computer, or a request the backend was tricked into making,
+        comes from loopback too. Without the local token it gets nothing."""
+        async with self.client(local_token=False) as c:
+            for method, path in (("GET", "/api/bots"), ("POST", "/api/bots"),
+                                 ("POST", "/api/bots/default/reset"), ("POST", "/api/bots/switch")):
+                r = await c.request(method, path, json={"id": self.second, "name": "x"})
+                self.assertEqual(r.status_code, 403, path)
+            r = await c.get("/api/bots", headers={"x-olisar-local": "a guess"})
+            self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.profiles.active_id(), "default")
 
     async def test_the_bot_sees_the_request_it_would_have_seen_directly(self) -> None:
         async with self.client() as c:
@@ -324,9 +343,15 @@ class BotPortGuardTests(unittest.IsolatedAsyncioTestCase):
             return await c.get("/api/settings/logs", headers=headers)
 
     async def test_a_rebound_name_reads_nothing(self) -> None:
+        from api.trust import LOCAL_HEADER, local_token
+
         self.assertEqual((await self.get({"host": "attacker.example:49152"})).status_code, 403)
-        mine = await self.get({})
+        mine = await self.get({LOCAL_HEADER: local_token()})
         self.assertEqual((mine.status_code, mine.json()), (200, {"local": True}))
+        # Loopback with no token (another account, a request the bot was tricked into) is not
+        # the operator.
+        anyone = await self.get({})
+        self.assertEqual((anyone.status_code, anyone.json()), (200, {"local": False}))
         # Behind the Funnel: X-Forwarded-For and the public host. Served, as a remote visitor.
         funnel = await self.get({
             "host": "olisar.tail1234.ts.net", "x-forwarded-for": "198.51.100.7",
@@ -633,11 +658,24 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _get(url: str, *, method: str = "GET", body: dict | None = None, timeout: float = 5.0):
+# The token the desktop shell hands its gateway, and sends with the window's requests.
+SHELL_TOKEN = "the-shell-token"
+
+
+def _get(url: str, *, method: str = "GET", body: dict | None = None, timeout: float = 5.0,
+         token: str | None = SHELL_TOKEN, cookie: str | None = None):
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={"content-type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.status, json.loads(r.read() or b"null")
+    headers = {"content-type": "application/json"}
+    if token:
+        headers["x-olisar-local"] = token
+    if cookie:
+        headers["cookie"] = cookie
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as exc:
+        return exc.code, json.loads(exc.read() or b"null")
 
 
 def _isolated_env(data_dir: str, **extra: str) -> dict[str, str]:
@@ -665,7 +703,7 @@ class RealProcessesTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         port = _free_port()
         base = f"http://127.0.0.1:{port}"
-        env = _isolated_env(tmp.name)
+        env = _isolated_env(tmp.name, OLISAR_LOCAL_TOKEN=SHELL_TOKEN)
         before = set(_workers())
         gw = subprocess.Popen(
             [sys.executable, "-m", "olisar.runtime", "--gateway", "--port", str(port)],
@@ -693,6 +731,14 @@ class RealProcessesTest(unittest.TestCase):
         mine = set(_workers()) - before
         self.assertEqual(len(mine), 2)
 
+        # Without the shell's token, loopback alone reaches neither the gateway's routes nor a
+        # bot's machine-only ones through it.
+        self.assertEqual(_get(base + "/api/bots", token=None)[0], 403)
+        self.assertEqual(_get(base + "/api/bots", token="a guess")[0], 403)
+        status, _ = _get(base + "/api/setup/keys", method="POST", body={"gemini_api_key": "x"}, token=None)
+        self.assertEqual(status, 403)
+        self.assertFalse((Path(tmp.name) / "local-token").exists(), "the shell's token was written out")
+
         # A write through the console lands in the bot on screen, and only there.
         _get(base + "/api/bots/switch", method="POST", body={"id": bot["id"]}, timeout=30)
         status, _ = _get(base + "/api/setup/keys", method="POST", body={"gemini_api_key": "for-second"})
@@ -709,6 +755,51 @@ class RealProcessesTest(unittest.TestCase):
         os.kill(gw.pid, signal.SIGKILL)
         gw.wait(10)
         self.assertTrue(wait_for(lambda: not (set(_workers()) & mine), timeout=30), "bots outlived the gateway")
+
+    def test_a_gateway_no_shell_started_signs_a_browser_in_with_its_own_token(self) -> None:
+        """Run from source with no desktop shell, the gateway mints its own token, keeps it in a
+        file only this account can read, and prints a link that gives a browser a cookie."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        port = _free_port()
+        base = f"http://127.0.0.1:{port}"
+        gw = subprocess.Popen(
+            [sys.executable, "-m", "olisar.runtime", "--gateway", "--port", str(port)],
+            cwd=tmp.name, env=_isolated_env(tmp.name),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True,
+        )
+        self.addCleanup(lambda: gw.poll() is None and gw.kill())
+        link = gw.stdout.readline()
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            try:
+                if _get(base + "/api/health", token=None)[0] == 200:
+                    break
+            except Exception:  # noqa: BLE001 — not up yet
+                time.sleep(0.5)
+        path = Path(tmp.name) / "local-token"
+        token = path.read_text()
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+        self.assertIn(f"{base}/auth/local?token={token}", link)
+
+        self.assertEqual(_get(base + "/api/bots", token=None)[0], 403)
+        self.assertEqual(_get(base + "/api/bots", token=token)[0], 200)
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *a, **kw):
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        with self.assertRaises(urllib.error.HTTPError) as wrong:
+            opener.open(f"{base}/auth/local?token=a-guess", timeout=30)
+        self.assertEqual(wrong.exception.code, 404)
+        with self.assertRaises(urllib.error.HTTPError) as signed_in:
+            opener.open(f"{base}/auth/local?token={token}", timeout=30)
+        self.assertEqual(signed_in.exception.code, 303)
+        cookie = signed_in.exception.headers["set-cookie"]
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=strict", cookie)
+        self.assertEqual(_get(base + "/api/bots", token=None, cookie=cookie.split(";", 1)[0])[0], 200)
 
     def test_closing_its_stdin_stops_the_gateway_and_every_bot(self) -> None:
         """How the desktop shell quits it, on every platform (on Windows a kill is

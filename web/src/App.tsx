@@ -644,6 +644,7 @@ export default function App() {
       )}
       {/* Keyed by guild so switching servers remounts the page and refetches its settings. */}
       <main key={guild ?? ''} id="console-main" tabIndex={-1} className={'main' + (tab === 'docs' ? ' docs-mode' : '')}>
+        {isOperator && <PendingServers onApproved={() => { api.guilds().then(adoptGuilds).catch(() => {}) }} />}
         {/* Keyed by tab too, so moving to another page clears a failed one. */}
         <PageBoundary key={tab} page={nav.find((n) => n.id === tab)?.label ?? tab}>{pages[tab]}</PageBoundary>
       </main>
@@ -846,6 +847,49 @@ function Banned(props: { message?: string; onLogout: () => void }) {
           <button className="ghost" onClick={props.onLogout}><Icon.logout size={16} /> Log out</button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Servers someone else added the bot to (olisar/guild_approval.py). Until the operator
+// approves one, the bot stays quiet there and its admins can't sign in to this console.
+function PendingServers({ onApproved }: { onApproved: () => void }) {
+  const [pending, setPending] = useState<Guild[]>([])
+  const [busy, setBusy] = useState('')
+  const load = () => api.pendingGuilds().then(setPending)
+  usePoll(load, 60000)
+  const decide = async (g: Guild, approve: boolean) => {
+    setBusy(g.id)
+    try {
+      if (approve) await api.approveGuild(g.id)
+      else await api.leaveGuild(g.id)
+      toast(approve ? `Approved ${g.name}.` : `Left ${g.name}.`, 'success')
+      if (approve) onApproved()
+      await load()
+    } catch (e: any) {
+      toast(e?.message || (approve ? 'Couldn’t approve the server' : 'Couldn’t leave the server'), 'danger')
+    } finally {
+      setBusy('')
+    }
+  }
+  if (!pending.length) return null
+  return (
+    <div className="pending-servers">
+      {pending.map((g) => (
+        <div key={g.id} className="callout warning">
+          <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+          <div className="callout-body">
+            <div className="callout-title">{botName()} was added to {g.name}</div>
+            It won’t answer there, and that server’s admins can’t sign in here, until you approve it.
+            <div className="callout-actions">
+              <button className="primary" disabled={!!busy} onClick={() => decide(g, true)}>
+                {busy === g.id ? 'Working…' : 'Approve'}
+              </button>{' '}
+              <button disabled={!!busy} onClick={() => decide(g, false)}>Leave server</button>
+            </div>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

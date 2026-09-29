@@ -185,6 +185,8 @@ async def require_guild_admin(
         guild = await session.get(Guild, gid)
         if guild is None or not guild.active:
             raise HTTPException(status_code=404, detail="the bot isn't in that server")
+        if not guild.approved:
+            raise HTTPException(status_code=403, detail="this server is waiting for the operator's approval")
     if not admin.is_allowlisted and x_guild_id not in (admin.managed_guild_ids or []):
         raise HTTPException(status_code=403, detail="you don't have Manage Server on this server")
     return GuildContext(admin=admin, guild_id=gid)
@@ -390,7 +392,7 @@ async def require_member_guild(
         raise HTTPException(status_code=403, detail="you're not in that server")
     async with session_scope() as session:
         guild = await session.get(Guild, gid)
-        if guild is None or not guild.active:
+        if guild is None or not guild.active or not guild.approved:
             raise HTTPException(status_code=404, detail="the bot isn't in that server")
         config = await session.get(GuildConfig, gid)
         if config is None or not config.member_portal_enabled:

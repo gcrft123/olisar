@@ -14,10 +14,23 @@ Being on loopback doesn't make a request the operator's, either: every web page 
 has open can send one. ``ConsoleGuard`` refuses what a page other than the console sends, and
 what a page reaches loopback through by DNS rebinding (a name of its own that it points at
 127.0.0.1, which makes it same-origin with this server as far as the browser can tell).
+
+Nor does it make a request the operator's when something else on the machine sends it: another
+account on a shared computer, or a request this very backend was talked into making (an
+extension's fetch bounced back to 127.0.0.1, a knowledge-base crawl of a loopback URL). So a
+local request also has to carry the local token, a secret minted once per launch. The desktop
+shell mints it, hands it to the backend in ``OLISAR_LOCAL_TOKEN`` and adds it to every request
+its window makes to the console. A backend started some other way (the Docker image, a source
+run) mints its own, writes it to ``local-token`` in its data directory, readable by its own
+account only, and prints a link that hands it to a browser as a cookie.
 """
 
 from __future__ import annotations
 
+import hmac
+import os
+import secrets
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request
@@ -29,11 +42,64 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _Origin = tuple[str, str, int]  # scheme, lowercased host name, port
 
+LOCAL_TOKEN_ENV = "OLISAR_LOCAL_TOKEN"
+LOCAL_HEADER = "x-olisar-local"
+LOCAL_COOKIE = "olisar_local"
+LOCAL_TOKEN_FILE = "local-token"
 
-def is_local_request(request: Request) -> bool:
-    """True only for a request made directly to the loopback backend — never one proxied
-    in through the Funnel (which always carries ``X-Forwarded-*`` headers), and never one
-    addressed by a name that isn't loopback (see ``is_rebound``)."""
+
+def local_token() -> str:
+    """This launch's local token. Minted on first use when the process wasn't handed one, and
+    put in the environment so the bot processes a gateway starts share it."""
+    token = os.environ.get(LOCAL_TOKEN_ENV, "").strip()
+    if not token:
+        token = secrets.token_urlsafe(32)
+        os.environ[LOCAL_TOKEN_ENV] = token
+    return token
+
+
+def local_token_was_handed_in() -> bool:
+    """Whether a parent (the desktop shell) gave this process its token."""
+    return bool(os.environ.get(LOCAL_TOKEN_ENV, "").strip())
+
+
+def write_local_token(directory: Path) -> Path:
+    """Write the token where tools running as this account can read it (``docker exec`` on a
+    VM, a developer's shell), and nobody else can."""
+    path = directory / LOCAL_TOKEN_FILE
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.unlink(missing_ok=True)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(local_token())
+    os.replace(tmp, path)
+    return path
+
+
+def announce_local_token(directory: Path, console_url: str) -> None:
+    """For a backend no desktop shell started: write the token file and print the link that
+    signs a browser on this machine in. Printed rather than logged, so it stays out of the
+    log buffer the console shows and bug reports carry."""
+    if local_token_was_handed_in():
+        return
+    path = write_local_token(directory)
+    print(
+        f"Local controls (setup, remote access): open {console_url}/auth/local?token={local_token()}"
+        f"  (token also in {path})",
+        flush=True,
+    )
+
+
+def has_local_token(request: Request) -> bool:
+    given = request.headers.get(LOCAL_HEADER) or request.cookies.get(LOCAL_COOKIE) or ""
+    return bool(given) and hmac.compare_digest(given.encode(), local_token().encode())
+
+
+def is_loopback_request(request: Request) -> bool:
+    """A request made directly to the loopback backend — never one proxied in through the
+    Funnel (which always carries ``X-Forwarded-*`` headers), and never one addressed by a name
+    that isn't loopback (see ``is_rebound``). On its own this says where a request came from,
+    not who sent it; routes with their own secret (the gateway's) use it with that."""
     host = request.client.host if request.client else ""
     if host not in LOOPBACK:
         return False
@@ -41,6 +107,11 @@ def is_local_request(request: Request) -> bool:
     if headers.get("x-forwarded-host") or headers.get("x-forwarded-for") or headers.get("forwarded"):
         return False
     return not is_rebound(request)
+
+
+def is_local_request(request: Request) -> bool:
+    """The operator at this machine: a loopback request carrying the local token."""
+    return is_loopback_request(request) and has_local_token(request)
 
 
 def require_local_request(request: Request) -> None:

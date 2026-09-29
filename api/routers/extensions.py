@@ -35,7 +35,7 @@ from olisar.db.models import (
     ExtensionVersion,
     utcnow,
 )
-from olisar.extensions import bundle, signing, user_registry
+from olisar.extensions import bundle, command_names, signing, user_registry
 from olisar.extensions.base import _REGISTRY  # built-in (Python) keys, reserved
 from olisar.extensions.review import review_source
 from olisar.sandbox import transpile
@@ -90,6 +90,14 @@ async def _build(source: str) -> tuple[str, dict]:
             detail="extension id must be lowercase letters/digits/underscores (start with a letter)",
         )
     return compiled_js, manifest
+
+
+async def _refuse_command_clashes(session, key: str, manifest: dict, action: str) -> None:
+    """409 when the extension declares a slash command that's Olisar's own or another
+    extension's: registering it would replace that command in every server."""
+    problems = await command_names.conflicts(session, key, manifest)
+    if problems:
+        raise HTTPException(status_code=409, detail=f"Can't {action} it: " + "; ".join(problems) + ".")
 
 
 def _summary(pkg: ExtensionPackage) -> dict:
@@ -296,6 +304,7 @@ async def install_bundle(
                 status_code=409,
                 detail=f"an extension named '{key}' already exists — delete it first to reinstall",
             )
+        await _refuse_command_clashes(session, key, manifest, "install")
         if existing is not None:  # replace: update in place
             if existing.origin not in ("marketplace", "imported"):
                 raise HTTPException(status_code=409, detail="can't overwrite a built-in or locally-authored extension")
@@ -390,6 +399,7 @@ async def create_package(
     async with session_scope() as session:
         if await session.get(ExtensionPackage, key) is not None:
             raise HTTPException(status_code=409, detail=f"an extension named '{key}' already exists")
+        await _refuse_command_clashes(session, key, manifest, "save")
         pkg = ExtensionPackage(
             key=key, name=body.name or manifest.get("name", key),
             version=version, kind="user",
@@ -429,6 +439,7 @@ async def update_package(
         pkg = await session.get(ExtensionPackage, key)
         if pkg is None:
             raise HTTPException(status_code=404, detail="unknown extension")
+        await _refuse_command_clashes(session, key, manifest, "save")
         # Built-ins are editable too; once edited, the seeder stops overwriting them.
         if pkg.kind == "builtin":
             pkg.user_modified = True

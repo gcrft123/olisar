@@ -32,7 +32,7 @@ from api.auth.sessions import (
     sign_member_sid,
     sign_sid,
 )
-from api.trust import is_local_request
+from api.trust import LOCAL_COOKIE, is_local_request, is_loopback_request, local_token
 from olisar import discord_app, runtime_config
 from olisar.config import settings
 from olisar.db.engine import session_scope
@@ -423,7 +423,11 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     async with session_scope() as session:
         # Admit if allowlisted (the operator) or you have Manage Server on at least
         # one guild Olisar is actually in. The allowlist gets every guild later.
-        bot_guilds = set(await session.scalars(select(Guild.id).where(Guild.active.is_(True))))
+        # A server waiting for the operator's approval doesn't count: whoever added the bot
+        # there doesn't get a console, or a member portal, out of it.
+        bot_guilds = set(await session.scalars(
+            select(Guild.id).where(Guild.active.is_(True), Guild.approved.is_(True))
+        ))
         if not (allowlisted or any(int(g) in bot_guilds for g in managed)):
             # Not an admin of any server Olisar is in — but they may still be an ordinary
             # member of one, which the member portal admits (their own data only). The
@@ -483,6 +487,19 @@ async def callback(request: Request, code: str | None = None, state: str | None 
     # Desktop flow parks the session for the app to claim over loopback (its cookie jar isn't
     # the browser's); otherwise set the cookie and redirect to the dashboard.
     return await _finish_login(request, sid, desktop_nonce)
+
+
+@router.get("/local")
+async def local_sign_in(request: Request, token: str = "") -> Response:
+    """Hand a browser on this machine the local token as a cookie, from the link a backend
+    without the desktop shell prints when it starts. The desktop window sends the token
+    itself and never comes here."""
+    if not (token and is_loopback_request(request)
+            and secrets.compare_digest(token.encode(), local_token().encode())):
+        raise HTTPException(status_code=404, detail="Not Found")
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(LOCAL_COOKIE, token, httponly=True, samesite="strict", path="/")
+    return resp
 
 
 @router.post("/desktop/claim")

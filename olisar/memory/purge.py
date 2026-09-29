@@ -5,14 +5,13 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.db.models import (
     ChannelContextItem,
     ChannelSummary,
     FailureReport,
-    GeminiUsage,
     Guild,
     GuildChannelInfo,
     GuildFact,
@@ -22,14 +21,10 @@ from olisar.db.models import (
     ProactivityState,
     Reminder,
     SearchMessage,
-    UsageDay,
-    UsageHour,
-    UsageMinutePeak,
-    UsageSource,
     UserMemory,
     UserProfile,
 )
-from olisar.memory.vectors import delete_embedding
+from olisar.memory.vectors import delete_embedding, delete_embeddings
 
 log = logging.getLogger("olisar.purge")
 
@@ -57,11 +52,12 @@ async def active_memory_guild_ids(session: AsyncSession) -> list[int]:
 
 # vec0 virtual tables holding embeddings for the wiped "brain" tables — including
 # the knowledge base's kb_chunk_embedding (a self-destruct wipes the KB too).
-_BRAIN_EMBEDDING_TABLES = (
-    "message_embedding",
-    "channel_summary_embedding",
-    "user_memory_embedding",
-    "kb_chunk_embedding",
+# The vectors behind what a brain-wipe deletes, and the rows they belong to.
+_BRAIN_EMBEDDINGS = (
+    ("message_embedding", Message),
+    ("channel_summary_embedding", ChannelSummary),
+    ("user_memory_embedding", UserMemory),
+    ("kb_chunk_embedding", KBChunk),
 )
 
 
@@ -189,8 +185,9 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
     Per-user ``memory_opt_out`` is preserved so a wipe never silently re-enrolls
     someone who opted out. Returns counts for the confirmation message.
 
-    Single-guild assumption: the vec0 embedding tables and global usage rows are
-    cleared wholesale (they have no guild_id to filter on).
+    Only ``guild_ids`` are touched. Usage stats belong to the whole install (the daily
+    web-search cap is counted from them), so they stay, as does every other server's data,
+    vectors included.
     """
     counts = {
         "messages": await _count(session, Message, guild_ids),
@@ -200,6 +197,13 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         "indexed": await _count(session, SearchMessage, guild_ids),
         "snapshots": await _count(session, ChannelContextItem, guild_ids),
         "knowledge": await _count(session, KBSource, guild_ids),
+    }
+
+    # A vec0 table has no guild to filter on, so the vectors to drop are found through the
+    # rows they belong to, before those go.
+    vectors = {
+        table: list(await session.scalars(select(model.id).where(model.guild_id.in_(guild_ids))))
+        for table, model in _BRAIN_EMBEDDINGS
     }
 
     # Conversation memory, summaries, search index, facts, glossary, snapshots,
@@ -218,11 +222,6 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         KBSource,
     ):
         await session.execute(delete(model).where(model.guild_id.in_(guild_ids)))
-
-    # Usage stats are global (no guild_id): every table the Usage page reads, so a wiped
-    # install doesn't go on showing old requests by feature or the days the chain ran out.
-    for model in (GeminiUsage, UsageHour, UsageDay, UsageSource, UsageMinutePeak):
-        await session.execute(delete(model))
 
     # Forget people, but keep opt-out promises: drop non-opted-out profiles
     # entirely (they re-register on next activity), and blank the learned fields
@@ -253,9 +252,8 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         .values(backfill_done=True, last_indexed_message_id=None)
     )
 
-    # Drop the embeddings behind the wiped tables (KB embeddings are left intact).
-    for tbl in _BRAIN_EMBEDDING_TABLES:
-        await session.execute(text(f"DELETE FROM {tbl}"))
+    for table, rowids in vectors.items():
+        await delete_embeddings(session, table, rowids)
 
     log.warning("brain-wipe for guilds %s: %s", guild_ids, counts)
     return counts

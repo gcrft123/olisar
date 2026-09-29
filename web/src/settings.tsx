@@ -69,7 +69,8 @@ export function clearPendingReport(): void {
 // gears show a subset. `report` opens Feedback pre-filled from a parked blank reply;
 // `prefill` opens it pre-filled from whatever screen sent the operator here. `operator` is
 // false for a signed-in admin who isn't the operator: the tool PIN is install-wide, so it's
-// shown to them but isn't theirs to change. `noLogs` is for a sender the server attaches no
+// shown to them but isn't theirs to change, and Activity and Logs cover every server, so
+// they aren't shown at all. `noLogs` is for a sender the server attaches no
 // logs for (a refused sign-in): nothing here offers to send them.
 export function SettingsModal(
   { onClose, sections, initialSection, report, prefill, operator, noLogs }:
@@ -82,6 +83,7 @@ export function SettingsModal(
   const visible = (sections ? SECTIONS.filter((s) => sections.includes(s.id))
     : SECTIONS.filter((s) => s.id !== 'size' && s.id !== 'server-remote'))
     .filter((s) => s.id !== 'bots' || bots.available || bots.loading)
+    .filter((s) => operator !== false || (s.id !== 'activity' && s.id !== 'logs'))
   const hasFeedback = visible.some((v) => v.id === 'feedback')
   const first = prefill && hasFeedback ? 'feedback' : initialSection
   const [section, setSection] = useState<SectionId>(

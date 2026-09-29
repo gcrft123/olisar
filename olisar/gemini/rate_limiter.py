@@ -26,7 +26,7 @@ from sqlalchemy import select
 
 from olisar import runtime_keys
 from olisar.config import settings
-from olisar.db.engine import session_scope
+from olisar.db.engine import after_session_scope, session_scope
 from olisar.db.models import (
     GeminiUsage,
     Guild,
@@ -266,6 +266,156 @@ class RateLimiter:
             return
 
 
+class _UsageBuffer:
+    """Usage counted but not yet written, summed per row it will land in."""
+
+    def __init__(self) -> None:
+        self.models: dict[tuple[date, str], dict] = {}
+        self.hours: dict[tuple[date, int, str], list[int]] = {}
+        self.sources: dict[tuple[date, str], int] = {}
+        self.peak_tpm: dict[date, int] = {}
+
+    def __bool__(self) -> bool:
+        return bool(self.models or self.hours or self.sources or self.peak_tpm)
+
+    def add(self, *, day: date, hour: int, model: str, tokens: int, grounding: int,
+            source: str, rpm: int, rpm_at: datetime, tpm: int, key: str | None) -> None:
+        m = self.models.setdefault((day, model), {
+            "requests": 0, "tokens": 0, "grounding": 0, "peak_rpm": 0, "peak_rpm_at": rpm_at,
+            "key": key,
+        })
+        m["requests"] += 1
+        m["tokens"] += tokens
+        m["grounding"] += grounding
+        m["key"] = key
+        if rpm > m["peak_rpm"]:
+            m["peak_rpm"], m["peak_rpm_at"] = rpm, rpm_at
+        h = self.hours.setdefault((day, hour, model), [0, 0])
+        h[0] += 1
+        h[1] += tokens
+        self.sources[(day, source)] = self.sources.get((day, source), 0) + 1
+        self.peak_tpm[day] = max(self.peak_tpm.get(day, 0), tpm)
+
+    def merge(self, other: "_UsageBuffer") -> None:
+        """Add ``other``, counted after this, into this."""
+        for k, m in other.models.items():
+            mine = self.models.get(k)
+            if mine is None:
+                self.models[k] = m
+                continue
+            for f in ("requests", "tokens", "grounding"):
+                mine[f] += m[f]
+            mine["key"] = m["key"]
+            if m["peak_rpm"] > mine["peak_rpm"]:
+                mine["peak_rpm"], mine["peak_rpm_at"] = m["peak_rpm"], m["peak_rpm_at"]
+        for k, (n, t) in other.hours.items():
+            h = self.hours.setdefault(k, [0, 0])
+            h[0] += n
+            h[1] += t
+        for k, n in other.sources.items():
+            self.sources[k] = self.sources.get(k, 0) + n
+        for k, t in other.peak_tpm.items():
+            self.peak_tpm[k] = max(self.peak_tpm.get(k, 0), t)
+
+    async def write(self, session) -> None:
+        for (day, model), m in self.models.items():
+            row = await session.scalar(
+                select(GeminiUsage).where(GeminiUsage.day == day, GeminiUsage.model == model)
+            )
+            if row is None:
+                session.add(GeminiUsage(
+                    day=day, model=model, request_count=m["requests"], token_count=m["tokens"],
+                    grounding_count=m["grounding"], peak_rpm=m["peak_rpm"], peak_rpm_at=m["peak_rpm_at"],
+                ))
+                continue
+            row.request_count += m["requests"]
+            row.token_count += m["tokens"]
+            row.grounding_count += m["grounding"]
+            if m["peak_rpm"] > row.peak_rpm:
+                row.peak_rpm = m["peak_rpm"]
+                row.peak_rpm_at = m["peak_rpm_at"]
+            if row.exhausted_at is not None and row.exhausted_key == m["key"]:
+                # Google took a request after refusing this key for the day (billing
+                # turned on, most likely), so a restart mustn't park it again.
+                row.exhausted_at = None
+                row.exhausted_key = None
+        for (day, hour, model), (n, tokens) in self.hours.items():
+            hrow = await session.scalar(
+                select(UsageHour).where(
+                    UsageHour.day == day, UsageHour.hour == hour, UsageHour.model == model
+                )
+            )
+            if hrow is None:
+                session.add(UsageHour(day=day, hour=hour, model=model, request_count=n, token_count=tokens))
+            else:
+                hrow.request_count += n
+                hrow.token_count += tokens
+        for (day, source), n in self.sources.items():
+            srow = await session.scalar(
+                select(UsageSource).where(UsageSource.day == day, UsageSource.source == source)
+            )
+            if srow is None:
+                session.add(UsageSource(day=day, source=source, request_count=n))
+            else:
+                srow.request_count += n
+        for day, tpm in self.peak_tpm.items():
+            peak = await session.get(UsageMinutePeak, day)
+            if peak is None:
+                session.add(UsageMinutePeak(day=day, peak_tpm=tpm))
+            elif tpm > peak.peak_tpm:
+                peak.peak_tpm = tpm
+
+
+_pending_usage = _UsageBuffer()
+_flush_lock: asyncio.Lock | None = None
+_flush_lock_loop: asyncio.AbstractEventLoop | None = None
+_retry: asyncio.Task | None = None
+USAGE_RETRY_SECONDS = 5.0
+
+
+def _lock() -> asyncio.Lock:
+    global _flush_lock, _flush_lock_loop
+    loop = asyncio.get_running_loop()
+    if _flush_lock is None or _flush_lock_loop is not loop:
+        _flush_lock, _flush_lock_loop = asyncio.Lock(), loop
+    return _flush_lock
+
+
+def pending_grounding(day: date) -> int:
+    """Web searches counted for ``day`` that haven't been written yet."""
+    return sum(m["grounding"] for (d, _), m in _pending_usage.models.items() if d == day)
+
+
+async def flush_usage() -> None:
+    """Write the usage counted so far. One write at a time, so concurrent calls can't lose
+    each other's increments; a batch that fails to write is kept and tried again."""
+    global _pending_usage
+    async with _lock():
+        if not _pending_usage:
+            return
+        batch, _pending_usage = _pending_usage, _UsageBuffer()
+        try:
+            async with session_scope() as session:
+                await batch.write(session)
+        except Exception:
+            batch.merge(_pending_usage)
+            _pending_usage = batch
+            log.exception("failed to record gemini usage; trying again shortly")
+            _retry_soon()
+
+
+def _retry_soon() -> None:
+    global _retry
+    if _retry is not None and not _retry.done():
+        return
+
+    async def later() -> None:
+        await asyncio.sleep(USAGE_RETRY_SECONDS)
+        await flush_usage()
+
+    _retry = asyncio.get_running_loop().create_task(later(), name="olisar-usage-retry")
+
+
 async def record_usage(
     model: str, tokens: int, grounding: int = 0, source: str = "other"
 ) -> None:
@@ -274,7 +424,12 @@ async def record_usage(
     Records four things off the same call: the per-model daily rollup (with the day's
     peak RPM), the per-hour tally the same-time-yesterday comparison reads, the
     per-process request tally (``source``), and the day's peak TPM. The day is Google's
-    (see olisar.gemini.quota), so it lines up with the daily limit being counted."""
+    (see olisar.gemini.quota), so it lines up with the daily limit being counted.
+
+    Called from inside a ``session_scope`` (a reply, a background job), the write waits
+    until that scope has ended: its session may hold SQLite's write lock, and writing on
+    another connection meanwhile would wait out busy_timeout behind the caller's own lock,
+    then fail."""
     try:
         limiter = get_rate_limiter()
         if limiter.recover(model):
@@ -282,68 +437,15 @@ async def record_usage(
         rpm = limiter.current(model)          # this model's instantaneous RPM
         tpm = limiter.record_tokens(tokens)   # global tokens-in-60s after this call
         now = datetime.now(timezone.utc)
-        day, hour = quota_day(now), quota_hour(now)
-        async with session_scope() as session:
-            row = await session.scalar(
-                select(GeminiUsage).where(
-                    GeminiUsage.day == day, GeminiUsage.model == model
-                )
-            )
-            if row is None:
-                session.add(
-                    GeminiUsage(
-                        day=day,
-                        model=model,
-                        request_count=1,
-                        token_count=tokens,
-                        grounding_count=grounding,
-                        peak_rpm=rpm,
-                        peak_rpm_at=now,
-                    )
-                )
-            else:
-                row.request_count += 1
-                row.token_count += tokens
-                row.grounding_count += grounding
-                if rpm > row.peak_rpm:
-                    row.peak_rpm = rpm
-                    row.peak_rpm_at = now
-                if row.exhausted_at is not None and row.exhausted_key == limiter.key:
-                    # Google took a request after refusing this key for the day (billing
-                    # turned on, most likely), so a restart mustn't park it again.
-                    row.exhausted_at = None
-                    row.exhausted_key = None
-
-            hrow = await session.scalar(
-                select(UsageHour).where(
-                    UsageHour.day == day, UsageHour.hour == hour, UsageHour.model == model
-                )
-            )
-            if hrow is None:
-                session.add(
-                    UsageHour(day=day, hour=hour, model=model, request_count=1, token_count=tokens)
-                )
-            else:
-                hrow.request_count += 1
-                hrow.token_count += tokens
-
-            srow = await session.scalar(
-                select(UsageSource).where(
-                    UsageSource.day == day, UsageSource.source == source
-                )
-            )
-            if srow is None:
-                session.add(UsageSource(day=day, source=source, request_count=1))
-            else:
-                srow.request_count += 1
-
-            peak = await session.get(UsageMinutePeak, day)
-            if peak is None:
-                session.add(UsageMinutePeak(day=day, peak_tpm=tpm))
-            elif tpm > peak.peak_tpm:
-                peak.peak_tpm = tpm
+        _pending_usage.add(
+            day=quota_day(now), hour=quota_hour(now), model=model, tokens=tokens,
+            grounding=grounding, source=source, rpm=rpm, rpm_at=now, tpm=tpm, key=limiter.key,
+        )
     except Exception:
         log.exception("failed to record gemini usage")
+        return
+    if not after_session_scope(flush_usage):
+        await flush_usage()
 
 
 async def mark_spent(model: str, limit: int | None = None, *, key: str | None = None) -> None:
