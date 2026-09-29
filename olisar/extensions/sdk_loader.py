@@ -127,7 +127,9 @@ def build_extension(pkg: "ExtensionPackage") -> Extension:
         name=pkg.name or manifest.get("name", pkg.key),
         description=pkg.description or manifest.get("description", ""),
         category=pkg.category or manifest.get("category", "General"),
-        default_enabled=bool(manifest.get("default_enabled")),
+        # Only the operator's own code may switch itself on in every server. Someone else's
+        # starts off until a server's admin turns it on, whatever its manifest asks.
+        default_enabled=trusted and bool(manifest.get("default_enabled")),
         tools=tools,
         system_note=manifest.get("system_note", ""),
         on_enable=_make_on_enable(pkg.key, pkg.compiled_js, perms, seeds, has_js, trusted) if needs_enable else None,
