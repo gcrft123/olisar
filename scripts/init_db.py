@@ -102,6 +102,15 @@ def _add_missing_indexes(sync_conn) -> None:
         sync_conn.exec_driver_sql(f'DROP INDEX IF EXISTS "{name}"')
 
 
+def _mark_bot_rows_mined(sync_conn) -> None:
+    """Bot messages are stored as already glossary-mined (the miner reads only people);
+    rows stored before that sat unmined for good. Mark them the same. Once done, this only
+    touches the few unmined rows left, through the fact_mined index."""
+    sync_conn.exec_driver_sql(
+        "UPDATE message SET fact_mined = 1 WHERE fact_mined = 0 AND author_is_bot = 1"
+    )
+
+
 def _drop_repk_tables(sync_conn) -> None:
     """SQLite can't ALTER a primary key, so a table whose PK changed must be dropped
     and recreated by create_all. extension_state went global -> per-guild
@@ -123,6 +132,7 @@ async def create_schema() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
         await conn.run_sync(_add_missing_indexes)
+        await conn.run_sync(_mark_bot_rows_mined)
         await create_vector_tables(conn, settings.embed_dim)
         await create_fts_tables(conn)
 

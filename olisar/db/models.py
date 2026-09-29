@@ -30,6 +30,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -346,6 +347,14 @@ class Message(Base):
         # Walked newest-first it's N index steps; a channel_id-only index meant reading
         # the whole channel and sorting it. Also serves every channel_id-only lookup.
         Index("ix_message_channel_created", "channel_id", "created_at"),
+        # Only the rows the glossary miner still has to read, so finding them costs what's
+        # left to mine rather than the channel's whole history. The two flags are constant
+        # here; they're in the key because SQLite plans without statistics, and three
+        # equality matches are what make it prefer this over ix_message_channel_created.
+        Index(
+            "ix_message_unmined", "channel_id", "fact_mined", "author_is_bot", "created_at",
+            sqlite_where=text("fact_mined = 0 AND author_is_bot = 0"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)  # local PK (= vec rowid)
