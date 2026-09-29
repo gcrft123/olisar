@@ -18,7 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar import self_settings, toolpin
-from olisar.db.models import GeminiUsage, GuildConfig, Reminder, UserMemory, UserMemoryKind
+from olisar.db.models import (
+    MASS_MENTIONS,
+    GeminiUsage,
+    GuildConfig,
+    Reminder,
+    UserMemory,
+    UserMemoryKind,
+)
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.gemini.quota import quota_day
 from olisar.imaging import generate_image, is_configured as image_is_configured
@@ -820,7 +827,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             if ctx.actions is None:
                 return "Can't post to channels from here."
             cfg = await ctx.session.get(GuildConfig, ctx.cfg_guild)
-            blocked = list(cfg.blocked_mentions or []) if cfg else []
+            blocked = list(cfg.blocked_mentions or []) if cfg else list(MASS_MENTIONS)
             return await ctx.actions.send_channel(
                 args.get("channel") or "",
                 args.get("message") or "",

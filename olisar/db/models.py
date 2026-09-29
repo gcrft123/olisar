@@ -135,6 +135,10 @@ class Guild(Base):
     )
 
 
+# The mention types a server can let Olisar ping, and which it blocks until it does.
+MASS_MENTIONS = ("everyone", "here", "roles")
+
+
 class GuildConfig(Base):
     __tablename__ = "guild_config"
 
@@ -186,9 +190,14 @@ class GuildConfig(Base):
     see_other_bots: Mapped[bool] = mapped_column(Boolean, default=False)
     # Mention types Olisar may NOT ping in its replies — any of "everyone", "here",
     # "roles". @everyone/@here are neutralised in the reply text (Discord can't separate
-    # the two via allowed_mentions); roles via allowed_mentions. Empty = no restriction.
-    # Enforced in bot/replies.py.
-    blocked_mentions: Mapped[list] = mapped_column(JSON, default=list)
+    # the two via allowed_mentions); roles via allowed_mentions. Enforced in bot/replies.py.
+    # All three are blocked until a server's admin allows them: any member can get a reply
+    # to say "@everyone". The column was ``blocked_mentions`` while an empty list (no
+    # restriction) was the default; the new one is added with all three blocked, which is
+    # how every server, old ones included, now starts.
+    blocked_mentions: Mapped[list] = mapped_column(
+        "mentions_blocked", JSON, default=lambda: list(MASS_MENTIONS)
+    )
     # Deprecated: the rate-limit reply now lives in command_messages["rate_limit"]
     # (editable under Command replies). Column kept to avoid a destructive migration.
     rate_limit_message: Mapped[str | None] = mapped_column(Text, nullable=True)

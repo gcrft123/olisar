@@ -12,7 +12,7 @@ import re
 
 import discord
 
-from bot.replies import chunk_text, mention_policy, sanitize_mentions
+from bot.replies import SAFE_MENTIONS, chunk_text, mention_policy, sanitize_mentions
 from olisar.persona import strip_breaks
 from olisar.tools import ACK_OK, DM_OK, POSTED_OK, REACT_OK, STATUS_OK
 
@@ -499,8 +499,9 @@ class BotActions:
             kwargs["files"] = file_list
         if not kwargs:
             return "nothing to post"
-        if not trusted:  # third-party posts can't ping anyone
-            kwargs["allowed_mentions"] = discord.AllowedMentions.none()
+        # A third-party extension's post pings nobody; a first-party one the people it names.
+        # Neither pings @everyone, @here or a role: the text can be whatever a member asked for.
+        kwargs["allowed_mentions"] = SAFE_MENTIONS if trusted else discord.AllowedMentions.none()
         where = "#" + target.name if getattr(target, "name", None) else "the channel"
         try:
             await target.send(**kwargs)

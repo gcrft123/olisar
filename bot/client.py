@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from bot.replies import SAFE_MENTIONS
 from olisar import guild_approval
 from olisar.config import settings
 
@@ -70,6 +71,8 @@ class OlisarBot(commands.Bot):
             intents=_build_intents(),
             help_command=None,
             tree_cls=_Tree,
+            # Nothing the bot sends pings @everyone, @here or a role unless that send says so.
+            allowed_mentions=SAFE_MENTIONS,
         )
 
     async def setup_hook(self) -> None:
