@@ -755,7 +755,7 @@ async def _kb_add(ctx: ToolContext, target: str, args: dict, *, site: bool) -> s
     kind = "website" if site else "url"
     src = sources.new_source(
         guild_id=ctx.cfg_guild, type=kind, uri=target, crawl_depth=depth,
-        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id, public_only=True,
+        max_pages=pages, refresh_hours=hours, added_by=ctx.user_id,
     )
     ctx.session.add(src)
     await ctx.session.flush()
