@@ -2694,7 +2694,11 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 {/* Not primary: a grid of twelve cards was a grid of twelve primaries, and
                     the page lost its one loudest control. Install here opens the consent
                     screen — the primary lives there, on the button that actually installs. */}
-                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                {/* Opening the consent screen runs this bot's own risk review first, which
+                    takes a few seconds the first time; say so rather than sit disabled. */}
+                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>
+                  {busy && sel?.id === r.id && !preview ? <><span className="spinner" /> Reviewing…</> : 'Install'}
+                </button>
               </div>
             </div>
           ))}

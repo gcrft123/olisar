@@ -156,21 +156,15 @@ async def _fetch_olx(namespace: str, name: str, version: str) -> dict:
 @router.post("/install/preview")
 async def install_preview(body: MarketplaceRefIn, admin: AdminUser = Depends(require_admin)) -> dict:
     """Fetch a marketplace bundle and preview it (same shape as file-import preview), so the
-    console can show the consent screen before granting capabilities."""
+    console can show the consent screen before granting capabilities.
+
+    The risk review shown there is run here, on this bot's own model. The listing carries
+    a score too, but the registry stores whatever the publisher sends, so a publisher could
+    post 0 for anything. Reviews are cached by content hash, so reopening the same version
+    doesn't run it again."""
     _operator(admin)
     doc = await _fetch_olx(body.namespace, body.name, body.version)
-    # Reuse the publish-time risk audit stamped on the listing instead of re-running the
-    # (slow) AI review on every preview — the score is advisory (shown for consent, not a
-    # hard install gate). Falls back to a live review only for listings with no stored score.
-    prestored = None
-    if "risk_score" in doc:
-        prestored = {
-            "score": int(doc.get("risk_score") or 0),
-            "summary": "",
-            "bullets": list(doc.get("risk_report") or []),
-            "ok": True,
-        }
-    preview = await preview_bundle(doc, prestored_risk=prestored)
+    preview = await preview_bundle(doc)
     preview["source"] = "marketplace"
     return preview
 
