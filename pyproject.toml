@@ -33,7 +33,7 @@ dependencies = [
 knowledge = [
     "trafilatura>=1.9",         # main-content extraction from web pages
     "beautifulsoup4>=4.12",     # link discovery for the crawler
-    "pypdf>=4.2",               # PDF text extraction
+    "pypdf>=6.16.1",            # PDF text extraction; earlier 6.x can be made to hang or balloon by a crafted PDF
     "python-docx>=1.1",         # DOCX text extraction
 ]
 dev = [
@@ -44,6 +44,12 @@ dev = [
 
 [tool.uv]
 package = false  # this is an app, not a library — no build step needed
+# Floors for packages that only arrive through other dependencies (discord.py, httpx,
+# starlette), set where their published security fixes landed.
+constraint-dependencies = [
+    "aiohttp>=3.14.3",
+    "anyio>=4.14.2",
+]
 
 [tool.ruff]
 line-length = 100
