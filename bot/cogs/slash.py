@@ -25,6 +25,7 @@ from bot.replies import (
     report_view,
     sanitize_mentions,
 )
+from olisar import budgets
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
@@ -94,9 +95,16 @@ class Slash(commands.Cog):
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
+            slow_msg = render_message(
+                cfg.command_messages if cfg and cfg.command_messages else {}, "rate_limit"
+            )
         member = resolve_member(self.bot, interaction.user, interaction.guild_id)
         if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
+            return
+        # The same reply budget as asking in chat (olisar.budgets).
+        if not budgets.take_reply(interaction.user.id, interaction.guild_id or DM_GUILD_ID):
+            await interaction.response.send_message(slow_msg, ephemeral=True)
             return
 
         # Defer immediately — generation can take a few seconds (and shows "thinking").
@@ -173,9 +181,15 @@ class Slash(commands.Cog):
             denied_msg = render_message(
                 cfg.command_messages if cfg and cfg.command_messages else {}, "access_denied"
             )
+            slow_msg = render_message(
+                cfg.command_messages if cfg and cfg.command_messages else {}, "rate_limit"
+            )
         member = resolve_member(self.bot, interaction.user, interaction.guild_id)
         if not member_allowed(member, allowed=allowed, blocked=blocked, user_id=interaction.user.id):
             await interaction.response.send_message(denied_msg, ephemeral=True)
+            return
+        if not budgets.take_reply(interaction.user.id, interaction.guild_id or DM_GUILD_ID):
+            await interaction.response.send_message(slow_msg, ephemeral=True)
             return
 
         await interaction.response.defer(thinking=True)

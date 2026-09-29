@@ -161,6 +161,8 @@ class ToolContext:
     # Whether the asker is a member of cfg_guild; None until someone asks. Only a DM can be
     # from a non-member, and then GUILD_TOOLS are refused (see _asker_in_guild).
     in_guild: bool | None = None
+    # How many images this reply has asked for; capped at IMAGES_PER_REPLY.
+    images: int = 0
 
     def readable(self) -> ChannelFilter:
         """The channels this reply's asker can open, for filtering search and recall. For a
@@ -572,6 +574,15 @@ def _summarize(text: str, limit: int = 200) -> str:
     return (s[:limit] + "…") if len(s) > limit else s
 
 
+# How many images one reply may generate. Each spends the install's image allowance (the
+# free tier, then billed), and one message used to be able to ask for a dozen.
+IMAGES_PER_REPLY = 2
+_IMAGE_CAP_NOTE = (
+    "Not made: that's the {cap} images one reply can make. Don't call generate_image again "
+    "this turn; tell them plainly how many you made, and that they can ask for more in "
+    "another message."
+)
+
 # How ``DiscordActions.set_status`` opens a success, so the status can be recorded only
 # once Discord took it.
 STATUS_OK = "status set to:"
@@ -807,11 +818,14 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "No image prompt given."
             if ctx.actions is None:
                 return "Can't generate images from here."
+            if ctx.images >= IMAGES_PER_REPLY:
+                return _IMAGE_CAP_NOTE.format(cap=IMAGES_PER_REPLY)
             if not await image_is_configured():
                 return (
                     "Image generation isn't set up on this server — tell the user "
                     "you can't make images right now."
                 )
+            ctx.images += 1  # counted before the call: a failed one can still be billed
             try:
                 data, mime = await generate_image(prompt)
             except Exception:

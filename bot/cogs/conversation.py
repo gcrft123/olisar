@@ -39,7 +39,7 @@ from bot.replies import (
     send_paced,
 )
 from bot.triggers import detect_trigger
-from olisar import guild_approval
+from olisar import budgets, guild_approval
 from olisar.addressing import AMBIGUOUS, PASSING, confirm_addressed, name_mention_kind
 from olisar.failures import open_report
 from olisar.db.engine import session_scope
@@ -54,6 +54,7 @@ from olisar.memory.writer import (
     record_reaction_ack,
     record_search_message,
 )
+from olisar.messages import render_message
 from olisar.pipeline import generate_reply
 
 log = logging.getLogger("olisar.conversation")
@@ -128,6 +129,7 @@ class Conversation(commands.Cog):
             blocked_roles = config.blocked_role_ids if config else []
             strict_name = config.name_requires_address if config else True
             see_bots = config.see_other_bots if config else False
+            command_messages = (config.command_messages if config else None) or {}
 
             # Threads (incl. forum posts) inherit their parent channel's mode, so
             # Olisar engages in them per the parent's setting. Memory is still keyed
@@ -201,6 +203,21 @@ class Conversation(commands.Cog):
             ):
                 log.info("name mentioned (%s) by %s but not addressed — staying quiet", kind, message.author)
                 return
+
+        # Every reply spends the install's shared model quota, so one member (or one server)
+        # can only have so many at once (olisar.budgets). Past that, they're told once and
+        # the rest go unanswered until the budget refills.
+        if not budgets.take_reply(message.author.id, guild_id):
+            log.info("reply budget spent for %s in guild %s; not answering", message.author, guild_id)
+            if budgets.first_refusal(message.author.id):
+                try:
+                    await send_paced(
+                        message.channel, render_message(command_messages, "rate_limit"),
+                        reply_to=anchor_for(self.bot, message),
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception("couldn't say the reply budget was spent")
+            return
 
         log.info("trigger=%s from %s in #%s", trigger, message.author, message.channel)
 
