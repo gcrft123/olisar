@@ -284,13 +284,19 @@ async def preview_bundle(bundle_doc: dict, *, prestored_risk: dict | None = None
 
 async def install_bundle(
     bundle_doc: dict, granted_permissions: list[str], *,
-    actor: int | None, origin: str, marketplace_ref: dict | None = None, replace: bool = False,
+    actor: int | None, origin: str, marketplace_ref: dict | None = None, replace: str | None = None,
 ) -> dict:
     """Shared install for file-import (origin='imported') and the marketplace
     (origin='marketplace'). Re-transpiles + re-verifies, enforces granted ⊆ requested,
-    refuses invalid signatures, then persists. With ``replace`` it updates an existing
-    installed extension in place (snapshotting the prior version); otherwise a key
-    collision is refused. The caller triggers the slash-command resync."""
+    refuses invalid signatures, then persists. With ``replace`` (the key of an installed
+    extension) it updates that extension in place, snapshotting the prior version;
+    otherwise a key collision is refused. The caller triggers the slash-command resync.
+
+    An update has to be the extension it replaces, from whoever signed it. The bundle's code
+    names its own id, so without the first check a listing could overwrite a different
+    extension and inherit its stored data and settings; without the second, an update that's
+    unsigned, or signed by another key, could replace code its publisher did sign. An
+    unsigned install takes the first key an update is signed with."""
     parsed, compiled_js, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     if key in _REGISTRY:
@@ -300,6 +306,11 @@ async def install_bundle(
         raise HTTPException(
             status_code=400,
             detail="this bundle's signature is invalid — it may have been tampered with; not installing",
+        )
+    if replace is not None and key != replace:
+        raise HTTPException(
+            status_code=409,
+            detail=f"this update is a different extension ('{key}', not '{replace}'); not installing",
         )
     requested = manifest.get("permissions", [])
     granted = [p for p in (granted_permissions or []) if p in requested]  # granted ⊆ requested
@@ -317,6 +328,12 @@ async def install_bundle(
         if existing is not None:  # replace: update in place
             if existing.origin not in ("marketplace", "imported"):
                 raise HTTPException(status_code=409, detail="can't overwrite a built-in or locally-authored extension")
+            if existing.publisher_key and sig_pub != existing.publisher_key:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this update isn't signed by the key that signed the installed version; "
+                    "not installing. Remove the extension and install it again if you trust the new key.",
+                )
             session.add(ExtensionVersion(
                 key=key, version=existing.version, source_ts=existing.source_ts,
                 compiled_js=existing.compiled_js, manifest=existing.manifest, saved_by=actor,
