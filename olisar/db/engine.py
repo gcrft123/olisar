@@ -9,8 +9,10 @@ event listener, which fires for each pooled connection.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 import sqlite_vec
 from sqlalchemy import event
@@ -21,6 +23,8 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.util import await_only
+
+log = logging.getLogger("olisar.db")
 
 # Engines/sessionmakers are keyed by the SQLite file path rather than a single global, so
 # repointing a process (a move swapping its DB file) disposes one entry and builds the next.
@@ -110,13 +114,55 @@ async def reset_engine(path: str | None = None) -> None:
             await engine.dispose()
 
 
+class _Scope:
+    """The outermost ``session_scope`` open in a task, and what waits for it to end."""
+
+    def __init__(self) -> None:
+        self.open = True
+        self.after: list[Callable[[], Awaitable[None]]] = []
+
+
+_outermost: ContextVar[_Scope | None] = ContextVar("olisar_session_scope", default=None)
+
+
 @asynccontextmanager
 async def session_scope() -> AsyncIterator[AsyncSession]:
     """Transactional session: commits on success, rolls back on error."""
-    async with get_sessionmaker()() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    outer = _outermost.get()
+    scope = token = None
+    if outer is None or not outer.open:
+        scope = _Scope()
+        token = _outermost.set(scope)
+    try:
+        async with get_sessionmaker()() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+    finally:
+        if scope is not None:
+            scope.open = False
+            with contextlib.suppress(ValueError):  # closed from another context
+                _outermost.reset(token)
+            for fn in scope.after:
+                try:
+                    await fn()
+                except Exception:
+                    log.exception("work queued behind a session failed")
+
+
+def after_session_scope(fn: Callable[[], Awaitable[None]]) -> bool:
+    """Run ``fn`` once the ``session_scope`` this code runs inside has ended, its transaction
+    committed or rolled back. False, and nothing queued, when none is open.
+
+    For a write that doesn't belong to the caller's transaction. SQLite has one writer at a
+    time, and the caller's session may be holding that lock: a second session writing now
+    would wait for a lock its own caller won't release until it's done waiting."""
+    scope = _outermost.get()
+    if scope is None or not scope.open:
+        return False
+    if fn not in scope.after:
+        scope.after.append(fn)
+    return True

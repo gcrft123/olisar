@@ -28,6 +28,7 @@ from olisar.db.models import (
 )
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.gemini.quota import quota_day
+from olisar.gemini.rate_limiter import pending_grounding
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
@@ -517,7 +518,8 @@ async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
         return False
     today = quota_day()
     rows = (await session.scalars(select(GeminiUsage).where(GeminiUsage.day == today))).all()
-    used = sum(r.grounding_count for r in rows)
+    # Searches this reply (or any other still running) already made aren't written yet.
+    used = sum(r.grounding_count for r in rows) + pending_grounding(today)
     return used < config.grounding_daily_cap
 
 
@@ -965,6 +967,25 @@ async def _recover_session(ctx: ToolContext) -> None:
         log.exception("couldn't roll back after a failed tool")
 
 
+async def _commit_tool_writes(name: str, ctx: ToolContext) -> None:
+    """Commit what a tool wrote as soon as it's done.
+
+    SQLite has one writer at a time, and a reply's session holds that lock from its first
+    write until it commits. Left open, it stays held through every model call after the
+    tool, several seconds each, and every message the bot tries to store in the meantime
+    waits and then fails with "database is locked". Committing here keeps it to the tool's
+    own write. What was written stays written if the reply fails later on, as it would have
+    for the PIN prompt (_confirm_with_pin), which let go of it the same way."""
+    session = ctx.session
+    if session is None or not session.in_transaction():
+        return
+    try:
+        await session.commit()
+    except Exception:
+        log.exception("couldn't commit what %s wrote", name)
+        await _recover_session(ctx)
+
+
 async def _confirm_with_pin(name: str, args: dict, ctx: ToolContext) -> str:
     """Put a PIN prompt in the channel and wait for it. Returns an ``olisar.toolpin``
     outcome; anything but ``APPROVED`` means the call doesn't run.
@@ -1010,6 +1031,7 @@ async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     ctx.tools_run.append(name)
     writes = ctx.settings_writes
     result = await _dispatch(name, args, ctx)
+    await _commit_tool_writes(name, ctx)
     log.info("tool result: %s -> %s", name, _summarize(result))
     if name in ACTION_TOOLS and not _went_through(name, result, ctx.settings_writes > writes):
         ctx.failed.append(name)
