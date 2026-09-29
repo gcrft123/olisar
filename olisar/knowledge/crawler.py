@@ -166,6 +166,17 @@ def _title_of(html: str) -> str | None:
     return None
 
 
+def _parse(
+    html: str, url: str, root_netloc: str, *, links: bool
+) -> tuple[Page | None, set[str]]:
+    """The page's main text and title (None when there's no text), and the same-site links
+    on it when ``links``. A big page takes a while to parse, so the crawl runs this in a
+    worker thread rather than on the event loop the bot and the API share."""
+    text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
+    page = Page(url=url, title=_title_of(html), text=text) if text.strip() else None
+    return page, _extract_links(html, url, root_netloc) if links else set()
+
+
 async def crawl(
     start_url: str, *, max_depth: int = 1, max_pages: int = 25, public_only: bool = False
 ) -> list[Page]:
@@ -201,14 +212,14 @@ async def crawl(
             if html is None:
                 continue
 
-            text = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
-            if text.strip():
-                pages.append(Page(url=url, title=_title_of(html), text=text))
-
-            if depth < max_depth:
-                for link in _extract_links(html, url, root_netloc):
-                    if link not in seen:
-                        queue.append((link, depth + 1))
+            page, links = await asyncio.to_thread(
+                _parse, html, url, root_netloc, links=depth < max_depth
+            )
+            if page is not None:
+                pages.append(page)
+            for link in links:
+                if link not in seen:
+                    queue.append((link, depth + 1))
             await asyncio.sleep(DELAY_SECONDS)
 
     return pages

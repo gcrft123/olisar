@@ -13,6 +13,7 @@ costs nothing against the free embedding quota. See :func:`plan_chunk_sync`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from pathlib import Path
@@ -36,7 +37,10 @@ async def _gather(
 ) -> list[dict]:
     """Network/extraction only — no DB. Returns chunk records."""
     if stype == KBSourceType.doc:
-        pages = [Page(url=None, title=Path(uri).name, text=extract_document(uri))]
+        # pypdf and python-docx can take seconds over a big file, and this runs on the
+        # event loop the bot and the API share, so they get a worker thread.
+        text = await asyncio.to_thread(extract_document, uri)
+        pages = [Page(url=None, title=Path(uri).name, text=text)]
     elif stype == KBSourceType.url:
         page = await fetch_page(uri, public_only=public_only)
         pages = [page] if page else []
