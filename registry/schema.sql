@@ -60,14 +60,23 @@ CREATE INDEX IF NOT EXISTS idx_extensions_name ON extensions (name);
 CREATE INDEX IF NOT EXISTS idx_extensions_category ON extensions (category);
 CREATE INDEX IF NOT EXISTS idx_versions_ext ON versions (namespace, name);
 
--- Usage accounting so R2 can never exceed the free tier. Single row (id=1).
--- stored_bytes is exact (checked on every publish); class_a counts writes per month
+-- Usage accounting so R2 can never exceed the free tier. id=1 is the whole bucket; id=2 is
+-- the part report attachments use, capped separately so reports can't crowd out publishing.
+-- stored_bytes is exact (reserved before every R2 write); class_a counts writes per month
 -- (R2 reads/Class B stay under the free tier via the Workers free-plan request cap).
 CREATE TABLE IF NOT EXISTS usage (
   id           INTEGER PRIMARY KEY,
   stored_bytes INTEGER NOT NULL DEFAULT 0,
   class_a      INTEGER NOT NULL DEFAULT 0,  -- R2 writes this period
   period       TEXT NOT NULL DEFAULT ''     -- YYYY-MM (resets class_a)
+);
+
+-- Each publisher's share of the bucket: bytes of their bundles, and new versions per UTC day.
+CREATE TABLE IF NOT EXISTS publisher_usage (
+  publisher_id INTEGER PRIMARY KEY,
+  stored_bytes INTEGER NOT NULL DEFAULT 0,
+  publishes    INTEGER NOT NULL DEFAULT 0,  -- new versions this period
+  period       TEXT NOT NULL DEFAULT ''     -- YYYY-MM-DD (resets publishes)
 );
 
 -- Platform-owner developer whitelist (by Discord id). A token whose publisher is

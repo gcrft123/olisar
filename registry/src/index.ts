@@ -25,6 +25,10 @@ export interface Env {
   R2_MAX_BYTES?: string;   // hard storage cap (default 9 GB, under the 10 GB free tier)
   R2_MAX_BUNDLE_BYTES?: string; // per-bundle cap (default 1 MB)
   R2_CLASS_A_MAX?: string; // monthly R2 write cap (default 900k, under 1M free)
+  R2_REPORT_MAX_BYTES?: string;   // share of storage report attachments may use (default 500 MB)
+  R2_REPORT_CLASS_A_MAX?: string; // share of monthly writes reports may use (default 100k)
+  PUBLISHER_MAX_BYTES?: string;       // storage per publisher (default 100 MB)
+  PUBLISHER_DAILY_PUBLISHES?: string; // new versions per publisher per UTC day (default 30)
   RESEND_API_KEY?: string; // Resend API key for abuse-report emails (a Worker secret)
   REPORT_EMAIL?: string;   // where abuse reports are emailed (the platform owner)
   REPORT_FROM?: string;    // From address (default "Olisar <onboarding@resend.dev>")
@@ -45,6 +49,120 @@ function limits(env: Env) {
     maxBundle: capInt(env.R2_MAX_BUNDLE_BYTES, 1_000_000),
     maxClassA: capInt(env.R2_CLASS_A_MAX, 900_000),
   };
+}
+
+// ── quotas ──────────────────────────────────────────────────────────────────
+// Every R2 write reserves its bytes and one write against one or more counters first. A
+// counter row holds bytes stored so far and writes in the current period; `reserve` checks
+// both caps and adds to them in a single statement, so two requests can't each pass the
+// check and overshoot together, and neither overwrites the other's count.
+//
+// Three kinds of counter: the whole bucket (usage id 1, the free-tier guard), the slice
+// abuse-report attachments may use (usage id 2, so a flood of reports can't use up what
+// publishing needs), and one per publisher (publisher_usage), so one publisher can't use up
+// everyone else's share either.
+interface Quota {
+  table: "usage" | "publisher_usage";
+  keyCol: "id" | "publisher_id";
+  key: number;
+  writesCol: "class_a" | "publishes";
+  period: string;   // the writes count resets when this changes
+  maxBytes: number;
+  maxWrites: number;
+  label: string;    // names the cap in the error when it's reached
+}
+
+function monthPeriod(): string {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+function globalQuota(env: Env): Quota {
+  const lim = limits(env);
+  return {
+    table: "usage", keyCol: "id", key: 1, writesCol: "class_a", period: monthPeriod(),
+    maxBytes: lim.maxBytes, maxWrites: lim.maxClassA, label: "registry",
+  };
+}
+
+function reportQuota(env: Env): Quota {
+  return {
+    table: "usage", keyCol: "id", key: 2, writesCol: "class_a", period: monthPeriod(),
+    maxBytes: capInt(env.R2_REPORT_MAX_BYTES, 500_000_000),
+    maxWrites: capInt(env.R2_REPORT_CLASS_A_MAX, 100_000), label: "report storage",
+  };
+}
+
+function publisherQuota(env: Env, publisherId: number): Quota {
+  return {
+    table: "publisher_usage", keyCol: "publisher_id", key: publisherId, writesCol: "publishes",
+    period: new Date().toISOString().slice(0, 10), // YYYY-MM-DD (UTC)
+    maxBytes: capInt(env.PUBLISHER_MAX_BYTES, 100_000_000),
+    maxWrites: capInt(env.PUBLISHER_DAILY_PUBLISHES, 30), label: "publisher",
+  };
+}
+
+// Returns the counter's new byte total, or null when either cap would be exceeded (and then
+// nothing was added). The insert branch only runs for a counter's first write.
+async function reserve(env: Env, q: Quota, bytes: number): Promise<number | null> {
+  if (bytes > q.maxBytes || q.maxWrites < 1) return null;
+  const row = await env.DB.prepare(
+    `INSERT INTO ${q.table} (${q.keyCol}, stored_bytes, ${q.writesCol}, period) VALUES (?5, ?1, 1, ?2)
+     ON CONFLICT(${q.keyCol}) DO UPDATE SET
+       stored_bytes = stored_bytes + ?1,
+       ${q.writesCol} = CASE WHEN period = ?2 THEN ${q.writesCol} + 1 ELSE 1 END,
+       period = ?2
+     WHERE stored_bytes + ?1 <= ?3
+       AND (CASE WHEN period = ?2 THEN ${q.writesCol} ELSE 0 END) + 1 <= ?4
+     RETURNING stored_bytes`,
+  ).bind(bytes, q.period, q.maxBytes, q.maxWrites, q.key).first<{ stored_bytes: number }>();
+  return row ? row.stored_bytes : null;
+}
+
+// Give back a reservation whose R2 write never happened.
+async function release(env: Env, q: Quota, bytes: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE ${q.table} SET stored_bytes = MAX(0, stored_bytes - ?1),
+       ${q.writesCol} = CASE WHEN period = ?2 AND ${q.writesCol} > 0 THEN ${q.writesCol} - 1 ELSE ${q.writesCol} END
+     WHERE ${q.keyCol} = ?3`,
+  ).bind(bytes, q.period, q.key).run();
+}
+
+// Reserve against every counter in order, or none: on the first refusal, the ones already
+// taken are given back. `stored` is the last counter's new byte total.
+async function reserveAll(
+  env: Env, quotas: Quota[], bytes: number,
+): Promise<{ ok: true; stored: number } | { ok: false; refused: Quota }> {
+  let stored = 0;
+  for (let i = 0; i < quotas.length; i++) {
+    const got = await reserve(env, quotas[i], bytes);
+    if (got === null) {
+      for (const q of quotas.slice(0, i)) await release(env, q, bytes);
+      return { ok: false, refused: quotas[i] };
+    }
+    stored = got;
+  }
+  return { ok: true, stored };
+}
+
+async function releaseAll(env: Env, quotas: Quota[], bytes: number): Promise<void> {
+  for (const q of quotas) await release(env, q, bytes);
+}
+
+// Which of the refused counter's caps was hit: storage (507) or writes (429).
+async function quotaError(env: Env, q: Quota, bytes: number): Promise<Response> {
+  const row = await env.DB.prepare(
+    `SELECT stored_bytes FROM ${q.table} WHERE ${q.keyCol} = ?`,
+  ).bind(q.key).first<{ stored_bytes: number }>();
+  const full = bytes > q.maxBytes || (row?.stored_bytes ?? 0) + bytes > q.maxBytes;
+  if (q.table === "publisher_usage") {
+    const mb = q.maxBytes / 1e6;
+    return full
+      ? json({ error: `you've used your ${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB of marketplace storage` }, 507)
+      : json({ error: `you've published ${q.maxWrites} versions today; try again tomorrow (UTC)` }, 429);
+  }
+  return full
+    ? json({ error: `${q.label} storage cap reached` }, 507)
+    : json({ error: `${q.label} monthly write cap reached` }, 429);
 }
 
 function json(data: unknown, status = 200): Response {
@@ -467,6 +585,11 @@ async function ensureSchema(env: Env): Promise<void> {
     env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at)`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS publisher_usage (
+         publisher_id INTEGER PRIMARY KEY, stored_bytes INTEGER NOT NULL DEFAULT 0,
+         publishes INTEGER NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT '')`,
+    ),
   ]);
   // Add columns to tables that predate them (no-op once present). migrations/ has the same.
   for (const col of ["versions ADD COLUMN risk_score INTEGER", "versions ADD COLUMN risk_report TEXT",
@@ -565,33 +688,20 @@ async function storePublish(
   if (!claim) return alreadyPublished();
   const unclaim = () => env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(claim.id).run();
 
-  // Free-tier guard — enforce the exact storage + monthly-write caps before any R2 write.
-  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
-  const u = await env.DB.prepare(`SELECT stored_bytes, class_a, period FROM usage WHERE id = 1`)
-    .first<{ stored_bytes: number; class_a: number; period: string }>();
-  let stored = u?.stored_bytes ?? 0;
-  let classA = u && u.period === period ? (u.class_a ?? 0) : 0; // reset writes each month
-  if (stored + size > lim.maxBytes) {
+  // Free-tier guard, and the publisher's own share of it, reserved before the R2 write.
+  const quotas = ownerId !== null ? [publisherQuota(env, ownerId), globalQuota(env)] : [globalQuota(env)];
+  const reserved = await reserveAll(env, quotas, size);
+  if (!reserved.ok) {
     await unclaim();
-    return json({ error: "registry storage cap reached" }, 507);
-  }
-  if (classA + 1 > lim.maxClassA) {
-    await unclaim();
-    return json({ error: "registry monthly write cap reached" }, 429);
+    return quotaError(env, reserved.refused, size);
   }
   try {
     await env.BUNDLES.put(key, blob, { httpMetadata: { contentType: "application/json" } });
   } catch (err) {
+    await releaseAll(env, quotas, size);
     await unclaim();
     throw err;
   }
-  stored += size;
-  classA += 1;
-  await env.DB.prepare(
-    `INSERT INTO usage (id, stored_bytes, class_a, period) VALUES (1, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET stored_bytes = excluded.stored_bytes,
-       class_a = excluded.class_a, period = excluded.period`,
-  ).bind(stored, classA, period).run();
 
   let publisherId: number | null = ownerId;
   if (ownerId === null && pub.fingerprint) {
@@ -618,7 +728,7 @@ async function storePublish(
        updated_at = datetime('now')`,
   ).bind(namespace, name, publisherId, bundle.category ?? "General", bundle.description ?? "", version).run();
 
-  return json({ ok: true, id, version, stored_bytes: stored });
+  return json({ ok: true, id, version, stored_bytes: reserved.stored });
 }
 
 // ── self-serve publishing ──────────────────────────────────────────────────
@@ -900,14 +1010,23 @@ async function fileReport(req: Request, env: Env): Promise<Response> {
   ).bind(namespace, name, version, pub?.id ?? null, pub?.discord_id ?? null, reporter, description).run();
   const id = ins.meta?.last_row_id ?? 0;
 
-  // Stash the bulky payload (logs + attachments) as a single R2 blob (one write).
-  let blobKey: string | null = null;
+  // Stash the bulky payload (logs + attachments) as a single R2 blob (one write). It counts
+  // against the bucket's caps like a bundle does, within the share reports may use; past
+  // that the report is still filed and emailed, just without the stored copy.
   if (logs || attachments.length) {
-    blobKey = `reports/${id}.json`;
-    await env.BUNDLES.put(blobKey, JSON.stringify({ logs, attachments }), {
-      httpMetadata: { contentType: "application/json" },
-    });
-    await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
+    const blobKey = `reports/${id}.json`;
+    const blob = JSON.stringify({ logs, attachments });
+    const size = new TextEncoder().encode(blob).length;
+    const quotas = [reportQuota(env), globalQuota(env)];
+    if ((await reserveAll(env, quotas, size)).ok) {
+      try {
+        await env.BUNDLES.put(blobKey, blob, { httpMetadata: { contentType: "application/json" } });
+      } catch (err) {
+        await releaseAll(env, quotas, size);
+        throw err;
+      }
+      await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
+    }
   }
 
   const email = await sendReportEmail(env, {
