@@ -38,9 +38,28 @@ _VENDOR = Path(__file__).with_name("vendor")
 _TS_PATH = _VENDOR / "typescript.js"
 _TS_COMPILER_MEMORY = 256 * 1024 * 1024  # the compiler itself is large; give it headroom
 
+# The compiler context below may use 16 MB of stack, so the thread it runs on needs more than
+# that. A thread's stack is whatever the platform hands out unless we ask: 8 MB under glibc's
+# usual limit (the Linux VM), where a deeply nested source overflowed the real stack before
+# QuickJS's own check caught it, and the whole backend died on an import preview.
+_THREAD_STACK_BYTES = 64 * 1024 * 1024
+
+
+def _start_pool() -> ThreadPoolExecutor:
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts-transpile")
+    # threading.stack_size applies to threads started while it's set, so start the pool's one
+    # thread now, then put back whatever the rest of the process uses.
+    previous = threading.stack_size(_THREAD_STACK_BYTES)
+    try:
+        pool.submit(int).result()
+    finally:
+        threading.stack_size(previous)
+    return pool
+
+
 # One thread, one long-lived context. QuickJS is not safe to touch from multiple threads,
 # so every transpile is funnelled through this single-worker pool.
-_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ts-transpile")
+_pool = _start_pool()
 _local = threading.local()
 # Recreate the context periodically so a long-lived compiler can't accumulate memory.
 _RECYCLE_AFTER = 200
