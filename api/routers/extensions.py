@@ -35,7 +35,7 @@ from olisar.db.models import (
     ExtensionVersion,
     utcnow,
 )
-from olisar.extensions import bundle, command_names, signing, tool_names, user_registry
+from olisar.extensions import bundle, command_names, manifest_types, signing, tool_names, user_registry
 from olisar.extensions.base import _REGISTRY  # built-in (Python) keys, reserved
 from olisar.extensions.review import review_source
 from olisar.sandbox import transpile
@@ -89,6 +89,10 @@ async def _build(source: str) -> tuple[str, dict]:
             status_code=400,
             detail="extension id must be lowercase letters/digits/underscores (start with a letter)",
         )
+    # The code built its own manifest, so check its types before anything stores or shows it.
+    problems = manifest_types.problems(manifest)
+    if problems:
+        raise HTTPException(status_code=400, detail="manifest error: " + "; ".join(problems[:5]))
     return compiled_js, manifest
 
 
