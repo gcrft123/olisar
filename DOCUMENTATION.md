@@ -2015,9 +2015,9 @@ On an extension you authored, the detail panel has a **Publish** button. The fir
 you publish is signed by it.
 
 Once it's live, the panel shows a **Published** badge with its catalog version. Edit the code and it flags
-**unpublished changes**, and the button becomes **Push update** — click it to publish your new source. Bump
-the `version` in your code first if you want existing installs to be **offered the update**: a same-version
-re-publish overwrites in place, so people who already installed it won't be prompted to update.
+**unpublished changes**, and the button becomes **Push update**. A published version never changes, so bump
+the `version` in your code first, then click it to publish your new source. Existing installs are **offered
+the update**.
 
 #### Removing a version
 
@@ -2026,6 +2026,9 @@ anyone who already installed it sees a *Removed from marketplace* note but it ke
 you **installed** from the marketplace is later yanked, it **stays installed as an imported extension**. It
 drops the Marketplace label and gets no more updates, and it keeps the capabilities you granted. It's still
 someone else's code, so it keeps the limits on third-party code too (see [Security & trust](#security-trust)).
+
+A yanked version stays yanked; publishing it again won't bring it back. To relist an extension you yanked,
+publish a new version. One the Olisar team removed stays removed.
 
 #### The verified badge
 
