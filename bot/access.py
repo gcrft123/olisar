@@ -4,6 +4,7 @@ Turns a message author or interaction user into the inputs ``access_allowed``
 needs: their (non-@everyone) role ids and whether they're a server admin. DM users
 aren't Members, so we resolve them to their membership in the home guild — that way
 the same role rules apply in DMs and a blocked member can't sidestep them by DMing.
+Someone who isn't a member of the home guild has no roles and isn't an admin there.
 """
 
 from __future__ import annotations
@@ -30,21 +31,17 @@ def dm_home_guild_id(bot: discord.Client) -> int:
 
 def resolve_member(bot: discord.Client, user: discord.abc.User) -> discord.Member | None:
     """A guild Member for ``user``: itself if already a Member, else the DM sender found in
-    the home guild — or, failing that, in any guild the bot shares with them — so the same
-    role rules apply in DMs. None if they aren't a member of any of the bot's guilds."""
+    the home guild, so the same role rules apply in DMs. None if they aren't a member there.
+
+    Only the home guild counts, because a DM is checked against the home guild's lists. It
+    used to fall back to any guild the bot shares with them, and then Manage Server in some
+    other guild passed the home guild's allow list."""
     if isinstance(user, discord.Member):
         return user
     home = bot.get_guild(dm_home_guild_id(bot))
-    member = home.get_member(user.id) if home else None
-    if member is not None:
-        return member
-    for guild in bot.guilds:  # fall back to any shared guild (target may be stale)
-        if guild_approval.is_pending(guild.id):
-            continue  # not one the operator has let the bot work in
-        member = guild.get_member(user.id)
-        if member is not None:
-            return member
-    return None
+    if home is None or guild_approval.is_pending(home.id):
+        return None  # not one the operator has let the bot work in
+    return home.get_member(user.id)
 
 
 def _role_ids(member: discord.Member | None) -> set[int]:

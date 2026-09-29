@@ -346,6 +346,14 @@ class BotActions:
         perms = getattr(member, "guild_permissions", None)
         return bool(perms and perms.manage_guild)
 
+    async def is_member(self, user_id: int, guild_id: int) -> bool:
+        """Whether ``user_id`` is a member of ``guild_id``. False when the guild can't be
+        resolved or the lookup fails, as for a non-member."""
+        guild = self.bot.get_guild(int(guild_id)) if guild_id else None
+        if guild is None or not user_id:
+            return False
+        return await self._viewer(guild, int(user_id)) is not None
+
     async def channel_directory(
         self, guild_id: int, *, requester_id: int = 0, limit: int = 80
     ) -> str:
