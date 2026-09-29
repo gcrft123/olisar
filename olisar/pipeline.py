@@ -45,6 +45,7 @@ from olisar.persona import (
 from olisar.proactivity import first_emoji
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
+    GUILD_TOOLS,
     LOOKUP_TOOLS,
     SANDBOX_TOOL_NAMES,
     TOOLS,
@@ -56,6 +57,7 @@ from olisar.tools import (
     sandbox_tools,
     tools_with_extensions,
     with_settings_tools,
+    without_guild_tools,
     without_settings_tools,
 )
 
@@ -762,6 +764,18 @@ async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild:
         return False
 
 
+async def _is_member(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` is a member of ``cfg_guild``. False when there's no one to ask or
+    the lookup fails, which leaves a DM with only what isn't the server's."""
+    if actions is None:
+        return False
+    try:
+        return bool(await actions.is_member(user_id, cfg_guild))
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't check whether %s is a member of %s", user_id, cfg_guild)
+        return False
+
+
 async def generate_reply(
     session: AsyncSession,
     *,
@@ -798,6 +812,10 @@ async def generate_reply(
     cfg_guild = guild_id or home_guild_id or settings.target_guild_id
     if not guild_id:
         runtime_note = (DM_NOTE + (("\n\n" + runtime_note) if runtime_note else "")).strip()
+    # Sharing any server with the bot is enough to DM it, and a DM acts on the home server.
+    # Someone who isn't a member there gets none of its own data: no glossary, knowledge
+    # base or extensions, and none of the tools that reach them (GUILD_TOOLS).
+    in_guild = bool(guild_id) or await _is_member(actions, user_id, cfg_guild)
 
     persona = await session.get(Persona, cfg_guild)
     system_instruction = _persona_prompt(persona, runtime_note)
@@ -806,10 +824,11 @@ async def generate_reply(
     # Off, the tool is never declared and never described — an operator who turned it off
     # shouldn't have Olisar reading about a way to stay quiet that it hasn't got.
     silent_acks = bool(getattr(config, "silent_acks_enabled", True)) if config else True
+    briefed = _ALL_TOOL_KEYS if silent_acks else _CORE_TOOL_KEYS
     system_instruction += (
         "\n\n" + CONTEXT_NOTE + "\n\n"
         + prompt_overrides.tools_note(
-            render_tools_note(_ALL_TOOL_KEYS if silent_acks else _CORE_TOOL_KEYS)
+            render_tools_note(briefed if in_guild else briefed - GUILD_TOOLS)
         )
     )
     # Which room this is, so the register can follow it (DMs get DM_NOTE instead).
@@ -878,6 +897,7 @@ async def generate_reply(
             readable=channel_filter(
                 actions, guild_id=cfg_guild, requester_id=viewer, here=channel_id
             ),
+            member=in_guild,
         )
         if recalled:
             system_instruction += "\n\n" + recalled
@@ -886,9 +906,11 @@ async def generate_reply(
 
     # Enabled extensions contribute extra tools + behaviour notes, read live so a
     # dashboard toggle takes effect on the next reply (best-effort; never blocks).
+    # They're enabled per server and keep that server's data, so not for a non-member.
     ext = GatheredExtensions()
     try:
-        ext = await gather_enabled(session, cfg_guild)
+        if in_guild:
+            ext = await gather_enabled(session, cfg_guild)
     except Exception:
         log.exception("extension gather failed; continuing without extensions")
     # Per-reply tool set: extension tools, plus the situational-awareness tools when
@@ -915,6 +937,8 @@ async def generate_reply(
     )
     if not settings_allowed:
         reply_tools = without_settings_tools(reply_tools)
+    if not in_guild:
+        reply_tools = without_guild_tools(reply_tools)
 
     ctx = ToolContext(
         session=session,
@@ -928,6 +952,7 @@ async def generate_reply(
         extension_tools=ext.handlers,
         settings_allowed=settings_allowed,
         addressed=addressed,
+        in_guild=in_guild,
     )
     try:
         text = await _run_tool_loop(

@@ -43,9 +43,15 @@ async def recall(
     k_msgs: int = 5,
     k_summaries: int = 3,
     k_facts: int = 4,
+    member: bool = True,
 ) -> str:
     """``channel_id`` is where the reply is going and ``readable`` is the asker's
-    ChannelFilter (olisar.message_links.channel_filter)."""
+    ChannelFilter (olisar.message_links.channel_filter).
+
+    ``member`` is False for a DM from someone who isn't a member of ``cfg_guild`` (they
+    share another server with the bot). They get none of the server's own knowledge: the
+    glossary and the knowledge base are left out, as ``readable`` already leaves out its
+    channels."""
     blocks: list[str] = []
     used: list[str] = []  # what memory pieces went into the context (for logging)
 
@@ -60,7 +66,7 @@ async def recall(
         ]
 
     # Durable server lore — always carried, no embedding needed (small + relevant).
-    glossary = await glossary_block(session, cfg_guild)
+    glossary = await glossary_block(session, cfg_guild) if member else ""
     if glossary:
         blocks.append(glossary)
         used.append("glossary")
@@ -169,7 +175,7 @@ async def recall(
 
     # Community knowledge base (reuses the query vector already computed; the
     # specific chunks used are logged by kb_block_from_qvec itself).
-    kb = await kb_block_from_qvec(session, cfg_guild, qvec, k=4)
+    kb = await kb_block_from_qvec(session, cfg_guild, qvec, k=4) if member else ""
     if kb:
         blocks.append(kb)
         used.append("kb")

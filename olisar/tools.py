@@ -52,6 +52,7 @@ class DiscordActions(Protocol):
     async def user_status(self, query: str, guild_id: int) -> str: ...
     async def who_in_voice(self, guild_id: int) -> str: ...
     async def is_admin(self, user_id: int, guild_id: int) -> bool: ...
+    async def is_member(self, user_id: int, guild_id: int) -> bool: ...
     async def channel_directory(
         self, guild_id: int, *, requester_id: int = ..., limit: int = ...
     ) -> str: ...
@@ -95,6 +96,14 @@ ACTION_TOOLS = frozenset({
     "send_dm", "send_to_channel", "remember", "remember_server_fact", "add_reminder",
     "cancel_reminder", "set_status", "react", "generate_image", "set_dm_indexing",
     "change_setting", "settings_action",
+})
+
+# The tools that read or write the server's own data: its knowledge base, its glossary, and
+# what its members are doing right now. A DM borrows the home server, and sharing any
+# server with the bot is enough to DM it, so in a DM these are only for members of the home
+# server (see _asker_in_guild).
+GUILD_TOOLS = frozenset({
+    "query_knowledge", "remember_server_fact", "get_user_status", "who_is_in_voice",
 })
 
 
@@ -149,6 +158,9 @@ class ToolContext:
     # recall then go by what @everyone can open rather than by the person it answers; see
     # olisar.message_links.channel_filter.
     addressed: bool = True
+    # Whether the asker is a member of cfg_guild; None until someone asks. Only a DM can be
+    # from a non-member, and then GUILD_TOOLS are refused (see _asker_in_guild).
+    in_guild: bool | None = None
 
     def readable(self) -> ChannelFilter:
         """The channels this reply's asker can open, for filtering search and recall. For a
@@ -510,6 +522,15 @@ def without_settings_tools(tools: list) -> list:
     ]
 
 
+def without_guild_tools(tools: list) -> list:
+    """``tools`` minus GUILD_TOOLS, for a DM from someone who isn't a member of the home
+    server. Pair it with ``ToolContext.in_guild = False``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    return [
+        types.Tool(function_declarations=[d for d in declared if d.name not in GUILD_TOOLS])
+    ]
+
+
 # Core tools exposed in the dashboard sandbox (the enclosed test chat). Only the
 # knowledge-base lookup and web search: everything else is deliberately excluded —
 # the memory/glossary tools (remember, remember_server_fact, recall_memory,
@@ -679,6 +700,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 recent_ids=set(),
                 channel_id=ctx.channel_id,
                 readable=ctx.readable(),
+                member=await _asker_in_guild(ctx),
             )
             return block or "Nothing relevant found in memory."
 
@@ -1037,10 +1059,40 @@ async def _confirm_with_pin(name: str, args: dict, ctx: ToolContext) -> str:
     )
 
 
+async def _asker_in_guild(ctx: ToolContext) -> bool:
+    """Whether the person this reply answers is a member of the server it acts on.
+
+    Always so in a server channel, where they just posted. In a DM the server is the home
+    one, and anyone who shares some server with the bot can DM it, so Discord is asked, once
+    per reply. A failed lookup counts as not a member."""
+    if not ctx.is_dm:
+        return True
+    if ctx.in_guild is None:
+        check = getattr(ctx.actions, "is_member", None)
+        try:
+            ctx.in_guild = bool(check and await check(ctx.user_id, ctx.cfg_guild))
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't check whether %s is in guild %s", ctx.user_id, ctx.cfg_guild)
+            ctx.in_guild = False
+    return ctx.in_guild
+
+
+_NOT_A_MEMBER = (
+    "Not available: that tool is for members of the server, and the person you're talking "
+    "to isn't one. Answer without it, and don't share anything about the server."
+)
+
+
 async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Run a tool, logging the call and a one-line summary of what it returned
     (search-type tools also log the specific items they used, in their modules)."""
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
+    # Ahead of the PIN gate: nobody should be asked to confirm a call that can't run.
+    if name in GUILD_TOOLS and not await _asker_in_guild(ctx):
+        log.info("tool %s refused: %s isn't a member of guild %s", name, ctx.user_id, ctx.cfg_guild)
+        if name in ACTION_TOOLS:
+            ctx.failed.append(name)
+        return _NOT_A_MEMBER
     action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
     if action and action not in ctx.pin_approved:
         outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, args, ctx)
