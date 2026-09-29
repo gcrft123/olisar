@@ -13,6 +13,7 @@ Discord-agnostic.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from urllib.parse import urlparse
@@ -24,6 +25,10 @@ log = logging.getLogger("olisar.content")
 
 MAX_IMAGES = 3            # images per message handed to vision (bounds tokens/cost)
 MAX_IMAGE_BYTES = 5_000_000  # skip anything larger (free-tier request size + latency)
+# The largest GIF canvas worth decoding (4K is 8.3 MP). A GIF states its size in its first
+# bytes, independent of its length: 35 bytes can declare 12000x12000, which decodes to
+# ~576 MB of RGBA. MAX_IMAGE_BYTES says nothing about that, so the header is checked first.
+MAX_GIF_PIXELS = 10_000_000
 
 # Distinct markers so the one-time vision caption ([image description: ...]) is
 # told apart from the filename marker ([image: foo.png]) — the captioner keys off
@@ -171,13 +176,22 @@ def _gif_first_frame(data: bytes) -> tuple[bytes, str] | None:
     """Flatten a GIF to a PNG of its first frame, plus a note describing what the model
     is actually seeing. Gemini vision doesn't accept ``image/gif`` (and couldn't see the
     motion anyway), so a GIF is otherwise dropped; this lets the bot read it as a still
-    while staying honest that it's one frame of a GIF. ``None`` if it can't be decoded."""
+    while staying honest that it's one frame of a GIF. ``None`` if it can't be decoded, or if
+    its canvas is over ``MAX_GIF_PIXELS``.
+
+    Decoding is CPU work, so the async callers run this in a thread."""
     try:
         import io
 
         from PIL import Image
 
         with Image.open(io.BytesIO(data)) as im:
+            # Opening only reads the header. Nothing has been decoded yet, and a canvas this
+            # big never will be.
+            width, height = im.size
+            if width * height > MAX_GIF_PIXELS:
+                log.info("skipped a %dx%d GIF: too large a canvas to decode", width, height)
+                return None
             animated = bool(getattr(im, "is_animated", False)) and getattr(im, "n_frames", 1) > 1
             im.seek(0)
             frame = im.convert("RGBA")
@@ -282,7 +296,7 @@ async def _fetch_gif_still(url: str) -> tuple[bytes, str, str] | None:
     if not data or len(data) > MAX_IMAGE_BYTES:
         return None
     ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-    return _still_from_bytes(data, ctype)
+    return await asyncio.to_thread(_still_from_bytes, data, ctype)
 
 
 async def download_images(message: discord.Message) -> list[tuple[bytes, str, str]]:
@@ -301,7 +315,9 @@ async def download_images(message: discord.Message) -> list[tuple[bytes, str, st
         mime = att.content_type or "image/png"
         note = ""
         if mime == "image/gif" or (att.filename or "").lower().endswith(".gif"):
-            frame = _gif_first_frame(data)
+            # Off the event loop: this runs for every image posted in an indexed channel
+            # (live captioning), not only for messages addressed to Olisar.
+            frame = await asyncio.to_thread(_gif_first_frame, data)
             if frame is None:
                 continue  # unreadable GIF; skip rather than send bytes vision will reject
             data, note = frame
