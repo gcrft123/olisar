@@ -87,24 +87,17 @@ async def upsert_embedding(
     )
 
 
-async def delete_embedding(session: AsyncSession, table: str, rowid: int) -> None:
+async def delete_embedding(session: AsyncSession, table: str, *rowids: int) -> None:
+    """Delete the embeddings of ``rowids``. vec0 answers ``rowid = ?`` from its rowid
+    index but reads ``rowid IN (...)`` as a scan of the whole table (110 ms at 500k
+    vectors, however few ids), so a batch goes as one executemany of point deletes."""
     assert table in VECTOR_TABLES, f"unknown vector table {table!r}"
+    if not rowids:
+        return
     await session.execute(
-        text(f"DELETE FROM {table} WHERE rowid = :rowid"), {"rowid": rowid}
+        text(f"DELETE FROM {table} WHERE rowid = :rowid"),
+        [{"rowid": int(r)} for r in rowids],
     )
-
-
-async def delete_embeddings(
-    session: AsyncSession, table: str, rowids: Sequence[int], *, batch: int = 500
-) -> None:
-    """Delete the embeddings of ``rowids``, a batch at a time."""
-    assert table in VECTOR_TABLES, f"unknown vector table {table!r}"
-    ids = [int(r) for r in rowids]
-    for start in range(0, len(ids), batch):
-        chunk = ids[start:start + batch]
-        await session.execute(
-            text(f"DELETE FROM {table} WHERE rowid IN ({','.join(str(i) for i in chunk)})")
-        )
 
 
 async def knn(

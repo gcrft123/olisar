@@ -3,11 +3,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from olisar.db.engine import after_session_scope
 from olisar.db.models import (
     ChannelContextItem,
     ChannelSummary,
@@ -25,9 +28,21 @@ from olisar.db.models import (
     UserMemory,
     UserProfile,
 )
-from olisar.memory.vectors import delete_embedding, delete_embeddings
+from olisar.memory.vectors import delete_embedding
 
 log = logging.getLogger("olisar.purge")
+
+# Rows deleted per transaction by the purges below. SQLite has one writer, and a purge that
+# ran as one transaction held the write lock for all of it (40 s for a member with 33k
+# messages, longer for a whole server), so every message the bot tried to store meanwhile
+# waited out the 5 s busy timeout and was dropped. Between batches the lock is free.
+PURGE_BATCH = 500
+# Free isn't enough if the next batch takes the lock straight back: a writer waiting on it
+# retries only every 100 ms (SQLite's busy handler), so it rarely lands in the moment between
+# two batches and can still time out. After this much back-to-back work the purge steps
+# aside for longer than that, and whoever is waiting gets in.
+_WORK_BEFORE_YIELD = 0.5
+_YIELD = 0.15
 
 # Every table holding data that belongs to one member, as (model, user_column). Defined
 # once because two features read it from opposite ends: ``forget_user`` deletes it, and the
@@ -62,6 +77,45 @@ _BRAIN_EMBEDDINGS = (
 )
 
 
+async def _purge(session: AsyncSession, model, *where, vectors: str | None = None) -> int:
+    """Delete ``model``'s rows matching ``where``, ``PURGE_BATCH`` at a time, each batch
+    together with its vectors (``vectors`` names the vec0 table) and committed on its own.
+    A purge cut off partway leaves every row either gone with its vector or still there
+    with it, and running it again finishes the job. Returns how many rows went."""
+    total = 0
+    busy_since = time.monotonic()
+    while True:
+        ids = list(await session.scalars(select(model.id).where(*where).limit(PURGE_BATCH)))
+        if not ids:
+            return total
+        if vectors:
+            await delete_embedding(session, vectors, *ids)
+        await session.execute(delete(model).where(model.id.in_(ids)))
+        await session.commit()
+        total += len(ids)
+        if time.monotonic() - busy_since >= _WORK_BEFORE_YIELD:
+            await asyncio.sleep(_YIELD)
+            busy_since = time.monotonic()
+
+
+def _truncate_wal_afterwards(session: AsyncSession) -> None:
+    """Once the caller's transaction is over, checkpoint the WAL and cut the file back to
+    nothing: a big purge writes every page it touches to the WAL first. The checkpoint
+    holds off new writers while it waits for readers, so it waits at most a second (then
+    checkpoints what it can), well inside the 5 s a message's write waits for the lock."""
+    bind = session.bind
+
+    async def truncate() -> None:
+        async with bind.connect() as conn:
+            await conn.exec_driver_sql("PRAGMA busy_timeout=1000")
+            try:
+                await conn.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally:
+                await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
+
+    after_session_scope(truncate)
+
+
 async def forget_user(
     session: AsyncSession,
     *,
@@ -72,43 +126,24 @@ async def forget_user(
     """Delete a user's messages, remembered facts, and persona across the given
     guild scopes (pass the home guild + the DM sentinel 0). Optionally opt them
     out of future recording. Returns counts for the confirmation message."""
-    # Messages (+ their vectors).
-    msg_ids = (
-        await session.scalars(
-            select(Message.id).where(
-                Message.guild_id.in_(guild_ids), Message.author_id == user_id
-            )
-        )
-    ).all()
-    for mid in msg_ids:
-        await delete_embedding(session, "message_embedding", mid)
-    await session.execute(
-        delete(Message).where(
-            Message.guild_id.in_(guild_ids), Message.author_id == user_id
-        )
+    # Messages (+ their vectors). The bulky parts go in committed batches (see _purge).
+    messages = await _purge(
+        session, Message,
+        Message.guild_id.in_(guild_ids), Message.author_id == user_id,
+        vectors="message_embedding",
     )
 
     # Server-wide search index (the FTS AFTER DELETE trigger drops their terms too).
-    await session.execute(
-        delete(SearchMessage).where(
-            SearchMessage.guild_id.in_(guild_ids), SearchMessage.author_id == user_id
-        )
+    indexed = await _purge(
+        session, SearchMessage,
+        SearchMessage.guild_id.in_(guild_ids), SearchMessage.author_id == user_id,
     )
 
     # Remembered facts (+ their vectors).
-    fact_ids = (
-        await session.scalars(
-            select(UserMemory.id).where(
-                UserMemory.guild_id.in_(guild_ids), UserMemory.user_id == user_id
-            )
-        )
-    ).all()
-    for fid in fact_ids:
-        await delete_embedding(session, "user_memory_embedding", fid)
-    await session.execute(
-        delete(UserMemory).where(
-            UserMemory.guild_id.in_(guild_ids), UserMemory.user_id == user_id
-        )
+    facts = await _purge(
+        session, UserMemory,
+        UserMemory.guild_id.in_(guild_ids), UserMemory.user_id == user_id,
+        vectors="user_memory_embedding",
     )
 
     # Pending reminders. These are user-authored content keyed to the user, so "delete
@@ -161,13 +196,15 @@ async def forget_user(
         if await session.get(MemoryOptOut, user_id) is None:
             session.add(MemoryOptOut(user_id=user_id))
 
+    if messages + indexed + facts >= PURGE_BATCH:
+        _truncate_wal_afterwards(session)
     log.info(
         "forgot user %s: %d messages, %d facts, %d reminders, opt_out=%s",
-        user_id, len(msg_ids), len(fact_ids), reminder_count, opt_out,
+        user_id, messages, facts, reminder_count, opt_out,
     )
     return {
-        "messages": len(msg_ids),
-        "facts": len(fact_ids),
+        "messages": messages,
+        "facts": facts,
         "reminders": reminder_count,
         "opted_out": opt_out,
     }
@@ -208,17 +245,22 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         "knowledge": await _count(session, KBSource, guild_ids),
     }
 
-    # A vec0 table has no guild to filter on, so the vectors to drop are found through the
-    # rows they belong to, before those go.
-    vectors = {
-        table: list(await session.scalars(select(model.id).where(model.guild_id.in_(guild_ids))))
-        for table, model in _BRAIN_EMBEDDINGS
-    }
+    # Halt the search backfill so it doesn't re-index history back into the index being
+    # cleared (it could between the batches below, and would right after) — keep the
+    # channel roster (names) for the dashboard.
+    await session.execute(
+        update(GuildChannelInfo)
+        .where(GuildChannelInfo.guild_id.in_(guild_ids))
+        .values(backfill_done=True, last_indexed_message_id=None)
+    )
+    await session.commit()
 
     # Conversation memory, summaries, search index, facts, glossary, snapshots,
     # proactivity runtime state, and the knowledge base (chunks before sources so
     # the wipe doesn't depend on FK cascade being enabled). Deleting search_message
-    # fires the FTS AFTER DELETE triggers, clearing the keyword index.
+    # fires the FTS AFTER DELETE triggers, clearing the keyword index. Each goes in
+    # committed batches, rows together with their vectors (see _purge).
+    vectors = {model: table for table, model in _BRAIN_EMBEDDINGS}
     for model in (
         Message,
         ChannelSummary,
@@ -230,7 +272,7 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         KBChunk,
         KBSource,
     ):
-        await session.execute(delete(model).where(model.guild_id.in_(guild_ids)))
+        await _purge(session, model, model.guild_id.in_(guild_ids), vectors=vectors.get(model))
 
     # Forget people, but keep opt-out promises: drop non-opted-out profiles
     # entirely (they re-register on next activity), and blank the learned fields
@@ -253,16 +295,6 @@ async def wipe_brain(session: AsyncSession, *, guild_ids: list[int]) -> dict:
         profile.messages_since_persona = 0
         profile.notes = {}
 
-    # Halt the search backfill so it doesn't immediately re-index history back into
-    # the index we just cleared — keep the channel roster (names) for the dashboard.
-    await session.execute(
-        update(GuildChannelInfo)
-        .where(GuildChannelInfo.guild_id.in_(guild_ids))
-        .values(backfill_done=True, last_indexed_message_id=None)
-    )
-
-    for table, rowids in vectors.items():
-        await delete_embeddings(session, table, rowids)
-
+    _truncate_wal_afterwards(session)
     log.warning("brain-wipe for guilds %s: %s", guild_ids, counts)
     return counts
