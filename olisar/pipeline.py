@@ -45,6 +45,7 @@ from olisar.persona import (
 from olisar.proactivity import first_emoji
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
+    GUILD_TOOLS,
     LOOKUP_TOOLS,
     SANDBOX_TOOL_NAMES,
     TOOLS,
@@ -56,6 +57,7 @@ from olisar.tools import (
     sandbox_tools,
     tools_with_extensions,
     with_settings_tools,
+    without_guild_tools,
     without_settings_tools,
 )
 
@@ -743,13 +745,15 @@ def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
     )
 
 
-async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
-    """Whether ``user_id`` may reach the home server's settings from a DM: the operator
+async def _manages_server(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` may reach ``cfg_guild``'s settings from chat: the operator
     (``ADMIN_ALLOWLIST``, or an owner of the bot's Discord app as last read), or someone
-    with Manage Server there.
+    with Manage Server there, the same people who could change them in the console.
 
-    A DM acts on the home server, and sharing any server with the bot is enough to DM it,
-    so without this a member of some other server could read and change this one's."""
+    In a server channel, without this any member could read the system prompt back and,
+    on a server that took the PIN off settings changes, rewrite it. In a DM, which acts on
+    the home server and which sharing any server with the bot is enough to send, a member
+    of some other server could read and change this one's."""
     owners = discord_app._extract_owner_ids(discord_app.cached_application() or {})
     if user_id in settings.admin_allowlist or user_id in owners:
         return True
@@ -758,7 +762,19 @@ async def _manages_home(actions: DiscordActions | None, user_id: int, cfg_guild:
     try:
         return bool(await actions.is_admin(user_id, cfg_guild))
     except Exception:  # noqa: BLE001
-        log.exception("couldn't check whether %s manages the home server", user_id)
+        log.exception("couldn't check whether %s manages guild %s", user_id, cfg_guild)
+        return False
+
+
+async def _is_member(actions: DiscordActions | None, user_id: int, cfg_guild: int) -> bool:
+    """Whether ``user_id`` is a member of ``cfg_guild``. False when there's no one to ask or
+    the lookup fails, which leaves a DM with only what isn't the server's."""
+    if actions is None:
+        return False
+    try:
+        return bool(await actions.is_member(user_id, cfg_guild))
+    except Exception:  # noqa: BLE001
+        log.exception("couldn't check whether %s is a member of %s", user_id, cfg_guild)
         return False
 
 
@@ -798,6 +814,10 @@ async def generate_reply(
     cfg_guild = guild_id or home_guild_id or settings.target_guild_id
     if not guild_id:
         runtime_note = (DM_NOTE + (("\n\n" + runtime_note) if runtime_note else "")).strip()
+    # Sharing any server with the bot is enough to DM it, and a DM acts on the home server.
+    # Someone who isn't a member there gets none of its own data: no glossary, knowledge
+    # base or extensions, and none of the tools that reach them (GUILD_TOOLS).
+    in_guild = bool(guild_id) or await _is_member(actions, user_id, cfg_guild)
 
     persona = await session.get(Persona, cfg_guild)
     system_instruction = _persona_prompt(persona, runtime_note)
@@ -806,10 +826,11 @@ async def generate_reply(
     # Off, the tool is never declared and never described — an operator who turned it off
     # shouldn't have Olisar reading about a way to stay quiet that it hasn't got.
     silent_acks = bool(getattr(config, "silent_acks_enabled", True)) if config else True
+    briefed = _ALL_TOOL_KEYS if silent_acks else _CORE_TOOL_KEYS
     system_instruction += (
         "\n\n" + CONTEXT_NOTE + "\n\n"
         + prompt_overrides.tools_note(
-            render_tools_note(_ALL_TOOL_KEYS if silent_acks else _CORE_TOOL_KEYS)
+            render_tools_note(briefed if in_guild else briefed - GUILD_TOOLS)
         )
     )
     # Which room this is, so the register can follow it (DMs get DM_NOTE instead).
@@ -878,6 +899,8 @@ async def generate_reply(
             readable=channel_filter(
                 actions, guild_id=cfg_guild, requester_id=viewer, here=channel_id
             ),
+            member=in_guild,
+            dm=not guild_id,
         )
         if recalled:
             system_instruction += "\n\n" + recalled
@@ -886,9 +909,11 @@ async def generate_reply(
 
     # Enabled extensions contribute extra tools + behaviour notes, read live so a
     # dashboard toggle takes effect on the next reply (best-effort; never blocks).
+    # They're enabled per server and keep that server's data, so not for a non-member.
     ext = GatheredExtensions()
     try:
-        ext = await gather_enabled(session, cfg_guild)
+        if in_guild:
+            ext = await gather_enabled(session, cfg_guild)
     except Exception:
         log.exception("extension gather failed; continuing without extensions")
     # Per-reply tool set: extension tools, plus the situational-awareness tools when
@@ -909,12 +934,15 @@ async def generate_reply(
     reply_tools = tools_with_extensions(
         extra_decls + (ack_declarations() if silent_acks else [])
     )
-    # The settings tools act on cfg_guild, which in a DM is the home server.
-    settings_allowed = addressed and (
-        bool(guild_id) or await _manages_home(actions, user_id, cfg_guild)
-    )
+    # The settings tools act on cfg_guild, which in a DM is the home server. Reading them
+    # (the system prompt, the knowledge base's sources) and changing them are both for whoever
+    # could do it in the console. The tool PIN is a second lock on the changes, and a server
+    # can take that one off.
+    settings_allowed = addressed and await _manages_server(actions, user_id, cfg_guild)
     if not settings_allowed:
         reply_tools = without_settings_tools(reply_tools)
+    if not in_guild:
+        reply_tools = without_guild_tools(reply_tools)
 
     ctx = ToolContext(
         session=session,
@@ -928,6 +956,7 @@ async def generate_reply(
         extension_tools=ext.handlers,
         settings_allowed=settings_allowed,
         addressed=addressed,
+        in_guild=in_guild,
     )
     try:
         text = await _run_tool_loop(
@@ -999,9 +1028,14 @@ async def channel_task_prompt(
     if room:
         system_instruction += "\n\n" + room
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
-    # Best-effort, as recall is on a reply: the text still gets written without it.
+    # Best-effort, as recall is on a reply: the text still gets written without it. What's
+    # written is for everyone in the channel, and there's no Discord here to ask what they
+    # can open, so the glossary keeps to facts learned in this channel or in none.
     try:
-        memory = await server_memory(session, guild_id)
+        memory = await server_memory(
+            session, guild_id,
+            readable=channel_filter(None, guild_id=guild_id, requester_id=0, here=channel_id),
+        )
         if memory:
             system_instruction += "\n\n" + memory
     except Exception:

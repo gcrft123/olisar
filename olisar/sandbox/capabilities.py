@@ -16,6 +16,7 @@ Two invariants:
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import re
 import socket  # noqa: F401 (tests patch capabilities.socket.getaddrinfo)
@@ -27,7 +28,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar import netguard, runtime_keys
@@ -368,18 +369,56 @@ async def _secret(inv: Invocation, ref: str) -> str | None:
 
 
 # ── kv (per extension + guild) ───────────────────────────────────────────────
+# What one extension may keep in one server. The store lives in the bot's own database, and
+# any handler a member can set off could otherwise write megabytes a call until the disk
+# filled. The shipped extensions keep a member directory, a tag list, a poll or an event in
+# one key each, far inside these.
+_KV_MAX_KEY_CHARS = 128  # the column's width
+_KV_MAX_VALUE_BYTES = 1024 * 1024  # as stored, i.e. the value's JSON
+_KV_MAX_KEYS = 10_000
+_KV_MAX_TOTAL_BYTES = 32 * 1024 * 1024
+
+
+async def _kv_room(inv: Invocation, key: str, row: ExtensionKV | None, size: int) -> None:
+    """Refuse a write that would take this extension past its share of the store. The query
+    flushes the session first, so writes earlier in the same run count too."""
+    others, used = (await inv.session.execute(
+        select(func.count(), func.coalesce(func.sum(func.length(ExtensionKV.v)), 0)).where(
+            ExtensionKV.ext_key == inv.ext_key,
+            ExtensionKV.guild_id == inv.guild_id,
+            ExtensionKV.k != key,
+        )
+    )).one()
+    if row is None and others >= _KV_MAX_KEYS:
+        raise ValueError(f"host.kv is full: an extension can keep {_KV_MAX_KEYS} keys per server")
+    if used + size > _KV_MAX_TOTAL_BYTES:
+        raise ValueError(
+            f"host.kv is full: an extension can keep {_KV_MAX_TOTAL_BYTES // (1024 * 1024)} MB "
+            "per server"
+        )
+
+
 async def _kv(inv: Invocation, method: str, args: list) -> Any:
     _require(inv, "kv")
     if inv.session is None:
         raise RuntimeError("no storage available in this context")
     key = str(args[0]) if args else ""
+    if len(key) > _KV_MAX_KEY_CHARS:
+        raise ValueError(f"host.kv keys can be at most {_KV_MAX_KEY_CHARS} characters")
     pk = (inv.ext_key, inv.guild_id, key)
     if method == "get":
         row = await inv.session.get(ExtensionKV, pk)
         return row.v if row is not None else None
     if method == "set":
         value = args[1] if len(args) > 1 else None
+        size = len(json.dumps(value))
+        if size > _KV_MAX_VALUE_BYTES:
+            raise ValueError(
+                f"that value is too large for host.kv (max {_KV_MAX_VALUE_BYTES // (1024 * 1024)} MB "
+                "as JSON)"
+            )
         row = await inv.session.get(ExtensionKV, pk)
+        await _kv_room(inv, key, row, size)
         if row is None:
             inv.session.add(ExtensionKV(ext_key=inv.ext_key, guild_id=inv.guild_id, k=key, v=value))
         else:

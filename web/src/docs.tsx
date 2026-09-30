@@ -890,13 +890,14 @@ Server admins (Manage Server) **always** have access, so you can't lock yourself
 **Require the PIN** picks which of Olisar's actions have to be confirmed with the [tool PIN](#settings) on this
 server before it takes them. There's one today: **For Olisar to change its own settings**, which covers
 everything Olisar can change about itself when asked in chat — its persona and system prompt, behavior,
-command replies, knowledge sources, the search index, the glossary, and member impressions. Reading its
-settings never needs the PIN, and nothing you change in this console does either.
+command replies, knowledge sources, the search index, the glossary, and member impressions. Only server
+admins (Manage Server) and the operator can have Olisar read or change its settings in chat. Reading them
+never needs the PIN, and nothing you change in this console does either.
 
 It starts on for every server. With no PIN set, anything switched on here is refused rather than run
 unchecked, and the card says so with a link to set one. One PIN entry covers the rest of that reply, so
-"rename yourself and rewrite your bio" asks once. Turning it off lets anyone who can use Olisar here make
-those changes, and it's recorded in the Activity log as its own entry.
+"rename yourself and rewrite your bio" asks once. Turning it off lets server admins make those changes
+without the PIN, and it's recorded in the Activity log as its own entry.
 
 This tab also carries the switches for the [Member portal](#member-portal) — the page where members
 manage their own data. Those roles govern who can *use* Olisar; the portal governs what someone can see
@@ -1477,7 +1478,7 @@ Each \`host\` method works **only if you listed its permission**. Calling one yo
 | \`host.secret(ref)\` | \`secret:<ref>\` | Read an operator-approved key by reference (e.g. \`host.secret("uex_api_key")\`). You never see the literal value while authoring. |
 | \`host.kb.addSource(seed)\` | \`kb.write\` | Add a URL/website to the server's knowledge base. Idempotent. |
 | \`host.glossary.add(fact)\` | \`glossary.write\` | Add a \`{ subject, fact }\` to the glossary. |
-| \`host.kv.get/set/delete\` | \`kv\` | A small per-server key/value store your extension owns. |
+| \`host.kv.get/set/delete\` | \`kv\` | A small per-server key/value store your extension owns. Keys up to 128 characters, values up to 1 MB as JSON, 10,000 keys and 32 MB per server; a \`set\` past them throws. |
 | \`host.settings.get(key?)\` | — | Read what an admin typed in your settings pane. No permission needed. |
 | \`host.embed(spec)\` | — | Build a Discord embed to pass to \`reply({ embed })\`. |
 | \`host.log(msg)\` | — | Write a line to the bot log. Always available. |
@@ -1862,9 +1863,9 @@ On an extension you authored, the detail panel has a **Publish** button. The fir
 you publish is signed by it.
 
 Once it's live, the panel shows a **Published** badge with its catalog version. Edit the code and it flags
-**unpublished changes**, and the button becomes **Push update** — click it to publish your new source. Bump
-the \`version\` in your code first if you want existing installs to be **offered the update**: a same-version
-re-publish overwrites in place, so people who already installed it won't be prompted to update.
+**unpublished changes**, and the button becomes **Push update**. A published version never changes, so bump
+the \`version\` in your code first, then click it to publish your new source. Existing installs are **offered
+the update**.
 
 ## Removing a version
 
@@ -1873,6 +1874,9 @@ anyone who already installed it sees a *Removed from marketplace* note but it ke
 you **installed** from the marketplace is later yanked, it **stays installed as an imported extension**. It
 drops the Marketplace label and gets no more updates, and it keeps the capabilities you granted. It's still
 someone else's code, so it keeps the limits on third-party code too (see [Security & trust](#ext-security)).
+
+A yanked version stays yanked; publishing it again won't bring it back. To relist an extension you yanked,
+publish a new version. One the Olisar team removed stays removed.
 
 ## The verified badge
 

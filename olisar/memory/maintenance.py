@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.context import name_map
@@ -139,23 +139,55 @@ async def run_glossary() -> None:
     """Mine un-mined messages in memory/both channels for durable guild facts once a
     channel has accumulated enough un-mined text. Independent of summarization and on
     a much lower threshold, so the glossary grows actively."""
-    targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
-    for guild_id in await _memory_guilds():
-        try:
-            async with session_scope() as session:
-                config = await session.get(GuildConfig, guild_id)
-                threshold = config.glossary_mine_token_threshold if config else 1500
-                channel_ids = (
-                    await session.scalars(
-                        select(ChannelAllowlist.channel_id).where(
-                            ChannelAllowlist.guild_id == guild_id,
-                            ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
-                        )
+    guild_ids = await _memory_guilds()
+    try:
+        async with session_scope() as session:
+            thresholds = dict(
+                (
+                    await session.execute(
+                        select(
+                            GuildConfig.guild_id, GuildConfig.glossary_mine_token_threshold
+                        ).where(GuildConfig.guild_id.in_(guild_ids))
                     )
                 ).all()
-            targets.extend((guild_id, cid, threshold) for cid in channel_ids)
-        except Exception:
-            log.exception("failed to scan channels for glossary mining (guild %s)", guild_id)
+            )
+            # Every memory channel's unmined backlog in one query that reads only unmined
+            # rows, rather than a query per channel and DM every tick whether or not
+            # anything new was said there.
+            backlog = (
+                await session.execute(
+                    select(
+                        ChannelAllowlist.guild_id,
+                        ChannelAllowlist.channel_id,
+                        func.count(Message.id),
+                        func.sum(func.length(Message.content)),
+                    )
+                    .join(
+                        Message,
+                        and_(
+                            Message.channel_id == ChannelAllowlist.channel_id,
+                            Message.fact_mined == False,  # noqa: E712
+                            Message.author_is_bot == False,  # noqa: E712
+                        ),
+                    )
+                    .where(
+                        ChannelAllowlist.guild_id.in_(guild_ids),
+                        ChannelAllowlist.mode.in_([ChannelMode.memory, ChannelMode.both]),
+                    )
+                    .group_by(ChannelAllowlist.guild_id, ChannelAllowlist.channel_id)
+                )
+            ).all()
+    except Exception:
+        log.exception("failed to scan channels for glossary mining")
+        return
+
+    targets: list[tuple[int, int, int]] = []  # (guild_id, channel_id, threshold)
+    for guild_id, channel_id, count, chars in backlog:
+        threshold = thresholds.get(guild_id, 1500)
+        # chars // 4 + count bounds estimate_tokens summed over these rows from above (each
+        # counts at least one), so this only skips channels the check below would skip too.
+        if count >= GLOSSARY_MINE_MIN_MESSAGES and (chars or 0) // 4 + count >= threshold:
+            targets.append((guild_id, channel_id, threshold))
 
     for guild_id, channel_id, threshold in targets:
         try:
@@ -231,23 +263,22 @@ async def mine_glossary_now(guild_id: int) -> dict:
         if not rows:
             return {"ok": True, "added": 0, "mined": 0, "remaining": 0}
         names = await name_map(session, {m.author_id for m in rows})
-        items = [(m.id, m.author_id, m.content) for m in rows]
+        items = [(m.id, m.author_id, m.content, m.channel_id) for m in rows]
 
     # 2) Mine in batches, each its own short transaction (model call + writes) — mirrors
     #    the per-channel auto pass so no write lock is held across many network calls.
     added_total = mined_total = 0
-    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
-        batch = items[i : i + GLOSSARY_MINE_BATCH]
+    for channel_id, batch in _channel_batches(items, lambda it: it[3]):
         transcript = "\n".join(
-            f"{names.get(aid, str(aid))}: {content}" for (_id, aid, content) in batch
+            f"{names.get(aid, str(aid))}: {content}" for (_id, aid, content, _ch) in batch
         )
         async with session_scope() as session:
             added_total += await extract_and_store_facts(
-                session, guild_id=guild_id, channel_id=None, transcript=transcript
+                session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
             )
             await session.execute(
                 update(Message)
-                .where(Message.id.in_([mid for (mid, _a, _c) in batch]))
+                .where(Message.id.in_([mid for (mid, _a, _c, _ch) in batch]))
                 .values(fact_mined=True)
             )
         mined_total += len(batch)
@@ -275,8 +306,9 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
     """Operator-triggered DEEP glossary mine over the full message search index (the
     ``search_message`` table, which spans EVERY channel — including ones excluded from
     conversational memory). Samples the most recent ``GLOSSARY_MANUAL_INDEX_CAP`` messages
-    and mines them in batches. Nothing is flagged (the index has no mined marker), and
-    re-running is safe: upsert dedups and merely reinforces facts already known."""
+    and mines them in batches, a channel at a time. Nothing is flagged (the index has no
+    mined marker), and re-running is safe: upsert dedups and merely reinforces facts
+    already known."""
     async with session_scope() as session:
         rows = (
             await session.scalars(
@@ -287,7 +319,7 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
             )
         ).all()
         items = [
-            (s.author_name or str(s.author_id), s.content)
+            (s.author_name or str(s.author_id), s.content, s.channel_id)
             for s in rows
             if (s.content or "").strip()
         ]
@@ -296,14 +328,31 @@ async def deep_mine_glossary_now(guild_id: int) -> dict:
     items.reverse()  # oldest-first, so the model reads the sample chronologically
 
     added_total = 0
-    for i in range(0, len(items), GLOSSARY_MINE_BATCH):
-        batch = items[i : i + GLOSSARY_MINE_BATCH]
-        transcript = "\n".join(f"{name}: {content}" for (name, content) in batch)
+    for channel_id, batch in _channel_batches(items, lambda it: it[2]):
+        transcript = "\n".join(f"{name}: {content}" for (name, content, _ch) in batch)
         async with session_scope() as session:
             added_total += await extract_and_store_facts(
-                session, guild_id=guild_id, channel_id=None, transcript=transcript
+                session, guild_id=guild_id, channel_id=channel_id, transcript=transcript
             )
     return {"ok": True, "added": added_total, "sampled": len(items)}
+
+
+def _channel_batches(items: list, channel_of) -> list[tuple[int, list]]:
+    """``items`` as ``(channel_id, batch)`` pairs of at most GLOSSARY_MINE_BATCH, none of
+    which spans two channels. Order is kept within each channel.
+
+    A fact mined from a batch keeps that batch's channel, and a reply only carries it for
+    someone who can open the channel (facts.glossary_block). A batch across channels would
+    leave its facts with no channel at all, and a fact from a staff channel would reach
+    every member."""
+    by_channel: dict[int, list] = {}
+    for item in items:
+        by_channel.setdefault(channel_of(item), []).append(item)
+    return [
+        (channel_id, rows[i : i + GLOSSARY_MINE_BATCH])
+        for channel_id, rows in by_channel.items()
+        for i in range(0, len(rows), GLOSSARY_MINE_BATCH)
+    ]
 
 
 async def run_personas() -> None:

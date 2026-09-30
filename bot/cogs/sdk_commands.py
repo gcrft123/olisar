@@ -554,6 +554,20 @@ class _SdkSelect(discord.ui.DynamicItem[discord.ui.Select], template=_CID_SEL):
         await _dispatch_component(interaction, self.ext_key, self.handler_id, self.arg)
 
 
+def _default_permissions(value: object) -> discord.Permissions | None:
+    """What a member needs to see a command, from its ``defaultMemberPermissions``: a
+    permission name such as "manage_guild", or null for everyone. A server's admins can
+    still change it under Server Settings > Integrations. A name this doesn't know gates
+    the command to server managers rather than opening it to everyone."""
+    if not value:
+        return None
+    name = str(value).strip().lower()
+    if name in discord.Permissions.VALID_FLAGS:
+        return discord.Permissions(**{name: True})
+    log.warning("unknown defaultMemberPermissions %r; limiting the command to server managers", value)
+    return discord.Permissions(manage_guild=True)
+
+
 def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
     name = str(cmd["name"])[:32]
     description = (str(cmd.get("description") or name))[:100]
@@ -632,6 +646,7 @@ def _make_command(ext_key: str, cmd: dict) -> app_commands.Command:
             log.debug("could not attach descriptions for %s", name)
     if cmd.get("guildOnly", True):
         command.guild_only = True
+    command.default_permissions = _default_permissions(cmd.get("defaultMemberPermissions"))
     return command
 
 

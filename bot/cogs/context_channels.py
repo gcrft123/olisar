@@ -162,6 +162,7 @@ class ContextChannels(commands.Cog):
             items = [
                 {
                     "message_id": m.id,
+                    "author_id": m.author.id,
                     "author_name": m.author.display_name,
                     "content": body,
                 }

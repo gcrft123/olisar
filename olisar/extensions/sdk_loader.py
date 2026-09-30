@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from olisar import sandbox
 from olisar.db.models import KBSource, KBSourceType, KBStatus
+from olisar.extensions import manifest_types, tool_names
 from olisar.extensions.base import Extension, ExtensionTool
 from olisar.memory.facts import upsert_facts
 
@@ -98,35 +99,53 @@ def _make_on_enable(key: str, compiled_js: str, perms: list[str], seeds: dict, h
     return on_enable
 
 
+def _tools(pkg: "ExtensionPackage", manifest: dict, perms: list[str], trusted: bool) -> tuple:
+    """The package's tools. One stored before manifests were checked may be malformed;
+    that tool is left out (manifest_types.report_stored says so) rather than the whole
+    extension, which the operator still has to see to turn off or delete."""
+    out = []
+    for t in manifest_types.objects_in(manifest.get("tools")):
+        name = t.get("name")
+        # A tool under a core tool's name never loads (see tool_names).
+        if not isinstance(name, str) or not name or not tool_names.usable(pkg.key, name):
+            continue
+        try:
+            declaration = types.FunctionDeclaration(
+                name=name, description=manifest_types.text(t.get("description")),
+                parameters=schema_from_jsonschema(t.get("parameters")),
+            )
+        except Exception:  # noqa: BLE001 - parameters that aren't a JSON schema
+            continue
+        out.append(ExtensionTool(
+            declaration=declaration,
+            handler=_make_tool_handler(pkg.key, pkg.compiled_js, perms, name, trusted),
+        ))
+    return tuple(out)
+
+
 def build_extension(pkg: "ExtensionPackage") -> Extension:
     """Build a runtime Extension from a stored package (no JS runs here — just
     closures + schema conversion)."""
-    manifest = pkg.manifest or {}
+    manifest_types.report_stored(pkg.key, pkg.manifest)
+    manifest = pkg.manifest if isinstance(pkg.manifest, dict) else {}
     perms = list(pkg.permissions or [])
     # First-party (built-in / locally-authored) extensions are trusted with host secrets;
     # imported/marketplace ones are not (see capabilities._secret).
     trusted = (getattr(pkg, "origin", None) or "local") == "local"
-    tools = tuple(
-        ExtensionTool(
-            declaration=types.FunctionDeclaration(
-                name=t["name"], description=t.get("description", ""),
-                parameters=schema_from_jsonschema(t.get("parameters")),
-            ),
-            handler=_make_tool_handler(pkg.key, pkg.compiled_js, perms, t["name"], trusted),
-        )
-        for t in manifest.get("tools", [])
-        if t.get("name")
-    )
-    seeds = manifest.get("seeds") or {}
+    seeds = manifest.get("seeds") if isinstance(manifest.get("seeds"), dict) else {}
     has_js = bool(manifest.get("has_on_enable"))
     needs_enable = has_js or bool(seeds.get("kbSources") or seeds.get("kb_sources") or seeds.get("glossary"))
+    note = manifest.get("system_note")
     return Extension(
         key=pkg.key,
-        name=pkg.name or manifest.get("name", pkg.key),
-        description=pkg.description or manifest.get("description", ""),
-        category=pkg.category or manifest.get("category", "General"),
-        default_enabled=bool(manifest.get("default_enabled")),
-        tools=tools,
-        system_note=manifest.get("system_note", ""),
+        name=manifest_types.text(pkg.name) or manifest_types.text(manifest.get("name")) or pkg.key,
+        description=manifest_types.text(pkg.description) or manifest_types.text(manifest.get("description")),
+        category=manifest_types.text(pkg.category) or manifest_types.text(manifest.get("category")) or "General",
+        # Only the operator's own code may switch itself on in every server. Someone else's
+        # starts off until a server's admin turns it on, whatever its manifest asks.
+        default_enabled=trusted and bool(manifest.get("default_enabled")),
+        tools=_tools(pkg, manifest, perms, trusted),
+        # Folded into the system prompt, so only ever text the extension actually wrote.
+        system_note=note if isinstance(note, str) else "",
         on_enable=_make_on_enable(pkg.key, pkg.compiled_js, perms, seeds, has_js, trusted) if needs_enable else None,
     )

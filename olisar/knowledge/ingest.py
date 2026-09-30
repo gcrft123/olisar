@@ -13,6 +13,7 @@ costs nothing against the free embedding quota. See :func:`plan_chunk_sync`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections import deque
 from pathlib import Path
@@ -31,17 +32,19 @@ from olisar.memory.writer import estimate_tokens
 log = logging.getLogger("olisar.knowledge.ingest")
 
 
-async def _gather(
-    stype: KBSourceType, uri: str, depth: int, max_pages: int, *, public_only: bool = False
-) -> list[dict]:
-    """Network/extraction only — no DB. Returns chunk records."""
+async def _gather(stype: KBSourceType, uri: str, depth: int, max_pages: int) -> list[dict]:
+    """Network/extraction only — no DB. Returns chunk records. Web sources are read from
+    public addresses only, every one of them (see ``KBSource.public_only``)."""
     if stype == KBSourceType.doc:
-        pages = [Page(url=None, title=Path(uri).name, text=extract_document(uri))]
+        # pypdf and python-docx can take seconds over a big file, and this runs on the
+        # event loop the bot and the API share, so they get a worker thread.
+        text = await asyncio.to_thread(extract_document, uri)
+        pages = [Page(url=None, title=Path(uri).name, text=text)]
     elif stype == KBSourceType.url:
-        page = await fetch_page(uri, public_only=public_only)
+        page = await fetch_page(uri, public_only=True)
         pages = [page] if page else []
     elif stype == KBSourceType.website:
-        pages = await crawl(uri, max_depth=depth, max_pages=max_pages, public_only=public_only)
+        pages = await crawl(uri, max_depth=depth, max_pages=max_pages, public_only=True)
     else:
         pages = []
 
@@ -153,11 +156,10 @@ async def process_pending_sources() -> bool:
         src.last_checked_at = utcnow()
         sid, stype, uri = src.id, src.type, src.uri
         depth, max_pages, gid = src.crawl_depth, src.max_pages, src.guild_id
-        public_only = bool(src.public_only)
 
     # Gather outside any transaction (network-bound).
     try:
-        records = await _gather(stype, uri, depth, max_pages, public_only=public_only)
+        records = await _gather(stype, uri, depth, max_pages)
     except Exception as exc:
         log.exception("ingest failed for source %s", sid)
         async with session_scope() as session:

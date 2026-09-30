@@ -170,11 +170,13 @@ export default function ExtensionEditor(props: {
           )}
         </div>
 
-        {manifest?.permissions?.length ? (
+        {/* String(): a manifest stored before the server checked its types can hold anything
+            here, and an object rendered as text would take the whole page down. */}
+        {Array.isArray(manifest?.permissions) && manifest.permissions.length ? (
           <div style={{ marginTop: 14 }}>
             <div className="meta" style={{ marginBottom: 6 }}>Capabilities this extension uses:</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {manifest.permissions.map((p: string) => <span className="tag" key={p}>{p}</span>)}
+              {manifest.permissions.map((p: unknown, i: number) => <span className="tag" key={i}>{String(p)}</span>)}
             </div>
           </div>
         ) : null}

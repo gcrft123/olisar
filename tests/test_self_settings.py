@@ -189,17 +189,76 @@ class InADirectMessage(_Replying, unittest.TestCase):
             seen = self.reply(is_admin=False)
         self.assertIn("open_settings", seen["tools"])
 
-    def test_a_server_channel_is_unchanged(self):
-        seen = self.reply(guild_id=GUILD, is_admin=False)
-        self.assertIn("open_settings", seen["tools"])
-        seen["actions"].is_admin.assert_not_awaited()
-
     def test_a_call_that_names_one_anyway_is_refused(self):
         ctx = ToolContext(session=None, cfg_guild=GUILD, channel_id=1, user_id=USER,
                           display_name="ada", settings_allowed=False)
         out = asyncio.run(execute_tool("open_settings", {"section": "persona"}, ctx))
         self.assertIn("aren't available", out)
         self.assertFalse(ctx.settings_open)
+
+
+class InAServerChannel(_Replying, unittest.TestCase):
+    """The same bar as a DM: the settings are for whoever could change them in the console.
+    Offered to every member, the only guard was the PIN, and a server that took it off let
+    anyone rewrite the persona or clear the mention block list; reading them back gave
+    anyone the full system prompt and the knowledge base's sources."""
+
+    def test_a_member_gets_none_of_them(self):
+        seen = self.reply(guild_id=GUILD, is_admin=False)
+        self.assertFalse(self_settings.TOOL_NAMES & seen["tools"])
+        self.assertFalse(seen["ctx"].settings_allowed)
+        seen["actions"].is_admin.assert_awaited_once_with(USER, GUILD)
+
+    def test_someone_who_manages_the_server_keeps_them(self):
+        seen = self.reply(guild_id=GUILD, is_admin=True)
+        self.assertIn("open_settings", seen["tools"])
+        self.assertTrue(seen["ctx"].settings_allowed)
+
+    def test_the_operator_keeps_them(self):
+        from olisar import pipeline
+
+        with patch.object(pipeline.settings, "admin_allowlist", [USER]):
+            seen = self.reply(guild_id=GUILD, is_admin=False)
+        self.assertIn("open_settings", seen["tools"])
+
+
+class WithThePinOff(_Replying, unittest.IsolatedAsyncioTestCase):
+    """A server that takes self_edit out of pin_actions still keeps members out."""
+
+    async def asyncSetUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        path = Path(self._tmp.name) / "test.db"
+        self.engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.Session = async_sessionmaker(self.engine, expire_on_commit=False)
+        async with self.Session() as s:
+            await ensure_guild_defaults(s, GUILD, name="Home")
+            cfg = await s.get(GuildConfig, GUILD)
+            cfg.pin_actions = []
+            cfg.blocked_mentions = ["everyone", "here", "roles"]
+            persona = await s.get(Persona, GUILD)
+            persona.system_prompt = "You are Olisar. The staff password hint is tangerine."
+            await s.commit()
+
+    async def asyncTearDown(self):
+        await self.engine.dispose()
+        self._tmp.cleanup()
+
+    async def test_a_member_can_neither_read_nor_change_them(self):
+        seen = await asyncio.to_thread(self.reply, guild_id=GUILD, is_admin=False)
+        ctx = seen["ctx"]
+        async with self.Session() as session:
+            ctx.session = session
+            read = await execute_tool(
+                "open_settings", {"section": "persona", "filter": "system_prompt"}, ctx
+            )
+            await execute_tool("change_setting", {"key": "blocked_mentions", "value": "none"}, ctx)
+            await session.commit()
+        self.assertNotIn("tangerine", read)
+        async with self.Session() as s:
+            cfg = await s.get(GuildConfig, GUILD)
+        self.assertEqual(cfg.blocked_mentions, ["everyone", "here", "roles"])
 
 
 class InAReplyNobodyAskedFor(_Replying, unittest.TestCase):
