@@ -212,7 +212,7 @@ export const api = {
   marketplacePublished: () => req('/api/marketplace/published'),
   marketplaceYank: (name: string, version?: string) =>
     req('/api/marketplace/yank', { method: 'POST', body: JSON.stringify({ name, version }) }),
-  marketplaceVerifyStartUrl: () => BASE + '/api/marketplace/verify/start',
+  marketplaceVerifyStart: () => req('/api/marketplace/verify/start', { method: 'POST' }),
   marketplaceInstalled: () => req('/api/marketplace/installed'),
   marketplaceUpdatePreview: (key: string) =>
     req('/api/marketplace/update/preview', { method: 'POST', body: JSON.stringify({ key }) }),

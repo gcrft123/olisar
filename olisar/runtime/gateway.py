@@ -86,8 +86,8 @@ BOT_HEADER = "x-olisar-bot"
 # Sign-in round trips that finish in the operator's browser: the start sets the cookie, the
 # callback follows it back to the bot that started.
 ROUTE_COOKIE = "olisar_bot_route"
-_ROUTE_START = frozenset({"/auth/login", "/api/marketplace/verify/start"})
-_ROUTE_CALLBACK = frozenset({"/auth/callback", "/api/marketplace/verify/callback"})
+_ROUTE_START = frozenset({"/auth/login"})
+_ROUTE_CALLBACK = frozenset({"/auth/callback"})
 
 # Configuration that belongs to one bot. A developer's environment configures the original
 # bot; every other bot starts without these, so it can't inherit that bot's token or keys
