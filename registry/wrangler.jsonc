@@ -19,7 +19,11 @@
   "vars": {
     "R2_MAX_BYTES": "9000000000",
     "R2_MAX_BUNDLE_BYTES": "1000000",
-    "R2_CLASS_A_MAX": "900000"
+    "R2_CLASS_A_MAX": "900000",
+    // The registry's own Discord app ("Olisar Marketplace Official"), which publisher
+    // verification signs in through. Its secret is the DISCORD_CLIENT_SECRET Worker secret, and
+    // <this Worker>/v1/publishers/verify/callback is registered as its redirect.
+    "DISCORD_CLIENT_ID": "1554833708010184886"
   },
   "d1_databases": [
     { "binding": "DB", "database_name": "olisar-registry", "database_id": "0852b2be-5742-4c83-ae65-f83a2d7c933f" }
