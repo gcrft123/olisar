@@ -54,6 +54,18 @@ CREATE TABLE IF NOT EXISTS publisher_challenges (
 
 CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at);
 
+-- Discord verifications in progress: one row per sign-in link /v1/publishers/verify/start
+-- hands out. The callback fills in who signed in and the hash of a cookie it gives that
+-- browser; /v1/publishers/verify/confirm needs the cookie, then deletes the row.
+CREATE TABLE IF NOT EXISTS publisher_verifications (
+  state        TEXT PRIMARY KEY,         -- 64 hex chars, the OAuth state
+  publisher_id INTEGER NOT NULL,
+  expires_at   INTEGER NOT NULL,         -- unix seconds
+  discord_id   TEXT,                     -- set by the callback
+  username     TEXT,
+  confirm_hash TEXT                      -- sha256 of the confirm cookie
+);
+
 CREATE INDEX IF NOT EXISTS idx_extensions_name ON extensions (name);
 CREATE INDEX IF NOT EXISTS idx_extensions_category ON extensions (category);
 CREATE INDEX IF NOT EXISTS idx_versions_ext ON versions (namespace, name);

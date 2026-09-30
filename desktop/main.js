@@ -303,12 +303,12 @@ function createWindow() {
     return { action: 'deny' }
   })
   // And the window itself stays on the console. The one way off it is through Discord, for the
-  // sign-ins that run in the window (the marketplace's publisher check, and "Sign in again" on
-  // the access-denied screen): the backend redirects there, which this doesn't see, and
-  // Discord's pages navigate among themselves and then back to the backend's callback. So
-  // Discord is allowed only once the window is already on it. The console's own sign-in
-  // (/auth/login?desktop=…) opens in the OS browser through the handler above, and polls the
-  // backend to claim the session, so it never navigates this window at all.
+  // sign-in that runs in the window ("Sign in again" on the access-denied screen): the backend
+  // redirects there, which this doesn't see, and Discord's pages navigate among themselves and
+  // then back to the backend's callback. So Discord is allowed only once the window is already
+  // on it. The console's own sign-in (/auth/login?desktop=…) and the marketplace's publisher
+  // check open in the OS browser through the handler above, and the console polls for the
+  // result, so neither navigates this window at all.
   win.webContents.on('will-navigate', (e) => {
     if (originOf(e.url) === consoleOrigin) return
     if (isDiscord(e.url) && isDiscord(win.webContents.getURL())) return

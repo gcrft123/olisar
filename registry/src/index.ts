@@ -13,7 +13,10 @@
  *   GET  /v1/ext/:namespace/:name/:version     → the .olx bundle (JSON, from R2)
  *   POST /v1/publishers/challenge               → single-use nonce for register
  *   POST /v1/publishers/register                → claim a handle / rotate the token (signed nonce)
- *   POST /v1/publishers/verify                  → bind a Discord id via Discord OAuth
+ *   POST /v1/publishers/verify/start            → a Discord sign-in link for the publisher
+ *   GET  /v1/publishers/verify/callback         → Discord's redirect; asks to confirm the link
+ *   POST /v1/publishers/verify/confirm          → binds the Discord id, sets the verified badge
+ *   GET  /v1/publishers/me                      → the authenticated publisher's own record
  *   POST /v1/_dev/publish                       → seed (local only; gated by DEV_SEED)
  */
 
@@ -28,6 +31,12 @@ export interface Env {
   RESEND_API_KEY?: string; // Resend API key for abuse-report emails (a Worker secret)
   REPORT_EMAIL?: string;   // where abuse reports are emailed (the platform owner)
   REPORT_FROM?: string;    // From address (default "Olisar <onboarding@resend.dev>")
+  // The registry's own Discord application, which the publisher-verification sign-in runs
+  // through. Its redirect URL, <this Worker's origin>/v1/publishers/verify/callback, has to be
+  // registered on the app in the Discord Developer Portal.
+  DISCORD_CLIENT_ID?: string;
+  DISCORD_CLIENT_SECRET?: string; // a Worker secret
+  DISCORD_API?: string;    // default https://discord.com/api (overridden only in local tests)
 }
 
 const CORS = { "access-control-allow-origin": "*" };
@@ -178,7 +187,21 @@ export default {
         return await publishersRegister(req, env);
       }
       if (req.method === "POST" && url.pathname === "/v1/publishers/verify") {
-        return await publisherVerify(req, env);
+        // The bot used to forward a Discord token it got from its own sign-in. Any Discord
+        // app's token passed, so whoever ran the app someone signed in to could claim them.
+        return json({ error: "verification now runs on the registry; update Olisar and try again" }, 410);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/publishers/verify/start") {
+        return await verifyStart(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/publishers/verify/callback") {
+        return await verifyCallback(req, env);
+      }
+      if (req.method === "POST" && url.pathname === "/v1/publishers/verify/confirm") {
+        return await verifyConfirm(req, env);
+      }
+      if (req.method === "GET" && url.pathname === "/v1/publishers/me") {
+        return await publisherMe(req, env);
       }
       if (req.method === "POST" && url.pathname === "/v1/publish") {
         return await publisherPublish(req, env);
@@ -410,6 +433,11 @@ async function ensureSchema(env: Env): Promise<void> {
     env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at)`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS publisher_verifications (
+         state TEXT PRIMARY KEY, publisher_id INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+         discord_id TEXT, username TEXT, confirm_hash TEXT)`,
+    ),
   ]);
   // Add the risk columns to a pre-existing versions table (no-op once present).
   for (const col of ["risk_score INTEGER", "risk_report TEXT"]) {
@@ -624,32 +652,187 @@ async function publisherPublish(req: Request, env: Env): Promise<Response> {
   return storePublish(env, publisher.handle, {}, bundle, Number(publisher.id));
 }
 
-// Bind a verified Discord identity to the authenticated publisher. The bot forwards the
-// operator's short-lived `identify` token; the registry confirms it with Discord itself
-// (so it never just trusts the bot's word) and sets the verified badge. This is the only
-// self-serve route that writes a publisher's discord_id or verified flag.
-async function publisherVerify(req: Request, env: Env): Promise<Response> {
+// ── Discord verification ───────────────────────────────────────────────────
+// The verified badge ties a publisher to a Discord account, and a verified Discord id is what
+// the developer allowlist and bans go by. So the registry runs the sign-in itself, through its
+// own Discord app: the bot asks for a sign-in link for its publisher, the person signs in with
+// Discord, and the registry exchanges the code with its own secret. A token handed over by
+// someone else's app proves nothing: whoever runs an app gets the token of everyone who signs
+// in to it. The last step shows which publisher the account is about to be linked to and needs
+// a click from the browser that signed in, so a link someone else started can't finish on its
+// own.
+const VERIFY_TTL_SECONDS = 600;
+const VERIFY_COOKIE = "olisar_verify";
+
+function discordApi(env: Env): string {
+  return (env.DISCORD_API || "https://discord.com/api").replace(/\/+$/, "");
+}
+
+function verifyRedirect(req: Request): string {
+  return new URL(req.url).origin + "/v1/publishers/verify/callback";
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function page(title: string, body: string, status = 200, headers: Record<string, string> = {}): Response {
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title>
+<style>body{font:15px/1.6 system-ui,sans-serif;background:#0a0a0b;color:#e8e8ea;display:grid;place-items:center;min-height:100vh;margin:0}
+main{max-width:460px;padding:32px}h1{font-size:20px;margin:0 0 12px}p{color:#b4b4ba}code{color:#e8e8ea}
+button{font:inherit;font-weight:600;padding:8px 18px;border-radius:8px;border:0;background:#e8e8ea;color:#0a0a0b;cursor:pointer}</style>
+</head><body><main><h1>${escapeHtml(title)}</h1>${body}</main></body></html>`;
+  return new Response(html, {
+    status,
+    headers: {
+      "content-type": "text/html; charset=utf-8",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+      // same-origin, not no-referrer: with no-referrer the confirm form posts Origin: null,
+      // which the origin check can't tell from a sandboxed page elsewhere.
+      "referrer-policy": "same-origin",
+      ...headers,
+    },
+  });
+}
+
+async function verifyStart(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const publisher = await publisherForToken(env, req);
   if (!publisher) return json({ error: "unauthorized" }, 401);
-  const body = await req.json<any>();
-  const discordToken = String(body?.discord_token || "");
-  if (!discordToken) return json({ error: "discord_token required" }, 400);
+  if (!env.DISCORD_CLIENT_ID || !env.DISCORD_CLIENT_SECRET) {
+    return json({ error: "Discord verification isn't set up on this registry" }, 503);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const state = randomToken();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM publisher_verifications WHERE expires_at < ?").bind(now),
+    env.DB.prepare("INSERT INTO publisher_verifications (state, publisher_id, expires_at) VALUES (?, ?, ?)")
+      .bind(state, publisher.id, now + VERIFY_TTL_SECONDS),
+  ]);
+  const params = new URLSearchParams({
+    client_id: env.DISCORD_CLIENT_ID, redirect_uri: verifyRedirect(req), response_type: "code",
+    scope: "identify", state, prompt: "consent",
+  });
+  return json({ url: `https://discord.com/oauth2/authorize?${params}`, expires_at: now + VERIFY_TTL_SECONDS });
+}
+
+async function pendingVerification(env: Env, state: string): Promise<any | null> {
+  if (!/^[0-9a-f]{64}$/.test(state)) return null;
+  return env.DB.prepare(
+    `SELECT v.state, v.publisher_id, v.discord_id, v.username, v.confirm_hash, p.handle
+     FROM publisher_verifications v JOIN publishers p ON p.id = v.publisher_id
+     WHERE v.state = ? AND v.expires_at >= ?`,
+  ).bind(state, Math.floor(Date.now() / 1000)).first<any>();
+}
+
+const VERIFY_FAILED = "Verification didn't go through";
+const START_AGAIN = "<p>Start again from the Marketplace in your Olisar console.</p>";
+
+async function verifyCallback(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const url = new URL(req.url);
+  const pending = await pendingVerification(env, url.searchParams.get("state") || "");
+  const code = url.searchParams.get("code") || "";
+  if (!pending || pending.discord_id || !code) {
+    return page(VERIFY_FAILED, "<p>This sign-in link has expired or was already used.</p>" + START_AGAIN, 400);
+  }
   let me: any;
   try {
-    const r = await fetch("https://discord.com/api/users/@me", {
-      headers: { authorization: "Bearer " + discordToken },
+    const tok = await fetch(discordApi(env) + "/oauth2/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: env.DISCORD_CLIENT_ID || "", client_secret: env.DISCORD_CLIENT_SECRET || "",
+        grant_type: "authorization_code", code, redirect_uri: verifyRedirect(req),
+      }),
     });
-    if (r.status !== 200) return json({ error: "Discord verification failed" }, 401);
+    if (tok.status !== 200) return page(VERIFY_FAILED, "<p>Discord didn't accept the sign-in.</p>" + START_AGAIN, 400);
+    const accessToken = String((await tok.json<any>())?.access_token || "");
+    const r = await fetch(discordApi(env) + "/users/@me", { headers: { authorization: "Bearer " + accessToken } });
+    if (r.status !== 200) return page(VERIFY_FAILED, "<p>Discord didn't say who signed in.</p>" + START_AGAIN, 400);
     me = await r.json();
-  } catch (e: any) {
-    return json({ error: "couldn't reach Discord" }, 502);
+  } catch {
+    return page(VERIFY_FAILED, "<p>Couldn't reach Discord. Try again in a moment.</p>" + START_AGAIN, 502);
   }
   const discordId = String(me?.id || "");
-  if (!discordId) return json({ error: "Discord returned no user id" }, 401);
+  if (!/^\d{5,25}$/.test(discordId)) return page(VERIFY_FAILED, "<p>Discord didn't say who signed in.</p>" + START_AGAIN, 400);
+  const username = String(me?.global_name || me?.username || discordId).slice(0, 64);
+  // Only this browser can finish: the cookie is the proof, and a link someone else started
+  // leaves them without it.
+  const confirm = randomToken();
+  const claimed = await env.DB.prepare(
+    `UPDATE publisher_verifications SET discord_id = ?, username = ?, confirm_hash = ?
+     WHERE state = ? AND discord_id IS NULL`,
+  ).bind(discordId, username, await sha256hex(confirm), pending.state).run();
+  if ((claimed.meta?.changes ?? 0) !== 1) {
+    return page(VERIFY_FAILED, "<p>This sign-in link was already used.</p>" + START_AGAIN, 400);
+  }
+  const secure = url.protocol === "https:" ? "; Secure" : "";
+  const cookie = `${VERIFY_COOKIE}=${confirm}; Path=/v1/publishers/verify; Max-Age=${VERIFY_TTL_SECONDS}; HttpOnly; SameSite=Strict${secure}`;
+  return page(
+    "Link your Discord account?",
+    `<p>This links <b>${escapeHtml(username)}</b> on Discord to the marketplace publisher <code>${escapeHtml(pending.handle)}</code>.
+Its extensions will show as Discord-verified, and the marketplace will hold your account responsible for them.</p>
+<p>Only continue if you started this from your own Olisar console. If someone sent you this link, close this page.</p>
+<form method="post" action="/v1/publishers/verify/confirm"><input type="hidden" name="state" value="${pending.state}">
+<button type="submit">Link to ${escapeHtml(pending.handle)}</button></form>`,
+    200,
+    { "set-cookie": cookie, "cache-control": "no-store" },
+  );
+}
+
+function cookieValue(req: Request, name: string): string {
+  for (const part of (req.headers.get("cookie") || "").split(";")) {
+    const [k, ...v] = part.trim().split("=");
+    if (k === name) return v.join("=");
+  }
+  return "";
+}
+
+async function verifyConfirm(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const origin = req.headers.get("origin");
+  if (origin && origin !== new URL(req.url).origin) {
+    return page(VERIFY_FAILED, "<p>That request didn't come from this page.</p>", 403);
+  }
+  let state = "";
+  try {
+    state = String((await req.formData()).get("state") || "");
+  } catch {
+    /* no form body */
+  }
+  const pending = await pendingVerification(env, state);
+  const confirm = cookieValue(req, VERIFY_COOKIE);
+  if (!pending || !pending.discord_id || !confirm || (await sha256hex(confirm)) !== pending.confirm_hash) {
+    return page(VERIFY_FAILED, "<p>This page has expired, or it was opened in another browser.</p>" + START_AGAIN, 403);
+  }
+  const clear = `${VERIFY_COOKIE}=; Path=/v1/publishers/verify; Max-Age=0; HttpOnly; SameSite=Strict`;
+  await env.DB.prepare("DELETE FROM publisher_verifications WHERE state = ?").bind(pending.state).run();
+  if (await isBanned(env, String(pending.discord_id))) {
+    return page(VERIFY_FAILED, "<p>This Discord account is banned from the marketplace.</p>", 403, { "set-cookie": clear });
+  }
   await env.DB.prepare("UPDATE publishers SET discord_id = ?, verified = 1 WHERE id = ?")
-    .bind(discordId, publisher.id).run();
-  return json({ ok: true, discord_id: discordId, username: me?.username || me?.global_name || null, verified: true });
+    .bind(String(pending.discord_id), pending.publisher_id).run();
+  return page(
+    "Verified",
+    `<p><code>${escapeHtml(pending.handle)}</code> is now Discord-verified. You can close this tab and go back to Olisar.</p>`,
+    200,
+    { "set-cookie": clear, "cache-control": "no-store" },
+  );
+}
+
+// The authenticated publisher's own record, for the bot to show (and notice a finished
+// verification).
+async function publisherMe(req: Request, env: Env): Promise<Response> {
+  await ensureSchema(env);
+  const publisher = await publisherForToken(env, req);
+  if (!publisher) return json({ error: "unauthorized" }, 401);
+  return json({
+    handle: publisher.handle,
+    fingerprint: await fingerprintOf(publisher.public_key),
+    verified: Number(publisher.verified) === 1,
+  });
 }
 
 async function publisherYank(req: Request, env: Env): Promise<Response> {
