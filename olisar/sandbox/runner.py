@@ -1,18 +1,19 @@
 """Async entry points for running sandboxed extensions.
 
-The QuickJS context is synchronous and thread-affine, so each invocation runs on a
-worker thread (a shared pool). Capability requests the extension makes are bridged
-back to the *calling* asyncio loop with ``run_coroutine_threadsafe`` so DB sessions
-and httpx run where they belong; the worker blocks on the result. The caller awaits
-the whole thing, so it never blocks the loop on network-bound extensions.
+The extension runs in a sandbox host process (see ``engine``), and each invocation is
+driven from a worker thread (a shared pool) that waits on it. Capability requests the
+extension makes are bridged back to the *calling* asyncio loop with
+``run_coroutine_threadsafe`` so DB sessions and httpx run where they belong; the worker
+blocks on the result. The caller awaits the whole thing, so it never blocks the loop on
+network-bound extensions.
 """
 
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -32,21 +33,34 @@ _pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="ext-sandbox")
 
 
 async def _invoke(
-    inv: Invocation, compiled_js: str, kind: str, name: str, payload: dict,
-    *, perform_timeout: float | None = None, **limits,
+    inv: Invocation, compiled_js: str, kind: str, name: str, payload: dict, **limits,
 ) -> Any:
     loop = asyncio.get_running_loop()
-    pt = engine.COMMAND_WALL_SECONDS if perform_timeout is None else perform_timeout
+    wall_seconds = limits.get("wall_seconds", engine.TOOL_WALL_SECONDS)
 
-    def perform(cap: str, method: str, args: list) -> Any:
-        fut = asyncio.run_coroutine_threadsafe(
-            capabilities.dispatch(inv, cap, method, args), loop
-        )
-        return fut.result(timeout=pt)
+    def job() -> Any:
+        deadline = time.monotonic() + wall_seconds
 
-    job = functools.partial(
-        engine.invoke, compiled_js, kind, name, payload, perform, **limits
-    )
+        # A host call counts against the run's wall budget like the extension's own time
+        # does: a slow one (a drip-fed fetch) is cancelled when the budget runs out, rather
+        # than holding the reply and this thread for the longest budget any run gets.
+        def perform(cap: str, method: str, args: list) -> Any:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise SandboxError("extension exceeded its time budget")
+            fut = asyncio.run_coroutine_threadsafe(
+                capabilities.dispatch(inv, cap, method, args), loop
+            )
+            try:
+                return fut.result(timeout=left)
+            except TimeoutError:
+                if not fut.done():
+                    fut.cancel()
+                    raise SandboxError("extension exceeded its time budget") from None
+                return fut.result()  # it finished after all, or timed out on its own terms
+
+        return engine.invoke(compiled_js, kind, name, payload, perform, **limits)
+
     return await loop.run_in_executor(_pool, job)
 
 
@@ -208,7 +222,6 @@ async def run_component(
     _share_blobs(inv, discord)
     await _invoke(
         inv, compiled_js, "component", handler_name, {"ctx": component_ctx},
-        perform_timeout=engine.COMPONENT_WALL_SECONDS,
         cpu_seconds=engine.COMMAND_CPU_SECONDS, wall_seconds=engine.COMPONENT_WALL_SECONDS,
     )
 
@@ -228,7 +241,6 @@ async def run_event(
     _share_blobs(inv, discord)
     await _invoke(
         inv, compiled_js, "event", handler_name, {"ctx": event_ctx},
-        perform_timeout=engine.EVENT_WALL_SECONDS,
         cpu_seconds=engine.COMMAND_CPU_SECONDS, wall_seconds=engine.EVENT_WALL_SECONDS,
     )
 

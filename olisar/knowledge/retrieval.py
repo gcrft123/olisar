@@ -24,7 +24,7 @@ async def kb_block_from_qvec(
     """Format the top-k KB chunks for a query vector. Empty string if none."""
     if not qvec:
         return ""
-    hits = await knn(session, "kb_chunk_embedding", qvec, k=k)
+    hits = await knn(session, "kb_chunk_embedding", qvec, k=k, guild_ids=[guild_id])
     if not hits:
         return ""
     by_id = {

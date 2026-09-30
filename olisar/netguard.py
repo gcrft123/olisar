@@ -76,16 +76,27 @@ def is_public_host(host: str) -> bool:
     return bool(addresses) and all(is_public_address(a) for a in addresses)
 
 
-async def resolve_public(host: str) -> str:
-    """The address to connect to for ``host``, resolved in a worker thread so a slow DNS
-    server can't stall the loop. Raises ``NonPublicHost`` when the name doesn't resolve or
-    any of its addresses isn't public: there's no telling which one a connection would use."""
-    addresses = await asyncio.to_thread(_addresses, host)
+async def lookup(host: str) -> list[str]:
+    """Every address ``host`` resolves to (an IP literal is its own), resolved in a worker
+    thread so a slow DNS server can't stall the loop. Empty when it doesn't resolve."""
+    return await asyncio.to_thread(_addresses, host)
+
+
+def public_address(host: str, addresses: list[str]) -> str:
+    """The address to connect to out of ``addresses``, what ``host`` resolved to. Raises
+    ``NonPublicHost`` when there are none or any of them isn't public: there's no telling
+    which one a connection would use."""
     if not addresses:
         raise NonPublicHost(f"{host} doesn't resolve")
     if not all(is_public_address(a) for a in addresses):
         raise NonPublicHost(f"{host} points at a private or local address")
     return addresses[0].split("%")[0]
+
+
+async def resolve_public(host: str) -> str:
+    """The address to connect to for ``host``: resolved off the event loop, and refused
+    with ``NonPublicHost`` unless every address it has is public."""
+    return public_address(host, await lookup(host))
 
 
 class _PinnedBackend(httpcore.AsyncNetworkBackend):
@@ -123,4 +134,7 @@ class PinnedTransport(httpx.AsyncHTTPTransport):
         )
 
 
-__all__ = ["NonPublicHost", "PinnedTransport", "is_public_address", "is_public_host", "resolve_public"]
+__all__ = [
+    "NonPublicHost", "PinnedTransport", "is_public_address", "is_public_host", "lookup",
+    "public_address", "resolve_public",
+]

@@ -25,9 +25,16 @@ export interface Env {
   R2_MAX_BYTES?: string;   // hard storage cap (default 9 GB, under the 10 GB free tier)
   R2_MAX_BUNDLE_BYTES?: string; // per-bundle cap (default 1 MB)
   R2_CLASS_A_MAX?: string; // monthly R2 write cap (default 900k, under 1M free)
+  R2_REPORT_MAX_BYTES?: string;   // share of storage report attachments may use (default 500 MB)
+  R2_REPORT_CLASS_A_MAX?: string; // share of monthly writes reports may use (default 100k)
+  PUBLISHER_MAX_BYTES?: string;       // storage per publisher (default 100 MB)
+  PUBLISHER_DAILY_PUBLISHES?: string; // new versions per publisher per UTC day (default 30)
   RESEND_API_KEY?: string; // Resend API key for abuse-report emails (a Worker secret)
   REPORT_EMAIL?: string;   // where abuse reports are emailed (the platform owner)
   REPORT_FROM?: string;    // From address (default "Olisar <onboarding@resend.dev>")
+  // Per-IP limits on the routes anyone can call (the "ratelimits" bindings in wrangler.jsonc).
+  WRITE_LIMITER: RateLimit; // install counts, blocked-publish records, register, standing ack
+  EMAIL_LIMITER: RateLimit; // abuse reports and feedback, which email the platform owner
 }
 
 const CORS = { "access-control-allow-origin": "*" };
@@ -47,6 +54,149 @@ function limits(env: Env) {
   };
 }
 
+// ── quotas ──────────────────────────────────────────────────────────────────
+// Every R2 write reserves its bytes and one write against one or more counters first. A
+// counter row holds bytes stored so far and writes in the current period; `reserve` checks
+// both caps and adds to them in a single statement, so two requests can't each pass the
+// check and overshoot together, and neither overwrites the other's count.
+//
+// Three kinds of counter: the whole bucket (usage id 1, the free-tier guard), the slice
+// abuse-report attachments may use (usage id 2, so a flood of reports can't use up what
+// publishing needs), and one per publisher (publisher_usage), so one publisher can't use up
+// everyone else's share either.
+interface Quota {
+  table: "usage" | "publisher_usage";
+  keyCol: "id" | "publisher_id";
+  key: number;
+  writesCol: "class_a" | "publishes";
+  period: string;   // the writes count resets when this changes
+  maxBytes: number;
+  maxWrites: number;
+  label: string;    // names the cap in the error when it's reached
+}
+
+function monthPeriod(): string {
+  return new Date().toISOString().slice(0, 7); // YYYY-MM
+}
+
+function globalQuota(env: Env): Quota {
+  const lim = limits(env);
+  return {
+    table: "usage", keyCol: "id", key: 1, writesCol: "class_a", period: monthPeriod(),
+    maxBytes: lim.maxBytes, maxWrites: lim.maxClassA, label: "registry",
+  };
+}
+
+function reportQuota(env: Env): Quota {
+  return {
+    table: "usage", keyCol: "id", key: 2, writesCol: "class_a", period: monthPeriod(),
+    maxBytes: capInt(env.R2_REPORT_MAX_BYTES, 500_000_000),
+    maxWrites: capInt(env.R2_REPORT_CLASS_A_MAX, 100_000), label: "report storage",
+  };
+}
+
+function publisherQuota(env: Env, publisherId: number): Quota {
+  return {
+    table: "publisher_usage", keyCol: "publisher_id", key: publisherId, writesCol: "publishes",
+    period: new Date().toISOString().slice(0, 10), // YYYY-MM-DD (UTC)
+    maxBytes: capInt(env.PUBLISHER_MAX_BYTES, 100_000_000),
+    maxWrites: capInt(env.PUBLISHER_DAILY_PUBLISHES, 30), label: "publisher",
+  };
+}
+
+// Returns the counter's new byte total, or null when either cap would be exceeded (and then
+// nothing was added). The insert branch only runs for a counter's first write.
+async function reserve(env: Env, q: Quota, bytes: number): Promise<number | null> {
+  if (bytes > q.maxBytes || q.maxWrites < 1) return null;
+  const row = await env.DB.prepare(
+    `INSERT INTO ${q.table} (${q.keyCol}, stored_bytes, ${q.writesCol}, period) VALUES (?5, ?1, 1, ?2)
+     ON CONFLICT(${q.keyCol}) DO UPDATE SET
+       stored_bytes = stored_bytes + ?1,
+       ${q.writesCol} = CASE WHEN period = ?2 THEN ${q.writesCol} + 1 ELSE 1 END,
+       period = ?2
+     WHERE stored_bytes + ?1 <= ?3
+       AND (CASE WHEN period = ?2 THEN ${q.writesCol} ELSE 0 END) + 1 <= ?4
+     RETURNING stored_bytes`,
+  ).bind(bytes, q.period, q.maxBytes, q.maxWrites, q.key).first<{ stored_bytes: number }>();
+  return row ? row.stored_bytes : null;
+}
+
+// Give back a reservation whose R2 write never happened.
+async function release(env: Env, q: Quota, bytes: number): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE ${q.table} SET stored_bytes = MAX(0, stored_bytes - ?1),
+       ${q.writesCol} = CASE WHEN period = ?2 AND ${q.writesCol} > 0 THEN ${q.writesCol} - 1 ELSE ${q.writesCol} END
+     WHERE ${q.keyCol} = ?3`,
+  ).bind(bytes, q.period, q.key).run();
+}
+
+// Reserve against every counter in order, or none: on the first refusal, the ones already
+// taken are given back. `stored` is the last counter's new byte total.
+async function reserveAll(
+  env: Env, quotas: Quota[], bytes: number,
+): Promise<{ ok: true; stored: number } | { ok: false; refused: Quota }> {
+  let stored = 0;
+  for (let i = 0; i < quotas.length; i++) {
+    const got = await reserve(env, quotas[i], bytes);
+    if (got === null) {
+      for (const q of quotas.slice(0, i)) await release(env, q, bytes);
+      return { ok: false, refused: quotas[i] };
+    }
+    stored = got;
+  }
+  return { ok: true, stored };
+}
+
+async function releaseAll(env: Env, quotas: Quota[], bytes: number): Promise<void> {
+  for (const q of quotas) await release(env, q, bytes);
+}
+
+// Which of the refused counter's caps was hit: storage (507) or writes (429).
+async function quotaError(env: Env, q: Quota, bytes: number): Promise<Response> {
+  const row = await env.DB.prepare(
+    `SELECT stored_bytes FROM ${q.table} WHERE ${q.keyCol} = ?`,
+  ).bind(q.key).first<{ stored_bytes: number }>();
+  const full = bytes > q.maxBytes || (row?.stored_bytes ?? 0) + bytes > q.maxBytes;
+  if (q.table === "publisher_usage") {
+    const mb = q.maxBytes / 1e6;
+    return full
+      ? json({ error: `you've used your ${mb >= 10 ? Math.round(mb) : mb.toFixed(1)} MB of marketplace storage` }, 507)
+      : json({ error: `you've published ${q.maxWrites} versions today; try again tomorrow (UTC)` }, 429);
+  }
+  return full
+    ? json({ error: `${q.label} storage cap reached` }, 507)
+    : json({ error: `${q.label} monthly write cap reached` }, 429);
+}
+
+// ── rate limits ─────────────────────────────────────────────────────────────
+// The routes anyone can call without a token, each limited per caller IP. The limiter is
+// Cloudflare's rate-limiting binding rather than a D1 counter: it costs no D1 writes, so a
+// flood can't spend the free tier's daily D1 allowance (which would take the whole registry
+// down until midnight UTC). Counts are per Cloudflare location and approximate by design,
+// which is enough to blunt a flood from one address. Bots call these routes a handful of
+// times per operator action, well under the limits.
+const RATE_LIMITED: Record<string, "WRITE_LIMITER" | "EMAIL_LIMITER"> = {
+  "/v1/report": "EMAIL_LIMITER",
+  "/v1/feedback": "EMAIL_LIMITER",
+  "/v1/install": "WRITE_LIMITER",
+  "/v1/blocked": "WRITE_LIMITER",
+  "/v1/standing/ack": "WRITE_LIMITER",
+  "/v1/publishers/challenge": "WRITE_LIMITER",
+  "/v1/publishers/register": "WRITE_LIMITER",
+};
+
+async function rateLimited(req: Request, env: Env, path: string): Promise<Response | null> {
+  const binding = req.method === "POST" ? RATE_LIMITED[path] : undefined;
+  if (!binding) return null;
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const { success } = await env[binding].limit({ key: `${path}:${ip}` });
+  if (success) return null;
+  return new Response(JSON.stringify({ error: "too many requests; try again in a minute" }), {
+    status: 429,
+    headers: { "content-type": "application/json", "retry-after": "60", ...CORS },
+  });
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
@@ -54,12 +204,18 @@ function json(data: unknown, status = 200): Response {
   });
 }
 
-// R2 object key for a bundle, derived from its content hash (immutable + dedup).
-function bundleKey(contentHash: string): string {
-  return "bundles/" + contentHash.replace(/^sha256:/, "") + ".olx";
+// R2 object key for a bundle: one object per published version. Versions never change once
+// published, so nothing ever writes to an existing key. (Rows from before this used
+// "bundles/<content hash>.olx"; each row's r2_key says where its blob is.)
+function bundleKey(namespace: string, name: string, version: string): string {
+  return `bundles/${namespace}/${name}/${version}.olx`;
 }
 
 const HANDLE_RE = /^[a-z0-9_-]{2,64}$/;
+// A bundle's id, as olisar.extensions.bundle.KEY_RE requires; the bot refuses anything else.
+const EXT_ID_RE = /^[a-z][a-z0-9_]{1,63}$/;
+// A version, as the bot's marketplace references allow (api/routers/marketplace.py _VER_RE).
+const VERSION_RE = /^[A-Za-z0-9._-]{1,32}$/;
 
 // Registering (or rotating a token) needs proof the caller holds the private half of
 // `public_key`: it signs registerMessage(nonce, handle) over a single-use nonce from
@@ -82,6 +238,57 @@ async function sha256hex(input: string | Uint8Array): Promise<string> {
   const data = typeof input === "string" ? new TextEncoder().encode(input) : input;
   return hex(await crypto.subtle.digest("SHA-256", data));
 }
+// A bundle's content hash, computed here rather than taken from the caller. Must match
+// olisar.extensions.bundle.canonical_hash byte for byte, since publishers sign the bot's
+// hash and every installing bot recomputes it. Python's json.dumps(sort_keys=True,
+// separators=(",", ":"), ensure_ascii=False) writes the same text JSON.stringify does for
+// well-formed strings, given the keys in sorted order and permissions sorted by code point
+// (Python's order; JS's default sort compares UTF-16 units, which differs past U+FFFF).
+async function canonicalHash(id: string, version: string, source: string, permissions: string[]): Promise<string> {
+  const payload = JSON.stringify({ id, permissions: [...permissions].sort(byCodePoint), source, version });
+  return "sha256:" + (await sha256hex(payload));
+}
+function byCodePoint(a: string, b: string): number {
+  const x = [...a];
+  const y = [...b];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const d = x[i].codePointAt(0)! - y[i].codePointAt(0)!;
+    if (d) return d;
+  }
+  return x.length - y.length;
+}
+// A lone surrogate is the one thing the two JSON encoders disagree on (JS escapes it, and
+// Python can't encode it to UTF-8 at all), so such text is refused rather than hashed.
+function wellFormed(s: string): boolean {
+  return !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+}
+
+// Validate the fields the content hash covers and compute it. The caller's content_hash has
+// to equal ours: it's what the publisher signed and what installing bots check.
+async function checkBundle(bundle: any): Promise<{ name: string; version: string; hash: string } | Response> {
+  if (!bundle || typeof bundle !== "object") return json({ error: "bad bundle" }, 400);
+  const { id, version, source } = bundle;
+  const permissions = bundle.permissions ?? [];
+  if (typeof id !== "string" || !EXT_ID_RE.test(id)) {
+    return json({ error: "bad bundle id (lowercase letters, digits and _, starting with a letter)" }, 400);
+  }
+  if (typeof version !== "string" || !VERSION_RE.test(version)) {
+    return json({ error: "bad bundle version (1-32 chars: letters, digits, '.', '_' or '-')" }, 400);
+  }
+  if (typeof source !== "string" || !source.trim()) return json({ error: "bundle has no source" }, 400);
+  if (!Array.isArray(permissions) || !permissions.every((p: unknown) => typeof p === "string")) {
+    return json({ error: "bundle permissions must be a list of strings" }, 400);
+  }
+  if (![source, ...permissions].every(wellFormed)) {
+    return json({ error: "bundle text isn't valid Unicode" }, 400);
+  }
+  const hash = await canonicalHash(id, version, source, permissions);
+  if (bundle.content_hash !== hash) {
+    return json({ error: "content_hash doesn't match the bundle's id, version, permissions and source" }, 400);
+  }
+  return { name: id, version, hash };
+}
+
 // Matches olisar.extensions.signing.fingerprint: "sha256:" + sha256(pubkey)[:32].
 async function fingerprintOf(pubB64: string): Promise<string> {
   return "sha256:" + (await sha256hex(b64bytes(pubB64))).slice(0, 32);
@@ -161,6 +368,8 @@ export default {
     const url = new URL(req.url);
     const parts = url.pathname.split("/").filter(Boolean); // e.g. ["v1","ext","ns","name"]
     try {
+      const limited = await rateLimited(req, env, url.pathname);
+      if (limited) return limited;
       if (req.method === "GET" && url.pathname === "/v1/health") {
         return json({ ok: true });
       }
@@ -322,11 +531,11 @@ async function getBundle(
   env: Env,
 ): Promise<Response> {
   const row = await env.DB.prepare(
-    `SELECT content_hash, yanked FROM versions WHERE namespace = ? AND name = ? AND version = ?`,
-  ).bind(ns, name, version).first<{ content_hash: string; yanked: number }>();
+    `SELECT r2_key, yanked FROM versions WHERE namespace = ? AND name = ? AND version = ?`,
+  ).bind(ns, name, version).first<{ r2_key: string; yanked: number }>();
   if (!row) return json({ error: "not found" }, 404);
 
-  const obj = await env.BUNDLES.get(bundleKey(row.content_hash));
+  const obj = await env.BUNDLES.get(row.r2_key);
   if (!obj) return json({ error: "bundle blob missing" }, 404);
 
   // No per-read D1 write here: it would tie reads 1:1 to D1 writes and burn that
@@ -410,11 +619,17 @@ async function ensureSchema(env: Env): Promise<void> {
     env.DB.prepare(
       `CREATE INDEX IF NOT EXISTS idx_publisher_challenges_expiry ON publisher_challenges (expires_at)`,
     ),
+    env.DB.prepare(
+      `CREATE TABLE IF NOT EXISTS publisher_usage (
+         publisher_id INTEGER PRIMARY KEY, stored_bytes INTEGER NOT NULL DEFAULT 0,
+         publishes INTEGER NOT NULL DEFAULT 0, period TEXT NOT NULL DEFAULT '')`,
+    ),
   ]);
-  // Add the risk columns to a pre-existing versions table (no-op once present).
-  for (const col of ["risk_score INTEGER", "risk_report TEXT"]) {
+  // Add columns to tables that predate them (no-op once present). migrations/ has the same.
+  for (const col of ["versions ADD COLUMN risk_score INTEGER", "versions ADD COLUMN risk_report TEXT",
+                     "extensions ADD COLUMN yanked_by TEXT"]) {
     try {
-      await env.DB.prepare(`ALTER TABLE versions ADD COLUMN ${col}`).run();
+      await env.DB.prepare(`ALTER TABLE ${col}`).run();
     } catch {
       /* column already exists */
     }
@@ -434,24 +649,29 @@ async function adminPublish(req: Request, env: Env): Promise<Response> {
 async function publishFromBody(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const body = await req.json<any>();
-  const bundle = body?.bundle;
-  if (!bundle || !bundle.id || !bundle.content_hash) {
-    return json({ error: "bad bundle (need id + content_hash)" }, 400);
-  }
+  const checked = await checkBundle(body?.bundle);
+  if (checked instanceof Response) return checked;
   const pub = body.publisher || {};
   const namespace = String(body.namespace || pub.handle || "demo");
-  return storePublish(env, namespace, pub, bundle);
+  if (!HANDLE_RE.test(namespace)) return json({ error: "bad namespace" }, 400);
+  return storePublish(env, namespace, pub, body.bundle, checked);
 }
 
 // `ownerId` is set on the self-serve path (the authenticated publisher's own row, which a
 // publish never rewrites). Without it, `pub` describes a publisher row to upsert; only the
 // ADMIN_TOKEN and local DEV_SEED paths do that, and they're trusted to set every field.
+//
+// A published version is immutable: its row and blob never change, and neither does its
+// yanked flag once set. Publishing a version that already exists with the same content is a
+// no-op; with different content it's refused. An extension a moderator yanked, or one
+// de-listed by its publisher's ban, takes no new versions. One its publisher yanked comes
+// back when they publish a new version (the yanked versions stay yanked).
 async function storePublish(
-  env: Env, namespace: string, pub: any, bundle: any, ownerId: number | null = null,
+  env: Env, namespace: string, pub: any, bundle: any,
+  checked: { name: string; version: string; hash: string }, ownerId: number | null = null,
 ): Promise<Response> {
-  const name = String(bundle.id);
-  const version = String(bundle.version || "1.0.0");
-  const key = bundleKey(bundle.content_hash);
+  const { name, version, hash } = checked;
+  const id = `${namespace}/${name}`;
   const blob = JSON.stringify(bundle);
   const size = new TextEncoder().encode(blob).length;
   const lim = limits(env);
@@ -459,30 +679,63 @@ async function storePublish(
     return json({ error: `bundle too large (${size} > ${lim.maxBundle} bytes)` }, 413);
   }
 
-  // Free-tier guard — enforce the exact storage + monthly-write caps before any R2 write.
-  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
-  const u = await env.DB.prepare(`SELECT stored_bytes, class_a, period FROM usage WHERE id = 1`)
-    .first<{ stored_bytes: number; class_a: number; period: string }>();
-  let stored = u?.stored_bytes ?? 0;
-  let classA = u && u.period === period ? (u.class_a ?? 0) : 0; // reset writes each month
-  // Bundles are content-addressed, so re-publishing identical bytes adds no storage.
-  const existing = await env.BUNDLES.head(key);
-  const delta = existing ? 0 : size;
-  if (stored + delta > lim.maxBytes) {
-    return json({ error: "registry storage cap reached" }, 507);
+  const ext = await env.DB.prepare(
+    "SELECT publisher_id, status, yanked_by FROM extensions WHERE namespace = ? AND name = ?",
+  ).bind(namespace, name).first<{ publisher_id: number | null; status: string; yanked_by: string | null }>();
+  if (ext && ownerId !== null && ext.publisher_id != null && Number(ext.publisher_id) !== ownerId) {
+    return json({ error: `${id} belongs to another publisher` }, 403);
   }
-  if (classA + 1 > lim.maxClassA) {
-    return json({ error: "registry monthly write cap reached" }, 429);
+  if (ext && (ext.status === "banned" || (ext.status === "yanked" && ext.yanked_by !== "publisher"))) {
+    return json({ error: `${id} was removed from the marketplace and can't take new versions` }, 403);
+  }
+  const alreadyPublished = () => json({
+    error: `${id} ${version} is already published, and a published version can't change; `
+      + "bump the version to publish this",
+  }, 409);
+  const existing = await env.DB.prepare(
+    "SELECT content_hash, yanked FROM versions WHERE namespace = ? AND name = ? AND version = ?",
+  ).bind(namespace, name, version).first<{ content_hash: string; yanked: number }>();
+  if (existing) {
+    if (existing.yanked) {
+      return json({ error: `${id} ${version} was yanked; publish a new version instead` }, 409);
+    }
+    if (existing.content_hash === hash) return json({ ok: true, id, version, unchanged: true });
+    return alreadyPublished();
   }
 
-  await env.BUNDLES.put(key, blob, { httpMetadata: { contentType: "application/json" } });
-  stored += delta;
-  classA += 1;
-  await env.DB.prepare(
-    `INSERT INTO usage (id, stored_bytes, class_a, period) VALUES (1, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET stored_bytes = excluded.stored_bytes,
-       class_a = excluded.class_a, period = excluded.period`,
-  ).bind(stored, classA, period).run();
+  // Claim the version before writing anything. versions is UNIQUE (namespace, name, version),
+  // so of two publishes of the same new version exactly one gets the row, and only that one
+  // writes the blob.
+  const key = bundleKey(namespace, name, version);
+  const riskScore = Number.isFinite(Number(bundle.risk_score)) ? Math.round(Number(bundle.risk_score)) : null;
+  const riskReport = bundle.risk_report != null ? JSON.stringify(bundle.risk_report) : null;
+  const claim = await env.DB.prepare(
+    `INSERT INTO versions (namespace, name, version, content_hash, r2_key, sdk_version, permissions, signature, publisher_key, risk_score, risk_report)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(namespace, name, version) DO NOTHING
+     RETURNING id`,
+  ).bind(
+    namespace, name, version, hash, key,
+    bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
+    bundle.signature ?? null, bundle.public_key ?? null, riskScore, riskReport,
+  ).first<{ id: number }>();
+  if (!claim) return alreadyPublished();
+  const unclaim = () => env.DB.prepare("DELETE FROM versions WHERE id = ?").bind(claim.id).run();
+
+  // Free-tier guard, and the publisher's own share of it, reserved before the R2 write.
+  const quotas = ownerId !== null ? [publisherQuota(env, ownerId), globalQuota(env)] : [globalQuota(env)];
+  const reserved = await reserveAll(env, quotas, size);
+  if (!reserved.ok) {
+    await unclaim();
+    return quotaError(env, reserved.refused, size);
+  }
+  try {
+    await env.BUNDLES.put(key, blob, { httpMetadata: { contentType: "application/json" } });
+  } catch (err) {
+    await releaseAll(env, quotas, size);
+    await unclaim();
+    throw err;
+  }
 
   let publisherId: number | null = ownerId;
   if (ownerId === null && pub.fingerprint) {
@@ -496,32 +749,20 @@ async function storePublish(
     publisherId = prow ? prow.id : null;
   }
 
+  // Only the publisher's own yank lifts here (re-checked in SQL in case a moderator yanked
+  // or a ban landed since the check above); anything else keeps its status.
   await env.DB.prepare(
     `INSERT INTO extensions (namespace, name, publisher_id, category, description, latest_version, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(namespace, name) DO UPDATE SET
        publisher_id = excluded.publisher_id, category = excluded.category,
        description = excluded.description, latest_version = excluded.latest_version,
-       status = 'published', updated_at = datetime('now')`,
+       status = CASE WHEN status = 'yanked' AND yanked_by = 'publisher' THEN 'published' ELSE status END,
+       yanked_by = CASE WHEN status = 'yanked' AND yanked_by = 'publisher' THEN NULL ELSE yanked_by END,
+       updated_at = datetime('now')`,
   ).bind(namespace, name, publisherId, bundle.category ?? "General", bundle.description ?? "", version).run();
 
-  const riskScore = Number.isFinite(Number(bundle.risk_score)) ? Math.round(Number(bundle.risk_score)) : null;
-  const riskReport = bundle.risk_report != null ? JSON.stringify(bundle.risk_report) : null;
-  await env.DB.prepare(
-    `INSERT INTO versions (namespace, name, version, content_hash, r2_key, sdk_version, permissions, signature, publisher_key, risk_score, risk_report)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(namespace, name, version) DO UPDATE SET
-       content_hash = excluded.content_hash, r2_key = excluded.r2_key, sdk_version = excluded.sdk_version,
-       permissions = excluded.permissions, signature = excluded.signature,
-       publisher_key = excluded.publisher_key, risk_score = excluded.risk_score,
-       risk_report = excluded.risk_report, yanked = 0`,
-  ).bind(
-    namespace, name, version, bundle.content_hash, key,
-    bundle.sdk_version ?? "1", JSON.stringify(bundle.permissions ?? []),
-    bundle.signature ?? null, bundle.public_key ?? null, riskScore, riskReport,
-  ).run();
-
-  return json({ ok: true, id: `${namespace}/${name}`, version, stored_bytes: stored });
+  return json({ ok: true, id, version, stored_bytes: reserved.stored });
 }
 
 // ── self-serve publishing ──────────────────────────────────────────────────
@@ -612,16 +853,15 @@ async function publisherPublish(req: Request, env: Env): Promise<Response> {
   }
   const body = await req.json<any>();
   const bundle = body?.bundle;
-  if (!bundle || !bundle.id || !bundle.content_hash) {
-    return json({ error: "bad bundle (need id + content_hash)" }, 400);
-  }
+  const checked = await checkBundle(bundle);
+  if (checked instanceof Response) return checked;
   if (!bundle.public_key || bundle.public_key !== publisher.public_key) {
     return json({ error: "bundle is not signed by your publisher key" }, 403);
   }
-  if (!bundle.signature || !(await verifyEd25519(publisher.public_key, bundle.content_hash, bundle.signature))) {
+  if (!bundle.signature || !(await verifyEd25519(publisher.public_key, checked.hash, bundle.signature))) {
     return json({ error: "invalid bundle signature" }, 403);
   }
-  return storePublish(env, publisher.handle, {}, bundle, Number(publisher.id));
+  return storePublish(env, publisher.handle, {}, bundle, checked, Number(publisher.id));
 }
 
 // Bind a verified Discord identity to the authenticated publisher. The bot forwards the
@@ -632,6 +872,11 @@ async function publisherVerify(req: Request, env: Env): Promise<Response> {
   await ensureSchema(env);
   const publisher = await publisherForToken(env, req);
   if (!publisher) return json({ error: "unauthorized" }, 401);
+  // A ban follows the Discord id, so a banned publisher can't shed it by verifying again
+  // with a different account.
+  if (publisher.discord_id && (await isBanned(env, String(publisher.discord_id)))) {
+    return json({ error: "this publisher is banned from the marketplace" }, 403);
+  }
   const body = await req.json<any>();
   const discordToken = String(body?.discord_token || "");
   if (!discordToken) return json({ error: "discord_token required" }, 400);
@@ -660,19 +905,34 @@ async function publisherYank(req: Request, env: Env): Promise<Response> {
   const name = String(body?.name || "");
   const version = body?.version ? String(body.version) : null;
   if (!name) return json({ error: "name required" }, 400);
-  await yankExtension(env, publisher.handle, name, version);
+  await yankExtension(env, publisher.handle, name, version, "publisher");
   return json({ ok: true });
 }
 
-async function yankExtension(env: Env, namespace: string, name: string, version: string | null): Promise<void> {
+// A yanked version stays yanked: nothing clears the flag, and a version can't be published
+// again. Yanking a whole extension also records who did it. A moderator's yank always wins
+// and a publisher's never replaces an earlier one, so only an extension its own publisher
+// yanked (and no moderator since) comes back when the publisher publishes a new version.
+// Yanks from before yanked_by existed stay NULL and count as the moderator's.
+async function yankExtension(
+  env: Env, namespace: string, name: string, version: string | null, by: "publisher" | "moderator",
+): Promise<void> {
   if (version) {
     await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ? AND version = ?")
       .bind(namespace, name, version).run();
   } else {
-    await env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ?")
-      .bind(namespace, name).run();
-    await env.DB.prepare("UPDATE extensions SET status = 'yanked' WHERE namespace = ? AND name = ?")
-      .bind(namespace, name).run();
+    await env.DB.batch([
+      env.DB.prepare("UPDATE versions SET yanked = 1 WHERE namespace = ? AND name = ?")
+        .bind(namespace, name),
+      env.DB.prepare(
+        `UPDATE extensions SET yanked_by = CASE
+           WHEN ?1 = 'moderator' THEN 'moderator'
+           WHEN status = 'yanked' THEN yanked_by
+           ELSE 'publisher' END,
+         status = 'yanked'
+         WHERE namespace = ?2 AND name = ?3`,
+      ).bind(by, namespace, name),
+    ]);
   }
 }
 
@@ -784,14 +1044,23 @@ async function fileReport(req: Request, env: Env): Promise<Response> {
   ).bind(namespace, name, version, pub?.id ?? null, pub?.discord_id ?? null, reporter, description).run();
   const id = ins.meta?.last_row_id ?? 0;
 
-  // Stash the bulky payload (logs + attachments) as a single R2 blob (one write).
-  let blobKey: string | null = null;
+  // Stash the bulky payload (logs + attachments) as a single R2 blob (one write). It counts
+  // against the bucket's caps like a bundle does, within the share reports may use; past
+  // that the report is still filed and emailed, just without the stored copy.
   if (logs || attachments.length) {
-    blobKey = `reports/${id}.json`;
-    await env.BUNDLES.put(blobKey, JSON.stringify({ logs, attachments }), {
-      httpMetadata: { contentType: "application/json" },
-    });
-    await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
+    const blobKey = `reports/${id}.json`;
+    const blob = JSON.stringify({ logs, attachments });
+    const size = new TextEncoder().encode(blob).length;
+    const quotas = [reportQuota(env), globalQuota(env)];
+    if ((await reserveAll(env, quotas, size)).ok) {
+      try {
+        await env.BUNDLES.put(blobKey, blob, { httpMetadata: { contentType: "application/json" } });
+      } catch (err) {
+        await releaseAll(env, quotas, size);
+        throw err;
+      }
+      await env.DB.prepare("UPDATE reports SET logs_r2_key = ? WHERE id = ?").bind(blobKey, id).run();
+    }
   }
 
   const email = await sendReportEmail(env, {
@@ -973,10 +1242,10 @@ async function devSource(url: URL, req: Request, env: Env): Promise<Response> {
     version = ext?.latest_version || "";
   }
   const row = await env.DB.prepare(
-    "SELECT content_hash FROM versions WHERE namespace = ? AND name = ? AND version = ?",
-  ).bind(ns, name, version).first<{ content_hash: string }>();
+    "SELECT r2_key FROM versions WHERE namespace = ? AND name = ? AND version = ?",
+  ).bind(ns, name, version).first<{ r2_key: string }>();
   if (!row) return json({ error: "not found" }, 404);
-  const obj = await env.BUNDLES.get(bundleKey(row.content_hash));
+  const obj = await env.BUNDLES.get(row.r2_key);
   if (!obj) return json({ error: "bundle blob missing" }, 404);
   const bundle = await obj.json<any>();
   return json({ namespace: ns, name, version, source: bundle?.source ?? "", sdk_version: bundle?.sdk_version ?? null });
@@ -1003,7 +1272,7 @@ async function devYank(req: Request, env: Env): Promise<Response> {
   const name = String(body?.name || "").trim();
   const version = body?.version ? String(body.version) : null;
   if (!namespace || !name) return json({ error: "namespace and name required" }, 400);
-  await yankExtension(env, namespace, name, version);
+  await yankExtension(env, namespace, name, version, "moderator");
   return json({ ok: true });
 }
 
@@ -1076,10 +1345,11 @@ async function devModeration(req: Request, env: Env): Promise<Response> {
        acknowledged = 0, updated_at = datetime('now')`,
   ).bind(discordId, status, message).run();
   if (status === "banned") {
-    // De-list every extension by this publisher.
+    // De-list every listed extension by this publisher. A yanked one stays 'yanked', so
+    // lifting the ban (which restores only 'banned' rows) can't bring it back.
     await env.DB.prepare(
       `UPDATE extensions SET status = 'banned'
-       WHERE publisher_id IN (SELECT id FROM publishers WHERE discord_id = ?)`,
+       WHERE status = 'published' AND publisher_id IN (SELECT id FROM publishers WHERE discord_id = ?)`,
     ).bind(discordId).run();
   }
   return json({ ok: true, status });

@@ -1692,11 +1692,50 @@ async def export_data(host: str, user: str, dest_dir: Path, app_dir: str = APP_D
             base = f"{await sftp.realpath('.')}/{app_dir}/export"
             for name in ("olisar.db", "olisar.db-wal", "olisar.db-shm"):
                 if await _sftp_exists(sftp, f"{base}/{name}"):
-                    await sftp.get(f"{base}/{name}", str(dest_dir / name))
+                    # follow_symlinks: a link on the VM is fetched as the file it points at,
+                    # so what lands here is a plain file (see _download_docs).
+                    await sftp.get(f"{base}/{name}", str(dest_dir / name), follow_symlinks=True)
             if await _sftp_exists(sftp, f"{base}/kb_uploads"):
-                await sftp.get(f"{base}/kb_uploads", str(dest_dir / "kb_uploads"), recurse=True)
+                await _download_docs(sftp, f"{base}/kb_uploads", dest_dir / "kb_uploads")
     finally:
         conn.close()
+
+
+def _plain_name(name: str) -> bool:
+    """A bare file name: no directory part, and not one that climbs out of its directory."""
+    return bool(name) and name not in (".", "..") and not any(c in name for c in "/\\\0")
+
+
+async def _download_docs(sftp, remote_dir: str, local_dir: Path) -> None:
+    """Copy the VM's uploaded documents (a flat directory of files) into ``local_dir``, one
+    plain file at a time.
+
+    What comes back from a VM is only as trustworthy as the VM. A recursive SFTP get writes
+    each entry under whatever name the server lists (asyncssh joins it on as given, so "../x"
+    or an absolute name lands outside the destination), and copies a symlink as a symlink,
+    pointing wherever the server says. The move then re-points the database's documents at
+    these files and uploads them to the next VM, so a planted link would have this machine
+    read, index or overwrite a file of the attacker's choosing. So each entry is checked with
+    lstat, and only plain files under plain names are fetched. ``follow_symlinks`` covers a
+    file swapped for a link after that check: its bytes then come from wherever the link points
+    on the VM, but what lands here is still a plain file."""
+    top = await sftp.lstat(remote_dir)
+    if top.type != asyncssh.FILEXFER_TYPE_DIRECTORY:
+        log.warning("not downloading %s from the VM: it isn't a directory", remote_dir)
+        return
+    local_dir.mkdir(parents=True, exist_ok=True)
+    for entry in await sftp.readdir(remote_dir):
+        name = entry.filename
+        if name in (".", ".."):
+            continue
+        if not _plain_name(name):
+            log.warning("not downloading %r from the VM's kb_uploads: not a plain file name", name)
+            continue
+        remote = f"{remote_dir}/{name}"
+        if (await sftp.lstat(remote)).type != asyncssh.FILEXFER_TYPE_REGULAR:
+            log.warning("not downloading %s from the VM: not a plain file", remote)
+            continue
+        await sftp.get(remote, str(local_dir / name), follow_symlinks=True)
 
 
 async def import_data(host: str, user: str, src_dir: Path, app_dir: str = APP_DIR) -> None:

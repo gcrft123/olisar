@@ -76,6 +76,10 @@ def _register_connection_setup(engine: AsyncEngine) -> None:
         cur.execute("PRAGMA journal_mode=WAL")
         cur.execute("PRAGMA foreign_keys=ON")
         cur.execute("PRAGMA busy_timeout=5000")
+        # Without a limit the -wal file keeps its high-water mark for good: a big purge
+        # left it at 1.9 GB. With one, SQLite cuts it back to 64 MB whenever it restarts
+        # the log after a checkpoint.
+        cur.execute("PRAGMA journal_size_limit=67108864")
         cur.close()
 
 

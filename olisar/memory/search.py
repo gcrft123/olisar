@@ -257,7 +257,12 @@ async def _vec_pass(
     qvec = await embed_query(query) if query.strip() else []
     if not qvec:
         return []
-    hits = await knn(session, "message_embedding", qvec, k=VEC_K)
+    # A DM channel's messages are filed under guild 0 with every other DM; the scope
+    # below keeps just the one channel.
+    hits = await knn(
+        session, "message_embedding", qvec, k=VEC_K,
+        guild_ids=[*guilds, *([0] if dm_channels else [])],
+    )
     if not hits:
         return []
     dist = {rid: d for rid, d in hits}

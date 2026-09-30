@@ -25,6 +25,7 @@ from olisar.db.models import (
     CONTEXT_MODES,
     GuildChannelInfo,
 )
+from olisar.memory.writer import opted_out
 from olisar.message_links import ChannelFilter
 
 FEED_KEEP = 3              # feed channels: keep only the last N messages
@@ -42,14 +43,19 @@ async def replace_context_items(
     items: list[dict],
 ) -> None:
     """Replace a channel's stored snapshot with ``items`` (oldest-first), each a
-    dict of ``{message_id, author_name, content}``. Wholesale replace keeps the
-    snapshot honest about edits and deletions in the source channel."""
+    dict of ``{message_id, author_id, author_name, content}``. Wholesale replace keeps the
+    snapshot honest about edits and deletions in the source channel.
+
+    A post by someone who asked not to be remembered here is left out, as it would be from
+    conversation memory and the search index (olisar.memory.writer.opted_out)."""
     await session.execute(
         delete(ChannelContextItem).where(ChannelContextItem.channel_id == channel_id)
     )
+    authors = {it.get("author_id") for it in items if it.get("author_id")}
+    unwanted = {a for a in authors if await opted_out(session, a, guild_id)}
     for it in items:
         content = (it.get("content") or "").strip()
-        if not content:
+        if not content or it.get("author_id") in unwanted:
             continue
         session.add(
             ChannelContextItem(
@@ -63,12 +69,20 @@ async def replace_context_items(
         )
 
 
-async def _items_for(session: AsyncSession, channel_id: int) -> list[ChannelContextItem]:
+async def _items_for(
+    session: AsyncSession, guild_id: int, channel_id: int
+) -> list[ChannelContextItem]:
+    """A channel's stored snapshot. Scoped by guild as well as channel, so an allowlist row
+    naming another server's channel can't bring that server's snapshot into this one's
+    context."""
     return list(
         (
             await session.scalars(
                 select(ChannelContextItem)
-                .where(ChannelContextItem.channel_id == channel_id)
+                .where(
+                    ChannelContextItem.guild_id == guild_id,
+                    ChannelContextItem.channel_id == channel_id,
+                )
                 .order_by(ChannelContextItem.id.asc())
             )
         ).all()
@@ -101,10 +115,10 @@ async def channel_context_blocks(
     if readable is not None and context_channels:
         ok = await readable({ch.channel_id for ch in context_channels})
         context_channels = [ch for ch in context_channels if ch.channel_id in ok]
-    topics = await _channel_topics(session, [ch.channel_id for ch in context_channels])
+    topics = await _channel_topics(session, guild_id, [ch.channel_id for ch in context_channels])
     blocks: list[str] = []
     for ch in context_channels:
-        items = await _items_for(session, ch.channel_id)
+        items = await _items_for(session, guild_id, ch.channel_id)
         if not items:
             continue
         name = items[-1].channel_name or str(ch.channel_id)
@@ -124,14 +138,17 @@ async def channel_context_blocks(
     return blocks
 
 
-async def _channel_topics(session: AsyncSession, channel_ids: list[int]) -> dict[int, str]:
-    """Map channel_id -> topic from the synced roster (empty when unset)."""
+async def _channel_topics(
+    session: AsyncSession, guild_id: int, channel_ids: list[int]
+) -> dict[int, str]:
+    """Map channel_id -> topic from this guild's synced roster (empty when unset)."""
     if not channel_ids:
         return {}
     rows = (
         await session.execute(
             select(GuildChannelInfo.channel_id, GuildChannelInfo.topic).where(
-                GuildChannelInfo.channel_id.in_(channel_ids)
+                GuildChannelInfo.guild_id == guild_id,
+                GuildChannelInfo.channel_id.in_(channel_ids),
             )
         )
     ).all()
@@ -144,7 +161,7 @@ async def resource_reference(session: AsyncSession, guild_id: int) -> str:
     parts: list[str] = []
     total = 0
     for ch in await _context_channels(session, guild_id, (ChannelMode.resource,)):
-        items = await _items_for(session, ch.channel_id)
+        items = await _items_for(session, guild_id, ch.channel_id)
         if not items:
             continue
         name = items[-1].channel_name or str(ch.channel_id)

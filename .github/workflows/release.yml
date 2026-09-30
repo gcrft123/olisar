@@ -132,7 +132,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Electron 44's npm package needs Node 22.12 or newer.
+          node-version: '22'
 
       - name: Build the dashboard
         run: |
@@ -234,7 +235,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Electron 44's npm package needs Node 22.12 or newer.
+          node-version: '22'
 
       - name: Build the dashboard
         run: |

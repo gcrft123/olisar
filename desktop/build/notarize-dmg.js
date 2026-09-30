@@ -57,8 +57,7 @@ function teamId() {
   if (process.env.APPLE_TEAM_ID) return process.env.APPLE_TEAM_ID
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP_DIR, 'package.json'), 'utf8'))
-    const notarize = pkg.build && pkg.build.mac && pkg.build.mac.notarize
-    return notarize && notarize.teamId ? notarize.teamId : null
+    return (pkg.config && pkg.config.appleTeamId) || null
   } catch {
     return null
   }
@@ -71,7 +70,7 @@ function notarytoolAuth() {
 
   if (APPLE_ID && APPLE_APP_SPECIFIC_PASSWORD) {
     const team = teamId()
-    if (!team) throw new Error('APPLE_ID is set but no team id — set APPLE_TEAM_ID or build.mac.notarize.teamId')
+    if (!team) throw new Error('APPLE_ID is set but no team id — set APPLE_TEAM_ID or config.appleTeamId in package.json')
     return { args: ['--apple-id', APPLE_ID, '--password', APPLE_APP_SPECIFIC_PASSWORD, '--team-id', team], as: `Apple ID ${APPLE_ID}` }
   }
   if (APPLE_API_KEY && APPLE_API_KEY_ID && APPLE_API_ISSUER) {

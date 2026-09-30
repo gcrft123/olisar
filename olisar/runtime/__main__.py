@@ -8,6 +8,8 @@ singleton), then runs one of:
   --gateway        every bot on the install, each in its own worker process, behind one
                    console (olisar/runtime/gateway.py). What the desktop app runs.
   --worker ID      one bot of a gateway, on a private port. Started by the gateway only.
+  --sandbox-host   runs extension code for the backend that started it
+                   (olisar/runtime/sandbox_host.py). Started by the extension sandbox only.
 
 This module is the PyInstaller entry point inside the Electron app.
 """
@@ -53,6 +55,13 @@ def _setup_logging() -> None:
 
 
 def main() -> None:
+    if sys.argv[1:2] == ["--sandbox-host"]:
+        # A child that runs untrusted extension code: it needs no data dir, config or
+        # logging, and the less it imports the faster it starts.
+        from olisar.runtime.sandbox_host import main as sandbox_host
+
+        sandbox_host()
+        return
     _force_utf8_io()  # before any print/log — a stray ⚠ otherwise crashes on Windows cp1252
     # Must run before anything imports olisar.config / opens the DB.
     from olisar.runtime import paths

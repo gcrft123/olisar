@@ -16,11 +16,26 @@
   // all safely under the 10 GB / 1M-Class-A free tier. R2 reads (Class B, 10M/mo) and
   // egress (free) stay within limits via the Workers free-plan request cap — keep this
   // Worker on the Workers Free plan and R2 can never bill.
+  //
+  // Within those caps, report attachments get their own slice (so a flood of reports can't
+  // use up what publishing needs), and each publisher gets a storage share and a daily
+  // number of new versions (so one publisher can't use up everyone else's).
   "vars": {
     "R2_MAX_BYTES": "9000000000",
     "R2_MAX_BUNDLE_BYTES": "1000000",
-    "R2_CLASS_A_MAX": "900000"
+    "R2_CLASS_A_MAX": "900000",
+    "R2_REPORT_MAX_BYTES": "500000000",
+    "R2_REPORT_CLASS_A_MAX": "100000",
+    "PUBLISHER_MAX_BYTES": "100000000",
+    "PUBLISHER_DAILY_PUBLISHES": "30"
   },
+  // Per-IP limits on the routes that need no token (see RATE_LIMITED in src/index.ts). The
+  // rate-limiting binding costs no D1 writes, so a flood can't burn the D1 free tier's daily
+  // allowance. namespace_id only has to be unique within the Cloudflare account.
+  "ratelimits": [
+    { "name": "WRITE_LIMITER", "namespace_id": "7301", "simple": { "limit": 20, "period": 60 } },
+    { "name": "EMAIL_LIMITER", "namespace_id": "7302", "simple": { "limit": 5, "period": 60 } }
+  ],
   "d1_databases": [
     { "binding": "DB", "database_name": "olisar-registry", "database_id": "0852b2be-5742-4c83-ae65-f83a2d7c933f" }
   ],

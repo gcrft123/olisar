@@ -70,6 +70,10 @@ A security review found six things bad enough to fix before anything else ships.
 
 Servers someone else adds now wait for the operator, and one server's admin reaches only that server. Crowd pings are off until a server's admin turns them on. Being on the operator's computer is no longer enough to reach its machine-only controls: the desktop app holds a token for them. Extensions can't take Olisar's command names, the registry wants proof of the key, and a reply lets go of the database after each tool.
 
+The same review found a longer list that needed a precondition to exploit, or that members would feel as slowness. Extension code could outrun its limits (one backtracking regex held a sandbox thread for days, and merely previewing an import was enough), post into other servers, borrow the names of Olisar's own tools, switch itself on everywhere, or be replaced by an update someone else signed. The knowledge-base crawler could be steered onto the operator's network by a name that resolved differently the second time. Anyone sharing a server with the bot could DM it to read the home server's knowledge base, have it DM strangers, or spend the whole install's quota, and "stop remembering" missed what they said afterwards. The registry let a republish undo a yank and let one publisher overwrite another's stored bundle. Every reply sorted its channel's whole history, and erasing a member's data locked the database long enough for other members' messages to be dropped.
+
+Extension code now runs in separate processes the bot can stop, and extensions answer to the server they run in. Crawls connect only to the public address they checked. Guild data stays with members of that guild, and replies, images and DMs come out of per-member budgets. The registry keeps versions, yanks and bans as they were published. The hot queries read from indexes, memory is searched one server at a time, and erasing happens in small batches. The desktop app moves to a supported Electron, which needs macOS 13.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -470,6 +474,78 @@ Servers someone else adds now wait for the operator, and one server's admin reac
 
 [f387002] — Registering as a marketplace publisher proves the bot holds its signing key, and no longer sends the operator's Discord ID.
 
+[a23753f] — An extension command that asks for Manage Server, like the tags and game-servers set and delete commands, only shows for members who have it.
+
+[a381490] — An extension can't declare a tool under the name of one of Olisar's own, such as remember or web_search; one already installed loads without that tool.
+
+[7fc81e8] — Imported and marketplace extensions start off in every server until its admin turns them on, including ones installed before this that were on by default.
+
+[20f8b73] — A marketplace update installs only over the extension it's for, signed by the key that signed the installed version; after a publisher changes keys, remove the extension and install it again.
+
+[e2bc8b1] — The marketplace install screen shows this bot's own risk review rather than the listing's score, so the first preview of a version takes a few seconds, with Reviewing on its Install button meanwhile.
+
+[f9a3df0] — Importing, installing or saving an extension whose manifest has the wrong types is refused with the field that's wrong.
+
+[41799dd] — Every knowledge source is read from public addresses only, including ones added from the console; a source on the operator's own network stops updating with "points at a private or local address".
+
+[1b8a9c0] — A knowledge-base crawl reads at most 10 MB of a page and 500 KB of robots.txt, and gives each request 20 seconds.
+
+[24cf195] — PDFs, Word documents and web pages for the knowledge base are parsed off the loop that serves Discord and the console.
+
+[d8ef4e6] — The marketplace registry refuses a different build under a version it already has, and the console asks for a version bump instead of offering Push anyway.
+
+[d8ef4e6] — A publisher's own yank of a whole extension lifts when they publish a new version; a moderator's yank and a ban stay.
+
+[52d019a] — Each marketplace publisher has its own share of registry storage and can publish 30 new versions a day.
+
+[9d0bdad] — The registry rate-limits installs, reports, feedback and the other routes that need no token.
+
+[900d639] — Extension code runs in a few separate processes the bot can stop, and a run's CPU budget covers the whole run rather than each step of it.
+
+[f6e63d5] — host.kv holds up to 10,000 keys and 32 MB per extension per server, with keys up to 128 characters and values up to 1 MB.
+
+[d8ff8d1] — The extension docs list host.kv's limits.
+
+[82af16d] — /ask and /catchup follow the role rules and ping settings of the server they're run in.
+
+[c17a789] — Reading or changing Olisar's settings from chat needs Manage Server in server channels too, whether or not the tool PIN is on.
+
+[dab5006] — A member gets 8 replies in a row and then one every 15 seconds, and a server 30 and then one every 4; past that Olisar says it's going too fast once and waits.
+
+[dab5006] — One reply makes at most 2 images.
+
+[dab5006] — The per-member cooldown setting now keeps Olisar from joining in on the same member again within that time.
+
+[87bfd50] — Olisar DMs only members of the server the conversation is in, at most 5 per reply and 20 people a day for any one member.
+
+[28040e1] — A DM from someone who isn't in the home server gets no answers from its knowledge base, glossary or member lists.
+
+[f6dd18d] — Glossary facts learned in a channel only reach replies to members who can open that channel, and ones added in a DM stay in that DM.
+
+[f6dd18d] — Mining the glossary from the console goes a channel at a time, so every fact keeps the channel it came from.
+
+[00fd424] — "Stop remembering" applies everywhere, including DMs and servers Olisar first sees the member in later.
+
+[74e6928] — Someone removed from ADMIN_ALLOWLIST or the Discord app's team loses operator access within five minutes.
+
+[c4c860a] — A request body over 64 KB needs a signed-in sender, and bodies are capped at 1 MB, or 16 MB for extension files, feedback and reports.
+
+[a2bf471] — The console's scripts and styles are sent compressed, about a fifth of their size.
+
+[cc27690] — The desktop app runs on Electron 44 and needs macOS 13 or later.
+
+[a9d4b96] — A reply's context reads the channel's newest messages from an index instead of sorting the channel's whole history.
+
+[89414eb] — The glossary pass only reads channels with new messages to mine, instead of every channel every 20 seconds.
+
+[f1f7d6c] — Erasing a member's data or a server's memory deletes in small batches, and the database's log file shrinks back afterwards.
+
+[089fbb9] — Recall, search and the knowledge base look only through the asking server's stored memory; the first start after updating rebuilds it, about 20 seconds for a 2 GB database.
+
+[ffd9c9a] — Erasing a member's data with "stop remembering" records the opt-out before deleting anything.
+
+[f0ef29a] — pypdf, aiohttp and anyio move past their published security fixes.
+
 ### Fixed
 
 [19aa1f0] — Pressing Enter or Space in a dialog runs that action and leaves the dialog closed.
@@ -735,6 +811,56 @@ Servers someone else adds now wait for the operator, and one server's admin reac
 [d624aa8] — Other members' messages are no longer dropped while Olisar runs a tool that saves something mid-reply.
 
 [d624aa8] — Usage stats no longer lose counts when several replies finish at once.
+
+[edcb49f] — A knowledge-base crawl can no longer be pointed at this computer or the local network by a name that answers differently the second time it's looked up, or by an IPv4 address hidden in IPv6.
+
+[1b8a9c0] — A huge or slow-dripping page can no longer exhaust the bot's memory or hold a crawl open indefinitely.
+
+[41799dd] — /olisar learn-url and learn-site, extension seeds and the console can no longer read addresses on the operator's network into the knowledge base.
+
+[900d639] — A backtracking regex, or code that yields between bursts of work, can no longer keep an extension running past its limits, and a slow host call can no longer hold a 20-second tool for 15 minutes.
+
+[201a401] — Deeply nested extension source no longer crashes the backend on Linux.
+
+[82e21d7] — An extension tool can no longer post into another server's channels or someone's DMs.
+
+[a381490] — An extension tool named like one of Olisar's own no longer receives the calls meant for it.
+
+[7fc81e8] — An imported or marketplace extension can no longer switch itself on in every server.
+
+[20f8b73] — A marketplace update can no longer overwrite a different installed extension, or replace a signed one with an unsigned or differently signed build.
+
+[e2bc8b1] — A publisher can no longer choose the risk score the install screen shows.
+
+[f9a3df0] — One extension with a malformed manifest no longer blanks the Extensions page; its panel still offers the toggle and Delete.
+
+[98966ab] — An extension installed with a malformed manifest before this still lists, and can be turned off or deleted.
+
+[a23753f] — The tags and game-servers extensions' set and delete commands are no longer open to every member.
+
+[d8ef4e6] — Republishing a version no longer un-yanks it or undoes a ban, and one publisher can no longer overwrite another's bundle in the registry's storage.
+
+[52d019a] — Concurrent publishes can no longer go past the registry's storage caps.
+
+[e1d84c5] — A posted GIF declaring a huge canvas no longer stalls the bot or takes hundreds of MB to decode.
+
+[28040e1] — Being an admin of another server no longer passes the home server's allow list in DMs.
+
+[87bfd50] — "DM someone" can no longer message people outside the server, or dozens at once.
+
+[dab5006] — One member can no longer spend the whole install's model or image quota.
+
+[00fd424] — Someone who asked Olisar to stop remembering them is no longer recorded in DMs they send afterwards.
+
+[d417a32] — One server's admin can no longer set a mode on another server's channel and pull its snapshots into their own server's replies.
+
+[c4c860a] — A visitor who isn't signed in can no longer make the backend read and parse an arbitrarily large request body.
+
+[e2a1ab0] — Moving a bot off a VM no longer follows symlinks or odd file names the VM lists, so a compromised VM can't plant or overwrite files on the operator's machine.
+
+[f1f7d6c] — Other members' messages are no longer dropped while a member's data or a server's memory is being erased.
+
+[089fbb9] — A small server's memory is no longer crowded out of recall and search by a larger server's.
 
 ## [1.5.0] — 2026-09-21
 
