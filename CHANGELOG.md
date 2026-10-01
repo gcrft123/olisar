@@ -240,11 +240,19 @@ The landing page still described 1.x: it called every bot Olisar, said all data 
 
 ### Changed
 
+[1347c55] — Docs prose runs as wide as the tables under it, in the console and on the docs site.
+
+[1347c55] — The docs site renders at the console's default 110% size.
+
+[3bc0045] — The landing page's profile figure cycles through six example bots, each with its own picture, name, status and About me, in a new order on every load.
+
+[3bc0045] — The landing page's example conversation shows its members' pictures, and its bot is called Olisar.
+
 [fc5bd5f] — The landing page is rebuilt as one hairline grid, with a live example conversation, working Channels, Behavior and hosting controls, and an FAQ.
 
 [fc5bd5f] — The landing page's Download links the latest stable release for the visitor's OS, with each build's requirements in its menu.
 
-[5a42d6c] — The docs site renders the way the console's Docs page does: two panes, the console's type, callouts and lists, at its 125% size.
+[5a42d6c] — The docs site renders the way the console's Docs page does: two panes, the console's type, callouts and lists.
 
 [5a42d6c] — The docs site picks up three changes the console's docs had and the site was missing.
 
@@ -557,6 +565,12 @@ The landing page still described 1.x: it called every bot Olisar, said all data 
 [f0ef29a] — pypdf, aiohttp and anyio move past their published security fixes.
 
 ### Fixed
+
+[1347c55] — Keyboard shortcuts in the docs show as key chips instead of printing their <kbd> tags, in the console and on the docs site.
+
+[1347c55] — A link inside bold text in the docs works instead of printing its Markdown.
+
+[1347c55] — The docs site's "Build & run from source" page no longer ends on a stray "---", and the link to it from the install page opens it.
 
 [19aa1f0] — Pressing Enter or Space in a dialog runs that action and leaves the dialog closed.
 
