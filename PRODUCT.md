@@ -55,7 +55,7 @@ Everything below is true of 2.0. The landing page describes 2.0 and goes live wh
 - Name: Olisar. Two marks: the brand mark is a violet squircle holding a glowing pale orb (`docs/logo.png`, sources in `icons/Icons Logo/` and `icons/ico_brand.icon/`), used on brand surfaces like the website and README; the dashboard's own mark is a slate shield with a navy star (`web/public/logo.png`, the desktop dock and tray icons). Don't recolor either.
 - Voice: second person, plainspoken, lightly opinionated; calm, competent, a little dry. Sentence case everywhere, US spelling, no emoji in the interface. Full rules in `web/DESIGN.md` under Brand & voice.
 - The landing page uses the console's design system (`web/DESIGN.md`), by the user's direction. The previous landing page is not a reference.
-- In demos, the bot appears under an owner's own name and avatar rather than as "Olisar", because that is how it runs.
+- The landing page's example conversation shows the bot as Olisar; its profile figure cycles through names and avatars an owner might give their bot, because each install runs as the owner's own bot.
 
 ## Evidence on Hand
 
