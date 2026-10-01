@@ -63,7 +63,9 @@ function extractSetupSections(mdText) {
     // Also stop at a following ## if any leftover.
     const after = setupBlock.slice(bodyStart, bodyEnd)
     const nextH2 = after.search(/\n## /)
-    const body = (nextH2 >= 0 ? after.slice(0, nextH2) : after).trim()
+    // The last setup section runs up to DOCUMENTATION.md's `---` before the next chapter; that
+    // separator belongs to the file, not the section.
+    const body = (nextH2 >= 0 ? after.slice(0, nextH2) : after).trim().replace(/\n+(?:-{3,}|\*{3,})\s*$/, '').trim()
     sections.push({ id: cur.id, title: cur.title, body })
   }
   return sections
@@ -89,6 +91,10 @@ for (const g of DOC_GROUPS) {
 
 const allDocs = [...DOCS, ...setupSections]
 const byId = Object.fromEntries(allDocs.map((s) => [s.id, s]))
+// DOCUMENTATION.md links to sections by GitHub's heading anchor ("Build & run from source" is
+// #build--run-from-source); on the site those name the section's id instead.
+const ghSlug = (t) => String(t).toLowerCase().replace(/[^\w\s-]/g, '').replace(/\s/g, '-')
+const idByGhSlug = Object.fromEntries(allDocs.map((s) => [ghSlug(s.title), s.id]))
 const ordered = SITE_GROUPS.flatMap((g) => g.ids.map((id) => byId[id]).filter(Boolean))
 
 // ── Markdown → HTML (mirrors the console / existing docs.html conventions) ───
@@ -100,14 +106,18 @@ function slugify(text) {
 
 function inline(text) {
   let out = ''
-  const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
+  // <kbd>…</kbd> renders as a key chip, as in the console, instead of printing its tags.
+  const re = /(<kbd>[^<]+<\/kbd>|\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
   let last = 0
   let m
   while ((m = re.exec(text))) {
     if (m.index > last) out += esc(text.slice(last, m.index))
     const t = m[0]
-    if (t.startsWith('**')) out += `<strong>${esc(t.slice(2, -2))}</strong>`
-    else if (t.startsWith('*')) out += `<em>${esc(t.slice(1, -1))}</em>`
+    if (t.startsWith('<kbd>')) out += `<kbd>${esc(t.slice(5, -6))}</kbd>`
+    // Bold and italic text can hold a link or code ("**[from source](#…)**"), so their
+    // contents go through inline() too instead of printing as plain text.
+    else if (t.startsWith('**')) out += `<strong>${inline(t.slice(2, -2))}</strong>`
+    else if (t.startsWith('*')) out += `<em>${inline(t.slice(1, -1))}</em>`
     else if (t.startsWith('`')) out += `<code>${esc(t.slice(1, -1))}</code>`
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)
@@ -117,9 +127,10 @@ function inline(text) {
         // Dashboard tabs have no target on the public site — plain text.
         out += label
       } else if (url.startsWith('#')) {
-        const id = url.slice(1).split(/[/?#]/)[0]
-        // Link to a docs section when the hash is a known id; otherwise keep as page anchor.
-        if (byId[id]) out += `<a href="#${esc(id)}" data-doc="${esc(id)}">${label}</a>`
+        const raw = url.slice(1).split(/[/?#]/)[0]
+        const id = byId[raw] ? raw : idByGhSlug[raw]
+        // Link to a docs section when the hash names one; otherwise keep it as a page anchor.
+        if (id) out += `<a href="#${esc(id)}" data-doc="${esc(id)}">${label}</a>`
         else out += `<a href="${esc(url)}">${label}</a>`
       } else {
         out += `<a href="${esc(url)}" target="_blank" rel="noreferrer">${label}</a>`
@@ -221,6 +232,10 @@ function renderBlocks(rawLines) {
         + '</tbody></table></div>'
       continue
     }
+
+    // A thematic break (---) has no counterpart in the console's renderer, so it draws nothing
+    // rather than printing its dashes.
+    if (/^(?:-{3,}|\*{3,})$/.test(line)) { flushAll(); i++; continue }
 
     if (!line) {
       if (list.length) {
