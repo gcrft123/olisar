@@ -131,26 +131,33 @@ function inline(text) {
   return out
 }
 
+// The console's callout icons (ui.tsx CALLOUT_ICON): Solar bold check-circle, info-circle and
+// danger-triangle at 17px. A callout shows a title only when the source gives one, as in the console.
+const svg17 = (d) => `<svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="${d}"/></svg>`
+const ICON_CHECK = svg17('M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12ZM16.0303 8.96967C16.3232 9.26256 16.3232 9.73744 16.0303 10.0303L11.0303 15.0303C10.7374 15.3232 10.2626 15.3232 9.96967 15.0303L7.96967 13.0303C7.67678 12.7374 7.67678 12.2626 7.96967 11.9697C8.26256 11.6768 8.73744 11.6768 9.03033 11.9697L10.5 13.4393L12.7348 11.2045L14.9697 8.96967C15.2626 8.67678 15.7374 8.67678 16.0303 8.96967Z')
+const ICON_INFO = svg17('M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12ZM12 17.75C12.4142 17.75 12.75 17.4142 12.75 17V11C12.75 10.5858 12.4142 10.25 12 10.25C11.5858 10.25 11.25 10.5858 11.25 11V17C11.25 17.4142 11.5858 17.75 12 17.75ZM12 7C12.5523 7 13 7.44772 13 8C13 8.55228 12.5523 9 12 9C11.4477 9 11 8.55228 11 8C11 7.44772 11.4477 7 12 7Z')
+const ICON_WARN = svg17('M5.31171 10.7615C8.23007 5.58716 9.68925 3 12 3C14.3107 3 15.7699 5.58716 18.6883 10.7615L19.0519 11.4063C21.4771 15.7061 22.6897 17.856 21.5937 19.428C20.4978 21 17.7864 21 12.3637 21H11.6363C6.21356 21 3.50217 21 2.40626 19.428C1.31034 17.856 2.52291 15.7061 4.94805 11.4063L5.31171 10.7615ZM12 7.25C12.4142 7.25 12.75 7.58579 12.75 8V13C12.75 13.4142 12.4142 13.75 12 13.75C11.5858 13.75 11.25 13.4142 11.25 13V8C11.25 7.58579 11.5858 7.25 12 7.25ZM12 17C12.5523 17 13 16.5523 13 16C13 15.4477 12.5523 15 12 15C11.4477 15 11 15.4477 11 16C11 16.5523 11.4477 17 12 17Z')
+const CALLOUT_ICON = { tip: ICON_CHECK, note: ICON_INFO, info: ICON_INFO, warning: ICON_WARN }
+// DOCUMENTATION.md's GitHub alerts drop a title that only repeats the alert's own label.
 const CALLOUT_LABELS = { tip: 'Tip', note: 'Note', warning: 'Warning', info: 'Info' }
 const splitRow = (l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())
 const isTableSep = (l) => /^\|?[\s:|-]+\|?$/.test(l.trim()) && l.includes('-') && l.includes('|')
 
 function renderBlocks(rawLines) {
+  // Ported from the console's renderer (ui.tsx renderBlocks) so the site and the Docs page
+  // build the same document: a numbered list keeps its numbers across an interruption, a loose
+  // list (items a blank line apart) stays one list, and a wrapped item joins its bullet.
   const lines = rawLines.map((l) => l.replace(/\r$/, ''))
   let out = ''
   let list = []
-  let olist = []
+  let ordered = false
+  let start = 1
   let para = []
   const flushList = () => {
     if (list.length) {
-      out += '<ul>' + list.map((li) => `<li>${inline(li)}</li>`).join('') + '</ul>'
+      const items = list.map((li) => `<li>${inline(li)}</li>`).join('')
+      out += ordered ? `<ol${start !== 1 ? ` start="${start}"` : ''}>${items}</ol>` : `<ul>${items}</ul>`
       list = []
-    }
-  }
-  const flushOList = () => {
-    if (olist.length) {
-      out += '<ol>' + olist.map((li) => `<li>${inline(li)}</li>`).join('') + '</ol>'
-      olist = []
     }
   }
   const flushPara = () => {
@@ -159,12 +166,11 @@ function renderBlocks(rawLines) {
       para = []
     }
   }
-  const flushAll = () => { flushList(); flushOList(); flushPara() }
+  const flushAll = () => { flushList(); flushPara() }
 
   let i = 0
   while (i < lines.length) {
-    const raw = lines[i]
-    const line = raw.trim()
+    const line = lines[i].trim()
 
     // Fenced code
     const fence = line.match(/^```(\w*)\s*$/)
@@ -192,9 +198,10 @@ function renderBlocks(rawLines) {
         i++
       }
       i++ // closing :::
-      const label = cm[2].trim() || CALLOUT_LABELS[cm[1]]
-      out += `<div class="callout callout-${cm[1]}"><div class="callout-label">${esc(label)}</div>`
-        + `<div class="callout-body">${renderBlocks(inner)}</div></div>`
+      const title = cm[2].trim()
+      out += `<div class="callout ${cm[1]}"><span class="ic">${CALLOUT_ICON[cm[1]]}</span><div class="callout-body">`
+        + (title ? `<div class="callout-title">${inline(title)}</div>` : '')
+        + `${renderBlocks(inner)}</div></div>`
       continue
     }
 
@@ -215,7 +222,15 @@ function renderBlocks(rawLines) {
       continue
     }
 
-    if (!line) { flushAll(); i++; continue }
+    if (!line) {
+      if (list.length) {
+        let j = i + 1
+        while (j < lines.length && !lines[j].trim()) j++
+        const after = (lines[j] || '').trim()
+        if (ordered ? /^\d+\.\s+/.test(after) : after.startsWith('- ')) { i = j; continue }
+      }
+      flushAll(); i++; continue
+    }
 
     if (line.startsWith('#### ')) {
       flushAll()
@@ -232,37 +247,21 @@ function renderBlocks(rawLines) {
     if (line.startsWith('## ')) {
       flushAll()
       const t = line.slice(3)
-      // Public site uses h3 for section subheads (matches prior docs.html).
-      out += `<h3 id="${esc(slugify(t))}">${inline(t)}</h3>`
+      // ## is h2, as in the console: the section title is the page's h1.
+      out += `<h2 id="${esc(slugify(t))}">${inline(t)}</h2>`
       i++; continue
     }
 
-    const ol = line.match(/^(\d+)\.\s+(.*)$/)
-    if (ol) {
-      flushList(); flushPara()
-      olist.push(ol[2])
+    const num = /^(\d+)\.\s+(.*)$/.exec(line)
+    if (num || line.startsWith('- ')) {
+      flushPara()
+      if (list.length && ordered !== !!num) flushList()
+      if (!list.length) start = num ? Number(num[1]) : 1
+      ordered = !!num
+      list.push(num ? num[2] : line.slice(2))
       i++; continue
     }
-    if (line.startsWith('- ')) {
-      flushOList(); flushPara()
-      list.push(line.slice(2))
-      i++; continue
-    }
-
-    // Continuation of list item
-    if (list.length && raw.match(/^\s+\S/)) {
-      list[list.length - 1] += ' ' + line
-      i++; continue
-    }
-    if (olist.length && raw.match(/^\s+\S/)) {
-      olist[olist.length - 1] += ' ' + line
-      i++; continue
-    }
-
-    if (list.length || olist.length) {
-      // New paragraph after list
-      flushAll()
-    }
+    if (list.length) { list[list.length - 1] += ' ' + line; i++; continue }
     para.push(line)
     i++
   }
@@ -283,7 +282,7 @@ const navHtml = SITE_GROUPS.map((g) => {
   const items = g.ids.map((id) => byId[id]).filter(Boolean)
   if (!items.length) return ''
   return `<div class="docs-group"><div class="docs-nav-label">${esc(g.label)}</div>`
-    + items.map((s) => `<div class="docs-nav-item" data-id="${esc(s.id)}">${esc(s.title)}</div>`).join('')
+    + items.map((s) => `<button type="button" class="docs-nav-item" data-id="${esc(s.id)}">${esc(s.title)}</button>`).join('')
     + '</div>'
 }).join('')
 
@@ -299,35 +298,36 @@ const orderJson = JSON.stringify(ordered.map((s) => s.id))
 const titlesObj = Object.fromEntries(ordered.map((s) => [s.id, s.title]))
 const titlesJson = JSON.stringify(titlesObj)
 
-const navScript = `<script>const ORDER=${orderJson};const TITLES=${titlesJson};
-function setNavH(){document.documentElement.style.setProperty('--navh',document.querySelector('nav').offsetHeight+'px');}
+// The console's Docs page (pages.tsx Docs), as a static page: two panes, the open section in
+// the URL hash, search over titles and bodies, prev/next in sidebar order.
+const ARROW_L = '<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 5L9 12L15 19"/></svg>'
+const ARROW_R = '<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5L15 12L9 19"/></svg>'
+const navScript = `<script>const ORDER=${orderJson};const TITLES=${titlesJson};const ARROW_L=${JSON.stringify(ARROW_L)};const ARROW_R=${JSON.stringify(ARROW_R)};
+function setNavH(){document.documentElement.style.setProperty('--navh',document.querySelector('.site-nav').offsetHeight+'px');}
 setNavH();window.addEventListener('resize',setNavH);
-var shell=document.querySelector('.docs-shell');
 var nav=document.querySelector('.docs-nav');
 var content=document.querySelector('.docs-content');
-var tocAside=document.querySelector('.docs-toc');
-var tocLinks=document.getElementById('tocLinks');
 var search=document.querySelector('.docs-search');
+var nofind=document.querySelector('.docs-nofind');
 var prevBtn=document.getElementById('docPrev');
 var nextBtn=document.getElementById('docNext');
+function esc(t){return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function sectionEl(id){return content.querySelector('.doc-section[data-id="'+id+'"]');}
-function buildTOC(sec){var hs=[].slice.call(sec.querySelectorAll('h3,h4'));tocLinks.innerHTML='';if(!hs.length){tocAside.style.display='none';shell.classList.add('no-toc');return;}tocAside.style.display='';shell.classList.remove('no-toc');hs.forEach(function(h){var a=document.createElement('a');a.textContent=h.textContent;a.className=(h.tagName==='H4'?'lvl2':'lvl1');a.href='#';a.addEventListener('click',function(e){e.preventDefault();h.scrollIntoView({behavior:'smooth',block:'start'});});tocLinks.appendChild(a);});}
-function setBtn(btn,id,pre,post){if(id){btn.style.visibility='visible';btn.textContent=pre+TITLES[id]+post;btn.dataset.id=id;}else{btn.style.visibility='hidden';btn.removeAttribute('data-id');}}
-function activate(id,push){if(!sectionEl(id))id=ORDER[0];var secs=content.querySelectorAll('.doc-section');[].forEach.call(secs,function(s){s.hidden=s.dataset.id!==id;});[].forEach.call(nav.querySelectorAll('.docs-nav-item'),function(n){n.classList.toggle('active',n.dataset.id===id);});var sec=sectionEl(id);buildTOC(sec);var oi=ORDER.indexOf(id);setBtn(prevBtn,ORDER[oi-1],'\\u2190 ','');setBtn(nextBtn,ORDER[oi+1],'',' \\u2192');window.scrollTo({top:0});document.title=TITLES[id]+' \\u00b7 Olisar docs';if(push&&location.hash!=='#'+id)history.pushState(null,'','#'+id);}
+function setBtn(btn,id,left){if(id){btn.style.visibility='visible';btn.innerHTML=left?ARROW_L+' '+esc(TITLES[id]):esc(TITLES[id])+' '+ARROW_R;btn.dataset.id=id;}else{btn.style.visibility='hidden';btn.innerHTML='';btn.removeAttribute('data-id');}}
+function activate(id,push){if(!sectionEl(id))id=ORDER[0];[].forEach.call(content.querySelectorAll('.doc-section'),function(s){s.hidden=s.dataset.id!==id;});[].forEach.call(nav.querySelectorAll('.docs-nav-item'),function(n){var on=n.dataset.id===id;n.classList.toggle('active',on);if(on)n.setAttribute('aria-current','page');else n.removeAttribute('aria-current');});var oi=ORDER.indexOf(id);setBtn(prevBtn,ORDER[oi-1],true);setBtn(nextBtn,ORDER[oi+1],false);window.scrollTo({top:0});document.title=TITLES[id]+' · Olisar docs';if(push&&location.hash!=='#'+id)history.pushState(null,'','#'+id);}
 nav.addEventListener('click',function(e){var it=e.target.closest('.docs-nav-item');if(it)activate(it.dataset.id,true);});
 [prevBtn,nextBtn].forEach(function(b){b.addEventListener('click',function(){if(b.dataset.id)activate(b.dataset.id,true);});});
 content.addEventListener('click',function(e){var a=e.target.closest('a[data-doc]');if(a){e.preventDefault();activate(a.getAttribute('data-doc'),true);}});
-search.addEventListener('input',function(){var term=search.value.trim().toLowerCase();[].forEach.call(nav.querySelectorAll('.docs-group'),function(g){var any=false;[].forEach.call(g.querySelectorAll('.docs-nav-item'),function(it){var sec=sectionEl(it.dataset.id);var hay=(it.textContent+' '+(sec?sec.textContent:'')).toLowerCase();var show=!term||hay.indexOf(term)>=0;it.style.display=show?'':'none';if(show)any=true;});g.style.display=any?'':'none';});});
+search.addEventListener('input',function(){var raw=search.value.trim(),term=raw.toLowerCase(),total=0;[].forEach.call(nav.querySelectorAll('.docs-group'),function(g){var any=false;[].forEach.call(g.querySelectorAll('.docs-nav-item'),function(it){var sec=sectionEl(it.dataset.id);var hay=(it.textContent+' '+(sec?sec.textContent:'')).toLowerCase();var show=!term||hay.indexOf(term)>=0;it.style.display=show?'':'none';if(show){any=true;total++;}});g.style.display=any?'':'none';});nofind.hidden=!term||total>0;nofind.textContent='No section mentions “'+raw+'”.';});
 window.addEventListener('hashchange',function(){var id=(location.hash||'').replace(/^#/,'');if(ORDER.indexOf(id)>=0)activate(id,false);});
 var initial=(location.hash||'').replace(/^#/,'');activate(ORDER.indexOf(initial)>=0?initial:ORDER[0],false);</script>
 `
 
 const newHtml = head
   + `<div class="docs-shell">\n`
-  + `<aside class="docs-nav"><input class="docs-search" type="text" placeholder="Search docs…" />${navHtml}</aside>\n`
+  + `<nav class="docs-nav" aria-label="Documentation"><input class="docs-search" type="text" placeholder="Search docs…" aria-label="Search docs" /><p class="docs-nofind" hidden></p>${navHtml}</nav>\n`
   + `<main class="docs-content">${articles}`
   + `<div class="docs-prevnext"><button class="ghost" id="docPrev"></button><button class="ghost" id="docNext"></button></div></main>\n`
-  + `<aside class="docs-toc"><div class="docs-toc-label">On this page</div><div id="tocLinks"></div></aside>\n`
   + `</div>\n`
   + navScript
   + upgradeScript
