@@ -791,15 +791,19 @@ const LINK_OUT = /^(https?:|mailto:)/i
 
 function inline(text: string, key: string, onLink?: (id: string) => void): React.ReactNode[] {
   const nodes: React.ReactNode[] = []
-  const re = /(\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
+  // `<kbd>…</kbd>` is the one HTML tag the docs use (keyboard shortcuts); it renders as the
+  // console's key chip instead of printing its tags.
+  const re = /(<kbd>[^<]+<\/kbd>|\*\*[^*]+\*\*|\*(?=\S)[^*]+?(?<=\S)\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g
   let last = 0
   let m: RegExpExecArray | null
   let i = 0
   while ((m = re.exec(text))) {
     if (m.index > last) nodes.push(text.slice(last, m.index))
     const t = m[0]
-    if (t.startsWith('**')) nodes.push(<strong key={key + i}>{t.slice(2, -2)}</strong>)
-    else if (t.startsWith('*')) nodes.push(<em key={key + i}>{t.slice(1, -1)}</em>)
+    if (t.startsWith('<kbd>')) nodes.push(<kbd key={key + i}>{t.slice(5, -6)}</kbd>)
+    // Bold and italic text can hold a link or code, so their contents are inline Markdown too.
+    else if (t.startsWith('**')) nodes.push(<strong key={key + i}>{inline(t.slice(2, -2), key + i + 'b', onLink)}</strong>)
+    else if (t.startsWith('*')) nodes.push(<em key={key + i}>{inline(t.slice(1, -1), key + i + 'e', onLink)}</em>)
     else if (t.startsWith('`')) nodes.push(<code key={key + i}>{t.slice(1, -1)}</code>)
     else {
       const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(t)!

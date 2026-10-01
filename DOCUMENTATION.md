@@ -398,8 +398,6 @@ cd desktop && npm install && npm run dist               # 4. installer for the c
 #   npm run dist:win   -> NSIS .exe    (run on Windows / CI)
 ```
 
----
-
 ## Hosting & access
 
 ### Running multiple bots
