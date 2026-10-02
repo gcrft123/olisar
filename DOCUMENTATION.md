@@ -2037,7 +2037,6 @@ opens the marketplace's Discord sign-in in your browser. Sign in, check that the
 account and your handle, and confirm. Your published extensions then show a **✓ Discord-verified** badge to
 everyone. The sign-in belongs to the marketplace, not your bot, so there's nothing to set up for it.
 
-
 #### Self-hosting / pointing elsewhere
 
 The registry the console uses is configurable via the `OLISAR_REGISTRY_URL` environment variable (it
