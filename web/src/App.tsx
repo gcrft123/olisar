@@ -250,18 +250,6 @@ export default function App() {
     setSettingsOpen(true)
   }, [auth])
 
-  // Landing back from the marketplace Discord-verification round-trip.
-  useEffect(() => {
-    const p = new URLSearchParams(window.location.search)
-    if (p.has('verified') || p.has('verify')) {
-      const ok = p.get('verified') === '1'
-      window.history.replaceState({}, '', window.location.pathname)
-      toast(ok
-        ? 'Verified with Discord. Your published extensions now show a verified badge.'
-        : 'Discord verification didn’t complete.', ok ? 'success' : 'warning')
-    }
-  }, [])
-
   // First-run gate: if the backend reports no config yet, show the setup wizard
   // before the normal Discord login. If the status call fails (e.g. an older
   // backend), assume configured and proceed.

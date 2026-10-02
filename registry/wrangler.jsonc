@@ -27,7 +27,11 @@
     "R2_REPORT_MAX_BYTES": "500000000",
     "R2_REPORT_CLASS_A_MAX": "100000",
     "PUBLISHER_MAX_BYTES": "100000000",
-    "PUBLISHER_DAILY_PUBLISHES": "30"
+    "PUBLISHER_DAILY_PUBLISHES": "30",
+    // The registry's own Discord app ("Olisar Marketplace Official"), which publisher
+    // verification signs in through. Its secret is the DISCORD_CLIENT_SECRET Worker secret, and
+    // <this Worker>/v1/publishers/verify/callback is registered as its redirect.
+    "DISCORD_CLIENT_ID": "1554833708010184886"
   },
   // Per-IP limits on the routes that need no token (see RATE_LIMITED in src/index.ts). The
   // rate-limiting binding costs no D1 writes, so a flood can't burn the D1 free tier's daily

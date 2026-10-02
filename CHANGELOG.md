@@ -68,7 +68,7 @@ After an update, the desktop app said which version it was on and nothing about 
 
 A security review found six things bad enough to fix before anything else ships. Anyone could add a public bot to a server of their own and, with Manage Server there, sign in to the console and read every server's audit log and logs, or wipe other servers' memory. Any member could get a reply to ping @everyone. An extension could reach the controls that only work on the operator's machine by bouncing a request off a redirect, or replace /killswitch with a command of its own. The marketplace registry handed developer access, or another publisher's handle, to whoever asked for it. And a reply that saved something held the database through its model calls, so other members' messages were dropped while it ran.
 
-Servers someone else adds now wait for the operator, and one server's admin reaches only that server. Crowd pings are off until a server's admin turns them on. Being on the operator's computer is no longer enough to reach its machine-only controls: the desktop app holds a token for them. Extensions can't take Olisar's command names, the registry wants proof of the key, and a reply lets go of the database after each tool.
+Servers someone else adds now wait for the operator, and one server's admin reaches only that server. Crowd pings are off until a server's admin turns them on. Being on the operator's computer is no longer enough to reach its machine-only controls: the desktop app holds a token for them. Extensions can't take Olisar's command names, the registry wants proof of the key and runs the Discord check for its verified badge itself, and a reply lets go of the database after each tool.
 
 The same review found a longer list that needed a precondition to exploit, or that members would feel as slowness. Extension code could outrun its limits (one backtracking regex held a sandbox thread for days, and merely previewing an import was enough), post into other servers, borrow the names of Olisar's own tools, switch itself on everywhere, or be replaced by an update someone else signed. The knowledge-base crawler could be steered onto the operator's network by a name that resolved differently the second time. Anyone sharing a server with the bot could DM it to read the home server's knowledge base, have it DM strangers, or spend the whole install's quota, and "stop remembering" missed what they said afterwards. The registry let a republish undo a yank and let one publisher overwrite another's stored bundle. Every reply sorted its channel's whole history, and erasing a member's data locked the database long enough for other members' messages to be dropped.
 
@@ -474,6 +474,8 @@ Extension code now runs in separate processes the bot can stop, and extensions a
 
 [f387002] — Registering as a marketplace publisher proves the bot holds its signing key, and no longer sends the operator's Discord ID.
 
+[f819236] — Verify with Discord opens the marketplace's own Discord sign-in in your browser, and no longer needs a redirect URL added to your bot's Discord app.
+
 [a23753f] — An extension command that asks for Manage Server, like the tags and game-servers set and delete commands, only shows for members who have it.
 
 [a381490] — An extension can't declare a tool under the name of one of Olisar's own, such as remember or web_search; one already installed loads without that tool.
@@ -811,6 +813,8 @@ Extension code now runs in separate processes the bot can stop, and extensions a
 [d624aa8] — Other members' messages are no longer dropped while Olisar runs a tool that saves something mid-reply.
 
 [d624aa8] — Usage stats no longer lose counts when several replies finish at once.
+
+[f819236] — The marketplace's verified badge can only be granted through the marketplace's own Discord sign-in, confirmed by the person who signed in; a Discord token collected by any other app no longer works.
 
 [edcb49f] — A knowledge-base crawl can no longer be pointed at this computer or the local network by a name that answers differently the second time it's looked up, or by an IPv4 address hidden in IPv6.
 

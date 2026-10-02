@@ -14,17 +14,12 @@ import contextlib
 import json
 import logging
 import re
-import secrets
-import urllib.parse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 
 from api.auth.deps import require_admin
-from api.auth.oauth import AUTHORIZE_URL, TOKEN_URL, _get_state_serializer, _is_secure, _origin
-from api.auth.sessions import COOKIE_SUFFIX
 from olisar import runtime_config
 from api.routers.extensions import (
     _operator,
@@ -57,7 +52,6 @@ router = APIRouter(prefix="/api/marketplace", tags=["marketplace"])
 _TIMEOUT = 15.0
 _NS_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _VER_RE = re.compile(r"^[A-Za-z0-9._-]{1,32}$")
-VERIFY_STATE_COOKIE = "olisar_verify_state" + COOKIE_SUFFIX
 
 
 def _registry_base() -> str:
@@ -321,12 +315,13 @@ async def publisher(admin: AdminUser = Depends(require_admin)) -> dict:
     _operator(admin)
     async with session_scope() as session:
         ident = await signing.ensure_identity(session)
-        return {
-            "fingerprint": ident.fingerprint,
-            "handle": ident.registry_handle,
-            "registered": bool(ident.registry_token and ident.registry_handle),
-            "verified": bool(ident.registry_verified),
-        }
+        registered = bool(ident.registry_token and ident.registry_handle)
+        token, verified = ident.registry_token, bool(ident.registry_verified)
+        out = {"fingerprint": ident.fingerprint, "handle": ident.registry_handle, "registered": registered}
+    if registered and not verified:
+        # Verification finishes on the registry, in the browser, so ask it.
+        verified = await _refresh_verified(token)
+    return {**out, "verified": verified}
 
 
 @router.get("/published")
@@ -666,79 +661,41 @@ async def yank(body: MarketplaceYankIn, admin: AdminUser = Depends(require_admin
 
 
 # ── Discord-verified publisher ──────────────────────────────────────────────
-# An isolated OAuth flow (separate from console login): the console opens /verify/start,
-# the operator approves on Discord, /verify/callback forwards the short-lived `identify`
-# token to the registry, which confirms it with Discord and sets the verified badge.
-async def complete_discord_verification(discord_token: str) -> bool:
-    async with session_scope() as session:
-        ident = await signing.ensure_identity(session)
-        token = ident.registry_token
-    if not token:
-        return False
+# The registry runs the Discord sign-in itself, through its own Discord app, so the verified
+# badge can't be granted with a token some other app collected. The console opens the link
+# from /verify/start in a browser, the operator signs in and confirms on the registry's page,
+# and /publisher picks up the result.
+async def _refresh_verified(token: str | None) -> bool:
+    """Whether the registry now counts this publisher as verified; cached once it does."""
     try:
-        r = await _registry_post("/v1/publishers/verify", {"discord_token": discord_token}, token=token)
-    except HTTPException:
+        r = await _registry_get("/v1/publishers/me", token=token)
+        verified = r.status_code == 200 and bool(r.json().get("verified"))
+    except (HTTPException, ValueError):
         return False
-    if r.status_code != 200:
-        return False
-    async with session_scope() as session:
-        ident = await signing.ensure_identity(session)
-        ident.registry_verified = True
-    return True
+    if verified:
+        async with session_scope() as session:
+            ident = await signing.ensure_identity(session)
+            ident.registry_verified = True
+    return verified
 
 
-@router.get("/verify/start")
-async def verify_start(request: Request, admin: AdminUser = Depends(require_admin)) -> Response:
-    """Begin Discord verification of this bot's publisher identity (operator only)."""
+@router.post("/verify/start")
+async def verify_start(admin: AdminUser = Depends(require_admin)) -> dict:
+    """A Discord sign-in link, from the registry, that verifies this bot's publisher."""
     _operator(admin)
     async with session_scope() as session:
         ident = await signing.ensure_identity(session)
         if not ident.registry_token:
             raise HTTPException(status_code=400, detail="claim a publisher handle first")
-    state = secrets.token_urlsafe(16)
-    redirect_uri = _origin(request) + "/api/marketplace/verify/callback"
-    params = {
-        "client_id": await runtime_config.discord_client_id(),
-        "redirect_uri": redirect_uri, "response_type": "code",
-        "scope": "identify", "state": state,
-    }
-    resp = RedirectResponse(AUTHORIZE_URL + "?" + urllib.parse.urlencode(params))
-    resp.set_cookie(
-        VERIFY_STATE_COOKIE, (await _get_state_serializer()).dumps(state),
-        max_age=600, httponly=True, samesite="lax", secure=_is_secure(request),
-    )
-    return resp
-
-
-@router.get("/verify/callback")
-async def verify_callback(request: Request, code: str | None = None, state: str | None = None) -> Response:
-    """Discord redirect target: exchange the code and forward the token to the registry.
-    Validated by the state cookie set in /verify/start (which is operator-gated)."""
-    origin = _origin(request)
-    fail = RedirectResponse(origin + "/?verify=failed")
-    fail.delete_cookie(VERIFY_STATE_COOKIE)
-    if not code or not state:
-        return fail
-    try:
-        expected = (await _get_state_serializer()).loads(request.cookies.get(VERIFY_STATE_COOKIE, ""), max_age=600)
-    except Exception:  # noqa: BLE001
-        return fail
-    if expected != state:
-        return fail
-    try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            tok = await client.post(TOKEN_URL, data={
-                "client_id": await runtime_config.discord_client_id(),
-                "client_secret": await runtime_config.discord_client_secret(),
-                "grant_type": "authorization_code", "code": code,
-                "redirect_uri": origin + "/api/marketplace/verify/callback",
-            }, headers={"Content-Type": "application/x-www-form-urlencoded"})
-            if tok.status_code != 200:
-                return fail
-            access_token = tok.json()["access_token"]
-    except Exception:  # noqa: BLE001
-        return fail
-    ok = await complete_discord_verification(access_token)
-    resp = RedirectResponse(origin + ("/?verified=1" if ok else "/?verify=failed"))
-    resp.delete_cookie(VERIFY_STATE_COOKIE)
-    return resp
+        token = ident.registry_token
+    r = await _registry_post("/v1/publishers/verify/start", {}, token=token)
+    if r.status_code == 401:  # token rotated out from under us — refresh once and retry
+        fresh = await _reregister_token(admin)
+        if fresh:
+            r = await _registry_post("/v1/publishers/verify/start", {}, token=fresh)
+    if r.status_code != 200:
+        raise _registry_error(r, "couldn't start Discord verification")
+    url = str(r.json().get("url") or "")
+    if not url.startswith("https://discord.com/"):
+        raise HTTPException(status_code=502, detail="the marketplace sent an unexpected sign-in link")
+    return {"url": url}
