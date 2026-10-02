@@ -25,10 +25,12 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
@@ -340,10 +342,24 @@ class GuildRole(Base):
 
 class Message(Base):
     __tablename__ = "message"
+    __table_args__ = (
+        # "The channel's newest N": every reply's history window and the proactive scan.
+        # Walked newest-first it's N index steps; a channel_id-only index meant reading
+        # the whole channel and sorting it. Also serves every channel_id-only lookup.
+        Index("ix_message_channel_created", "channel_id", "created_at"),
+        # Only the rows the glossary miner still has to read, so finding them costs what's
+        # left to mine rather than the channel's whole history. The two flags are constant
+        # here; they're in the key because SQLite plans without statistics, and three
+        # equality matches are what make it prefer this over ix_message_channel_created.
+        Index(
+            "ix_message_unmined", "channel_id", "fact_mined", "author_is_bot", "created_at",
+            sqlite_where=text("fact_mined = 0 AND author_is_bot = 0"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)  # local PK (= vec rowid)
     guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
-    channel_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    channel_id: Mapped[int] = mapped_column(BigInteger)
     message_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)  # Discord id
     author_id: Mapped[int] = mapped_column(BigInteger, index=True)
     author_is_bot: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -436,6 +452,22 @@ class UserProfile(Base):
     last_seen: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class MemoryOptOut(Base):
+    """Someone who asked Olisar to stop remembering them (``/forget-me stop_remembering``).
+
+    ``UserProfile.memory_opt_out`` is per server, and a profile only exists where they've
+    been seen, so the flag alone missed their first DM afterwards and every server the bot
+    joined later. This row is the promise itself: a profile created from now on starts
+    opted out (``olisar.memory.writer.upsert_profile``), and a writer with no profile to
+    read asks here. A profile that exists still decides for its own server, so the member
+    portal's per-server switch keeps working."""
+
+    __tablename__ = "memory_opt_out"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class UserMemory(Base):
@@ -825,10 +857,12 @@ class KBSource(Base):
     max_pages: Mapped[int] = mapped_column(Integer, default=50)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    # Only ever read from public addresses. Set on sources a member added from chat, which
-    # are crawled with that guard on every request (olisar.knowledge.crawler); what an
-    # operator adds from the console may be on their own network, and stays readable.
-    public_only: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Every source is read from public addresses only, whoever added it: a server admin can
+    # add one from the console or a slash command, and Olisar runs inside the operator's
+    # network. The ingest worker applies that to all of them and doesn't read this column,
+    # so rows from before, which may say False, get it too. Kept because older databases
+    # have it as NOT NULL with no default.
+    public_only: Mapped[bool] = mapped_column(Boolean, default=True)
     last_ingested_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth.oauth import router as auth_router
+from api.body_limit import BodyLimit
 from api.routers.admin import router as admin_router
 from api.routers.bot import router as bot_router
 from api.routers.extensions import router as extensions_router
@@ -41,6 +42,12 @@ def create_app() -> FastAPI:
     # This process's bot (set by the unified runtime; defaulted here so the standalone dev
     # API never hits a missing attribute).
     app.state.bot_supervisor = None
+
+    # Request bodies are capped, and one past a small form's size needs a signed-in sender,
+    # both decided from the headers before any route reads the body (FastAPI reads a body
+    # before the route's sign-in check runs). Added first, so it sits inside the two below:
+    # neither reads a body, their refusals still come first, and CORS still marks its answers.
+    app.add_middleware(BodyLimit)
 
     # The dashboard is served same-origin: by this server (ConsoleFiles below), through the
     # tunnel, by the desktop gateway in front of it, or by the Vite dev server's proxy. So CORS

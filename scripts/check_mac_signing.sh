@@ -43,12 +43,13 @@ fi
 
 echo "checking macOS signing + notarization credentials"
 
-# The team id electron-builder pins for the .app half. notarize-dmg.js prefers APPLE_TEAM_ID
-# for the .dmg half, so both are checked against the certificate below.
+# The team id pinned for the build (desktop/package.json config.appleTeamId). `npm run dist:mac`
+# hands it to electron-builder as APPLE_TEAM_ID for the .app half unless APPLE_TEAM_ID is
+# already set, and notarize-dmg.js does the same for the .dmg half, so both are checked
+# against the certificate below.
 pinned_team="$(python3 - "$REPO_ROOT/desktop/package.json" <<'PY'
 import json, sys
-notarize = json.load(open(sys.argv[1])).get("build", {}).get("mac", {}).get("notarize", {})
-print(notarize.get("teamId", "") if isinstance(notarize, dict) else "")
+print(json.load(open(sys.argv[1])).get("config", {}).get("appleTeamId", ""))
 PY
 )"
 
@@ -131,13 +132,13 @@ if [[ -n "$identity" ]]; then
 fi
 
 if [[ -z "$pinned_team" && "$have_cert" == true ]]; then
-  problem "desktop/package.json has no build.mac.notarize.teamId, so electron-builder won't notarize the .app — and notarize-dmg.js then refuses to ship a .dmg with no stapled ticket."
+  problem "desktop/package.json has no config.appleTeamId, so electron-builder won't notarize the .app — and notarize-dmg.js then refuses to ship a .dmg with no stapled ticket."
 elif [[ -n "$cert_team" && -n "$pinned_team" && "$cert_team" != "$pinned_team" ]]; then
-  problem "the certificate belongs to team $cert_team but desktop/package.json pins build.mac.notarize.teamId=$pinned_team. Apple rejects a submission from a team that didn't sign it."
+  problem "the certificate belongs to team $cert_team but desktop/package.json pins config.appleTeamId=$pinned_team. Apple rejects a submission from a team that didn't sign it."
 fi
 
 if [[ -n "${APPLE_TEAM_ID:-}" && -n "$pinned_team" && "${APPLE_TEAM_ID}" != "$pinned_team" ]]; then
-  problem "APPLE_TEAM_ID (${APPLE_TEAM_ID}) and desktop/package.json's build.mac.notarize.teamId ($pinned_team) disagree — the .app is notarized under one and the .dmg under the other."
+  problem "APPLE_TEAM_ID (${APPLE_TEAM_ID}) and desktop/package.json's config.appleTeamId ($pinned_team) disagree — the .app is notarized under one and the .dmg under the other."
 fi
 
 team="${APPLE_TEAM_ID:-$pinned_team}"
@@ -154,7 +155,7 @@ if [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
   elif [[ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
     problem "APPLE_ID is set but APPLE_APP_SPECIFIC_PASSWORD isn't — electron-builder fails the build on this rather than falling back."
   elif [[ -z "$team" ]]; then
-    problem "APPLE_ID is set but there's no team id — set APPLE_TEAM_ID or build.mac.notarize.teamId."
+    problem "APPLE_ID is set but there's no team id — set APPLE_TEAM_ID or config.appleTeamId."
   else
     auth_label="Apple ID ${APPLE_ID}"
     auth=(--apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$team")

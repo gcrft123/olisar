@@ -17,7 +17,7 @@ from google.genai import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from olisar import self_settings, toolpin
+from olisar import budgets, self_settings, toolpin
 from olisar.db.models import (
     MASS_MENTIONS,
     GeminiUsage,
@@ -32,7 +32,7 @@ from olisar.gemini.rate_limiter import pending_grounding
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
-from olisar.memory.writer import record_bot_activity
+from olisar.memory.writer import opted_out, record_bot_activity
 from olisar.memory.search import search_messages
 from olisar.message_links import ChannelFilter, channel_filter
 from olisar.proactivity import first_emoji
@@ -52,6 +52,7 @@ class DiscordActions(Protocol):
     async def user_status(self, query: str, guild_id: int) -> str: ...
     async def who_in_voice(self, guild_id: int) -> str: ...
     async def is_admin(self, user_id: int, guild_id: int) -> bool: ...
+    async def is_member(self, user_id: int, guild_id: int) -> bool: ...
     async def channel_directory(
         self, guild_id: int, *, requester_id: int = ..., limit: int = ...
     ) -> str: ...
@@ -95,6 +96,14 @@ ACTION_TOOLS = frozenset({
     "send_dm", "send_to_channel", "remember", "remember_server_fact", "add_reminder",
     "cancel_reminder", "set_status", "react", "generate_image", "set_dm_indexing",
     "change_setting", "settings_action",
+})
+
+# The tools that read or write the server's own data: its knowledge base, its glossary, and
+# what its members are doing right now. A DM borrows the home server, and sharing any
+# server with the bot is enough to DM it, so in a DM these are only for members of the home
+# server (see _asker_in_guild).
+GUILD_TOOLS = frozenset({
+    "query_knowledge", "remember_server_fact", "get_user_status", "who_is_in_voice",
 })
 
 
@@ -149,6 +158,13 @@ class ToolContext:
     # recall then go by what @everyone can open rather than by the person it answers; see
     # olisar.message_links.channel_filter.
     addressed: bool = True
+    # Whether the asker is a member of cfg_guild; None until someone asks. Only a DM can be
+    # from a non-member, and then GUILD_TOOLS are refused (see _asker_in_guild).
+    in_guild: bool | None = None
+    # How many images this reply has asked for; capped at IMAGES_PER_REPLY.
+    images: int = 0
+    # How many DMs this reply has tried to send; capped at DMS_PER_REPLY.
+    dms: int = 0
 
     def readable(self) -> ChannelFilter:
         """The channels this reply's asker can open, for filtering search and recall. For a
@@ -457,12 +473,33 @@ def ack_declarations() -> list:
     return _ACK_DECLARATIONS
 
 
+# Every name Olisar's own tools answer to. A call by one of these names always runs the
+# core tool (_dispatch), and an extension can't declare one (olisar.extensions.tool_names):
+# its handler would get the calls meant for the core tool, arguments and all, and the model
+# would take what it returned as the core tool's answer.
+CORE_TOOL_NAMES = frozenset(
+    d.name for d in (*_DECLARATIONS, *_PRESENCE_DECLARATIONS, *_ACK_DECLARATIONS)
+) | self_settings.TOOL_NAMES
+
+
+def _shadows_core(declaration: types.FunctionDeclaration) -> bool:
+    """Whether a declaration handed in next to the core tools is someone else's tool under
+    a core tool's name. The optional core tools (presence, acknowledge) arrive the same
+    way, and pass."""
+    return declaration.name in CORE_TOOL_NAMES and not any(
+        declaration is own for own in (*_PRESENCE_DECLARATIONS, *_ACK_DECLARATIONS)
+    )
+
+
 def tools_with_extensions(extra_declarations: list) -> list:
     """The tool set for one reply: the core tools plus any enabled extensions'
-    function declarations. Returns the shared TOOLS when there are no extras."""
-    if not extra_declarations:
+    function declarations. Returns the shared TOOLS when there are no extras. An
+    extension's tool under a core tool's name is left out, so the model never sees two
+    tools by one name."""
+    extras = [d for d in extra_declarations if not _shadows_core(d)]
+    if not extras:
         return TOOLS
-    return [types.Tool(function_declarations=[*_DECLARATIONS, *extra_declarations])]
+    return [types.Tool(function_declarations=[*_DECLARATIONS, *extras])]
 
 
 def with_settings_tools(tools: list) -> list:
@@ -489,6 +526,15 @@ def without_settings_tools(tools: list) -> list:
     ]
 
 
+def without_guild_tools(tools: list) -> list:
+    """``tools`` minus GUILD_TOOLS, for a DM from someone who isn't a member of the home
+    server. Pair it with ``ToolContext.in_guild = False``."""
+    declared = [d for t in tools for d in (t.function_declarations or [])]
+    return [
+        types.Tool(function_declarations=[d for d in declared if d.name not in GUILD_TOOLS])
+    ]
+
+
 # Core tools exposed in the dashboard sandbox (the enclosed test chat). Only the
 # knowledge-base lookup and web search: everything else is deliberately excluded —
 # the memory/glossary tools (remember, remember_server_fact, recall_memory,
@@ -509,7 +555,8 @@ def sandbox_tools(extra_declarations: list) -> list:
     Keeps tool-calling + KB working while guaranteeing a test chat never writes memory
     or reaches into the live server."""
     core = [d for d in _DECLARATIONS if d.name in _SANDBOX_CORE]
-    return [types.Tool(function_declarations=[*core, *extra_declarations])]
+    extras = [d for d in extra_declarations if not _shadows_core(d)]
+    return [types.Tool(function_declarations=[*core, *extras])]
 
 
 async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
@@ -528,6 +575,15 @@ def _summarize(text: str, limit: int = 200) -> str:
     s = " ".join((text or "").split())
     return (s[:limit] + "…") if len(s) > limit else s
 
+
+# How many images one reply may generate. Each spends the install's image allowance (the
+# free tier, then billed), and one message used to be able to ask for a dozen.
+IMAGES_PER_REPLY = 2
+_IMAGE_CAP_NOTE = (
+    "Not made: that's the {cap} images one reply can make. Don't call generate_image again "
+    "this turn; tell them plainly how many you made, and that they can ask for more in "
+    "another message."
+)
 
 # How ``DiscordActions.set_status`` opens a success, so the status can be recorded only
 # once Discord took it.
@@ -637,8 +693,9 @@ async def _acknowledge(emoji: str, ctx: ToolContext) -> str:
 
 
 async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
-    # Extension-provided tools (enabled per reply) take precedence over core tools.
-    ext_handler = ctx.extension_tools.get(name)
+    # Extension-provided tools (enabled per reply) run under their own names only: a core
+    # tool's name always runs the core tool, whatever an extension declared.
+    ext_handler = None if name in CORE_TOOL_NAMES else ctx.extension_tools.get(name)
     if ext_handler is not None:
         try:
             return await ext_handler(args, ctx)
@@ -656,6 +713,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 recent_ids=set(),
                 channel_id=ctx.channel_id,
                 readable=ctx.readable(),
+                member=await _asker_in_guild(ctx),
+                dm=ctx.is_dm,
             )
             return block or "Nothing relevant found in memory."
 
@@ -663,6 +722,13 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             fact = (args.get("fact") or "").strip()
             if not fact:
                 return "Nothing to remember."
+            # A DM's fact is filed under the home server, so both have to allow it.
+            for scope in {0 if ctx.is_dm else ctx.cfg_guild, ctx.cfg_guild}:
+                if await opted_out(ctx.session, ctx.user_id, scope):
+                    return (
+                        "Not saved: they've asked you not to remember things about them. "
+                        "Keep nothing, and tell them so if it matters."
+                    )
             kind = {
                 "event": UserMemoryKind.event,
                 "preference": UserMemoryKind.preference,
@@ -762,11 +828,14 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "No image prompt given."
             if ctx.actions is None:
                 return "Can't generate images from here."
+            if ctx.images >= IMAGES_PER_REPLY:
+                return _IMAGE_CAP_NOTE.format(cap=IMAGES_PER_REPLY)
             if not await image_is_configured():
                 return (
                     "Image generation isn't set up on this server — tell the user "
                     "you can't make images right now."
                 )
+            ctx.images += 1  # counted before the call: a failed one can still be billed
             try:
                 data, mime = await generate_image(prompt)
             except Exception:
@@ -822,8 +891,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
         if name == "send_dm":
             if ctx.actions is None:
                 return "Can't send DMs from here."
-            target = args.get("user_id") or ctx.user_id
-            return await ctx.actions.send_dm(target, args.get("message") or "")
+            return await _send_dm(args, ctx)
 
         if name == "send_to_channel":
             if ctx.actions is None:
@@ -1014,10 +1082,40 @@ async def _confirm_with_pin(name: str, args: dict, ctx: ToolContext) -> str:
     )
 
 
+async def _asker_in_guild(ctx: ToolContext) -> bool:
+    """Whether the person this reply answers is a member of the server it acts on.
+
+    Always so in a server channel, where they just posted. In a DM the server is the home
+    one, and anyone who shares some server with the bot can DM it, so Discord is asked, once
+    per reply. A failed lookup counts as not a member."""
+    if not ctx.is_dm:
+        return True
+    if ctx.in_guild is None:
+        check = getattr(ctx.actions, "is_member", None)
+        try:
+            ctx.in_guild = bool(check and await check(ctx.user_id, ctx.cfg_guild))
+        except Exception:  # noqa: BLE001
+            log.exception("couldn't check whether %s is in guild %s", ctx.user_id, ctx.cfg_guild)
+            ctx.in_guild = False
+    return ctx.in_guild
+
+
+_NOT_A_MEMBER = (
+    "Not available: that tool is for members of the server, and the person you're talking "
+    "to isn't one. Answer without it, and don't share anything about the server."
+)
+
+
 async def execute_tool(name: str, args: dict, ctx: ToolContext) -> str:
     """Run a tool, logging the call and a one-line summary of what it returned
     (search-type tools also log the specific items they used, in their modules)."""
     log.info("tool call: %s(%s)", name, ", ".join(f"{k}={v!r}" for k, v in args.items()))
+    # Ahead of the PIN gate: nobody should be asked to confirm a call that can't run.
+    if name in GUILD_TOOLS and not await _asker_in_guild(ctx):
+        log.info("tool %s refused: %s isn't a member of guild %s", name, ctx.user_id, ctx.cfg_guild)
+        if name in ACTION_TOOLS:
+            ctx.failed.append(name)
+        return _NOT_A_MEMBER
     action = await toolpin.gate(ctx.session, ctx.cfg_guild, name)
     if action and action not in ctx.pin_approved:
         outcome = ctx.pin_denied.get(action) or await _confirm_with_pin(name, args, ctx)
@@ -1045,3 +1143,55 @@ def _went_through(name: str, result: str, wrote_settings: bool) -> bool:
     if name in self_settings.TOOL_NAMES:
         return wrote_settings
     return str(result or "").startswith(_ACTION_DONE.get(name, ()))
+
+
+# How many DMs one reply may send (budgets.DMS_PER_DAY caps a member's day). Asking Olisar
+# to DM a few people is the feature; one message fanning out to dozens is not.
+DMS_PER_REPLY = 5
+_DM_REPLY_CAP = (
+    "Not sent: that's the {cap} DMs one reply can send. Don't call send_dm again this turn; "
+    "tell them who you did message, and that they can ask again for the rest."
+)
+_DM_DAY_CAP = (
+    "Not sent: they've had you DM {cap} people in the last day, the most one member can. "
+    "Tell them plainly you can't DM anyone else for them until tomorrow."
+)
+_DM_ASKER_NOT_MEMBER = (
+    "Not sent: you only DM other people for members of this server, and the person asking "
+    "isn't one. Tell them you can't do that for them."
+)
+_DM_RECIPIENT_NOT_MEMBER = (
+    "Not sent: that person isn't a member of this server, and you only DM its members. "
+    "Tell them you couldn't reach them."
+)
+
+
+async def _send_dm(args: dict, ctx: ToolContext) -> str:
+    """send_dm within its limits. The recipient has to be a member of the server the
+    conversation is in (the home server in a DM), and so does the person asking; a reply
+    sends at most DMS_PER_REPLY; and a member can have budgets.DMS_PER_DAY people messaged
+    for them in a day. A DM to the person asking is held only to the per-reply cap.
+
+    Without these, send_dm took any user id and any text, as often as the model called it,
+    and anyone sharing a server with the bot had a relay to every member of every server it
+    was in."""
+    raw = args.get("user_id") or ctx.user_id
+    try:
+        target = int(raw)
+    except (TypeError, ValueError):
+        return f"'{raw}' isn't a valid user id"
+    if ctx.dms >= DMS_PER_REPLY:
+        return _DM_REPLY_CAP.format(cap=DMS_PER_REPLY)
+    someone_else = target != ctx.user_id
+    if someone_else:
+        if not await _asker_in_guild(ctx):
+            return _DM_ASKER_NOT_MEMBER
+        if not await ctx.actions.is_member(target, ctx.cfg_guild):
+            return _DM_RECIPIENT_NOT_MEMBER
+        if budgets.dms_left(ctx.user_id) <= 0:
+            return _DM_DAY_CAP.format(cap=budgets.DMS_PER_DAY)
+    ctx.dms += 1
+    result = await ctx.actions.send_dm(target, args.get("message") or "")
+    if someone_else and str(result).startswith(DM_OK):
+        budgets.note_dm(ctx.user_id)
+    return result

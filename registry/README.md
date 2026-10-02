@@ -19,7 +19,7 @@ registry is a discovery + distribution layer — never a trusted compiler.
 | GET | `/v1/publishers/verify/callback` | Discord's redirect; shows which publisher it will link |
 | POST | `/v1/publishers/verify/confirm` | link the Discord account and set the verified badge |
 | GET | `/v1/publishers/me` | the publisher's handle, fingerprint and verified flag (bearer token) |
-| POST | `/v1/publish` | publish a bundle signed by the publisher's key (bearer token) |
+| POST | `/v1/publish` | publish a new version, signed by the publisher's key (bearer token) |
 | POST | `/v1/yank` | yank one of your extensions (bearer token) |
 | POST | `/v1/_dev/publish` | **local-only** seeding (gated by `DEV_SEED`) |
 
@@ -54,6 +54,30 @@ Setup, once per registry:
 
 Until both are set, `/v1/publishers/verify/start` answers 503. For local tests, `DISCORD_API` in `.dev.vars` points the token exchange at a stand-in for Discord.
 
+## Publishing, versions and yanks
+
+The registry computes each bundle's `content_hash` itself, with the same canonical form as `olisar.extensions.bundle.canonical_hash`, and refuses a bundle whose declared hash differs. The publisher's signature is checked against that computed hash. Each version's blob lives at `bundles/<namespace>/<name>/<version>.olx` in R2 (rows published before this point at `bundles/<content hash>.olx`; `versions.r2_key` says where), so no publish can write over another's blob.
+
+A published version never changes. Publishing a version that already exists with the same content returns `{ "ok": true, "unchanged": true }` and writes nothing; with different content it's refused with 409, and the publisher bumps the version. Only the publisher that owns an extension can add versions to it.
+
+A yanked version stays yanked, and yanking the whole extension records who did it (`extensions.yanked_by`). If the publisher yanked it, publishing a new version lists it again (the yanked versions stay yanked). If a moderator yanked it (`/v1/dev/yank`), or a ban de-listed it, it takes no new versions. A ban only de-lists extensions that are listed, so lifting it can't bring back a yanked one, and a banned publisher can't verify again with a different Discord account.
+
+## Quotas and rate limits
+
+Every R2 write reserves its bytes and one write against counters first, in one conditional statement per counter, so concurrent requests can't overshoot a cap or lose each other's counts. The counters are the whole bucket (`usage` id 1: `R2_MAX_BYTES`, `R2_CLASS_A_MAX` per month), the share abuse-report attachments may use (`usage` id 2: `R2_REPORT_MAX_BYTES`, `R2_REPORT_CLASS_A_MAX`; past it a report is still filed and emailed, without the stored copy), and each publisher's share (`publisher_usage`: `PUBLISHER_MAX_BYTES`, and `PUBLISHER_DAILY_PUBLISHES` new versions per UTC day). All are `vars` in `wrangler.jsonc`. Per-publisher byte counts start at zero for bundles published before the counters existed.
+
+The routes that need no token (`/v1/report`, `/v1/feedback`, `/v1/install`, `/v1/blocked`, `/v1/standing/ack`, `/v1/publishers/challenge`, `/v1/publishers/register`) are limited per caller IP and route by the Workers rate-limiting bindings in `wrangler.jsonc`: 5 a minute for the two that send email, 20 a minute for the rest. Over the limit they return 429 with `Retry-After: 60`. The binding keeps its counters outside D1, so a flood can't spend the D1 free tier's daily write allowance. Its counts are per Cloudflare location and approximate.
+
+## Schema changes
+
+`schema.sql` is the whole current schema, for a new database. A database created before a change gets it from `migrations/`, applied once in order before deploying the Worker that needs it:
+
+```bash
+npx wrangler d1 execute olisar-registry --remote --file=./migrations/0001_immutable_versions_and_quotas.sql
+```
+
+The Worker also adds missing tables and columns itself on first use (`ensureSchema`), so a migration that runs after the deploy may fail with "duplicate column name"; that means it was already applied. Don't apply a migration to a database made from the current `schema.sql`.
+
 ## Local development (no Cloudflare account needed)
 
 ```bash
@@ -79,7 +103,7 @@ migration step). `schema.sql` is the source of truth for a real deploy.
 ```bash
 wrangler d1 create olisar-registry          # paste the id into wrangler.jsonc
 wrangler r2 bucket create olisar-registry-bundles
-npm run schema:remote                        # apply schema.sql to the real D1
+npm run schema:remote                        # apply schema.sql to a new D1 (an existing one takes migrations/)
 npm run deploy
 ```
 `DEV_SEED` lives only in `.dev.vars` (local, gitignored), so a deployed registry never

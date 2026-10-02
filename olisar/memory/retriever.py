@@ -43,11 +43,22 @@ async def recall(
     k_msgs: int = 5,
     k_summaries: int = 3,
     k_facts: int = 4,
+    member: bool = True,
+    dm: bool = False,
 ) -> str:
     """``channel_id`` is where the reply is going and ``readable`` is the asker's
-    ChannelFilter (olisar.message_links.channel_filter)."""
+    ChannelFilter (olisar.message_links.channel_filter). ``dm`` says that channel is a DM,
+    whose own history is filed under guild 0 rather than ``cfg_guild``.
+
+    ``member`` is False for a DM from someone who isn't a member of ``cfg_guild`` (they
+    share another server with the bot). They get none of the server's own knowledge: the
+    glossary and the knowledge base are left out, as ``readable`` already leaves out its
+    channels."""
     blocks: list[str] = []
     used: list[str] = []  # what memory pieces went into the context (for logging)
+    # The vector partitions in_scope can keep anything from: this server's, plus the DM
+    # bucket when the reply is going into a DM.
+    scope = [cfg_guild, 0] if dm else [cfg_guild]
 
     async def in_scope(rows: list) -> list:
         """Rows from this channel, or from a channel of this server the asker can open.
@@ -59,8 +70,9 @@ async def recall(
             if r.channel_id == channel_id or (r.guild_id == cfg_guild and r.channel_id in ok)
         ]
 
-    # Durable server lore — always carried, no embedding needed (small + relevant).
-    glossary = await glossary_block(session, cfg_guild)
+    # Durable server lore — always carried, no embedding needed (small + relevant). Only
+    # what was learned in channels the asker can open, as for the summaries below.
+    glossary = await glossary_block(session, cfg_guild, readable=readable) if member else ""
     if glossary:
         blocks.append(glossary)
         used.append("glossary")
@@ -101,7 +113,9 @@ async def recall(
         return _memory_block(blocks)
 
     # Relevant past-conversation summaries.
-    sum_hits = await knn(session, "channel_summary_embedding", qvec, k=k_summaries + 7)
+    sum_hits = await knn(
+        session, "channel_summary_embedding", qvec, k=k_summaries + 7, guild_ids=scope
+    )
     if sum_hits:
         rows = (
             await session.scalars(
@@ -119,7 +133,7 @@ async def recall(
 
     # Semantically relevant older messages (excluding the recent window already shown).
     msg_hits = await knn(
-        session, "message_embedding", qvec, k=k_msgs + len(recent_ids) + 20
+        session, "message_embedding", qvec, k=k_msgs + len(recent_ids) + 20, guild_ids=scope
     )
     if msg_hits:
         rows = (
@@ -152,7 +166,10 @@ async def recall(
             used.append(f"older-msgs:{len(picked)}")
 
     # Remembered facts about this specific user.
-    fact_hits = await knn(session, "user_memory_embedding", qvec, k=k_facts + 4)
+    # A fact is filed under the server it was learned in (a DM's under the home server).
+    fact_hits = await knn(
+        session, "user_memory_embedding", qvec, k=k_facts + 4, guild_ids=[cfg_guild]
+    )
     if fact_hits:
         rows = (
             await session.scalars(
@@ -169,7 +186,7 @@ async def recall(
 
     # Community knowledge base (reuses the query vector already computed; the
     # specific chunks used are logged by kb_block_from_qvec itself).
-    kb = await kb_block_from_qvec(session, cfg_guild, qvec, k=4)
+    kb = await kb_block_from_qvec(session, cfg_guild, qvec, k=4) if member else ""
     if kb:
         blocks.append(kb)
         used.append("kb")
@@ -178,15 +195,18 @@ async def recall(
     return _memory_block(blocks)
 
 
-async def server_memory(session: AsyncSession, cfg_guild: int) -> str:
+async def server_memory(
+    session: AsyncSession, cfg_guild: int, *, readable: ChannelFilter | None = None
+) -> str:
     """The part of recall that doesn't depend on who's asking or what they said: the
     glossary, and the resource and feed channel snapshots (#rules, #announcements).
 
     Recall carries both on every reply, so a turn with no person or message behind it
     (``host.generate`` writing into a channel) gets them too, and knows the server as
-    well as a reply there does."""
+    well as a reply there does. ``readable`` narrows the glossary to facts from the
+    channels it lets through, as recall's does."""
     blocks: list[str] = []
-    glossary = await glossary_block(session, cfg_guild)
+    glossary = await glossary_block(session, cfg_guild, readable=readable)
     if glossary:
         blocks.append(glossary)
     blocks.extend(await channel_context_blocks(session, cfg_guild))

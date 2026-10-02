@@ -1920,21 +1920,14 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
     await startReview()
   }
 
-  // Push the current local source to an already-published extension. If the version
-  // number hasn't moved, warn — the registry overwrites it in place, so anyone who
-  // already installed it won't be offered an update unless the version is bumped.
+  // Push the current local source to an already-published extension. The registry never
+  // changes a published version, so edited source has to ship under a new version number;
+  // say so up front instead of running the minute-long review only to be refused.
   const pushUpdate = async () => {
     if (publishing) return
     if (pub && !pub.version_is_new && pub.has_changes) {
-      const ok = await confirmDialog({
-        title: `Re-publish v${pub.local_version} in place?`,
-        message:
-          `The version number hasn't changed, so anyone who already installed it won't be offered ` +
-          `an update. Bump the version in your code to ship it as one.`,
-        confirmLabel: 'Push anyway',
-        tone: 'warning',
-      })
-      if (!ok) return
+      toast(`v${pub.local_version} is already published. Bump the version in your code to push this update.`, 'warning')
+      return
     }
     await startReview()
   }
@@ -2125,6 +2118,54 @@ function ExtensionDetail(props: { e: any; isOperator?: boolean; onToggle: (k: st
       {props.isOperator && secretKeys.length > 0 && <ExtensionKeys key={e.key} fields={secretKeys} />}
     </>
   )
+}
+
+// An extension's manifest is whatever its code declared. One the panel can't render (a
+// settings label that's an object, say) used to throw past it and take the whole Extensions
+// page down, and since the rail opens on its first extension, every visit hit it again with
+// no way left to turn the extension off. This keeps the rail up and, in the panel, the two
+// controls that get rid of it: the enable toggle and, for the operator, Delete.
+class ExtensionBoundary extends React.Component<
+  { e: any; isOperator?: boolean; onToggle: (k: string, v: boolean) => void; onDeleted: () => void; children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error) { console.error('[olisar] extension panel failed', error) }
+  remove = async () => {
+    const key = String(this.props.e.key)
+    if (!(await confirmDialog({
+      title: `Delete extension "${key}"?`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+      requirePhrase: { phrase: `delete ${key}` },
+    }))) return
+    try { await api.deleteAuthoring(key); this.props.onDeleted() }
+    catch (err: any) { toast('Delete failed: ' + err.message, 'danger') }
+  }
+  render() {
+    if (!this.state.error) return this.props.children
+    const { e } = this.props
+    const name = String(e.name || e.key)
+    return (
+      <div className="ext-detail-body">
+        <div className="ext-dhead">
+          <div className="grow"><div className="ext-dtitle">{name}</div></div>
+          <div className="ext-dactions">
+            {this.props.isOperator && e.editable && <button className="danger" onClick={this.remove}>Delete</button>}
+            <Toggle value={!!e.enabled} onChange={(v) => this.props.onToggle(e.key, v)} ariaLabel={`Enable ${name}`} />
+          </div>
+        </div>
+        <div className="ext-block">
+          <div className="callout danger">
+            <span className="ic"><Icon.warn size={17} weight="Bold" /></span>
+            <div className="callout-body">This extension's details didn't load.</div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 }
 
 // The consent gate shared by file-import and marketplace-install: shows what the
@@ -2722,7 +2763,11 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
                 {/* Not primary: a grid of twelve cards was a grid of twelve primaries, and
                     the page lost its one loudest control. Install here opens the consent
                     screen — the primary lives there, on the button that actually installs. */}
-                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>Install</button>
+                {/* Opening the consent screen runs this bot's own risk review first, which
+                    takes a few seconds the first time; say so rather than sit disabled. */}
+                <button onClick={() => openInstall(r)} disabled={busy && sel?.id === r.id}>
+                  {busy && sel?.id === r.id && !preview ? <><span className="spinner" /> Reviewing…</> : 'Install'}
+                </button>
               </div>
             </div>
           ))}
@@ -2951,7 +2996,9 @@ export function Extensions(props: { isOperator?: boolean } = {}) {
 
         <section className="ext-detail">
           {effective ? (
-            <ExtensionDetail key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
+            <ExtensionBoundary key={effective.key} e={effective} isOperator={props.isOperator} onToggle={toggle} onDeleted={() => { setSelKey(null); ed.reload() }}>
+              <ExtensionDetail e={effective} isOperator={props.isOperator} onToggle={toggle} onEdit={openEditor} onUpdate={startUpdate} mkt={mktStatus[effective.key]} pub={pubStatus[effective.key]} onPublished={reloadPubStatus} />
+            </ExtensionBoundary>
           ) : (
             <div className="ext-overview">
               <div className="ext-stats">

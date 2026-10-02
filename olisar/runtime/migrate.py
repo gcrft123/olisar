@@ -91,7 +91,9 @@ def _stage_docs(db_path: str, dest_kb: Path) -> None:
         con.close()
     for uri in uris:
         src = Path(uri or "")
-        if src.is_file() and not (dest_kb / src.name).exists():
+        # Not through a symlink: one planted by an older download would upload whatever
+        # file on this machine it points at.
+        if src.is_file() and not src.is_symlink() and not (dest_kb / src.name).exists():
             dest_kb.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest_kb / src.name)
 
@@ -107,14 +109,20 @@ def _copy_db_files(src_db: str, dest_dir: Path) -> None:
 
 
 def _copy_kb(src_kb: str, dest_kb: Path) -> None:
-    """Merge uploaded-doc files from one ``kb_uploads`` dir into another (names preserved)."""
+    """Merge uploaded-doc files from one ``kb_uploads`` dir into another (names preserved).
+    Plain files only, on both ends: a symlink among the sources would copy in whatever it
+    points at, and one already sitting at a destination name (left by a move from before the
+    download refused them) would have the copy written through it, over the file it points at."""
     src = Path(src_kb)
-    if not src.is_dir():
+    if not src.is_dir() or src.is_symlink():
         return
     dest_kb.mkdir(parents=True, exist_ok=True)
     for f in src.iterdir():
-        if f.is_file():
-            shutil.copy2(f, dest_kb / f.name)
+        if f.is_file() and not f.is_symlink():
+            dest = dest_kb / f.name
+            if dest.is_symlink():
+                dest.unlink()
+            shutil.copy2(f, dest)
 
 
 def _backup_and_replace(local_db: str, new_db: Path) -> None:

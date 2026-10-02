@@ -19,13 +19,14 @@ from __future__ import annotations
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.config import settings
 from olisar.db.models import GuildFact, utcnow
 from olisar.gemini.client import get_gemini
 from olisar.gemini.rate_limiter import RateLimitExceeded
+from olisar.message_links import ChannelFilter
 
 log = logging.getLogger("olisar.facts")
 
@@ -196,15 +197,40 @@ async def extract_and_store_facts(
 
 
 async def glossary_block(
-    session: AsyncSession, guild_id: int, limit: int = GLOSSARY_LIMIT
+    session: AsyncSession,
+    guild_id: int,
+    limit: int = GLOSSARY_LIMIT,
+    *,
+    readable: ChannelFilter | None = None,
 ) -> str:
-    """Render the guild's glossary as a compact context block (empty if none)."""
+    """Render the guild's glossary as a compact context block (empty if none).
+
+    With ``readable`` (the ChannelFilter of whoever the reply is for, see
+    olisar.message_links), a fact mined from a channel is only carried when that channel
+    passes it, the way summaries and older messages are filtered. Otherwise a fact mined
+    from a staff channel went into every member's reply. A fact with no channel (added from
+    the console or an extension, or mined before facts kept theirs) is always carried."""
+    query = select(GuildFact).where(GuildFact.guild_id == guild_id)
+    if readable is not None:
+        sources = set(
+            (
+                await session.scalars(
+                    select(GuildFact.source_channel_id)
+                    .where(
+                        GuildFact.guild_id == guild_id,
+                        GuildFact.source_channel_id.is_not(None),
+                    )
+                    .distinct()
+                )
+            ).all()
+        )
+        ok = await readable(sources) if sources else set()
+        query = query.where(
+            or_(GuildFact.source_channel_id.is_(None), GuildFact.source_channel_id.in_(ok))
+        )
     rows = (
         await session.scalars(
-            select(GuildFact)
-            .where(GuildFact.guild_id == guild_id)
-            .order_by(GuildFact.mentions.desc(), GuildFact.updated_at.desc())
-            .limit(limit)
+            query.order_by(GuildFact.mentions.desc(), GuildFact.updated_at.desc()).limit(limit)
         )
     ).all()
     if not rows:

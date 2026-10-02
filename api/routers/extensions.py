@@ -35,7 +35,7 @@ from olisar.db.models import (
     ExtensionVersion,
     utcnow,
 )
-from olisar.extensions import bundle, command_names, signing, user_registry
+from olisar.extensions import bundle, command_names, manifest_types, signing, tool_names, user_registry
 from olisar.extensions.base import _REGISTRY  # built-in (Python) keys, reserved
 from olisar.extensions.review import review_source
 from olisar.sandbox import transpile
@@ -89,6 +89,10 @@ async def _build(source: str) -> tuple[str, dict]:
             status_code=400,
             detail="extension id must be lowercase letters/digits/underscores (start with a letter)",
         )
+    # The code built its own manifest, so check its types before anything stores or shows it.
+    problems = manifest_types.problems(manifest)
+    if problems:
+        raise HTTPException(status_code=400, detail="manifest error: " + "; ".join(problems[:5]))
     return compiled_js, manifest
 
 
@@ -96,6 +100,14 @@ async def _refuse_command_clashes(session, key: str, manifest: dict, action: str
     """409 when the extension declares a slash command that's Olisar's own or another
     extension's: registering it would replace that command in every server."""
     problems = await command_names.conflicts(session, key, manifest)
+    if problems:
+        raise HTTPException(status_code=409, detail=f"Can't {action} it: " + "; ".join(problems) + ".")
+
+
+def _refuse_tool_clashes(manifest: dict, action: str) -> None:
+    """409 when the extension declares a tool under the name of one of Olisar's own: it
+    would get the calls meant for that tool."""
+    problems = tool_names.conflicts(manifest)
     if problems:
         raise HTTPException(status_code=409, detail=f"Can't {action} it: " + "; ".join(problems) + ".")
 
@@ -238,18 +250,15 @@ async def _review_cached(content_hash: str, source: str, manifest: dict) -> dict
     return result
 
 
-async def preview_bundle(bundle_doc: dict, *, prestored_risk: dict | None = None) -> dict:
+async def preview_bundle(bundle_doc: dict) -> dict:
     """Shared preview for file-import and marketplace-install: re-derives the manifest and
     checks the signature, returning what the extension adds + the capabilities it requests.
-    Runs a fresh AI risk review for the consent screen — unless ``prestored_risk`` is given
-    (marketplace installs reuse the publish-time audit so the modal opens instantly instead
-    of waiting on a live Gemini call)."""
+    Runs this bot's own AI risk review for the consent screen (cached by content hash);
+    never a score that came with the bundle, which whoever made it could set to anything."""
     parsed, _, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     sig_status, sig_fingerprint, _ = signing.verify_bundle(bundle_doc, parsed.content_hash)
-    risk = prestored_risk if prestored_risk is not None else await _review_cached(
-        parsed.content_hash, parsed.source, manifest
-    )
+    risk = await _review_cached(parsed.content_hash, parsed.source, manifest)
     async with session_scope() as session:
         exists = await session.get(ExtensionPackage, key) is not None
     return {
@@ -276,13 +285,19 @@ async def preview_bundle(bundle_doc: dict, *, prestored_risk: dict | None = None
 
 async def install_bundle(
     bundle_doc: dict, granted_permissions: list[str], *,
-    actor: int | None, origin: str, marketplace_ref: dict | None = None, replace: bool = False,
+    actor: int | None, origin: str, marketplace_ref: dict | None = None, replace: str | None = None,
 ) -> dict:
     """Shared install for file-import (origin='imported') and the marketplace
     (origin='marketplace'). Re-transpiles + re-verifies, enforces granted ⊆ requested,
-    refuses invalid signatures, then persists. With ``replace`` it updates an existing
-    installed extension in place (snapshotting the prior version); otherwise a key
-    collision is refused. The caller triggers the slash-command resync."""
+    refuses invalid signatures, then persists. With ``replace`` (the key of an installed
+    extension) it updates that extension in place, snapshotting the prior version;
+    otherwise a key collision is refused. The caller triggers the slash-command resync.
+
+    An update has to be the extension it replaces, from whoever signed it. The bundle's code
+    names its own id, so without the first check a listing could overwrite a different
+    extension and inherit its stored data and settings; without the second, an update that's
+    unsigned, or signed by another key, could replace code its publisher did sign. An
+    unsigned install takes the first key an update is signed with."""
     parsed, compiled_js, manifest = await _prepare_import(bundle_doc)
     key = manifest["id"]
     if key in _REGISTRY:
@@ -292,6 +307,11 @@ async def install_bundle(
         raise HTTPException(
             status_code=400,
             detail="this bundle's signature is invalid — it may have been tampered with; not installing",
+        )
+    if replace is not None and key != replace:
+        raise HTTPException(
+            status_code=409,
+            detail=f"this update is a different extension ('{key}', not '{replace}'); not installing",
         )
     requested = manifest.get("permissions", [])
     granted = [p for p in (granted_permissions or []) if p in requested]  # granted ⊆ requested
@@ -305,9 +325,16 @@ async def install_bundle(
                 detail=f"an extension named '{key}' already exists — delete it first to reinstall",
             )
         await _refuse_command_clashes(session, key, manifest, "install")
+        _refuse_tool_clashes(manifest, "install")
         if existing is not None:  # replace: update in place
             if existing.origin not in ("marketplace", "imported"):
                 raise HTTPException(status_code=409, detail="can't overwrite a built-in or locally-authored extension")
+            if existing.publisher_key and sig_pub != existing.publisher_key:
+                raise HTTPException(
+                    status_code=409,
+                    detail="this update isn't signed by the key that signed the installed version; "
+                    "not installing. Remove the extension and install it again if you trust the new key.",
+                )
             session.add(ExtensionVersion(
                 key=key, version=existing.version, source_ts=existing.source_ts,
                 compiled_js=existing.compiled_js, manifest=existing.manifest, saved_by=actor,
@@ -400,6 +427,7 @@ async def create_package(
         if await session.get(ExtensionPackage, key) is not None:
             raise HTTPException(status_code=409, detail=f"an extension named '{key}' already exists")
         await _refuse_command_clashes(session, key, manifest, "save")
+        _refuse_tool_clashes(manifest, "save")
         pkg = ExtensionPackage(
             key=key, name=body.name or manifest.get("name", key),
             version=version, kind="user",
@@ -440,6 +468,7 @@ async def update_package(
         if pkg is None:
             raise HTTPException(status_code=404, detail="unknown extension")
         await _refuse_command_clashes(session, key, manifest, "save")
+        _refuse_tool_clashes(manifest, "save")
         # Built-ins are editable too; once edited, the seeder stops overwriting them.
         if pkg.kind == "builtin":
             pkg.user_modified = True
