@@ -317,7 +317,7 @@
     .placed > .cell { grid-column: var(--tc, auto); }
   }
   .head { padding: calc(var(--pad) + 2px) var(--pad) var(--pad); }
-  .head h2, .mtext h2 { font-size: clamp(36px, 3.9vw, 56px); font-weight: 400; line-height: 1.02; letter-spacing: -0.034em; max-width: 7em; text-wrap: balance; }
+  .head h2 { font-size: clamp(36px, 3.9vw, 56px); font-weight: 400; line-height: 1.02; letter-spacing: -0.034em; max-width: 7em; text-wrap: balance; }
   .txt { padding: var(--pad); display: flex; flex-direction: column; justify-content: flex-end; gap: 9px; min-height: 230px; }
   .txt h3 { font-size: 18px; line-height: 1.3; letter-spacing: -0.012em; }
   .txt p { color: var(--text-2); font-size: 15px; line-height: 1.6; text-wrap: pretty; max-width: 34em; }
@@ -485,26 +485,16 @@
   .u-pace { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
   .u-pace svg { color: var(--ok); font-size: 16px; }
 
-  /* ── Members band ─────────────────────────────────────────────────────── */
-  .mfig .fig-stage { min-height: 300px; display: grid; place-items: center; }
-  .mfig .glass-wrap { position: relative; left: auto; top: auto; width: min(78%, 230px); }
-  .mtext { padding: var(--pad); display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 14px; }
-  .mtext p { color: var(--text-2); font-size: 15px; line-height: 1.6; max-width: 30em; }
-  .copy { display: inline-flex; align-items: stretch; height: 40px; max-width: 100%; margin-top: 4px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--bg-inset); overflow: hidden; }
-  .copy .val { display: flex; align-items: center; padding: 0 14px; min-width: 0; font-family: var(--font-mono); font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .copy button { width: 44px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-left: 1px solid var(--border); background: transparent; color: var(--text-3); cursor: pointer; font-size: 16px; transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out); }
-  .copy button:hover { color: var(--text); background: var(--panel); }
-  .copy button:focus-visible { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-  .copyglyph { display: inline-grid; place-items: center; }
-  .copyglyph > svg { grid-area: 1 / 1; transition: scale var(--dur-mid) var(--ease-icon), opacity var(--dur-mid) var(--ease-icon), filter var(--dur-mid) var(--ease-icon); }
-  .copyglyph > svg:last-child { scale: .25; opacity: 0; filter: blur(4px); color: var(--ok); }
-  .copyglyph.on > svg:first-child { scale: .25; opacity: 0; filter: blur(4px); }
-  .copyglyph.on > svg:last-child { scale: 1; opacity: 1; filter: blur(0); }
-  .mcmds { padding: var(--pad); display: flex; flex-direction: column; justify-content: center; }
-  .mcmds dl { margin: 0; display: grid; gap: 16px; }
-  .mcmds dd { margin: 4px 0 0; color: var(--text-2); font-size: 14px; line-height: 1.5; }
+  /* ── The console pane ─────────────────────────────────────────────────── */
+  /* Short text cells: the act's row sits at its text's height, not a figure's. */
+  .txt.short { min-height: 0; padding-top: calc(var(--pad) + 22px); }
+  /* A console page rendered on a glass pane, rising from behind the act's bottom line, which
+     cuts it about halfway down. Only the bottom is clipped, so its shadow can still spread. */
+  .rise { margin: 0; padding-top: 64px; display: flex; justify-content: center; }
+  .rise-in { width: min(92%, 1080px); clip-path: inset(-80px -80px 0 -80px); }
+  .rise-img { display: block; width: 100%; height: auto; filter: drop-shadow(0 26px 34px rgb(0 0 0 / .6)); }
+  .js .rise-img { opacity: 0; }
   .tag { font-family: var(--font-mono); font-size: 12px; padding: 2px 7px; border-radius: var(--radius-xs); background: var(--bg-inset); border: 1px solid var(--border); color: var(--text); }
-  .mcmds dt { font-size: 14px; font-weight: 550; }
 
   /* ── FAQ ──────────────────────────────────────────────────────────────── */
   .faq .q { padding: var(--pad); }
@@ -569,8 +559,8 @@
     .fig-stage { min-height: 0; display: flex; flex-direction: column; align-items: center; padding: 48px 18px 24px; }
     .glass-wrap, .fig.flip .glass-wrap { position: relative; left: auto; right: auto; top: auto; width: 176px; margin-bottom: -38px; }
     .frag, .fig.flip .frag { position: relative; left: auto; right: auto; bottom: auto; width: 100%; max-width: 360px; }
-    .mfig .fig-stage { min-height: 240px; padding-bottom: 8px; }
-    .mfig .glass-wrap { margin-bottom: 0; width: 170px; }
+    .rise { padding-top: 40px; }
+    .rise-in { width: 100%; }
     .close { padding-bottom: 56px; }
     .close .glass-wrap { width: 190px; margin-top: -95px; }
     .band.tall .cell { height: 124px; }
@@ -588,10 +578,9 @@
     .dots i { animation-duration: 2.4s; }
     .ring-arc { animation-duration: 1.6s; }
     .glass-wrap { transition: none; }
-    .copyglyph > svg:last-child, .copyglyph.on > svg:first-child { scale: 1; filter: none; }
   }
   @media print {
-    .js .glass, .js .hero-copy > *, .js .convo-live { opacity: 1 !important; transform: none !important; }
+    .js .glass, .js .rise-img, .js .hero-copy > *, .js .convo-live { opacity: 1 !important; transform: none !important; }
   }
 </style>
 </head>
@@ -601,7 +590,6 @@
   <symbol id="i-check-bold" viewBox="0 0 24 24"><path fill="currentColor" fill-rule="evenodd" d="M22 12C22 17.5228 17.5228 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C17.5228 2 22 6.47715 22 12ZM16.0303 8.96967C16.3232 9.26256 16.3232 9.73744 16.0303 10.0303L11.0303 15.0303C10.7374 15.3232 10.2626 15.3232 9.96967 15.0303L7.96967 13.0303C7.67678 12.7374 7.67678 12.2626 7.96967 11.9697C8.26256 11.6768 8.73744 11.6768 9.03033 11.9697L10.5 13.4393L12.7348 11.2045L14.9697 8.96967C15.2626 8.67678 15.7374 8.67678 16.0303 8.96967Z" clip-rule="evenodd"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M3 15C3 17.8284 3 19.2426 3.87868 20.1213C4.75736 21 6.17157 21 9 21H15C17.8284 21 19.2426 21 20.1213 20.1213C21 19.2426 21 17.8284 21 15"/><path d="M12 3V16M8 11.625L12 16L16 11.625"/></g></symbol>
   <symbol id="i-up-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 18L18 6M18 15V6H9"/></symbol>
-  <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M6 11C6 8.17157 6 6.75736 6.87868 5.87868C7.75736 5 9.17157 5 12 5H15C17.8284 5 19.2426 5 20.1213 5.87868C21 6.75736 21 8.17157 21 11V16C21 18.8284 21 20.2426 20.1213 21.1213C19.2426 22 17.8284 22 15 22H12C9.17157 22 7.75736 22 6.87868 21.1213C6 20.2426 6 18.8284 6 16V11Z"/><path d="M6 19C4.34315 19 3 17.6569 3 16V10C3 6.22876 3 4.34315 4.17157 3.17157C5.34315 2 7.22876 2 11 2H15C16.6569 2 18 3.34315 18 5"/></g></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5"><path d="M12 22C17.5228 22 22 17.5228 22 12C22 6.47715 17.5228 2 12 2C6.47715 2 2 6.47715 2 12C2 13.5997 2.37562 15.1116 3.04346 16.4525C3.22094 16.8088 3.28001 17.2161 3.17712 17.6006L2.58151 19.8267C2.32295 20.793 3.20701 21.677 4.17335 21.4185L6.39939 20.8229C6.78393 20.72 7.19121 20.7791 7.54753 20.9565C8.88837 21.6244 10.4003 22 12 22Z"/><path d="M8 10.5H16"/><path d="M8 14H13.5"/></g></symbol>
   <symbol id="i-arrow-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 12H20M14 18L20 12L14 6"/></symbol>
   <symbol id="i-hash" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><path d="M10 3L5 21"/><path d="M19 3L14 21"/><path d="M22 9H4"/><path d="M20 16H2"/></g></symbol>
@@ -960,30 +948,32 @@
     <div class="cell" data-e="l" data-t="l"></div><div class="cell" data-t="r" style="--i:1"></div><div class="cell" style="--i:2"></div><div class="cell" data-e="r" style="--i:3"></div>
   </div>
 
-  <!-- ── Members ──────────────────────────────────────────────────────────── -->
-  <section class="sheet grid placed draw" aria-labelledby="m1">
-    <div class="cell fig mfig" data-e="l" data-t="l r" style="--c:1;--r:1;--tc:1/-1" aria-hidden="true">
-      <div class="fig-in"></div>
-      <div class="fig-stage"><div class="glass-wrap"><img class="glass" src="assets/icons/mail.webp" alt="" width="800" height="800" loading="lazy" decoding="async" /></div></div>
+  <!-- ── The console ──────────────────────────────────────────────────────── -->
+  <section class="sheet grid placed draw" aria-labelledby="k1">
+    <div class="cell head" data-e="l" data-t="l" style="--c:1;--r:1;--tc:1"><h2 id="k1">The Olisar console</h2></div>
+
+    <div class="cell txt short" data-t="r" style="--c:2;--r:1;--tc:2;--i:1">
+      <a class="cell-link" href="docs.html#extensions" aria-label="Extensions, in the docs"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></a>
+      <h3>Add extensions</h3>
+      <p>Olisar extensions are toggleable packaged features that extend its functionality. Install them from the community marketplace or write your own with the TypeScript SDK.</p>
     </div>
-    <div class="cell mtext" data-t="l r" style="--c:2/4;--r:1;--tc:1/-1;--i:1">
-      <h2 id="m1">Not the admin?</h2>
-      <p>Olisar runs as your admin’s own bot, so they’re the one who adds it. Send them this.</p>
-      <div class="copy">
-        <span class="val">gcrft123.github.io/olisar</span>
-        <button type="button" data-copy="https://gcrft123.github.io/olisar/" aria-label="Copy the link to this page">
-          <span class="copyglyph"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i" aria-hidden="true"><use href="#i-check"/></svg></span>
-        </button>
-      </div>
-      <span class="sr-only" role="status" data-copy-status></span>
+
+    <div class="cell txt short" data-t="l" style="--c:3;--r:1;--tc:1;--i:2">
+      <a class="cell-link" href="docs.html#replies" aria-label="Command replies, in the docs"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></a>
+      <h3>Customize it all</h3>
+      <p>Edit command replies, persona, and more. Members can see and change their privacy settings as well.</p>
     </div>
-    <div class="cell mcmds" data-e="r" data-t="l r" style="--c:4;--r:1;--tc:1/-1;--i:2">
-      <dl>
-        <div><dt><code class="tag">/privacy</code></dt><dd>Shows what it keeps about you.</dd></div>
-        <div><dt><code class="tag">/forget-me</code></dt><dd>Removes you from its memory entirely.</dd></div>
-        <div><dt>Member portal</dt><dd>Read and delete single facts, if your admin turns it on.</dd></div>
-      </dl>
+
+    <div class="cell txt short" data-e="r" data-t="r" style="--c:4;--r:1;--tc:2;--i:3">
+      <a class="cell-link" href="docs.html" aria-label="The docs"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></a>
+      <h3>And everything else</h3>
+      <p>Multi-bot switching, behavior tweaks, channel permissions, bot access, knowledge base and message index, member impressions, API keys, usage, and more.</p>
     </div>
+
+    <figure class="cell rise" data-e="l r" data-t="l r" style="--c:1/-1;--r:2;--tc:1/-1;--i:4">
+      <div class="rise-in"><img class="rise-img" src="assets/console/behavior-pane.webp" alt="" width="2200" height="670" loading="lazy" decoding="async" /></div>
+      <figcaption class="sr-only">The console’s Behavior page on a pane of glass, cut off two-thirds of the way down: name triggers, replying only when addressed, replying in DMs, seeing other bots, and which pings it won’t send.</figcaption>
+    </figure>
   </section>
 
   <div class="sheet grid band draw" aria-hidden="true">
@@ -1254,17 +1244,6 @@
     })
   }
 
-  // ── Copy ─────────────────────────────────────────────────────────────────
-  document.querySelectorAll('[data-copy]').forEach((btn) => {
-    let timer
-    btn.addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(btn.dataset.copy) } catch { return }
-      const glyph = btn.querySelector('.copyglyph'), status = document.querySelector('[data-copy-status]')
-      glyph.classList.add('on'); status.textContent = 'Link copied'
-      clearTimeout(timer); timer = setTimeout(() => { glyph.classList.remove('on'); status.textContent = '' }, 1600)
-    })
-  })
-
   // ── Dot fields, fitted to their cells ────────────────────────────────────
   const fitDots = (el) => {
     const w = el.offsetWidth, h = el.offsetHeight
@@ -1282,6 +1261,15 @@
         if (reduce) { animate(img, { opacity: [0, 1] }, { duration: 1.2, delay }); return }
         animate(img, { opacity: [0, 1] }, { duration: 0.6, delay, ease: 'linear' })
         animate(img, { y: [40, 0], rotate: [-6, 0], scale: [0.92, 1] }, { type: 'spring', stiffness: 120, damping: 14, mass: 1, delay })
+      }
+      img.complete ? go() : img.addEventListener('load', go, { once: true })
+    })
+    // The console pane rises from behind the line that cuts it.
+    block.querySelectorAll('.rise-img').forEach((img) => {
+      const go = () => {
+        if (reduce) { animate(img, { opacity: [0, 1] }, { duration: 1.2, delay: 0.28 }); return }
+        animate(img, { opacity: [0, 1] }, { duration: 0.6, delay: 0.28, ease: 'linear' })
+        animate(img, { y: [img.offsetHeight * 0.6, 0] }, { type: 'spring', stiffness: 120, damping: 14, mass: 1, delay: 0.28 })
       }
       img.complete ? go() : img.addEventListener('load', go, { once: true })
     })
