@@ -398,8 +398,6 @@ cd desktop && npm install && npm run dist               # 4. installer for the c
 #   npm run dist:win   -> NSIS .exe    (run on Windows / CI)
 ```
 
----
-
 ## Hosting & access
 
 ### Running multiple bots
@@ -562,8 +560,8 @@ it where Discord allows.
 Once the server runs healthy and Discord has the address, the panel moves into the window's top-left
 corner and the rest of the window shows what the bot has been doing: who it answered and how it was
 called, who joined, what it learned about people and about the server, and the sources it read. Click
-one to read it in full. Anything that needs a look, like a stopped or unhealthy server, brings the full
-panel back.
+one to read it in full. Anything that needs a look, like a stopped or unhealthy server, or a bot
+powered down from the console, brings the full panel back.
 
 #### Several bots on one server
 
@@ -1276,14 +1274,14 @@ success message can't be: "Cleared memory — 12,481 messages, 340 facts, 96 mem
 there tomorrow.
 
 The log covers **this whole install**, not just the server you have selected — one line per action, newest
-first, with the admin who ran it.
+first, with the admin who ran it. Because it spans every server, only the bot's operator sees it.
 
 #### Danger zone
 
 At the bottom of the page, **Clear memory** erases everything Olisar has learned about the **currently
-selected server**: conversation memory, summaries, the search index, remembered facts, the glossary, usage
-stats, its read on each member, and the knowledge base above. Its persona, behavior, channel modes and
-command replies are kept.
+selected server**: conversation memory, summaries, the search index, remembered facts, the glossary, its
+read on each member, and the knowledge base above. Its persona, behavior, channel modes and command replies
+are kept, and so are DMs and usage stats, which belong to the whole install rather than one server.
 
 > [!WARNING]
 > **There's no undo**
@@ -2246,5 +2244,5 @@ Most issues come down to free-tier rate limits or a channel/access setting. Here
 > **Still stuck?**
 > Check the Usage tab to see whether you're hammering the quota, then the bot's logs under
 > **Settings → Logs** — they name the knowledge-base chunks, indexed messages, web sources, and tools
-> behind each reply.
+> behind each reply. Logs cover every server, so they're for the bot's operator only.
 

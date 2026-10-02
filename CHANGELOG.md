@@ -74,6 +74,8 @@ The same review found a longer list that needed a precondition to exploit, or th
 
 Extension code now runs in separate processes the bot can stop, and extensions answer to the server they run in. Crawls connect only to the public address they checked. Guild data stays with members of that guild, and replies, images and DMs come out of per-member budgets. The registry keeps versions, yanks and bans as they were published. The hot queries read from indexes, memory is searched one server at a time, and erasing happens in small batches. The desktop app moves to a supported Electron, which needs macOS 13.
 
+The landing page still described 1.x: it called every bot Olisar, said all data stayed local, and pictured a console that no longer looked like that. It's rebuilt in the console's own design, around a live example conversation and working pieces of the console, and says plainly what the free tier limits and what goes through Gemini. The public docs had drifted from the console's Docs page too, in layout and in three paragraphs of content; they're generated to match it again.
+
 ### New
 
 [f3e8f10] — A manual workflow, Point :latest at a release, puts the server image's `latest` tag back on a stable release without rebuilding it.
@@ -237,6 +239,24 @@ Extension code now runs in separate processes the bot can stop, and extensions a
 [e15dc11] — Setup warns when the bot's Public Bot setting is on, since anyone can then add it to their server.
 
 ### Changed
+
+[1347c55] — Docs prose runs as wide as the tables under it, in the console and on the docs site.
+
+[1347c55] — The docs site renders at the console's default 110% size.
+
+[76af7c7] — The landing page's "Not the admin?" act is replaced by one on the console: its extensions and settings, over the Behavior page on a pane of glass.
+
+[3bc0045] — The landing page's profile figure cycles through six example bots, each with its own picture, name, status and About me, in a new order on every load.
+
+[3bc0045] — The landing page's example conversation shows its members' pictures, and its bot is called Olisar.
+
+[fc5bd5f] — The landing page is rebuilt as one hairline grid, with a live example conversation, working Channels, Behavior and hosting controls, and an FAQ.
+
+[fc5bd5f] — The landing page's Download links the latest stable release for the visitor's OS, with each build's requirements in its menu.
+
+[5a42d6c] — The docs site renders the way the console's Docs page does: two panes, the console's type, callouts and lists.
+
+[5a42d6c] — The docs site picks up three changes the console's docs had and the site was missing.
 
 [42d5291] — Powering a server bot down from its console shows Powered down on the desktop app, with Turn on, and leaves the server running.
 
@@ -549,6 +569,12 @@ Extension code now runs in separate processes the bot can stop, and extensions a
 [f0ef29a] — pypdf, aiohttp and anyio move past their published security fixes.
 
 ### Fixed
+
+[1347c55] — Keyboard shortcuts in the docs show as key chips instead of printing their <kbd> tags, in the console and on the docs site.
+
+[1347c55] — A link inside bold text in the docs works instead of printing its Markdown.
+
+[1347c55] — The docs site's "Build & run from source" page no longer ends on a stray "---", and the link to it from the install page opens it.
 
 [19aa1f0] — Pressing Enter or Space in a dialog runs that action and leaves the dialog closed.
 
