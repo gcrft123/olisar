@@ -1202,6 +1202,8 @@ kbd {
   padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-xs);
   background: var(--bg-inset); white-space: nowrap;
 }
+/* In running docs text the chip scales with the paragraph. */
+.doc kbd { font-size: 0.8em; padding: 1px 6px; }
 
 /* Numeric field: the unit sits in the box, the range and default sit under it. Both were
    invisible before — the browser enforced min/max nobody could see, and nothing said what
@@ -2169,16 +2171,6 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
   grid-template-columns: 230px minmax(0, 1fr);
   align-items: start;
 
-  /* The article's measure is the one stated width on this surface; everything else is
-     derived from it or yields to it. It used to be the residual after two fixed rails took
-     their cut, which meant the line length was decided by the window and by whether the
-     section happened to have subheadings: 41 characters on a 900px window, 55 with a page
-     index, 90 without one on the same window, 106 at 1680. None of those were chosen.
-     580px at the 15px body measures ~85 characters: the width the article took over when the
-     "On this page" rail went, held to a length that still reads comfortably. Not `ch`: per
-     the measure note in DESIGN.md, IBM Plex Sans's zero is 1.33x its average advance, so a
-     ch value overstates a real line by a third. */
-  --doc-measure: 580px;
 }
 
 .docs-nav {
@@ -2207,16 +2199,12 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .docs-nav-item.active { background: var(--bg-inset); color: var(--text); font-weight: 600; }
 
 /* The pane fills its column up to a cap sized for the widest reference table in the docs
-   (~762px of content), not for the prose — the prose is capped separately below. */
+   (~762px of content), and the prose takes the same width. */
 .docs-content { padding: 44px 48px; max-width: 880px; min-width: 0; }
 
-/* Prose holds the measure. Tables, code and anything else dense is deliberately absent from
-   this list and gets the full column: a reference table squeezed into a prose measure just
-   becomes a horizontal scrollbar, which is the reader doing the layout's job. */
-.docs-eyebrow, .docs-title, .docs-prevnext,
-.doc > p, .doc > ul, .doc > ol, .doc > h2, .doc > h3, .doc > .callout {
-  max-width: var(--doc-measure);
-}
+/* Prose runs the full column, the same width as the tables, so a page's right edge is one
+   line rather than prose stopping short of the reference tables under it. The column's own
+   880px cap is what keeps a line from running on at wide windows. */
 .docs-eyebrow {
   font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--accent); margin-bottom: 8px;
