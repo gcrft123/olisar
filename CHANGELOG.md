@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [2.0] — 2026-10-01
+
 Ask Olisar to DM someone and two things happened: the DM went out, and then it wrote "done". Every path through the reply pipeline ended in text — if the model produced none, the pipeline forced an answer out of it, and failing that the user got the blank fallback and a Report button. Its own style notes have asked it to react instead of replying since 1.4.4, and it could not.
 
 Now it can. Olisar reacts to the message and stops there, after doing what was asked or when a message only needed acknowledging at all. Going quiet is the failure this risks — from the channel, a bot that decided to say nothing and one that crashed look the same — so silence is refused unless it has been earned: the reaction has to have landed, there has to be a message to react to, and a turn that looked something up still owes what it found.
