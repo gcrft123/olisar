@@ -346,6 +346,14 @@ class BotActions:
         perms = getattr(member, "guild_permissions", None)
         return bool(perms and perms.manage_guild)
 
+    async def is_member(self, user_id: int, guild_id: int) -> bool:
+        """Whether ``user_id`` is a member of ``guild_id``. False when the guild can't be
+        resolved or the lookup fails, as for a non-member."""
+        guild = self.bot.get_guild(int(guild_id)) if guild_id else None
+        if guild is None or not user_id:
+            return False
+        return await self._viewer(guild, int(user_id)) is not None
+
     async def channel_directory(
         self, guild_id: int, *, requester_id: int = 0, limit: int = 80
     ) -> str:
@@ -455,7 +463,11 @@ class BotActions:
             return self.channel
         raw = str(channel).strip().strip("<#>").lstrip("#")
         if raw.isdigit():
-            return self.bot.get_channel(int(raw))
+            # The bot's cache holds every server's channels and its DMs; an extension enabled
+            # in this server posts only here.
+            found = self.bot.get_channel(int(raw))
+            in_guild = getattr(getattr(found, "guild", None), "id", None)
+            return found if home_guild_id and in_guild == int(home_guild_id) else None
         guild = self.bot.get_guild(int(home_guild_id)) if home_guild_id else None
         if guild is None:
             return None

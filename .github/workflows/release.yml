@@ -21,11 +21,12 @@ on:
   push:
     tags:
       - 'v*'
-  # A rehearsal: builds, signs, notarizes and staples the macOS .dmg and publishes nothing.
-  # Everything that uploads — the draft release, the Windows job, the server image, the macOS
-  # `gh release` step, the publish job — is gated on a tag below, so a dispatch run can't
-  # create or touch a release. The finished .dmg comes back as a build artifact instead. This is how you
-  # prove the whole signing chain end to end without spending a version number on it.
+  # A rehearsal: builds, signs, notarizes and staples the macOS .dmg, builds the Windows
+  # installer, and publishes nothing. Everything that uploads — the draft release, the server
+  # image, both `gh release` steps, the publish job — is gated on a tag below, so a dispatch
+  # run can't create or touch a release. The finished .dmg and .exe come back as build
+  # artifacts instead. This is how you prove the whole build and signing chain end to end
+  # without spending a version number on it.
   workflow_dispatch:
 
 permissions:
@@ -132,7 +133,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Electron 44's npm package needs Node 22.12 or newer.
+          node-version: '22'
 
       - name: Build the dashboard
         run: |
@@ -197,9 +199,8 @@ jobs:
           retention-days: 7
 
   windows:
-    # Skipped on a rehearsal run: it exists to publish, and a rehearsal must not create a
-    # release.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Runs on a rehearsal too, so the installer is proven buildable before a tag spends a
+    # version on it; only the upload below is gated on a tag.
     needs: version-check
     runs-on: windows-latest # x64 NSIS .exe
     defaults:
@@ -234,7 +235,8 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # Electron 44's npm package needs Node 22.12 or newer.
+          node-version: '22'
 
       - name: Build the dashboard
         run: |
@@ -253,11 +255,21 @@ jobs:
 
       # Same as the macOS upload: onto the draft, which the publish job makes live.
       - name: Attach the installer to the draft release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG='${{ github.ref_name }}'
           gh release upload "$TAG" desktop/out/*.exe --clobber
+
+      # A rehearsal run publishes nothing, so the installer comes back as an artifact.
+      - name: Keep the installer as an artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Olisar-windows-installer
+          path: desktop/out/*.exe
+          retention-days: 7
 
   # The one place the release goes live, and only once every build has succeeded: `needs`
   # holds it back until the macOS, Windows and server-image jobs are all green. If any of

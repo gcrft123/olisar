@@ -138,15 +138,17 @@ def _extract_owner_ids(app: dict) -> set[int]:
     return ids
 
 
-async def application() -> dict | None:
-    """The configured bot's application object, cached for ``_TTL`` seconds.
+async def application(max_age: float = _TTL) -> dict | None:
+    """The configured bot's application object, cached for ``_TTL`` seconds, or for
+    ``max_age`` when the caller needs a fresher answer (the console re-checking that its
+    operator is still on the app's team).
 
     Best-effort: None if the token is missing or Discord is unreachable. Failures are
     not cached, so a transient error can't lock the operator out permanently.
     """
     global _cache, _cache_at
     now = time.monotonic()
-    if _cache is not None and (now - _cache_at) < _TTL:
+    if _cache is not None and (now - _cache_at) < max_age:
         return _cache
 
     from olisar.runtime_config import discord_token
