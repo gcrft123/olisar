@@ -244,6 +244,8 @@ The landing page still described 1.x: it called every bot Olisar, said all data 
 
 [1347c55] — The docs site renders at the console's default 110% size.
 
+[76af7c7] — The landing page's "Not the admin?" act is replaced by one on the console: its extensions and settings, over the Behavior page on a pane of glass.
+
 [3bc0045] — The landing page's profile figure cycles through six example bots, each with its own picture, name, status and About me, in a new order on every load.
 
 [3bc0045] — The landing page's example conversation shows its members' pictures, and its bot is called Olisar.
