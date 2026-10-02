@@ -2643,6 +2643,32 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
   }
   useEffect(() => { runSearch(); api.marketplacePublisher().then(setPubInfo).catch(() => {}) }, []) // initial load
 
+  // Verification runs on the registry, in a browser: open its Discord sign-in, then check back
+  // until the registry counts this publisher as verified (its link lasts 10 minutes).
+  const [verifying, setVerifying] = useState(false)
+  usePoll(async () => {
+    const info = await api.marketplacePublisher()
+    setPubInfo(info)
+    if (info?.verified) {
+      setVerifying(false)
+      toast('Verified with Discord. Your published extensions now show a verified badge.', 'success')
+    }
+  }, 3000, verifying)
+  useEffect(() => {
+    if (!verifying) return
+    const t = window.setTimeout(() => setVerifying(false), 10 * 60 * 1000)
+    return () => window.clearTimeout(t)
+  }, [verifying])
+  const verify = async () => {
+    try {
+      const { url } = await api.marketplaceVerifyStart()
+      window.open(url, '_blank', 'noopener')
+      setVerifying(true)
+    } catch (e: any) {
+      toast(e?.message || 'Couldn’t start Discord verification', 'danger')
+    }
+  }
+
   const openInstall = async (item: any) => {
     setSel(item); setPreview(null); setPerr(null); setBusy(true)
     try {
@@ -2697,7 +2723,9 @@ function Marketplace(props: { onBack: () => void; onInstalled: (key: string) => 
           <span>Publishing as <code>{pubInfo.handle}</code></span>
           {pubInfo.verified
             ? <Badge tone="success" icon="verified-check">Discord-verified</Badge>
-            : <button className="ghost" onClick={() => { window.location.href = api.marketplaceVerifyStartUrl() }}>Verify with Discord</button>}
+            : <button className="ghost" onClick={verify}>
+                {verifying ? <><span className="spinner" /> Finish in your browser</> : 'Verify with Discord'}
+              </button>}
           <span className="grow" />
           <button className="ghost" onClick={changeHandle}>Change handle</button>
         </div>

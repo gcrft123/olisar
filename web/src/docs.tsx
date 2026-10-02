@@ -1881,15 +1881,10 @@ publish a new version. One the Olisar team removed stays removed.
 ## The verified badge
 
 Claiming a handle proves you hold the key; the **verified** badge additionally proves the handle belongs to
-a real Discord account. In the Marketplace view, a registered publisher sees **Verify with Discord** —
-click it, approve on Discord, and your published extensions show a **✓ Discord-verified** badge to everyone.
-
-:::warning One-time setup for verification
-Verification uses a Discord OAuth redirect, so you must register its callback URL in your bot's Discord
-app (Developer Portal → your app → **OAuth2 → Redirects**), next to your existing login redirect:
-\`<your console URL>/api/marketplace/verify/callback\` (e.g. \`http://localhost:8000/api/marketplace/verify/callback\`).
-Without it, Discord rejects the flow with \`invalid redirect_uri\`. See [Hosting & access](#hosting) for your URL.
-:::
+a real Discord account. In the Marketplace view, a registered publisher sees **Verify with Discord**. It
+opens the marketplace's Discord sign-in in your browser. Sign in, check that the page names your Discord
+account and your handle, and confirm. Your published extensions then show a **✓ Discord-verified** badge to
+everyone. The sign-in belongs to the marketplace, not your bot, so there's nothing to set up for it.
 
 ## Self-hosting / pointing elsewhere
 
