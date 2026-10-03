@@ -14,6 +14,8 @@ The docs had drifted from the code they describe. They called the search index a
 
 [615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
 
+[96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
+
 ### Fixed
 
 [d8cbb6b] — Saving an imported or marketplace extension's code in the editor keeps the capabilities you left unticked when you installed it turned off. A capability the edit adds is granted, as it is for an extension you wrote.
