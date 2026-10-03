@@ -735,9 +735,9 @@ function channelEffect(mode: string, indexed: boolean, proactive: boolean): stri
   else if (mode === 'both') parts.push('Reads, remembers and replies when addressed')
   else if (mode === 'resource') parts.push('Carried as reference in every reply')
   else if (mode === 'feed') parts.push('Remembers the last 3 messages')
-  // Proactivity is gated on exactly these two modes in bot/cogs/proactive.py, so the
-  // clause is only added where the bot can actually act on it.
-  if (proactive && (mode === 'respond' || mode === 'both')) parts.push('may chime in unprompted')
+  // Only `both` can chime in: bot/cogs/proactive.py judges the latest stored message, and
+  // `respond` doesn't store any, so it never has one to answer.
+  if (proactive && mode === 'both') parts.push('may chime in unprompted')
   parts.push(indexed ? 'searchable' : 'not searchable')
   return parts.join(' · ') + '.'
 }
@@ -898,7 +898,7 @@ export function Channels() {
                           if (v === 'off' && c.indexed !== false) {
                             if (!(await confirmDialog({
                               title: `Stop indexing #${c.name}?`,
-                              message: <>When you save, this <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Nothing changes until you save — Reset still undoes it. Re-enabling indexes new posts from that point on; <code>/olisar reindex</code> reads the history back.</>,
+                              message: <>When you save, this <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Nothing changes until you save — Reset still undoes it. Turning indexing back on reads the history back in.</>,
                               confirmLabel: 'Set to off',
                               tone: 'danger',
                             }))) return
@@ -1414,7 +1414,8 @@ function ActDetail({ before, after }: { before: unknown; after: unknown }) {
 // the one it happened to be built on. It is install-wide already; it just wasn't reachable
 // from anywhere else.
 export function ActivityCard({ bare }: { bare?: boolean } = {}) {
-  const { data, loading, reload } = useAsync<any>(() => api.getAudit(60))
+  const audit = useAsync<any>(() => api.getAudit(60))
+  const { data, loading, reload } = audit
   const entries: any[] = data?.entries ?? []
   const when = (ts: string | null) => {
     if (!ts) return ''
@@ -1455,6 +1456,8 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   const list = (
     <>
       {loading ? <Spinner label="Loading recent activity…" />
+        // A refused or failed request isn't an empty log.
+        : audit.error ? <Loading of={audit} what="recent activity" />
         : entries.length === 0 ? <div className="empty">Nothing recorded yet.</div> : (
         // Capped on the Knowledge page, where it sits between other sections. In Settings it
         // is the whole pane, so it runs full length there.
@@ -1475,7 +1478,10 @@ export function ActivityCard({ bare }: { bare?: boolean } = {}) {
   )
 }
 
-export function Knowledge({ serverName }: { serverName?: string } = {}) {
+// `operator` gates the Activity log: it covers every server on the install, so the API
+// only answers the operator (api/routers/audit.py), the same reason Settings leaves it out
+// for anyone else.
+export function Knowledge({ serverName, operator }: { serverName?: string; operator?: boolean } = {}) {
   const kb = useAsync<any[]>(api.getKnowledge)
   const { data, loading, reload } = kb
   // A crawl walks pending -> crawling -> chunking -> ready, and this list fetched once. A
@@ -1687,7 +1693,7 @@ export function Knowledge({ serverName }: { serverName?: string } = {}) {
           </div>
         ))}</ScrollFade>}
       </Section>
-      <ActivityCard />
+      {operator && <ActivityCard />}
       <ClearMemoryCard serverName={serverName} />
     </>
   )
