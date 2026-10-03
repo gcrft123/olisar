@@ -2,6 +2,20 @@
 
 Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have.
 
+The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
+
+### New
+
+[615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
+
+[615f883] — The Models page covers using a paid Gemini key: what billing changes, and what it doesn't.
+
+### Changed
+
+[615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
+
+[96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
+
 ### Fixed
 
 [d8cbb6b] — Saving an imported or marketplace extension's code in the editor keeps the capabilities you left unticked when you installed it turned off. A capability the edit adds is granted, as it is for an extension you wrote.
@@ -19,6 +33,10 @@ Six things said or did something other than what Olisar actually does. The worst
 [0fbc82e] — The Activity log on the Knowledge page shows only for the operator. Other admins saw "Nothing recorded yet." because the request was refused.
 
 [0fbc82e] — When the Activity log can't load, it says so and offers to try again instead of showing an empty log.
+
+[615f883] — Links in DOCUMENTATION.md to a section whose title has "&" in it go to that section.
+
+[615f883] — A Setup page on the docs site can be retitled without breaking the build, and its headings are the same size as every other page's.
 
 ## [2.0] — 2026-10-01
 

@@ -35,13 +35,9 @@ const { DOCS, DOC_GROUPS } = await import(pathToFileURL(tmpModule).href + `?t=${
 
 // ── Setup sections (site + DOCUMENTATION.md only) ────────────────────────────
 // Parsed from the existing DOCUMENTATION.md so setup stays editable there without
-// polluting the in-app Docs tab. Fall back to a short stub if missing.
-const SETUP_IDS = [
-  { id: 'install', title: 'Install the desktop app', match: /^### Install the desktop app\s*$/m },
-  { id: 'discord-app', title: 'Create your Discord application', match: /^### Create your Discord application\s*$/m },
-  { id: 'wizard', title: 'First-run setup wizard', match: /^### First-run setup wizard\s*$/m },
-  { id: 'from-source', title: 'Build & run from source', match: /^### Build & run from source\s*$/m },
-]
+// polluting the in-app Docs tab. Each ### under "## Setup" is a page, in this order of ids;
+// the title is whatever the heading says.
+const SETUP_IDS = ['install', 'discord-app', 'wizard', 'from-source']
 
 function extractSetupSections(mdText) {
   const start = mdText.search(/^## Setup\s*$/m)
@@ -49,26 +45,15 @@ function extractSetupSections(mdText) {
   const rest = mdText.slice(start)
   const endRel = rest.slice(1).search(/^## /m)
   const setupBlock = endRel < 0 ? rest : rest.slice(0, endRel + 1)
-  const sections = []
-  for (let i = 0; i < SETUP_IDS.length; i++) {
-    const cur = SETUP_IDS[i]
-    const m = cur.match.exec(setupBlock)
-    if (!m) continue
-    const bodyStart = m.index + m[0].length
-    let bodyEnd = setupBlock.length
-    for (let j = i + 1; j < SETUP_IDS.length; j++) {
-      const n = SETUP_IDS[j].match.exec(setupBlock)
-      if (n) { bodyEnd = n.index; break }
-    }
-    // Also stop at a following ## if any leftover.
-    const after = setupBlock.slice(bodyStart, bodyEnd)
-    const nextH2 = after.search(/\n## /)
-    // The last setup section runs up to DOCUMENTATION.md's `---` before the next chapter; that
-    // separator belongs to the file, not the section.
-    const body = (nextH2 >= 0 ? after.slice(0, nextH2) : after).trim().replace(/\n+(?:-{3,}|\*{3,})\s*$/, '').trim()
-    sections.push({ id: cur.id, title: cur.title, body })
-  }
-  return sections
+  return setupBlock.split(/^### /m).slice(1, SETUP_IDS.length + 1).map((part, i) => {
+    const nl = part.indexOf('\n')
+    // A page's headings sit under its ### there (#### and #####); on the site they're the
+    // page's own h2 and h3, as on every other page. The last page runs up to the file's `---`
+    // before the next chapter, which belongs to the file, not the page.
+    const body = part.slice(nl + 1).trim().replace(/\n+(?:-{3,}|\*{3,})\s*$/, '').trim()
+      .replace(/^#####(?= )/gm, '###').replace(/^####(?= )/gm, '##')
+    return { id: SETUP_IDS[i], title: part.slice(0, nl).trim(), body }
+  })
 }
 
 const prevMd = readFileSync(mdPath, 'utf8')
@@ -364,13 +349,9 @@ function ghCallout(kind, title, bodyLines) {
   return out.trimEnd() + '\n\n'
 }
 
-function mdSlug(title) {
-  return title.toLowerCase()
-    .replace(/&/g, '')
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-}
+// GitHub's heading anchor: punctuation dropped and every space a hyphen, so "Hosting & your
+// data" is #hosting--your-data. The same rule as ghSlug above, which the site reads them with.
+const mdSlug = ghSlug
 
 function rewriteMdLinks(line) {
   // tab: links are dashboard-only → plain text. #doc-id → GitHub heading slug.
@@ -427,20 +408,12 @@ for (const g of SITE_GROUPS) {
 
 const intro = `# Olisar documentation
 
-Olisar is a **self-hosted AI Discord bot** that feels like a member of your server — it reads the
-channels you allow, remembers context, builds a sense of who people are, and chimes in with its own
-personality. You run **one desktop app** on your own machine; it hosts the bot for your Discord
-server(s) and serves the admin console, and everything it knows stays **local**. Each install uses
-your own Discord bot and your own **free** API keys (Google Gemini, and optionally Cloudflare) — so
-there's no server to rent and no cloud.
+Olisar is a self-hosted AI bot for Discord. It runs as your own Discord bot, from a desktop app on your computer or on a cloud server you control, and it uses your own free Google Gemini key.
 
-This is the complete documentation: the same content as the in-app **Docs**, plus the full setup
-guide. New here? Read [What Olisar is](#what-olisar-is), then jump to [Setup](#setup) to get running.
+This file has the same pages as the console's Docs tab, plus the setup guide. If you're new, read [${byId.overview.title}](#${mdSlug(byId.overview.title)}), then [Setup](#setup).
 
 > [!NOTE]
-> This document is **generated** from [web/src/docs.tsx](web/src/docs.tsx) (in-app Docs) and the Setup
-> sections below. Edit those sources, then run \`node web/scripts/build-docs-site.mjs\` to refresh
-> this file and the GitHub Pages site in \`docs/docs.html\`.
+> This file is generated from [web/src/docs.tsx](web/src/docs.tsx) and the Setup chapter below. Edit those, then run \`node web/scripts/build-docs-site.mjs\` to rebuild this file and \`docs/docs.html\`. Writing rules are in [web/DOCS_STYLE.md](web/DOCS_STYLE.md).
 
 ## Contents
 
