@@ -161,7 +161,7 @@ Anyone with **Manage Server** can add a public bot to their server, so Olisar do
 - The first server the bot joins
 - A server whose owner is the operator
 
-Every other server waits, including one the operator added but doesn't own. While a server waits, Olisar ignores its messages and stores nothing from it, its slash commands don't appear there, and its admins can't sign in to the console through it.
+Every other server waits, including one the operator added but doesn't own. While a server waits, Olisar ignores its messages and doesn't store or index them, its slash commands don't appear there, and its admins can't sign in to the console through it.
 
 The operator sees a notice at the top of the console saying the bot was added to that server, with two buttons:
 
@@ -183,12 +183,11 @@ Kick the bot from the server in Discord, as you would any other bot. The server 
 
 #### The main server
 
-The main server is the one you added the bot to in the [setup wizard](#first-run-setup-wizard), or the one you picked as **Main server** there if the bot was already in several. It differs from the others in four ways:
+The main server is the one you added the bot to in the [setup wizard](#first-run-setup-wizard), or the one you picked as **Main server** there if the bot was already in several. It differs from the others in three ways:
 
 - It's approved as Olisar joins.
 - DMs with Olisar use its settings (see the next section).
 - Its **About me** on the Persona tab is the bot's Discord bio. The bot has one bio, so the **About me** you save on other servers isn't shown anywhere.
-- Slash-command confirmations, such as the replies to `/privacy` and `/olisar watch`, use its Command replies wording in every server.
 
 #### DMs
 
@@ -204,7 +203,7 @@ Discord lets anyone who shares a server with Olisar DM it. Someone who isn't in 
 | Behavior | Per server |
 | Channels | Per server |
 | Access, including the member portal and which actions need the tool PIN | Per server |
-| Command replies | Per server, except slash-command confirmations, which use the main server's wording |
+| Command replies | Per server |
 | Knowledge base and glossary | Per server |
 | Conversation memory, member impressions and remembered facts | Per server |
 | Message search index | Per server |
@@ -1601,7 +1600,7 @@ The Command replies tab lets you rewrite the fixed text Olisar sends: the confir
 3. Check the preview beside the box, which shows the reply as it will look in Discord. A rewritten reply gets a **Custom** badge.
 4. Press **Save changes**.
 
-To go back to the default, clear the box and save. Discord formatting such as bold, italics and inline code works, and the preview shows it.
+Each server keeps its own wording, and every reply, slash-command confirmations included, uses the wording of the server it's sent in. To go back to the default, clear the box and save. Discord formatting such as bold, italics and inline code works, and the preview shows it.
 
 #### Placeholders
 
@@ -1622,10 +1621,6 @@ A placeholder is a word in braces that Olisar fills in when it sends the reply. 
 | **privacy_portal** | The line added to the end of `/privacy` when the [member portal](#member-portal) is open. | `{url}` |
 
 In the PIN prompt, `{tool}` is the name of the tool Olisar wants to run, such as `change_setting`, `{details}` says what the change would do, and `{seconds}` is how long the prompt waits. The `/privacy` reply itself isn't on this tab.
-
-> [!NOTE]
-> **Slash command replies come from the main server**
-> Olisar reads the replies under **Slash commands**, and **privacy_portal**, from the main server's Command replies wherever the command is run (see [Servers](#servers)). Rewriting them on another server saves the text but doesn't change what Olisar sends. The other automatic replies are read from the server they're sent in.
 
 ### API keys
 
@@ -1777,7 +1772,7 @@ Three rules decide what a reply carries:
 
 The **Activity** section is a log of what has been changed on this install, newest first: settings saves, source and glossary edits, re-indexes, and every destructive action with the counts it reported. Each line names the admin who did it. A change made by asking Olisar in Discord is marked **Via Discord chat**, and **Details** shows the values before and after.
 
-The log covers every server on the install, so only the operator can read it, and other admins see it empty. The operator finds the same log under **Settings > Activity**.
+The log covers every server on the install, so only the operator sees this section. The same log is under **Settings > Activity**.
 
 #### Danger zone
 
@@ -1849,7 +1844,7 @@ Summaries, older messages, glossary facts and `resource` or `feed` channels come
 
 #### The server-wide search index
 
-The search index is a copy of every message in every channel Olisar can read, kept apart from conversation memory. It's what lets Olisar answer "what's our Twitch?" or "where was the raid schedule posted?" with a link to the message. Indexing is on for every text channel, forum post and thread from the start, including channels set to `off`, and Olisar reads back through each channel's history on its own after it joins.
+The search index is a copy of every message in every channel Olisar can read, kept apart from conversation memory. It's what lets Olisar answer "what's our Twitch?" or "where was the raid schedule posted?" with a link to the message. Indexing is on for every text channel, forum post and thread from the start, including channels set to `off`. Once the operator has approved a server, Olisar reads back through each channel's history on its own.
 
 For each message the index holds the text, the text of any embeds (so announcement posts and link previews are searchable), the names of attached files and stickers, and a short description of each posted image (see [Images](#images)). Other bots' posts are indexed, and Olisar's own aren't.
 
@@ -3260,9 +3255,9 @@ A publisher with the verified check mark has linked a Discord account, which the
 
 Installing doesn't turn an extension on anywhere, so the operator can install it, read its code with **Edit code**, and delete it without it ever running in a server.
 
-> [!WARNING]
-> **Saving code grants every capability it lists**
-> If you open an installed extension with **Edit code** and press **Save changes**, it's granted every capability its code asks for, including any you unticked. The install's API keys stay off-limits. Read installed code without saving it.
+> [!NOTE]
+> **Editing an installed extension keeps your choices**
+> If you change an installed extension's code with **Edit code** and save it, the capabilities you unticked at install stay off. A capability your edit adds is granted, as it is for code you write yourself. The install's API keys stay off-limits either way.
 
 
 #### If an extension misbehaves
@@ -3558,10 +3553,6 @@ Only admins with **Manage Server** and the operator can have Olisar change its o
 #### An extension's command says the extension is off
 
 The extension is turned off in this server, either on the Extensions tab or by `/killswitch`. Turn it back on from the Extensions tab. See [Extensions](#extensions).
-
-#### Your wording for a slash command's reply doesn't show up
-
-Slash commands such as `/ping`, `/privacy`, `/forget-me`, `/dm-indexing` and most `/olisar` commands use the main server's **Command replies**, whichever server they're run in. Reword them while the main server is selected. Replies Olisar sends in conversation, like the rate-limit and blank replies, follow each server's own. See [Command replies](#command-replies).
 
 #### Olisar says every member is offline
 
