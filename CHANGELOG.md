@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
+
+### New
+
+[615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
+
+[615f883] — The Models page covers using a paid Gemini key: what billing changes, and what it doesn't.
+
+### Changed
+
+[615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
+
+### Fixed
+
+[615f883] — Links in DOCUMENTATION.md to a section whose title has "&" in it go to that section.
+
+[615f883] — A Setup page on the docs site can be retitled without breaking the build, and its headings are the same size as every other page's.
+
 ## [2.0] — 2026-10-01
 
 Ask Olisar to DM someone and two things happened: the DM went out, and then it wrote "done". Every path through the reply pipeline ended in text — if the model produced none, the pipeline forced an answer out of it, and failing that the user got the blank fallback and a Report button. Its own style notes have asked it to react instead of replying since 1.4.4, and it could not.
