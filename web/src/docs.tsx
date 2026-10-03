@@ -1171,6 +1171,7 @@ message it came from.
 - **New messages** are indexed as they arrive; run \`/olisar reindex\` to go back through older history.
 - **Exclude a channel** with the second dropdown on the [Channels](tab:channels) tab (set it to *not
   indexed*) — that stops future indexing **and** wipes its already-indexed messages, including its threads.
+  Setting it back to *indexed* reads its history back in.
 
 ## Edits & deletes follow
 If someone edits or deletes a message, Olisar updates or drops it from both memory and the index — so it
