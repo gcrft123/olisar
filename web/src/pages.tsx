@@ -898,7 +898,7 @@ export function Channels() {
                           if (v === 'off' && c.indexed !== false) {
                             if (!(await confirmDialog({
                               title: `Stop indexing #${c.name}?`,
-                              message: <>When you save, this <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Nothing changes until you save — Reset still undoes it. Re-enabling indexes new posts from that point on; <code>/olisar reindex</code> reads the history back.</>,
+                              message: <>When you save, this <strong>erases what's already indexed</strong> for this channel and its threads, so those messages stop turning up in search. Nothing changes until you save — Reset still undoes it. Turning indexing back on reads the history back in.</>,
                               confirmLabel: 'Set to off',
                               tone: 'danger',
                             }))) return
