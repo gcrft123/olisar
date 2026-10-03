@@ -711,8 +711,9 @@ top-tier models aren't your first hop.
 
 ## Proactivity
 
-When enabled, Olisar can speak up **unprompted** in channels it can talk in. A cheap check gates it so
-it doesn't spam or burn quota.
+When enabled, Olisar can speak up **unprompted** in channels set to \`both\`. It judges what was said
+last, and a \`respond\` channel doesn't store anything to judge. A cheap check gates it so it doesn't spam
+or burn quota.
 - **Eagerness** — \`low\` (rare, only high-confidence moments), \`medium\` (balanced), \`high\` (chatty).
 - **Confidence threshold** — how sure it has to be (0–1) before chiming in. Higher is more selective.
   This bar is for *interrupting* — so it eases when the message it's judging answers something Olisar

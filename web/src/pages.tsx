@@ -735,9 +735,9 @@ function channelEffect(mode: string, indexed: boolean, proactive: boolean): stri
   else if (mode === 'both') parts.push('Reads, remembers and replies when addressed')
   else if (mode === 'resource') parts.push('Carried as reference in every reply')
   else if (mode === 'feed') parts.push('Remembers the last 3 messages')
-  // Proactivity is gated on exactly these two modes in bot/cogs/proactive.py, so the
-  // clause is only added where the bot can actually act on it.
-  if (proactive && (mode === 'respond' || mode === 'both')) parts.push('may chime in unprompted')
+  // Only `both` can chime in: bot/cogs/proactive.py judges the latest stored message, and
+  // `respond` doesn't store any, so it never has one to answer.
+  if (proactive && mode === 'both') parts.push('may chime in unprompted')
   parts.push(indexed ? 'searchable' : 'not searchable')
   return parts.join(' · ') + '.'
 }
