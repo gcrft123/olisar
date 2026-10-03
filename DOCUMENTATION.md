@@ -877,8 +877,9 @@ How much Olisar keeps in the moment, and how it turns conversation into long-ter
 
 #### Proactivity
 
-When enabled, Olisar can speak up **unprompted** in channels it can talk in. A cheap check gates it so
-it doesn't spam or burn quota.
+When enabled, Olisar can speak up **unprompted** in channels set to `both`. It judges what was said
+last, and a `respond` channel doesn't store anything to judge. A cheap check gates it so it doesn't spam
+or burn quota.
 - **Eagerness** — `low` (rare, only high-confidence moments), `medium` (balanced), `high` (chatty).
 - **Confidence threshold** — how sure it has to be (0–1) before chiming in. Higher is more selective.
   This bar is for *interrupting* — so it eases when the message it's judging answers something Olisar
@@ -1331,6 +1332,7 @@ source.
 - **New messages** are indexed as they arrive; run `/olisar reindex` to go back through older history.
 - **Exclude a channel** with the second dropdown on the Channels tab (set it to *not
   indexed*) — that stops future indexing **and** wipes its already-indexed messages, including its threads.
+  Setting it back to *indexed* reads its history back in.
 
 #### Edits & deletes follow
 If someone edits or deletes a message, Olisar updates or drops it from both memory and the index — so it

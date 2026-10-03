@@ -797,7 +797,9 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
       ? send({ id: '1089266822827737191', username: 'intmorg', granted_via: 'manage_guild', bot_name: 'Olisar' })
       : send({ id: '1089250623490359378', username: 'gcrft123', granted_via: 'allowlist', bot_name: 'Olisar' })
   }
-  if (MOCK_ROLE === 'admin' && url.startsWith('/api/keys')) return send({ detail: "only the bot's operator can do that" }, 403)
+  if (MOCK_ROLE === 'admin' && (url.startsWith('/api/keys') || url.startsWith('/api/audit'))) {
+    return send({ detail: "only the bot's operator can do that" }, 403)
+  }
   if (url.startsWith('/api/guilds')) return send(FRESH === 'refused' && !FRESH_STATE.reconnected ? [] : [
     { id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' },
     { id: '1089266822827737190', name: 'Test Server', icon: '' },

@@ -439,7 +439,7 @@ export default function App() {
     messages: <Messages />,
     channels: <Channels />,
     access: <Access />,
-    knowledge: <Knowledge serverName={current.name} />,
+    knowledge: <Knowledge serverName={current.name} operator={isOperator} />,
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
     ...(isOperator ? { keys: <ApiKeys /> } : {}),
