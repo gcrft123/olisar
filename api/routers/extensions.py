@@ -451,6 +451,17 @@ async def create_package(
     return {"ok": True, "key": key}
 
 
+def _granted_after_edit(pkg: ExtensionPackage, requested: list) -> list:
+    """What an edited extension is granted. A capability the operator left unticked when
+    they installed it stays off: saving code in the editor isn't a second consent screen.
+    One the edit newly asks for is the operator's own code asking, so it's granted the way
+    authoring grants. A locally authored extension was granted everything it asked for, so
+    this grants everything its edit asks for too."""
+    old_granted = pkg.permissions or []
+    old_requested = pkg.requested_permissions or []
+    return [p for p in requested if p in old_granted or p not in old_requested]
+
+
 @router.put("/{key}")
 async def update_package(
     key: str, body: ExtensionAuthoringIn, request: Request,
@@ -467,6 +478,7 @@ async def update_package(
         pkg = await session.get(ExtensionPackage, key)
         if pkg is None:
             raise HTTPException(status_code=404, detail="unknown extension")
+        granted = _granted_after_edit(pkg, perms)
         await _refuse_command_clashes(session, key, manifest, "save")
         _refuse_tool_clashes(manifest, "save")
         # Built-ins are editable too; once edited, the seeder stops overwriting them.
@@ -484,7 +496,7 @@ async def update_package(
         pkg.manifest = manifest
         pkg.source_ts = source
         pkg.compiled_js = compiled_js
-        pkg.permissions = perms
+        pkg.permissions = granted
         pkg.requested_permissions = perms
         pkg.sdk_version = SDK_VERSION
         pkg.content_hash = bundle.canonical_hash(key, version, source, perms)
