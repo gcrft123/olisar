@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from bot.content import download_images, image_attachments, message_text
 from olisar.context import name_map
 from olisar.db.engine import session_scope
-from olisar.db.models import GuildChannelInfo, Message, SearchMessage
+from olisar.db.models import Guild, GuildChannelInfo, Message, SearchMessage
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import description_marker
 from olisar.memory.writer import record_search_message
@@ -255,13 +255,22 @@ class SearchIndex(commands.Cog):
 
     @tasks.loop(seconds=TICK_SECONDS)
     async def tick(self) -> None:
-        # Scan pending channels across every guild the bot is in (capped per tick).
+        # Scan pending channels across every guild the bot is in (capped per tick), and only
+        # those the operator has approved: reading a waiting server's history and describing
+        # its images spends the operator's Gemini quota on a server they haven't let in. A
+        # server the bot hasn't recorded yet isn't approved either. Both are filtered in the
+        # query, so channels the loop would skip can't fill the cap and stall everyone else's.
+        present = [g.id for g in self.bot.guilds]
         try:
             async with session_scope() as session:
                 pending = (
                     await session.scalars(
                         select(GuildChannelInfo)
                         .where(
+                            GuildChannelInfo.guild_id.in_(present),
+                            GuildChannelInfo.guild_id.in_(
+                                select(Guild.id).where(Guild.approved.is_(True))
+                            ),
                             GuildChannelInfo.backfill_done.is_(False),
                             GuildChannelInfo.index_enabled.is_(True),  # never walk "not indexed" channels
                         )
