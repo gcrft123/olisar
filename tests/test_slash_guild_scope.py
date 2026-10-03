@@ -1,4 +1,5 @@
-"""/ask and /catchup follow the rules of the server they're run in.
+"""/ask and /catchup follow the rules of the server they're run in, and every command
+replies in that server's wording.
 
 Run:  uv run python -m unittest tests.test_slash_guild_scope -v
 
@@ -7,6 +8,9 @@ server the bot is in, that server's role gate didn't apply (a role it blocked co
 use /ask there) and neither did its mention policy (the reply could ping what it blocked).
 Each now reads the settings of the server the command came from, and resolves the member
 there; a DM still borrows the home server.
+
+The confirmations (/ping, /olisar watch, ...) had the same bug on their own: they rendered
+the home server's custom command replies in every server.
 """
 
 from __future__ import annotations
@@ -85,7 +89,6 @@ class _Slash(unittest.IsolatedAsyncioTestCase):
     def patched(self, **extra):
         stack = contextlib.ExitStack()
         stack.enter_context(patch.object(slash_mod, "session_scope", self.scope))
-        stack.enter_context(patch.object(slash_mod.settings, "target_guild_id", HOME))
         stack.enter_context(patch("bot.access.settings.target_guild_id", HOME))
         for name, value in extra.items():
             stack.enter_context(patch.object(slash_mod, name, value))
@@ -146,6 +149,36 @@ class Catchup(_Slash):
         text = inter.followup.send.await_args.args[0]
         self.assertNotIn("@here", text)
         self.assertFalse(inter.followup.send.await_args.kwargs["allowed_mentions"].everyone)
+
+
+class CommandReplies(_Slash):
+    async def test_a_confirmation_uses_the_wording_of_the_server_its_run_in(self):
+        await self.configure(HOME, command_messages={"ping": "home pong"})
+        await self.configure(OTHER, command_messages={"ping": "elsewhere pong"})
+        cog, inter = self.cog_and_interaction(OTHER)
+        cog.bot.latency = 0.01
+        with self.patched():
+            await slash_mod.Slash.ping.callback(cog, inter)
+        self.assertEqual(inter.response.send_message.await_args.args[0], "elsewhere pong")
+
+    async def test_the_home_servers_wording_doesnt_apply_elsewhere(self):
+        await self.configure(HOME, command_messages={"watch": "home is watching"})
+        cog, inter = self.cog_and_interaction(OTHER)
+        with self.patched():
+            await slash_mod.Slash.watch.callback(cog, inter)
+        self.assertEqual(
+            inter.response.send_message.await_args.args[0],
+            slash_mod.render_message({}, "watch"),
+        )
+
+    async def test_a_dm_uses_the_home_servers_wording(self):
+        await self.configure(HOME, command_messages={"ping": "home pong"})
+        await self.configure(OTHER, command_messages={"ping": "elsewhere pong"})
+        cog, inter = self.cog_and_interaction(None)
+        cog.bot.latency = 0.01
+        with self.patched():
+            await slash_mod.Slash.ping.callback(cog, inter)
+        self.assertEqual(inter.response.send_message.await_args.args[0], "home pong")
 
 
 if __name__ == "__main__":

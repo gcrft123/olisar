@@ -26,7 +26,6 @@ from bot.replies import (
     sanitize_mentions,
 )
 from olisar import budgets
-from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     ChannelAllowlist,
@@ -67,17 +66,19 @@ class Slash(commands.Cog):
     async def cog_load(self) -> None:
         name_commands(self, self.bot.user.display_name if self.bot.user else "")
 
-    async def _msg(self, key: str, **kwargs) -> str:
-        """Render an admin-customizable command reply (falls back to defaults)."""
+    async def _msg(self, interaction: discord.Interaction, key: str, **kwargs) -> str:
+        """Render an admin-customizable command reply (falls back to defaults), in the
+        wording of the server the command was run in. A DM uses the home server's."""
+        guild_id = interaction.guild_id or dm_home_guild_id(self.bot)
         async with session_scope() as session:
-            custom = await get_command_messages(session, settings.target_guild_id)
+            custom = await get_command_messages(session, guild_id)
         return render_message(custom, key, **kwargs)
 
     @app_commands.command(name="ping", description="Check that Olisar is alive.")
     async def ping(self, interaction: discord.Interaction) -> None:
         latency_ms = round(self.bot.latency * 1000)
         await interaction.response.send_message(
-            await self._msg("ping", latency=latency_ms), ephemeral=True
+            await self._msg(interaction, "ping", latency=latency_ms), ephemeral=True
         )
 
     @app_commands.command(name="ask", description="Ask Olisar something.")
@@ -211,7 +212,7 @@ class Slash(commands.Cog):
     @app_commands.command(name="privacy", description="See how Olisar handles your data.")
     async def privacy(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
-            await self._msg("privacy", portal=await self._portal_line(interaction)), ephemeral=True
+            await self._msg(interaction, "privacy", portal=await self._portal_line(interaction)), ephemeral=True
         )
 
     async def _portal_line(self, interaction: discord.Interaction) -> str:
@@ -234,7 +235,7 @@ class Slash(commands.Cog):
             if config is None or not config.member_portal_enabled:
                 return ""
         url = (await runtime_config.public_base_url()).rstrip("/")
-        return await self._msg("privacy_portal", url=url) if url else ""
+        return await self._msg(interaction, "privacy_portal", url=url) if url else ""
 
     @app_commands.command(name="forget-me", description="Delete what Olisar remembers about you.")
     @app_commands.describe(stop_remembering="Also stop recording your messages from now on.")
@@ -251,9 +252,9 @@ class Slash(commands.Cog):
                 user_id=interaction.user.id,
                 opt_out=stop_remembering,
             )
-        msg = await self._msg("forget_me", messages=result["messages"], facts=result["facts"])
+        msg = await self._msg(interaction, "forget_me", messages=result["messages"], facts=result["facts"])
         if stop_remembering:
-            msg += " " + await self._msg("forget_me_optout")
+            msg += " " + await self._msg(interaction, "forget_me_optout")
         await interaction.followup.send(msg, ephemeral=True)
 
     @app_commands.command(
@@ -272,7 +273,7 @@ class Slash(commands.Cog):
             )
             profile.dm_opt_out = not enabled
         await interaction.followup.send(
-            await self._msg("dm_indexing", state=("on" if enabled else "off")), ephemeral=True
+            await self._msg(interaction, "dm_indexing", state=("on" if enabled else "off")), ephemeral=True
         )
 
     # Admin-only group (only visible to members with Manage Server).
@@ -303,7 +304,7 @@ class Slash(commands.Cog):
                 )
             else:
                 row.mode = ChannelMode.both
-        await interaction.response.send_message(await self._msg("watch"), ephemeral=True)
+        await interaction.response.send_message(await self._msg(interaction, "watch"), ephemeral=True)
 
     @olisar.command(name="unwatch", description="Stop Olisar reading this channel.")
     async def unwatch(self, interaction: discord.Interaction) -> None:
@@ -316,7 +317,7 @@ class Slash(commands.Cog):
             )
             if row is not None:
                 row.mode = ChannelMode.off
-        await interaction.response.send_message(await self._msg("unwatch"), ephemeral=True)
+        await interaction.response.send_message(await self._msg(interaction, "unwatch"), ephemeral=True)
 
     @olisar.command(name="status", description="Show how Olisar is set up in this channel.")
     async def status(self, interaction: discord.Interaction) -> None:
@@ -329,7 +330,7 @@ class Slash(commands.Cog):
             )
             mode = row.mode.value if row else "off"
         await interaction.response.send_message(
-            await self._msg("channel_status", mode=mode), ephemeral=True
+            await self._msg(interaction, "channel_status", mode=mode), ephemeral=True
         )
 
     # ── Knowledge base ──────────────────────────────────────────────────
@@ -354,7 +355,7 @@ class Slash(commands.Cog):
                     added_by=interaction.user.id,
                 )
             )
-        await interaction.followup.send(await self._msg("learn_url", url=url), ephemeral=True)
+        await interaction.followup.send(await self._msg(interaction, "learn_url", url=url), ephemeral=True)
 
     @olisar.command(name="learn-site", description="Crawl a whole website into Olisar's knowledge.")
     @app_commands.describe(
@@ -388,7 +389,7 @@ class Slash(commands.Cog):
                 )
             )
         await interaction.followup.send(
-            await self._msg("learn_site", url=url, depth=depth, max_pages=max_pages),
+            await self._msg(interaction, "learn_site", url=url, depth=depth, max_pages=max_pages),
             ephemeral=True,
         )
 
@@ -424,7 +425,7 @@ class Slash(commands.Cog):
                 )
             )
         await interaction.followup.send(
-            await self._msg("learn_doc", filename=file.filename), ephemeral=True
+            await self._msg(interaction, "learn_doc", filename=file.filename), ephemeral=True
         )
 
     @olisar.command(name="sources", description="List Olisar's knowledge-base sources.")
@@ -504,7 +505,7 @@ class Slash(commands.Cog):
             current_level = pconf.level.value
         state = "on" if enabled else "off"
         await interaction.response.send_message(
-            await self._msg("proactive", state=state, level=current_level), ephemeral=True
+            await self._msg(interaction, "proactive", state=state, level=current_level), ephemeral=True
         )
 
     # ── Search index ────────────────────────────────────────────────────
