@@ -278,6 +278,9 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "default_model": c.default_model,
             "grounding_enabled": c.grounding_enabled,
             "grounding_daily_cap": c.grounding_daily_cap,
+            "grounding_monthly_cap": c.grounding_monthly_cap,
+            # Not a setting: which of the two caps above applies, by the key's tier.
+            "gemini_tier": await _tier_or_none(),
             "summary_token_threshold": c.summary_token_threshold,
             "glossary_mine_token_threshold": c.glossary_mine_token_threshold,
             "user_persona_msg_threshold": c.user_persona_msg_threshold,

@@ -198,6 +198,7 @@ class ConfigIn(BaseModel):
     default_model: str | None = None
     grounding_enabled: bool | None = None
     grounding_daily_cap: int | None = Field(None, ge=0)
+    grounding_monthly_cap: int | None = Field(None, ge=0)
     summary_token_threshold: int | None = Field(None, ge=500)
     glossary_mine_token_threshold: int | None = Field(None, ge=300)
     user_persona_msg_threshold: int | None = Field(None, ge=5)

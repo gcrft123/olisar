@@ -2,22 +2,29 @@
 
 Run:  uv run python -m unittest tests.test_gemini_billing -v
 
-Olisar used to assume every key was on the free tier: its per-minute caps, its images and its
-Usage page all measured a billed key against free-tier figures. Covered here: telling the
-tiers apart, pricing a day's usage (searches' free allowances included), the running total
-the budget reads, and what a spent budget does to a request.
+Olisar used to assume every key was on the free tier: its per-minute caps, its web search,
+its images and its Usage page all measured a billed key against free-tier figures. Covered
+here: telling the tiers apart, pricing a day's usage (searches' free allowances included),
+the running total the budget reads, what a spent budget does to a request, and each server's
+own search cap.
 """
 
 from __future__ import annotations
 
 import asyncio
+import tempfile
 import unittest
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
+from olisar import runtime_config, runtime_keys
+from olisar.db import engine
+from olisar.db.engine import session_scope
+from olisar.db.models import GuildConfig
 from olisar.gemini import pricing, spend, tier
 from olisar.gemini.client import GeminiClient, token_split
 from olisar.gemini.models import GEMINI_IMAGE_MODEL, rpm_for
@@ -223,6 +230,71 @@ class BudgetTests(unittest.TestCase):
     def test_web_search_stops_either_way(self):
         with self.assertRaises(BudgetSpent):
             self._run(spend.CHEAPEST_ACTION, grounding=1)
+
+
+GUILD = 1001
+
+
+class SearchCapTests(unittest.IsolatedAsyncioTestCase):
+    """Each server's search cap counts that server's searches: a day's on a free key, a
+    month's on a billed one. It used to count the whole install's."""
+
+    async def asyncSetUp(self) -> None:
+        from scripts.init_db import create_schema
+        from olisar.guild_setup import ensure_guild_defaults
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        engine.pin_database(str(Path(tmp.name) / "bot.db"))
+        runtime_config.invalidate()
+        await create_schema()
+        async with session_scope() as s:
+            await ensure_guild_defaults(s, GUILD, name="Home")
+            await ensure_guild_defaults(s, GUILD + 1, name="Other")
+            for gid in (GUILD, GUILD + 1):
+                cfg = await s.get(GuildConfig, gid)
+                cfg.grounding_daily_cap = 2
+                cfg.grounding_monthly_cap = 3
+
+    async def asyncTearDown(self) -> None:
+        for path in list(engine._engines):
+            await engine.reset_engine(path)
+        engine.pin_database(None)
+        runtime_config.invalidate()
+        runtime_keys.invalidate()
+
+    async def _allowed(self, guild, *, paid):
+        from olisar import tools
+
+        limiter = SimpleNamespace(paid=paid)
+        with patch.object(tools, "get_rate_limiter", return_value=limiter):
+            async with session_scope() as s:
+                return await tools._grounding_allowed(s, guild)
+
+    async def _search(self, guild, day=None):
+        from olisar import tools
+
+        with patch.object(tools, "quota_day", return_value=day or tools.quota_day()):
+            async with session_scope() as s:
+                await tools._count_search(s, guild)
+
+    async def test_another_servers_searches_dont_count(self):
+        await self._search(GUILD + 1)
+        await self._search(GUILD + 1)
+        self.assertTrue(await self._allowed(GUILD, paid=False))
+        self.assertFalse(await self._allowed(GUILD + 1, paid=False))
+
+    async def test_a_free_key_counts_the_day_and_a_billed_one_the_month(self):
+        from olisar.gemini.quota import quota_day
+
+        today = quota_day()
+        earlier = today.replace(day=1) if today.day > 1 else today
+        await self._search(GUILD, earlier)
+        await self._search(GUILD, earlier)
+        await self._search(GUILD)
+        if earlier != today:
+            self.assertTrue(await self._allowed(GUILD, paid=False))  # 1 today, cap 2
+        self.assertFalse(await self._allowed(GUILD, paid=True))  # 3 this month, cap 3
 
 
 if __name__ == "__main__":

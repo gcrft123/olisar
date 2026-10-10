@@ -161,7 +161,10 @@ class GuildConfig(Base):
     blocked_role_ids: Mapped[list] = mapped_column(JSON, default=list)
     default_model: Mapped[str] = mapped_column(String(64), default=DEFAULT_CHAT_MODEL)
     grounding_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The most web searches this server may run: a day's worth on a free key, whose search
+    # allowance is daily, and a month's on a billed one, whose free searches are monthly.
     grounding_daily_cap: Mapped[int] = mapped_column(Integer, default=100)
+    grounding_monthly_cap: Mapped[int] = mapped_column(Integer, default=3000)
     # When a channel accumulates this many unsummarized tokens, roll a summary.
     summary_token_threshold: Mapped[int] = mapped_column(Integer, default=4000)
     # Mine the guild glossary once a channel has this many un-mined tokens — runs
@@ -1117,6 +1120,19 @@ class GeminiKeyTier(Base):
     key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
     tier: Mapped[str] = mapped_column(String(8))  # "free" | "paid"
     checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GuildSearchUsage(Base):
+    """Web searches per server per quota day, for each server's own search cap. The model
+    rollup has no server, so the cap used to be measured against the whole install."""
+
+    __tablename__ = "guild_search_usage"
+    __table_args__ = (UniqueConstraint("day", "guild_id", name="uq_guild_search_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[datetime] = mapped_column(Date, index=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class UsageHour(Base):
