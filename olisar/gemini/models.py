@@ -66,10 +66,8 @@ class ModelInfo:
 RANKED: list[ModelInfo] = [
 #
 # Daily limits, as Google named them refusing a free key on 2026-10-10: 20 on 3.8 and 3.6
-# Flash, 500 on 3.5 Flash-Lite, and 15 a minute on both Flash-Lite models. 3.1 Flash-Lite's
-# day couldn't be finished (Google kept answering 503), so it's put at 3.5 Flash-Lite's 500,
-# which is also what a September 2026 survey reported. The published figures (250 and
-# 1,000) were far out. A -latest alias draws on the allowance of the model
+# Flash, 500 on 3.5 and 3.1 Flash-Lite, and 15 a minute on the Flash-Lite models. The
+# published figures (250 and 1,000) were far out. A -latest alias draws on the allowance of the model
 # it points to (see _ALIAS_OF), so its figure is that model's and adds nothing to the day.
 # The 2.5 pair couldn't be measured, since Google doesn't serve them to newer projects: 2.5
 # Flash is put at the current Flash models' 20, and 2.5 Flash-Lite keeps its last published
