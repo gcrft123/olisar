@@ -1326,7 +1326,7 @@ Each server's cap counts only that server's searches, but Google's own allowance
 
 | Key | Google's search allowance |
 | --- | --- |
-| Free | 500 searches a day, and only on Gemini 2.5 Flash and 2.5 Flash-Lite. Google's Gemini 3 models don't search on a free key, so Olisar runs a free key's searches on those two. |
+| Free | 500 searches a day, and only on Gemini 2.5 Flash and 2.5 Flash-Lite. Google's Gemini 3 models don't search on a free key, so Olisar runs a free key's searches on those two. Google only serves the 2.5 models to projects that used them before, so a key from a newer project has no free web search |
 | Billing on | 5,000 searches a month across Gemini 3 and newer, then $14 per 1,000. The Gemini 2.5 models have 1,500 a day of their own, then $35 per 1,000. Searches run on the reply chain |
 
 Once the server reaches its cap, a free key's daily allowance runs out, or a key with billing on has spent its [budget](#api-keys), Olisar answers from what it already knows. [Usage](#usage--rate-limits) shows what's left.
@@ -1363,12 +1363,13 @@ The chain, best model first:
 
 | Model | In the console | Per-minute cap, free key | Per-minute cap, billing on | Daily limit, free key |
 | --- | --- | --- | --- | --- |
-| `gemini-3.5-flash` | Gemini 3.5 Flash | 10 | 1,000 | 250 |
+| `gemini-3.8-flash` | Gemini 3.8 Flash | 10 | 1,000 | 250 |
 | `gemini-flash-latest` | newest Flash (auto-updates) | 10 | 1,000 | 250 |
-| `gemini-3-flash-preview` | Gemini 3 Flash | 10 | 1,000 | 250 |
+| `gemini-3.6-flash` | Gemini 3.6 Flash | 10 | 1,000 | 250 |
 | `gemini-2.5-flash` | Gemini 2.5 Flash | 10 | 1,000 | 250 |
-| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 1,000 |
+| `gemini-3.5-flash-lite` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 1,000 |
 | `gemini-flash-lite-latest` | newest Flash-Lite (auto-updates) | 15 | 4,000 | 1,000 |
+| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 1,000 |
 | `gemini-2.5-flash-lite` | Gemini 2.5 Flash-Lite | 15 | 4,000 | 1,000 |
 
 The per-minute cap is Olisar's own, set to stay near Google's limits for the key: the free tier's, or Google's Tier 1 limits once billing is on. When a model reaches it, Olisar moves to the next model instead of waiting. Memory search's model has a cap of its own, 100 a minute on a free key and 3,000 with billing on.
@@ -1377,12 +1378,14 @@ The daily limits are the last free-tier figures Google published; Google sets th
 
 The two `-latest` models are names Google points at its newest release, so what they run can change without an Olisar update. That's why they sit below the fixed versions, where they keep replies going if Google retires one.
 
+Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, a quarter of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does `GEMINI_CHAT_MODEL` if it names one.
+
 #### Choose where the chain starts
 
-**Primary model** on the Behavior tab sets where this server's chain starts. Olisar only works down the chain from there, never up, so starting at `gemini-3.1-flash-lite` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy, and with billing on, for cheaper replies.
+**Primary model** on the Behavior tab sets where this server's chain starts. Olisar only works down the chain from there, never up, so starting at `gemini-3.5-flash-lite` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy, and with billing on, for cheaper replies.
 
 1. Open Behavior.
-2. Under **Model & tools**, choose a **Primary model**. It starts on `gemini-3.5-flash`.
+2. Under **Model & tools**, choose a **Primary model**. It starts on `gemini-3.8-flash`.
 3. Press **Save changes**.
 
 Each server picks its own starting point, but every server on the install draws on the same daily limits.
@@ -1420,9 +1423,9 @@ The chain itself doesn't change, so billing doesn't give you a Pro model.
 | Work | Models |
 | --- | --- |
 | Replies and `/ask` | The reply chain, from the server's **Primary model** down |
-| Summaries, member impressions, the glossary, `/catchup`, deciding whether to join in or react, and checking whether a mention of Olisar's name is addressed to it | `gemini-3.1-flash-lite`, then `gemini-flash-lite-latest`, then `gemini-2.5-flash-lite` |
-| Web search | With Google Search, whatever the server's **Primary model**. On a free key, `gemini-2.5-flash`, then `gemini-2.5-flash-lite`. With billing on, the reply chain from `gemini-3.5-flash` down |
-| Describing posted images for search | `gemini-3.1-flash-lite`, then `gemini-2.5-flash-lite`, then `gemini-flash-lite-latest` |
+| Summaries, member impressions, the glossary, `/catchup`, deciding whether to join in or react, and checking whether a mention of Olisar's name is addressed to it | `gemini-3.5-flash-lite`, then `gemini-flash-lite-latest`, then `gemini-3.1-flash-lite`, then `gemini-2.5-flash-lite` |
+| Web search | With Google Search, whatever the server's **Primary model**. On a free key, `gemini-2.5-flash`, then `gemini-2.5-flash-lite`. With billing on, the reply chain from `gemini-3.8-flash` down |
+| Describing posted images for search | `gemini-3.5-flash-lite`, then `gemini-3.1-flash-lite`, then `gemini-2.5-flash-lite`, then `gemini-flash-lite-latest` |
 | Memory search | `gemini-embedding-001`, with no fallback |
 | Image generation | With billing on, `gemini-3.1-flash-lite-image` (Nano Banana 2 Lite). On a free key, FLUX.1 [schnell] on Cloudflare Workers AI |
 
@@ -1663,7 +1666,7 @@ When the saved key has billing on, two settings appear under it:
 | Setting | What it does | Default |
 | --- | --- | --- |
 | **Monthly budget** | The most Olisar spends on Gemini in a calendar month, in US dollars. 0 is no budget. | 0 |
-| **At the budget** | **Keep replying on the cheapest model** answers with Gemini 2.5 Flash-Lite only, with no web search and no Gemini images. **Stop until next month** stops replying: members get the **When rate-limited** reply, and background work waits for the new month. | Keep replying on the cheapest model |
+| **At the budget** | **Keep replying on the cheapest model** answers with the cheapest models only (Gemini 2.5 Flash-Lite, then 3.1 and 3.5 Flash-Lite), with no web search and no Gemini images. **Stop until next month** stops replying: members get the **When rate-limited** reply, and background work waits for the new month. | Keep replying on the cheapest model |
 
 From 80% of the budget, the pace line on [Usage](#usage--rate-limits) warns and the sidebar shows how much is spent, such as **Budget at 85%**. Usage also warns when the month is on pace to go over. Once the budget is spent, the sidebar shows **Budget spent**. The month starts over on the 1st, Pacific time.
 

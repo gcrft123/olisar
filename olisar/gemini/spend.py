@@ -35,8 +35,10 @@ from olisar.gemini.quota import quota_day
 log = logging.getLogger("olisar.gemini.spend")
 
 # Where replies go once the budget is spent and the operator chose to keep going: the
-# cheapest model in the chain, by a distance.
-CHEAPEST = "gemini-2.5-flash-lite"
+# cheapest models in the chain, cheapest first. Gemini 2.5 Flash-Lite is the cheapest by a
+# distance, but Google only serves it to projects that used it before, so the next cheapest
+# follow it.
+BUDGET_CHAIN = ["gemini-2.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
 
 # The share of the budget at which the console starts warning.
 WARN_AT = 0.8
@@ -182,5 +184,5 @@ def _log_crossing(status: str, spent: float, b: Budget) -> None:
     else:
         log.warning(
             "Gemini spend this month ($%.2f) reached the $%.2f budget; %s", spent, b.usd,
-            "stopping until next month" if b.action == STOP else f"replying on {CHEAPEST} only",
+            "stopping until next month" if b.action == STOP else "replying on the cheapest models only",
         )
