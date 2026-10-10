@@ -1400,7 +1400,7 @@ Model routing picks a model for each reply by what the message needs, on servers
 | --- | --- | --- | --- |
 | Light | Thanks, greetings, banter, a quick reaction | `gemini-3.5-flash-lite` and the other Flash-Lite models, then the rest of the chain | Minimal |
 | Standard | Questions, lookups, actions, images, and anything else | The reply chain from `gemini-3.8-flash` down, the same as without routing | The same as without routing |
-| Deep | Code and error messages, maths, plans, comparisons, long or many-part requests | With billing on, `gemini-3.1-pro-preview`, then the reply chain. Otherwise the same as standard | High on Pro, otherwise the same as standard |
+| Deep | Code and error messages, math, plans, comparisons, long or many-part requests | With billing on, `gemini-3.1-pro-preview`, then the reply chain. Otherwise the same as standard | High on Pro, otherwise the same as standard |
 
 Olisar decides from the message's wording and how close it is to examples of each tier. The comparison uses the embedding memory search already made for the message, so routing costs no extra request. A few rules come first:
 
