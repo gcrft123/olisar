@@ -1,0 +1,12 @@
+{
+  "name": "routing-on",
+  "hypothesis": "Model routing on (Automatic, billing on): light turns on Flash-Lite and hard ones on Pro read no worse than every turn on 3.8 Flash.",
+  "parent": "baseline",
+  "prompt_overrides": {},
+  "persona": {},
+  "config": {
+    "default_model": "auto"
+  },
+  "proactivity": {},
+  "env": {}
+}

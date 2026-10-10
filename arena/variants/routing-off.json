@@ -1,0 +1,12 @@
+{
+  "name": "routing-off",
+  "hypothesis": "The control for routing-on: every reply pinned to Gemini 3.8 Flash, as before model routing.",
+  "parent": "baseline",
+  "prompt_overrides": {},
+  "persona": {},
+  "config": {
+    "default_model": "gemini-3.8-flash"
+  },
+  "proactivity": {},
+  "env": {}
+}
