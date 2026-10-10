@@ -29,7 +29,14 @@ from sqlalchemy import func, select
 from api.auth.deps import require_admin
 from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.db.models import (
+    AdminUser,
+    GeminiUsage,
+    UsageDay,
+    UsageHour,
+    UsageRoute,
+    UsageSource,
+)
 from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.gemini.client import get_gemini
@@ -249,7 +256,10 @@ async def summary(_: AdminUser = Depends(require_admin)):
     * ``busiest_minute`` — today's chat model that came closest to its per-minute limit.
     * ``last_ran_out`` — the last time every model in the chain was out for the day.
     * ``days`` — chat requests per day for the last ``DAYS_SHOWN`` days, today last, with
-      when the chain ran out on any day it did."""
+      when the chain ran out on any day it did.
+    * ``routing`` — replies per model-routing tier today and this month (olisar/routing):
+      how many, how many a light route handed up, how many deep replies a cap kept off Pro,
+      what they cost, and what the same tokens would have cost on the standard tier."""
     now = datetime.now(timezone.utc)
     today = quota_day(now)
     first = today - timedelta(days=29)
@@ -273,6 +283,11 @@ async def summary(_: AdminUser = Depends(require_admin)):
             await session.scalars(select(UsageDay).where(UsageDay.day >= first_shown))
         ).all()
         last_ran_out = await session.scalar(select(func.max(UsageDay.chain_out_at)))
+        routes = (
+            await session.scalars(
+                select(UsageRoute).where(UsageRoute.day >= spend.month_start(today))
+            )
+        ).all()
 
     def by_source(since) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -309,6 +324,24 @@ async def summary(_: AdminUser = Depends(require_admin)):
             per_day[u.day] += u.request_count
     out_at = {d.day: d.chain_out_at for d in ran_out}
 
+    def by_tier(since) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for r in routes:
+            if r.day < since:
+                continue
+            t = out.setdefault(r.tier, {
+                "replies": 0, "escalated": 0, "capped": 0, "cost": 0.0, "standard_cost": 0.0,
+            })
+            t["replies"] += r.replies
+            t["escalated"] += r.escalated
+            t["capped"] += r.capped
+            t["cost"] += r.cost_usd or 0.0
+            t["standard_cost"] += r.standard_usd or 0.0
+        for t in out.values():
+            t["cost"] = round(t["cost"], 4)
+            t["standard_cost"] = round(t["standard_cost"], 4)
+        return out
+
     return {
         "day": today.isoformat(),
         "features": {
@@ -330,6 +363,12 @@ async def summary(_: AdminUser = Depends(require_admin)):
             if busiest else None
         ),
         "last_ran_out": _iso(last_ran_out),
+        "routing": {
+            "today": by_tier(today),
+            "month": by_tier(spend.month_start(today)),
+            # What the cost is compared with: every reply on the standard tier's head model.
+            "standard_model": settings.gemini_chat_model,
+        },
         "days": [
             {
                 "day": d.isoformat(), "requests": n, "ran_out_at": _iso(out_at.get(d)),

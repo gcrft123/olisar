@@ -54,7 +54,7 @@ from olisar.db.models import (
     SearchMessage,
     UserProfile,
 )
-from olisar.gemini.models import RANKED_NAMES
+from olisar.gemini.models import AUTO, RANKED_NAMES
 from olisar.knowledge import sources
 from olisar.knowledge.crawler import non_public_reason
 from olisar.knowledge.refresh import MAX_INTERVAL_HOURS, REFRESHABLE_TYPES
@@ -178,7 +178,10 @@ _BEHAVIOR: dict[str, _Field] = {
     "blocked_mentions": _Field(
         GuildConfig, "blocked_mentions", "list", choices=("everyone", "here", "roles")
     ),
-    "default_model": _Field(GuildConfig, "default_model", "choice", choices=tuple(RANKED_NAMES)),
+    # "auto" is Automatic: model routing picks per message when it's on (olisar/routing).
+    "default_model": _Field(
+        GuildConfig, "default_model", "choice", choices=(AUTO, *RANKED_NAMES)
+    ),
     "grounding_enabled": _Field(GuildConfig, "grounding_enabled", "bool"),
     "grounding_daily_cap": _Field(GuildConfig, "grounding_daily_cap", "int", 0),
     "grounding_monthly_cap": _Field(GuildConfig, "grounding_monthly_cap", "int", 0),

@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, Protocol
 
-from olisar.gemini.models import GEMINI_IMAGE_MODEL
+from olisar.gemini.models import GEMINI_IMAGE_MODEL, PRO_MODEL
 
 
 @dataclass(frozen=True)
@@ -42,6 +42,9 @@ _PRICES: dict[str, tuple[tuple[date, Price], ...]] = {
     "gemini-flash-lite-latest": ((date.min, Price(0.30, 2.50)),),
     "gemini-3.1-flash-lite": ((date.min, Price(0.25, 1.50)),),
     "gemini-2.5-flash-lite": ((date.min, Price(0.10, 0.40)),),
+    # Routing's deep tier on a billed key. Google charges $4 and $18 for a prompt over 200k
+    # tokens; a reply's prompt is a few thousand, so only the lower rate is kept.
+    PRO_MODEL: ((date.min, Price(2.00, 12.00)),),
     # Retired from the chain (models.RETIRED), kept so the month they were used in still
     # adds up. 3.5 Flash isn't on Google's page any more; priced as the Flash replacing it.
     "gemini-3.5-flash": _FLASH,

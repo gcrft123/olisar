@@ -38,6 +38,7 @@ from olisar.db.models import (
 )
 from olisar.gemini import spend
 from olisar.gemini.models import (
+    AUTO,
     RANKED_NAMES,
     aliases_of,
     model_chain,
@@ -68,8 +69,12 @@ def key_id(key: str | None) -> str | None:
 
 def reply_chain(default_model: str | None) -> list[str]:
     """The fallback chain a server replies through: its ``default_model`` (else
-    GEMINI_CHAT_MODEL, as the pipeline does) and everything ranked below it."""
-    return model_chain(default_model or settings.gemini_chat_model)
+    GEMINI_CHAT_MODEL, as the pipeline does) and everything ranked below it. Automatic
+    (``AUTO``) starts where GEMINI_CHAT_MODEL does: routing sends some replies lower, never
+    past the end of this chain, and Pro is extra to it."""
+    if not default_model or default_model == AUTO:
+        default_model = settings.gemini_chat_model
+    return model_chain(default_model)
 
 
 async def chains_in_use(session) -> dict[int, list[str]]:
