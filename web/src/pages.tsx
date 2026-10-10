@@ -571,7 +571,8 @@ const MSG_LABELS: Record<string, string> = {
   forget_me: '/forget-me', forget_me_optout: '/forget-me (opt-out line)',
   dm_indexing: '/dm-indexing',
   proactive: '/olisar proactive', privacy: '/privacy',
-  rate_limit: 'When rate-limited', blank_fallback: 'When it draws a blank',
+  rate_limit: 'When rate-limited', budget_spent: 'When the budget is spent',
+  blank_fallback: 'When it draws a blank',
   access_denied: 'When access is denied',
   tool_pin_prompt: 'When a tool needs the PIN',
 }

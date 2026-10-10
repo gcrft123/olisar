@@ -39,6 +39,10 @@ DEFAULT_COMMAND_MESSAGES: dict[str, str] = {
     # Fixed conversational messages Olisar falls back to (not tied to a slash
     # command). Surfaced here so admins can tune their voice like any other reply.
     "rate_limit": "i'm a bit rate-limited right now — give me a minute and try again?",
+    # When the month's Gemini budget is spent and the operator chose to stop there
+    # (olisar.gemini.spend). Not the rate-limit reply: that one says to try again in a
+    # minute, and this lasts until the 1st.
+    "budget_spent": "i've hit this month's spending limit, so i can't reply until the 1st.",
     "blank_fallback": "…my mind just went blank there. mind rephrasing?",
     "access_denied": "sorry — you don't have access to me here.",
     # The tool PIN (olisar/toolpin.py): the one thing the prompt says. There are no
