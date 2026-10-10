@@ -270,10 +270,15 @@ class RateLimiter:
         self._cooldown_until[model] = time.monotonic() + seconds
         log.info("model %s parked for %.0fs after %s", model, seconds, reason)
 
-    async def acquire(self, model: str) -> None:
-        """Block until `model` has a free slot. For single-model callers that
-        can't fall back (embeddings, grounded search). Raises RateLimitExceeded rather
-        than waiting for the daily reset, which can be most of a day away."""
+    async def acquire(self, model: str, n: int = 1) -> None:
+        """Block until `model` has ``n`` free slots, and take them. For single-model callers
+        that can't fall back (embeddings, grounded search). Raises RateLimitExceeded rather
+        than waiting for the daily reset, which can be most of a day away.
+
+        ``n`` is for an embedding batch: Google counts each text in it as a request against
+        the per-minute and daily limits, so a batch of 50 takes 50 slots, not one."""
+        limit = rpm_for(model, self.paid)
+        n = max(1, min(n, limit))  # a batch bigger than a minute's slots waits for an empty minute
         while True:
             if self.spent_at(model) is not None and not self.claim_probe(model):
                 raise RateLimitExceeded(model, "daily")
@@ -284,10 +289,12 @@ class RateLimiter:
                 continue
             self._clean(model, now)
             dq = self._calls[model]
-            if len(dq) >= rpm_for(model, self.paid):
-                await asyncio.sleep(max(60.0 - (now - dq[0]) + 0.05, 0.1))
+            if len(dq) + n > limit:
+                # Wait until enough of the oldest calls have aged out to make room.
+                await asyncio.sleep(max(60.0 - (now - dq[len(dq) + n - limit - 1]) + 0.05, 0.1))
                 continue
-            dq.append(time.monotonic())
+            stamp = time.monotonic()
+            dq.extend([stamp] * n)
             return
 
 
@@ -305,12 +312,12 @@ class _UsageBuffer:
 
     def add(self, *, day: date, hour: int, model: str, tokens: int, grounding: int,
             source: str, rpm: int, rpm_at: datetime, tpm: int, key: str | None,
-            input_tokens: int = 0, output_tokens: int = 0) -> None:
+            input_tokens: int = 0, output_tokens: int = 0, requests: int = 1) -> None:
         m = self.models.setdefault((day, model), {
             "requests": 0, "tokens": 0, "input": 0, "output": 0, "grounding": 0,
             "peak_rpm": 0, "peak_rpm_at": rpm_at, "key": key,
         })
-        m["requests"] += 1
+        m["requests"] += requests
         m["tokens"] += tokens
         m["input"] += input_tokens
         m["output"] += output_tokens
@@ -319,9 +326,9 @@ class _UsageBuffer:
         if rpm > m["peak_rpm"]:
             m["peak_rpm"], m["peak_rpm_at"] = rpm, rpm_at
         h = self.hours.setdefault((day, hour, model), [0, 0])
-        h[0] += 1
+        h[0] += requests
         h[1] += tokens
-        self.sources[(day, source)] = self.sources.get((day, source), 0) + 1
+        self.sources[(day, source)] = self.sources.get((day, source), 0) + requests
         self.peak_tpm[day] = max(self.peak_tpm.get(day, 0), tpm)
 
     def merge(self, other: "_UsageBuffer") -> None:
@@ -449,7 +456,7 @@ def _retry_soon() -> None:
 
 async def record_usage(
     model: str, tokens: int, grounding: int = 0, source: str = "other", *,
-    input_tokens: int = 0, output_tokens: int = 0, images: int = 0,
+    input_tokens: int = 0, output_tokens: int = 0, images: int = 0, requests: int = 1,
 ) -> None:
     """Persist per-day usage for the dashboard. Best-effort — never blocks a reply.
 
@@ -460,7 +467,8 @@ async def record_usage(
 
     ``input_tokens`` and ``output_tokens`` are ``tokens`` split the way Google prices them,
     and ``images`` the images the request made; together they're what the request cost
-    (olisar.gemini.spend), which the budget counts against.
+    (olisar.gemini.spend), which the budget counts against. ``requests`` is how many
+    requests Google counts it as: one, except an embedding batch, which is one per text.
 
     Called from inside a ``session_scope`` (a reply, a background job), the write waits
     until that scope has ended: its session may hold SQLite's write lock, and writing on
@@ -477,7 +485,7 @@ async def record_usage(
         _pending_usage.add(
             day=day, hour=quota_hour(now), model=model, tokens=tokens,
             grounding=grounding, source=source, rpm=rpm, rpm_at=now, tpm=tpm, key=limiter.key,
-            input_tokens=input_tokens, output_tokens=output_tokens,
+            input_tokens=input_tokens, output_tokens=output_tokens, requests=requests,
         )
         spend.add(
             model, day, input_tokens=input_tokens + max(0, tokens - input_tokens - output_tokens),
