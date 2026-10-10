@@ -107,15 +107,24 @@ _last: ChainResult | None = None
 # A daily sweep that cries wolf on quota is a daily sweep nobody reads.
 _INCONCLUSIVE_CODES = frozenset({429, 500, 502, 503, 504})
 
+# How Google words a 404 for a model it still serves, just not to newer projects.
+_NOT_FOR_THIS_PROJECT = "no longer available to new users"
+
 
 def _verdict_for(exc: Exception) -> str:
     """"failed" if this refusal is about our request; "inconclusive" if it's about timing.
 
-    404 stays a failure: a retired model is permanent and needs the chain edited.
+    404 stays a failure: a retired model is permanent and needs the chain edited. Except when
+    Google only withholds the model from this project (the Gemini 2.5 pair, which it serves
+    only to projects that used it before): the chain is fine and nothing needs editing, and
+    calling it a failure put a false alarm in every newer project's log once a day.
     """
     if isinstance(exc, RateLimitExceeded):
         return "inconclusive"
-    return "inconclusive" if getattr(exc, "code", None) in _INCONCLUSIVE_CODES else "failed"
+    code = getattr(exc, "code", None)
+    if code == 404 and _NOT_FOR_THIS_PROJECT in str(getattr(exc, "message", None) or exc).lower():
+        return "inconclusive"
+    return "inconclusive" if code in _INCONCLUSIVE_CODES else "failed"
 
 
 def last_result() -> ChainResult | None:
