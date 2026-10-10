@@ -25,6 +25,7 @@ from sqlalchemy import select
 from olisar import runtime_keys
 from olisar.db.engine import session_scope
 from olisar.db.models import GeminiKeyTier
+from olisar.gemini.models import GEMINI_IMAGE_MODEL
 from olisar.gemini.rate_limiter import get_rate_limiter, key_id
 
 log = logging.getLogger("olisar.gemini.tier")
@@ -33,7 +34,7 @@ FREE, PAID = "free", "paid"
 
 _URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
 # Paid-only models, tried in order: the next one stands in if Google retires the first.
-_PROBE_MODELS = ("gemini-3.1-pro-preview", "gemini-3.1-flash-lite-image")
+_PROBE_MODELS = ("gemini-3.1-pro-preview", GEMINI_IMAGE_MODEL)
 _PROBE_BODY = {
     "contents": [{"role": "user", "parts": [{"text": "Reply with the word ok."}]}],
     "generationConfig": {"maxOutputTokens": 16},

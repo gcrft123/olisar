@@ -18,10 +18,11 @@ from google.genai import types
 
 from olisar import runtime_keys
 from olisar.config import settings
-from olisar.gemini import tier
+from olisar.gemini import spend, tier
 from olisar.gemini.models import SEARCH_FREE_CHAIN, image_model_chain, model_chain
 from olisar.gemini.quota import next_reset, read_refusal
 from olisar.gemini.rate_limiter import (
+    BudgetSpent,
     RateLimitExceeded,
     get_rate_limiter,
     key_id,
@@ -85,7 +86,8 @@ def _is_capability_400(exc: Exception) -> bool:
 
 
 class GroundingUnavailable(Exception):
-    """Raised when Google Search grounding is quota-exhausted (free tier is small)."""
+    """Raised when Google Search grounding is unavailable: its allowance is spent, or the
+    month's budget is."""
 
 
 # A 429 that carries a retry delay is a *rate* (per-minute) limit — it clears on its own
@@ -123,6 +125,22 @@ def _retry_after_seconds(exc: Exception) -> float | None:
 class GenResult:
     text: str
     tokens: int
+
+
+def token_split(resp) -> tuple[int, int, int]:
+    """A response's (total, input, output) tokens, split the way Google prices them: the
+    prompt and any search results in, the reply and the thinking behind it out."""
+    usage = getattr(resp, "usage_metadata", None)
+    if usage is None:
+        return 0, 0, 0
+
+    def count(name: str) -> int:
+        value = getattr(usage, name, None)
+        return value if isinstance(value, int) else 0
+
+    input_tokens = count("prompt_token_count") + count("tool_use_prompt_token_count")
+    output_tokens = count("candidates_token_count") + count("thoughts_token_count")
+    return count("total_token_count"), input_tokens, output_tokens
 
 
 def safe_text(resp) -> str:
@@ -220,13 +238,21 @@ class GeminiClient:
         instead of raising — grounded search passes ``(400,)`` because not every model
         in the chat chain accepts the google_search tool, and "this one can't ground"
         should cost us the next model, not the whole request. ``grounding=1`` marks the
-        call in the usage rollup that the per-guild grounding cap reads."""
+        call as a web search in the usage rollup.
+
+        On a billed key past its monthly budget (olisar.gemini.spend), this raises
+        ``BudgetSpent`` if the operator chose to stop there, and otherwise answers on the
+        cheapest model alone. Web search is refused either way: it's a paid extra."""
         limiter = get_rate_limiter()
         chain = chain or model_chain(model)
         # Resolve the key before reading the chain's state: a key changed since the last
         # call un-parks the models the old one ran out on (see aclient).
         client = await self.aclient()
         kid = key_id(self._key)
+        if limiter.paid and await spend.over_budget():
+            if grounding or (await spend.budget()).action == spend.STOP:
+                raise BudgetSpent(chain[0])
+            chain = [spend.CHEAPEST]
         last_error: Exception | None = None
         # Whether quota had a hand in this walk: a model refused with a 429, or skipped as
         # out for the day or full for the minute. Decides what an exhausted chain raises.
@@ -348,12 +374,11 @@ class GeminiClient:
                     raise  # non-transient error — surface it, don't mask
                 continue  # fall back to the next model in the chain
 
-            tokens = (
-                resp.usage_metadata.total_token_count
-                if resp.usage_metadata is not None
-                else 0
-            ) or 0
-            await record_usage(candidate, tokens, grounding=grounding, source=source)
+            tokens, input_tokens, output_tokens = token_split(resp)
+            await record_usage(
+                candidate, tokens, grounding=grounding, source=source,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
             if probing:
                 # A model Google had refused for the day took a request: billing was turned
                 # on, most likely, so ask again rather than wait out the last answer.
@@ -528,7 +553,7 @@ class GeminiClient:
 
     async def search(self, query: str, *, model: str | None = None) -> tuple[str, list[str]]:
         """Grounded web search via Google Search. Returns (answer, source titles).
-        Raises GroundingUnavailable when Google refuses (free-tier grounding is tiny)
+        Raises GroundingUnavailable when Google refuses, or the month's budget is spent,
         so the caller can degrade rather than crash.
 
         Walks a fallback chain: grounding quota is per model, so a limit on the preferred

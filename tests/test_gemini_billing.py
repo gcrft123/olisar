@@ -1,23 +1,123 @@
-"""A Gemini key with billing on: telling it from a free one.
+"""A Gemini key with billing on: which tier a key is on, what usage costs, and the budget.
 
 Run:  uv run python -m unittest tests.test_gemini_billing -v
 
-Olisar used to assume every key was on the free tier, so a billed key was held to free-tier
-per-minute caps. Covered here: asking Google which tier a key is on, what settles it without
-asking, and the per-minute cap a billed key gets.
+Olisar used to assume every key was on the free tier: its per-minute caps, its images and its
+Usage page all measured a billed key against free-tier figures. Covered here: telling the
+tiers apart, pricing a day's usage (searches' free allowances included), the running total
+the budget reads, and what a spent budget does to a request.
 """
 
 from __future__ import annotations
 
+import asyncio
 import unittest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 
-from olisar.gemini import tier
-from olisar.gemini.models import rpm_for
-from olisar.gemini.rate_limiter import RateLimiter, key_id
+from olisar.gemini import pricing, spend, tier
+from olisar.gemini.client import GeminiClient, token_split
+from olisar.gemini.models import GEMINI_IMAGE_MODEL, rpm_for
+from olisar.gemini.rate_limiter import BudgetSpent, RateLimiter, key_id
+
+DAY = date(2026, 10, 9)
+
+
+def _row(model, *, day=DAY, requests=1, tokens=0, inp=0, out=0, grounding=0):
+    return SimpleNamespace(
+        day=day, model=model, request_count=requests, token_count=tokens,
+        input_tokens=inp, output_tokens=out, grounding_count=grounding,
+    )
+
+
+class PricingTests(unittest.TestCase):
+    def test_input_and_output_are_priced_apart(self):
+        # 3.1 Flash-Lite: $0.25 in, $1.50 out, per million.
+        row = _row("gemini-3.1-flash-lite", tokens=3_000_000, inp=2_000_000, out=1_000_000)
+        self.assertAlmostEqual(pricing.tokens_cost(row), 0.5 + 1.5)
+
+    def test_tokens_from_before_the_split_are_priced_as_input(self):
+        row = _row("gemini-2.5-flash-lite", tokens=1_000_000)
+        self.assertAlmostEqual(pricing.tokens_cost(row), 0.10)
+
+    def test_an_image_is_priced_per_image(self):
+        row = _row(GEMINI_IMAGE_MODEL, requests=10)
+        self.assertAlmostEqual(pricing.tokens_cost(row), 0.336)
+
+    def test_flash_doubles_in_2027(self):
+        self.assertEqual(pricing.price_for("gemini-3.5-flash", date(2026, 12, 31)).input, 0.75)
+        self.assertEqual(pricing.price_for("gemini-3.5-flash", date(2027, 1, 1)).input, 1.50)
+
+    def test_an_unknown_model_is_never_free(self):
+        self.assertGreater(pricing.price_for("gemini-9-flash", DAY).input, 0)
+
+    def test_gemini_3_searches_are_free_up_to_the_months_allowance(self):
+        rows = [
+            _row("gemini-3.5-flash", day=date(2026, 10, 1), grounding=4999),
+            _row("gemini-3.5-flash", day=date(2026, 10, 2), grounding=11),
+        ]
+        costs = pricing.daily_costs(rows)
+        self.assertAlmostEqual(costs[date(2026, 10, 1)], 0)
+        self.assertAlmostEqual(costs[date(2026, 10, 2)], 10 * 0.014)
+
+    def test_the_allowance_starts_again_each_month(self):
+        rows = [
+            _row("gemini-3.5-flash", day=date(2026, 9, 30), grounding=5000),
+            _row("gemini-3.5-flash", day=date(2026, 10, 1), grounding=5000),
+        ]
+        self.assertAlmostEqual(sum(pricing.daily_costs(rows).values()), 0)
+
+    def test_gemini_25_searches_have_a_daily_allowance(self):
+        rows = [
+            _row("gemini-2.5-flash", grounding=1000),
+            _row("gemini-2.5-flash-lite", grounding=600),
+        ]
+        self.assertAlmostEqual(pricing.daily_costs(rows)[DAY], 100 * 0.035)
+
+
+class TokenSplitTests(unittest.TestCase):
+    def test_thinking_and_search_results_land_where_google_bills_them(self):
+        usage = SimpleNamespace(
+            total_token_count=640, prompt_token_count=12, tool_use_prompt_token_count=92,
+            candidates_token_count=56, thoughts_token_count=480,
+        )
+        self.assertEqual(token_split(SimpleNamespace(usage_metadata=usage)), (640, 104, 536))
+
+    def test_missing_counts_are_zero(self):
+        usage = SimpleNamespace(total_token_count=None, prompt_token_count=None)
+        self.assertEqual(token_split(SimpleNamespace(usage_metadata=usage)), (0, 0, 0))
+
+
+class SpendTests(unittest.TestCase):
+    def setUp(self):
+        spend._month = None
+
+    def tearDown(self):
+        spend._month = None
+
+    def test_the_running_total_agrees_with_the_rollup(self):
+        rows = [
+            _row("gemini-3.5-flash", tokens=5000, inp=4500, out=500),
+            _row("gemini-2.5-flash", grounding=1600, requests=1600),
+            _row("gemini-3.5-flash", grounding=5001, requests=5001),
+            _row(GEMINI_IMAGE_MODEL, requests=1),
+        ]
+        # The same requests, one at a time.
+        spend.add("gemini-3.5-flash", DAY, input_tokens=4500, output_tokens=500)
+        for _ in range(1600):
+            spend.add("gemini-2.5-flash", DAY, grounding=1)
+        for _ in range(5001):
+            spend.add("gemini-3.5-flash", DAY, grounding=1)
+        spend.add(GEMINI_IMAGE_MODEL, DAY, images=1)
+        self.assertAlmostEqual(spend.month_usd(DAY), sum(pricing.daily_costs(rows).values()))
+
+    def test_a_new_month_starts_from_zero(self):
+        spend.add("gemini-3.5-flash", date(2026, 9, 30), input_tokens=1_000_000)
+        self.assertEqual(spend.month_usd(date(2026, 10, 1)), 0.0)
+
 
 def _transport(*responses):
     """An httpx client factory answering each request with the next (status, body)."""
@@ -87,6 +187,42 @@ class TierStateTests(unittest.TestCase):
         self.assertTrue(tier._stale(self.kid))
         tier._remember(self.kid, tier.PAID, datetime.now(timezone.utc) - timedelta(hours=7))
         self.assertFalse(tier._stale(self.kid))
+
+
+class BudgetTests(unittest.TestCase):
+    """What a request does once a billed key's month is past its budget."""
+
+    def _run(self, action, *, grounding=0):
+        client = GeminiClient()
+        sdk = MagicMock()
+        ok = MagicMock()
+        ok.usage_metadata = None
+        sdk.aio.models.generate_content = AsyncMock(return_value=ok)
+        client.aclient = AsyncMock(return_value=sdk)
+        client._key = "AQ.key"
+        limiter = MagicMock()
+        limiter.paid = True
+        limiter.state.return_value = "ok"
+        budget = spend.Budget(10.0, action, True)
+        with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), \
+                patch("olisar.gemini.client.record_usage", new=AsyncMock()), \
+                patch.object(spend, "over_budget", AsyncMock(return_value=True)), \
+                patch.object(spend, "budget", AsyncMock(return_value=budget)):
+            asyncio.run(client._raw_generate(
+                contents="hi", config=MagicMock(), model="gemini-3.5-flash", grounding=grounding,
+            ))
+        return [c.kwargs["model"] for c in sdk.aio.models.generate_content.await_args_list]
+
+    def test_cheapest_answers_on_the_cheapest_model_alone(self):
+        self.assertEqual(self._run(spend.CHEAPEST_ACTION), [spend.CHEAPEST])
+
+    def test_stop_refuses_like_a_rate_limit(self):
+        with self.assertRaises(BudgetSpent):
+            self._run(spend.STOP)
+
+    def test_web_search_stops_either_way(self):
+        with self.assertRaises(BudgetSpent):
+            self._run(spend.CHEAPEST_ACTION, grounding=1)
 
 
 if __name__ == "__main__":

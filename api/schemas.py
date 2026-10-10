@@ -146,6 +146,12 @@ class GeminiCheckIn(BaseModel):
     key: str = ""  # blank checks the saved key
 
 
+class BillingIn(BaseModel):
+    monthly_budget_usd: float | None = Field(None, ge=0, le=1_000_000)
+    budget_action: Literal["stop", "cheapest"] | None = None
+    gemini_images: bool | None = None
+
+
 class CloudflareCheckIn(BaseModel):
     token: str = ""  # blank fields check the saved values
     account_id: str = ""

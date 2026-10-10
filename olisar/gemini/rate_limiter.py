@@ -36,6 +36,7 @@ from olisar.db.models import (
     UsageMinutePeak,
     UsageSource,
 )
+from olisar.gemini import spend
 from olisar.gemini.models import RANKED_NAMES, model_chain, rpm_for
 from olisar.gemini.quota import aware, next_reset, quota_day, quota_hour
 
@@ -97,6 +98,15 @@ class RateLimitExceeded(Exception):
         super().__init__(f"{model} {scope} rate limit reached")
         self.model = model
         self.scope = scope
+
+
+class BudgetSpent(RateLimitExceeded):
+    """The month's Gemini budget is spent and the operator chose to stop there. A rate limit
+    to everything that calls Gemini: replies get the rate-limit message, background work
+    waits, and none of it needs to know why."""
+
+    def __init__(self, model: str) -> None:
+        super().__init__(model, "monthly budget")
 
 
 class RateLimiter:
@@ -294,13 +304,16 @@ class _UsageBuffer:
         return bool(self.models or self.hours or self.sources or self.peak_tpm)
 
     def add(self, *, day: date, hour: int, model: str, tokens: int, grounding: int,
-            source: str, rpm: int, rpm_at: datetime, tpm: int, key: str | None) -> None:
+            source: str, rpm: int, rpm_at: datetime, tpm: int, key: str | None,
+            input_tokens: int = 0, output_tokens: int = 0) -> None:
         m = self.models.setdefault((day, model), {
-            "requests": 0, "tokens": 0, "grounding": 0, "peak_rpm": 0, "peak_rpm_at": rpm_at,
-            "key": key,
+            "requests": 0, "tokens": 0, "input": 0, "output": 0, "grounding": 0,
+            "peak_rpm": 0, "peak_rpm_at": rpm_at, "key": key,
         })
         m["requests"] += 1
         m["tokens"] += tokens
+        m["input"] += input_tokens
+        m["output"] += output_tokens
         m["grounding"] += grounding
         m["key"] = key
         if rpm > m["peak_rpm"]:
@@ -318,7 +331,7 @@ class _UsageBuffer:
             if mine is None:
                 self.models[k] = m
                 continue
-            for f in ("requests", "tokens", "grounding"):
+            for f in ("requests", "tokens", "input", "output", "grounding"):
                 mine[f] += m[f]
             mine["key"] = m["key"]
             if m["peak_rpm"] > mine["peak_rpm"]:
@@ -340,11 +353,14 @@ class _UsageBuffer:
             if row is None:
                 session.add(GeminiUsage(
                     day=day, model=model, request_count=m["requests"], token_count=m["tokens"],
+                    input_tokens=m["input"], output_tokens=m["output"],
                     grounding_count=m["grounding"], peak_rpm=m["peak_rpm"], peak_rpm_at=m["peak_rpm_at"],
                 ))
                 continue
             row.request_count += m["requests"]
             row.token_count += m["tokens"]
+            row.input_tokens = (row.input_tokens or 0) + m["input"]
+            row.output_tokens = (row.output_tokens or 0) + m["output"]
             row.grounding_count += m["grounding"]
             if m["peak_rpm"] > row.peak_rpm:
                 row.peak_rpm = m["peak_rpm"]
@@ -432,7 +448,8 @@ def _retry_soon() -> None:
 
 
 async def record_usage(
-    model: str, tokens: int, grounding: int = 0, source: str = "other"
+    model: str, tokens: int, grounding: int = 0, source: str = "other", *,
+    input_tokens: int = 0, output_tokens: int = 0, images: int = 0,
 ) -> None:
     """Persist per-day usage for the dashboard. Best-effort — never blocks a reply.
 
@@ -440,6 +457,10 @@ async def record_usage(
     peak RPM), the per-hour tally the same-time-yesterday comparison reads, the
     per-process request tally (``source``), and the day's peak TPM. The day is Google's
     (see olisar.gemini.quota), so it lines up with the daily limit being counted.
+
+    ``input_tokens`` and ``output_tokens`` are ``tokens`` split the way Google prices them,
+    and ``images`` the images the request made; together they're what the request cost
+    (olisar.gemini.spend), which the budget counts against.
 
     Called from inside a ``session_scope`` (a reply, a background job), the write waits
     until that scope has ended: its session may hold SQLite's write lock, and writing on
@@ -452,9 +473,15 @@ async def record_usage(
         rpm = limiter.current(model)          # this model's instantaneous RPM
         tpm = limiter.record_tokens(tokens)   # global tokens-in-60s after this call
         now = datetime.now(timezone.utc)
+        day = quota_day(now)
         _pending_usage.add(
-            day=quota_day(now), hour=quota_hour(now), model=model, tokens=tokens,
+            day=day, hour=quota_hour(now), model=model, tokens=tokens,
             grounding=grounding, source=source, rpm=rpm, rpm_at=now, tpm=tpm, key=limiter.key,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+        spend.add(
+            model, day, input_tokens=input_tokens + max(0, tokens - input_tokens - output_tokens),
+            output_tokens=output_tokens, images=images, grounding=grounding,
         )
     except Exception:
         log.exception("failed to record gemini usage")

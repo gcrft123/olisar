@@ -784,6 +784,13 @@ class AppConfig(Base):
     # Marketplace policy: block publishing an extension whose AI risk score (0-100) is at
     # or above this. Operator-tunable; 70 is a balanced default.
     extension_risk_threshold: Mapped[int] = mapped_column(Integer, default=70)
+    # Gemini billing, which only means anything on a key with billing on. A monthly budget
+    # of 0 is none. At the budget, Olisar either stops ("stop") or keeps replying on the
+    # cheapest model with no web search or images ("cheapest"). See olisar.gemini.spend.
+    monthly_budget_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    budget_action: Mapped[str] = mapped_column(Text, default="cheapest")
+    # Whether a billed key makes images on Gemini rather than Cloudflare (olisar/imaging.py).
+    gemini_images: Mapped[bool] = mapped_column(Boolean, default=True)
     # 'local' (bot runs here) or 'server' (bot runs on the operator's cloud VM; this
     # install is just the deploy + control tool — no local bot is started, no Discord
     # creds stored locally; they live in the VM's .env).
@@ -1081,6 +1088,11 @@ class GeminiUsage(Base):
     model: Mapped[str] = mapped_column(String(64))
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
+    # The same tokens split the way Google prices them: input (the prompt and any search
+    # results) and output (the reply and the model's thinking). Rows from before the split
+    # have 0 in both; see olisar.gemini.pricing.tokens_cost.
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     grounding_count: Mapped[int] = mapped_column(Integer, default=0)
     # The highest requests-in-any-60s window this model reached on this day — the day's
     # peak RPM, compared against the model's cap on the Usage dashboard — and when.
