@@ -6,7 +6,7 @@ import { Icon, CheckMark, CloseX, CopyGlyph, DiscordLogo, type IconName } from '
 import {
   Persona, Behavior, Messages, Channels, Access, Knowledge, Members, Extensions, ApiKeys, Docs,
 } from './pages'
-import { Usage } from './usage'
+import { AI_STUDIO_KEYS, Usage, usd, type Billing } from './usage'
 import { Developer } from './developer'
 import { MemberPortal } from './member'
 import { SetupWizard, type SetupStatus } from './setup'
@@ -443,7 +443,7 @@ export default function App() {
     members: <Members />,
     extensions: <Extensions isOperator={isOperator} />,
     ...(isOperator ? { keys: <ApiKeys /> } : {}),
-    usage: <Usage />,
+    usage: <Usage onGo={isOperator ? goTab : undefined} />,
     docs: <Docs onNavigate={goTab} />,
     // Gated here, not only in the rail: the rail hides the item for non-developers, but the
     // route is reachable by typing the hash. The page is operator-tooling, so it renders the
@@ -558,6 +558,7 @@ export default function App() {
         {/* Keyed by server: another server is another list, and nothing from this one's
             (a step still folding away, a fetch in flight) may land on it. */}
         <GetStarted key={current.id} guild={current.id} tab={tab} onGo={goTab} storeKey={`olisar.getstarted.hidden:${bots.activeId}:${current.id}`} />
+        <BillingNudge onGo={goTab} operator={isOperator} />
 
         {/* An accelerator nobody can discover isn't one. This is the only thing in the
             console that advertises the palette; it's also a real button, so the feature is
@@ -1421,6 +1422,8 @@ const STEP_LEAVE_MS = 1700
 function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string; onGo: (id: string) => void; storeKey: string }) {
   const [speaks, setSpeaks] = useState<boolean | null>(null)
   const [keys, setKeys] = useState<Record<string, { dashboard: boolean; env: boolean }> | null>(null)
+  // A key with billing on makes images with Gemini, so it needs no Cloudflare account.
+  const [geminiImages, setGeminiImages] = useState(false)
   const [hidden, setHidden] = useState(() => localStorage.getItem(storeKey) === '1')
   useEffect(() => { setHidden(localStorage.getItem(storeKey) === '1') }, [storeKey])
   // A step finished while the list is on screen plays out (ticked, struck through, grayed,
@@ -1447,6 +1450,9 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
       .then((cs: any[]) => { if (alive) setSpeaks(cs.some((c) => c.mode === 'respond' || c.mode === 'both')) })
       .catch(() => {})
     api.getKeys().then((k: any) => { if (alive) setKeys(k) }).catch(() => {})
+    api.getBilling()
+      .then((b: any) => { if (alive) setGeminiImages(b?.tier === 'paid' && !!b?.gemini_images) })
+      .catch(() => {})
     return () => { alive = false }
   }, [guild, tab, saves])
 
@@ -1455,7 +1461,7 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
     { key: 'channels', tab: 'channels', label: 'Choose reply channels', done: speaks, required: true },
     ...(keys ? [
       { key: 'gemini', tab: 'keys', label: 'Add a Gemini key', done: has('gemini_api_key'), required: true },
-      { key: 'images', tab: 'keys', label: 'Turn on images', done: has('cloudflare_account_id') && has('cloudflare_api_token'), required: false },
+      { key: 'images', tab: 'keys', label: 'Turn on images', done: geminiImages || (has('cloudflare_account_id') && has('cloudflare_api_token')), required: false },
     ] : []),
   ]
   const doneState = items.map((i) => `${i.key}:${i.done ? 1 : 0}`).join(',')
@@ -1514,6 +1520,40 @@ function GetStarted({ guild, tab, onGo, storeKey }: { guild: string; tab: string
           </ul>
         </div>
       </div>
+    </div>
+  )
+}
+
+// What the Gemini key costs, said in the rail only when it matters: a free key that's out of
+// requests for the day, with what billing would have cost, or a billed key near or past its
+// budget. Its own slow poll; the foot sheet's is for the bot's state.
+function BillingNudge({ onGo, operator }: { onGo: (id: string) => void; operator: boolean }) {
+  const [live, setLive] = useState<{ tier: string | null; reset_at: string; chain: { state: string }[]; billing: Billing } | null>(null)
+  usePoll(() => api.getUsageLive().then(setLive), 30000)
+  if (!live?.billing) return null
+  const b = live.billing
+  const out = live.tier !== 'paid' && live.chain.length > 0 && live.chain.every((m) => m.state === 'spent')
+  if (out) {
+    return (
+      <div className="weblink nudge" role="status">
+        <span className="weblink-label">Out of requests</span>
+        <span className="nudge-text">
+          Back at {new Date(live.reset_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}. With billing on, today would cost about {usd(b.today)}.
+        </span>
+        {operator && <a href={AI_STUDIO_KEYS} target="_blank" rel="noreferrer">Turn on billing</a>}
+      </div>
+    )
+  }
+  if (live.tier !== 'paid' || b.budget == null || (b.state !== 'warn' && b.state !== 'over')) return null
+  const over = b.state === 'over'
+  return (
+    <div className="weblink nudge" role="status">
+      <span className="weblink-label">{over ? 'Budget spent' : `Budget at ${Math.floor((b.month / b.budget) * 100)}%`}</span>
+      <span className="nudge-text">
+        {usd(b.month)} of {usd(b.budget)} this month.
+        {over && (b.action === 'stop' ? ' No replies until next month.' : ' Replying on the cheapest model.')}
+      </span>
+      <button className="linklike" onClick={() => onGo('usage')}>See usage</button>
     </div>
   )
 }

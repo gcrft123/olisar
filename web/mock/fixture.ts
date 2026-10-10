@@ -21,6 +21,10 @@ export type MockEnv = {
   /** USAGE_STATE: '' | 'fresh' | 'afternoon' | 'resting' | 'low' | 'out' | 'stale' — which of
    *  the Usage page's states it opens on. Afternoon by default. */
   usage?: string
+  /** TIER_MOCK: '' | 'paid' | 'paid-warn' | 'paid-over' | 'paid-stop' — a Gemini key with
+   *  billing on, within its $50 budget, past 80% of it, or past it (replying on the cheapest
+   *  model, or stopped). The free tier by default. */
+  tier?: string
 }
 
 export function configureMock(env: MockEnv): void {
@@ -29,6 +33,7 @@ export function configureMock(env: MockEnv): void {
   MOCK_ROLE = env.role || ''
   BOT = env.bot || ''
   USAGE = env.usage || ''
+  TIER = env.tier || ''
   // A fresh install starts with every channel off and no keys saved.
   channels = MOCK_CHANNELS.map((c) => ({ ...c, mode: FRESH ? 'off' : c.mode }))
   keys = Object.fromEntries(Object.entries(MOCK_KEYS).map(([k, v]) => [k, { ...v, dashboard: FRESH ? false : v.dashboard }]))
@@ -120,6 +125,11 @@ const USAGE_SPLIT_30: Record<string, number> = {
 }
 // The 13 days before today.
 const USAGE_PAST = [2610, 2980, 3120, 2840, 3390, 3710, 2950, 3060, 3240, 4000, 3380, 3150, 3290]
+// What a request costs on each model in the chain, about: ~5k tokens in, a few hundred out.
+const USAGE_COST = [0.0052, 0.0052, 0.0035, 0.0022, 0.0016, 0.002, 0.0006]
+const PER_REQUEST = 0.0021  // the mix of a typical day
+// The month so far before today, by billing state: the budget is $50.
+const MONTH_BEFORE: Record<string, number> = { paid: 14.1, 'paid-warn': 38.6, 'paid-over': 49.8, 'paid-stop': 49.8 }
 
 const PT = 'America/Los_Angeles'
 function ptParts(ms: number) {
@@ -170,24 +180,41 @@ function usageScene() {
 function mockLive() {
   const { sc, t, used, outAt, restLeft, replies } = usageScene()
   const reset = ptAt('00:00', 1)
+  const paid = paidTier()
+  // A billed key isn't turned away for the day, so nothing in its chain is used up.
   const chain = USAGE_CHAIN.map(([model, limit], i) => {
-    const resting = !outAt[i] && restLeft(i) > 0
+    const out = !paid && outAt[i]
+    const resting = !out && restLeft(i) > 0
     return {
       model, requests: used[i], tokens: used[i] * 1420, limit, limit_from_google: false,
-      state: outAt[i] ? 'spent' : resting ? 'resting' : 'ok',
+      state: out ? 'spent' : resting ? 'resting' : 'ok',
       back_in: resting ? Math.ceil(restLeft(i)) : null,
-      spent_at: outAt[i] ? new Date(outAt[i]!).toISOString() : null,
+      spent_at: out ? new Date(outAt[i]!).toISOString() : null,
+      cost: used[i] * USAGE_COST[i],
     }
   })
+  const today = chain.reduce((s, m) => s + m.cost, 0) + sc.web * 0.0003
+  const month = (paid ? MONTH_BEFORE[TIER] ?? 14.1 : 21.7) + today
+  const dayOfMonth = USAGE_TODAY.d - 1 + (t - ptAt('00:00')) / 864e5
+  const budget = paid ? 50 : null
+  const over = budget != null && month >= budget
   return {
     ts: new Date(t).toISOString(),
+    tier: paid ? 'paid' : 'free',
     exhausted: BOT === 'limited' || chain.every((m) => m.state !== 'ok'),
     day: ptDay(),
     day_start: new Date(ptAt('00:00')).toISOString(),
     reset_at: new Date(reset).toISOString(),
     chain,
     memory_search: { model: 'gemini-embedding-001', requests: sc.embed + Math.floor(replies * 0.4), limit: 1000, spent: false },
-    web_search: { requests: sc.web, limit: 500, spent: false },
+    web_search: paid
+      ? { requests: 1240 + sc.web, limit: 5000, period: 'month', spent: false }
+      : { requests: sc.web, limit: 500, period: 'day', spent: false },
+    billing: {
+      today, month, projected: (month / Math.max(1, dayOfMonth)) * 31, budget,
+      action: TIER === 'paid-stop' ? 'stop' : 'cheapest',
+      state: budget == null ? 'none' : over ? 'over' : month >= budget * 0.8 ? 'warn' : 'ok',
+    },
   }
 }
 
@@ -203,12 +230,19 @@ function mockSummary() {
     day: ptDay(),
     features: { today, 7: USAGE_SPLIT_7, 30: USAGE_SPLIT_30 },
     yesterday: { requests: Math.round(total * 0.918), tokens: Math.round(total * 1420 * 1.04) },
-    busiest_minute: { model: sc.peak.model, requests: sc.peak.v, limit: sc.peak.cap, at: new Date(ptAt(sc.peak.at)).toISOString() },
+    busiest_minute: {
+      model: sc.peak.model, requests: sc.peak.v, at: new Date(ptAt(sc.peak.at)).toISOString(),
+      // A billed key's per-minute cap is Google's Tier 1 ballpark (olisar/gemini/models.py).
+      limit: paidTier() ? (sc.peak.cap === 15 ? 4000 : 1000) : sc.peak.cap,
+    },
     last_ran_out: new Date(sc.ranOutToday ? ptAt(sc.ranOutToday) : ptAt('21:12', -4)).toISOString(),
     days: values.map((v, k) => {
       const offset = k - (values.length - 1)
       const ranOut = offset === 0 ? sc.ranOutToday : v >= 4000 ? '21:12' : null
-      return { day: ptDay(offset), requests: v, ran_out_at: ranOut ? new Date(ptAt(ranOut, offset)).toISOString() : null }
+      return {
+        day: ptDay(offset), requests: v, ran_out_at: ranOut && !paidTier() ? new Date(ptAt(ranOut, offset)).toISOString() : null,
+        cost: v * PER_REQUEST,
+      }
     }),
   }
 }
@@ -239,6 +273,7 @@ const MOCK_CONFIG = {
   default_model: 'gemini-flash-latest',
   grounding_enabled: true,
   grounding_daily_cap: 50,
+  grounding_monthly_cap: 3000,
   summary_token_threshold: 6000,
   glossary_mine_token_threshold: 12000,
   user_persona_msg_threshold: 40,
@@ -521,6 +556,9 @@ let MOCK_ROLE = ''
 let BOT = ''
 // `USAGE_STATE` opens the Usage page on one of its states (see USAGE_SCENES).
 let USAGE = ''
+// `TIER_MOCK` gives the Gemini key billing (see MockEnv).
+let TIER = ''
+const paidTier = () => TIER.startsWith('paid')
 const MOCK_OK = { available: true, running: true, ready: true, can_power: true }
 function mockBot() {
   switch (BOT) {
@@ -725,7 +763,9 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
     send({ ...app, guilds: joined ? [{ id: '1321947496179568680', name: 'Red Nebula Industries', icon: '' }] : [] })
   }))
   if (url.startsWith('/api/setup/secret')) return body((b) => later(500, () => send({ ok: !bad(b.client_secret) })))
-  if (url.startsWith('/api/setup/gemini')) return body((b) => later(500, () => send({ ok: !bad(b.key) })))
+  if (url.startsWith('/api/setup/gemini')) {
+    return body((b) => later(500, () => send({ ok: !bad(b.key), tier: bad(b.key) ? null : paidTier() ? 'paid' : 'free' })))
+  }
   if (url.startsWith('/api/setup/keys')) return body(() => later(400, () => send({ ok: true })))
   if (url.startsWith('/api/setup/save')) return body(() => later(900, () => { finish('local'); send({ ok: true, redirect_uri: 'http://localhost:8723/auth/callback' }) }))
   if (url.startsWith('/api/tunnel/enable')) return body((b) => later(2200, () => bad(b.auth_key)
@@ -918,8 +958,8 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
       const bad = (v: string) => String(v || '').trim().toLowerCase().startsWith('bad')
       const saved = (f: string) => !!keys[f]?.dashboard
       if (url.includes('gemini')) {
-        if (!b.key && !saved('gemini_api_key')) return send({ set: false, ok: false })
-        return send({ set: true, ok: !bad(b.key) })
+        if (!b.key && !saved('gemini_api_key')) return send({ set: false, ok: false, tier: null })
+        return send({ set: true, ok: !bad(b.key), tier: bad(b.key) ? null : paidTier() ? 'paid' : 'free' })
       }
       if (!b.token && !saved('cloudflare_api_token')) return send({ set: false, ok: false, problem: '' })
       if (bad(b.token)) return send({ set: true, ok: false, problem: 'token' })
@@ -956,7 +996,13 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/marketplace/publisher')) return send({ registered: true, handle: 'rednebula', verified: false })
   if (url.startsWith('/api/marketplace/published') || url.startsWith('/api/marketplace/installed')) return send({})
   if (url.startsWith('/api/persona')) return send(MOCK_PERSONA)
-  if (url.startsWith('/api/config')) return send(MOCK_CONFIG)
+  if (url.startsWith('/api/config')) return send({ ...MOCK_CONFIG, gemini_tier: paidTier() ? 'paid' : 'free' })
+  if (url.startsWith('/api/billing')) {
+    return send({
+      tier: paidTier() ? 'paid' : 'free', checked_at: new Date().toISOString(),
+      monthly_budget_usd: paidTier() ? 50 : 0, budget_action: TIER === 'paid-stop' ? 'stop' : 'cheapest', gemini_images: true,
+    })
+  }
   if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)
   if (url.startsWith('/api/models')) return send(MOCK_MODELS)
   if (url.startsWith('/api/messages')) return send(mockMessages())
