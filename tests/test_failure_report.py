@@ -97,6 +97,7 @@ class MarkingTests(unittest.TestCase):
         with patch.object(pipeline, "_run_tool_loop", AsyncMock(side_effect=RuntimeError("boom"))):
             reply = self._run(pipeline)
         self.assertTrue(reply.blanked)
+        self.assertTrue(reply.canned)
         self.assertEqual(reply.text, "blank")
 
     def test_a_rate_limit_is_not_a_blank(self):
@@ -109,6 +110,7 @@ class MarkingTests(unittest.TestCase):
             reply = self._run(pipeline)
         self.assertFalse(reply.blanked)
         self.assertEqual(reply.text, "rate limited")
+        self.assertTrue(reply.canned)
 
     def test_the_loop_falling_through_to_the_fallback_is_a_blank(self):
         from olisar import pipeline
@@ -116,6 +118,7 @@ class MarkingTests(unittest.TestCase):
         with patch.object(pipeline, "_run_tool_loop", AsyncMock(return_value="blank")):
             reply = self._run(pipeline)
         self.assertTrue(reply.blanked)
+        self.assertTrue(reply.canned)
 
     def test_a_real_answer_is_not_a_blank(self):
         from olisar import pipeline
@@ -123,6 +126,7 @@ class MarkingTests(unittest.TestCase):
         with patch.object(pipeline, "_run_tool_loop", AsyncMock(return_value="the wifi is guest")):
             reply = self._run(pipeline)
         self.assertFalse(reply.blanked)
+        self.assertFalse(reply.canned)
 
     def _run(self, pipeline):
         """Drive generate_reply past everything that needs a database or a model, leaving

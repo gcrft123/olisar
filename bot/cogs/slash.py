@@ -150,9 +150,10 @@ class Slash(commands.Cog):
         # If one ever is, a deferred interaction with no followup sits on "thinking…" until
         # Discord times it out, and a thumbs-up is a far better answer to that than a hang.
         empty = (reply.emoji or DEFAULT_ACK_EMOJI) if reply.silent else "…"
+        text = sanitize_mentions(reply.text, mention_block)
         chunks = [
             c
-            for piece in split_messages(sanitize_mentions(reply.text, mention_block))
+            for piece in ([text] if reply.canned else split_messages(text))
             for c in chunk_text(piece)
         ] or [empty]
         # The view goes on the last chunk, matching send_reply — a blank is one chunk, but

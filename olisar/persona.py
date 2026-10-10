@@ -298,25 +298,46 @@ a list, or a single explanation, and never use one to pad a one-line answer.
 # message with a gap in it instead of two messages. Nothing was leaking the marker
 # unparsed — it simply wasn't written. Honouring both separators fixes the delivery for
 # the case that actually occurs rather than asking the prompt to try harder.
-#
-# Blank lines only, never a single newline. A lone newline inside a chat message is as
-# likely to be a list or a wrapped aside, and splitting those would be worse than the
-# problem; a blank line in a reply that should be a few words long is a beat break.
 _BLANK_LINE = re.compile(r"\n[ \t]*\n")
+
+# A single newline is the same request, and since the persona rework it's the one the model
+# makes most. Every multi-line chat reply production sent in early October was two beats on
+# two lines ("cursed 😭\nthe eyes are a perfect match though"), and members got each pair as
+# one message. Blank lines alone had been honoured to spare lists, so a paragraph still goes
+# out whole when it's structured: a list item, a heading, a quote or a table row anywhere in
+# it, or a line ending in a colon that introduces the next. It also stays whole when it has
+# more lines than a reply may arrive in, since that's a block of writing (steps, a verse)
+# rather than a run of beats.
+_STRUCTURED_LINE = re.compile(r"\s*(?:[-*+•]\s|\d+[.)]\s|#{1,6}\s|>|\|)")
+
+
+def _lines(paragraph: str) -> list[str]:
+    """A paragraph's lines as separate beats, or the paragraph whole where splitting it
+    would break it up."""
+    lines = [line for line in paragraph.split("\n") if line.strip()]
+    if (
+        len(lines) > MAX_MESSAGE_PIECES
+        or any(_STRUCTURED_LINE.match(line) for line in lines)
+        or any(line.rstrip().endswith(":") for line in lines[:-1])
+    ):
+        return [paragraph]
+    return lines
 
 
 def _beats(chunk: str) -> list[str]:
-    """One marker-delimited chunk, further split on blank lines where that's safe."""
+    """One marker-delimited chunk, further split on blank lines and newlines where that's
+    safe."""
     if "```" in chunk:
         return [chunk]  # never break inside or around a fenced code block
-    return _BLANK_LINE.split(chunk)
+    return [line for paragraph in _BLANK_LINE.split(chunk) for line in _lines(paragraph)]
 
 
 def split_messages(text: str, limit: int = MAX_MESSAGE_PIECES) -> list[str]:
     """Split a reply into the messages it should be sent as.
 
-    Splits on :data:`SPLIT_MARKER`, and on blank lines within each resulting chunk — see
-    ``_BLANK_LINE`` for why both.
+    Splits on :data:`SPLIT_MARKER`, and on blank lines and newlines within each resulting
+    chunk. See ``_BLANK_LINE`` and ``_STRUCTURED_LINE`` for why all three, and for what
+    stays in one piece.
 
     Breaks past ``limit`` collapse back into the last piece instead of being sent: the
     marker is a rhythm hint, and a reply that asked for eight bubbles is a model that

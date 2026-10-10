@@ -441,7 +441,9 @@ class Proactive(commands.Cog):
         # for at least MIN_AGE and the room has usually moved on — which is exactly the case
         # the reply reference exists for. `anchor_for` still decides, so a chime into a
         # channel that went quiet the second before doesn't quote for no reason.
-        sent = await send_paced(channel, clean, reply_to=anchor_for(self.bot, trigger))
+        sent = await send_paced(
+            channel, clean, reply_to=anchor_for(self.bot, trigger), split=not reply.canned
+        )
         await record_bot_messages(
             sent, guild_id=guild_id, channel_id=channel_id, bot_user_id=self.bot.user.id,
             trigger="proactive", answering=msg_id,
