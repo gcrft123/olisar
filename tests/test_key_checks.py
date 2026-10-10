@@ -120,7 +120,10 @@ class KeyCheckEndpointTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_outage_reads_as_unknown(self) -> None:
         with patch.object(admin.runtime_keys, "gemini_api_key", AsyncMock(return_value="saved")), \
                 patch.object(key_checks, "gemini", AsyncMock(side_effect=key_checks.Unreachable())):
-            self.assertEqual(await admin.check_gemini_key(GeminiCheckIn(), self.admin_user), {"set": True, "ok": None})
+            self.assertEqual(
+                await admin.check_gemini_key(GeminiCheckIn(), self.admin_user),
+                {"set": True, "ok": None, "tier": None},
+            )
 
 
 class OperatorOnlyTests(unittest.IsolatedAsyncioTestCase):
@@ -171,4 +174,4 @@ class RateLimitTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(key_checks, "gemini", AsyncMock(side_effect=key_checks.RateLimited("HTTP 429"))), \
                 patch.object(admin.runtime_keys, "gemini_api_key", AsyncMock(return_value="AQ.saved")):
             out = await admin.check_gemini_key(GeminiCheckIn(key=""), SimpleNamespace(is_allowlisted=True))
-        self.assertEqual(out, {"set": True, "ok": None})
+        self.assertEqual(out, {"set": True, "ok": None, "tier": None})

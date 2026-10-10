@@ -1,8 +1,9 @@
 """Gemini model ranking and the fallback chain.
 
-Free-tier *chat* models ranked best -> worst. Pro models are excluded (paid as
-of 2026) to honor the no-paid-API constraint; specialized models (computer-use,
-robotics, embeddings) aren't chat models and are excluded too.
+*Chat* models ranked best -> worst. Every one is on Google's free tier. Pro models are
+excluded: they aren't (as of 2026), and a key with billing on replies through the same
+chain. Specialized models (computer-use, robotics, embeddings) aren't chat models and are
+excluded too.
 
 When the preferred model is rate-limited, the client walks DOWN this list to the
 next available model (see GeminiClient._raw_generate). Edit the order here (or
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ModelInfo:
     name: str
-    rpm: int  # our conservative per-minute throttle (free-tier ballpark)
+    rpm: int  # our conservative per-minute throttle on a free key (free-tier ballpark)
     label: str
     # Free-tier requests per day. Google's rate-limits page stopped listing these (AI Studio
     # shows a project its own), so these are the last published figures. They stand in until
@@ -25,6 +26,10 @@ class ModelInfo:
     # Usage page counts against that instead. Nothing here stops a request: Olisar only treats
     # a model as spent when Google says so.
     rpd: int = 0
+    # The per-minute throttle on a key with billing on: Google's Tier 1 ballpark. Google
+    # turns a billed key away far later than a free one, so the free figure there only
+    # pushed a busy server down the chain for no reason.
+    paid_rpm: int = 1000
 
 
 # Best -> worst. The chain starts at the guild's default_model and continues down.
@@ -51,9 +56,9 @@ RANKED: list[ModelInfo] = [
     ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=250),
     ModelInfo("gemini-3-flash-preview", 10, "Gemini 3 Flash", rpd=250),
     ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=250),
-    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000),
-    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000),
-    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000),
+    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000, paid_rpm=4000),
 ]
 
 # The head of the chain, and the default for a fresh guild / an unset GEMINI_CHAT_MODEL.
@@ -73,6 +78,8 @@ LEGACY_DEFAULT_CHAT_MODEL = "gemini-flash-latest"
 RANKED_NAMES = [m.name for m in RANKED]
 _RPM = {m.name: m.rpm for m in RANKED}
 _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
+_PAID_RPM = {m.name: m.paid_rpm for m in RANKED}
+_PAID_RPM["gemini-embedding-001"] = 3000
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
@@ -107,7 +114,11 @@ DEFAULT_VISION_MODEL = IMAGE_RANKED_NAMES[0]
 # on Cloudflare Workers AI instead.
 
 
-def rpm_for(model: str) -> int:
+def rpm_for(model: str, paid: bool = False) -> int:
+    """Olisar's own per-minute throttle for ``model``: the free-tier figure, or Google's
+    Tier 1 ballpark when the key has billing on."""
+    if paid:
+        return _PAID_RPM.get(model, 1000)
     return _RPM.get(model, 10)
 
 

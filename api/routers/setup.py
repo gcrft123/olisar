@@ -22,6 +22,7 @@ from olisar import discord_app, key_checks, runtime_config, runtime_keys
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AppSecret
+from olisar.gemini import tier as gemini_tier
 
 log = logging.getLogger("olisar.api.setup")
 router = APIRouter(prefix="/api/setup", tags=["setup"])
@@ -142,7 +143,8 @@ async def check_gemini(body: SetupKeyIn) -> dict:
     if not key:
         raise HTTPException(status_code=400, detail="key is required")
     try:
-        return {"ok": await key_checks.gemini(key)}
+        ok = await key_checks.gemini(key)
+        return {"ok": ok, "tier": await gemini_tier.check(key) if ok else None}
     except key_checks.RateLimited:
         raise HTTPException(status_code=503, detail="Google is rate-limiting checks — wait a minute and try again")
     except key_checks.Unreachable:
