@@ -49,7 +49,7 @@ GROK = "grok"
 BACKENDS = (CLAUDE, GEMINI, GROK)
 
 # Gemini's Flash-Lite is the cheap tier for throwaway text; Haiku is Claude's.
-DEFAULT_GEMINI_DIALOGUE_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_GEMINI_DIALOGUE_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_CLAUDE_DIALOGUE_MODEL = "haiku"
 
 

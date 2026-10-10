@@ -381,7 +381,12 @@ export function SetupWizard(
   // Keys. Cloudflare and UEX aren't asked for here: images and the Star Citizen extension
   // are added from the console. A developer `.env` still carries them through.
   const [gemini, setGemini] = useState(pf.gemini_api_key || '')
-  const geminiCheck = useLiveCheck(gemini, (k) => api.checkSetupGemini(k))
+  // Google also says whether the key has billing on, which decides what Google may do with
+  // what members send.
+  const geminiCheck = useLiveCheck<{ tier: 'free' | 'paid' | null }>(
+    gemini, (k) => api.checkSetupGemini(k).then((r: any) => ({ ok: r.ok, result: { tier: r.tier ?? null } })),
+  )
+  const geminiTier = geminiCheck.state === 'ok' ? geminiCheck.result?.tier ?? null : null
   const [saving, setSaving] = useState(false)
   // Set once the save or the handover to the server panel has gone through.
   const [done, setDone] = useState(false)
@@ -945,17 +950,22 @@ export function SetupWizard(
             <Field
               label="Gemini API key"
               desc={mode === 'server'
-                ? <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
-                : <>Powers everything {bot?.username || 'your bot'} says. Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
+                ? <>Powers everything {bot?.username || 'your bot'} says. Create a key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}.</>
+                : <>Powers everything {bot?.username || 'your bot'} says. Create a key in {A('https://aistudio.google.com/apikey', 'Google AI Studio')}. You can add it later, but the bot can't reply without it.</>}
             >
               <Text field="s-gemini" invalid={geminiCheck.state === 'bad' || flagged === 's-gemini'} value={gemini}
                 onChange={edit('s-gemini', setGemini)} placeholder="AQ.…" mono />
             </Field>
             <CheckLine
               check={geminiCheck}
-              ok={<><Icon.check size={14} weight="Bold" /> Key works</>}
+              ok={<><Icon.check size={14} weight="Bold" /> Key works{geminiTier === 'paid' ? ' · billing on' : geminiTier === 'free' ? ' · free tier' : ''}</>}
               bad="Google didn’t accept that key."
             />
+            {geminiTier === 'free' && (
+              <div className="desc key-note">
+                On the free tier, Google may use what members send to improve its products, except in the EEA, UK and Switzerland. Turning on billing stops that.
+              </div>
+            )}
           </>
         )}
 

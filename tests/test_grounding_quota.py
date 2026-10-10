@@ -115,15 +115,17 @@ class GroundingSuppressionTests(unittest.TestCase):
 
 
 class GroundingFallbackChainTests(unittest.TestCase):
-    """search() now walks the chat chain; a model that can't ground costs one hop."""
+    """search() walks a chain; a model that can't ground costs one hop. A billed key walks
+    the chat chain, a free key only the Gemini 2.5 models with a free search allowance."""
 
-    def _run_chain(self, side_effects):
+    def _run_chain(self, side_effects, *, paid=True):
         client = GeminiClient()
         sdk = MagicMock()
         sdk.aio.models.generate_content = AsyncMock(side_effect=side_effects)
         client.aclient = AsyncMock(return_value=sdk)
         limiter = MagicMock()
         limiter.state.return_value = "ok"
+        limiter.paid = paid
         with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), patch(
             "olisar.gemini.client.record_usage", new=AsyncMock()
         ), patch("olisar.gemini.client.safe_text", return_value="grounded answer"):
@@ -149,7 +151,27 @@ class GroundingFallbackChainTests(unittest.TestCase):
         (text, _), used, limiter = self._run_chain([_api_error(429, QUOTA_429), ok])
         self.assertEqual(text, "grounded answer")
         self.assertEqual(len(used), 2)
-        limiter.penalize.assert_called()  # the limited model gets parked
+        # Not parked for chat: a model can refuse to search and still reply.
+        limiter.penalize.assert_not_called()
+
+    def test_a_billed_key_searches_on_the_chat_chain(self):
+        from olisar.gemini.models import model_chain
+        from olisar.config import settings
+
+        ok = MagicMock()
+        ok.candidates[0].grounding_metadata.grounding_chunks = []
+        _, used, _ = self._run_chain([ok], paid=True)
+        self.assertEqual(used, model_chain(settings.gemini_chat_model)[:1])
+
+    def test_a_free_key_searches_only_where_search_is_free(self):
+        """Every Gemini 3 model answers a free key's grounded request with a bare 429."""
+        from olisar.gemini.models import SEARCH_FREE_CHAIN
+
+        ok = MagicMock()
+        ok.candidates[0].grounding_metadata.grounding_chunks = []
+        _, used, _ = self._run_chain([_api_error(429, "quota"), ok], paid=False)
+        self.assertEqual(used, SEARCH_FREE_CHAIN)
+        self.assertTrue(all("2.5" in m for m in used))
 
 
 if __name__ == "__main__":

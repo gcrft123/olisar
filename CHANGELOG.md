@@ -2,6 +2,10 @@
 
 Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have. Separately, when Olisar wrote a reply as two lines, it arrived as one message with a line break in it instead of two messages.
 
+Olisar assumed every Gemini key was on the free tier. A key with billing on was held to free-tier per-minute caps, measured against free-tier daily limits it would never reach, kept off Gemini's image models, and given no idea what it was spending. Olisar now asks Google which tier a key is on and acts on the answer: a billed key gets Google's Tier 1 per-minute caps, a Usage page in dollars with an optional monthly budget, images from Gemini, and web search on the current models. A free key that runs out for the day is told what the day would have cost with billing on, which is the honest case for turning it on. Web search on a free key had its own problem: only the Gemini 2.5 models have a free search allowance, so every search was refused by the Gemini 3 models first, and each refusal benched one of them for two minutes. And the first time the day's quota really ran out, members got the blank reply and a Report button instead of the rate-limit message.
+
+Google deprecated Gemini 3.5 Flash, the head of the reply chain, and Gemini 3.1 Flash-Lite, the model behind summaries, impressions and image descriptions. The chain now matches Google's current models, and servers set to a model that left it move to its replacement.
+
 The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
 
 ### New
@@ -10,15 +14,61 @@ The docs had drifted from the code they describe. They called the search index a
 
 [615f883] — The Models page covers using a paid Gemini key: what billing changes, and what it doesn't.
 
+[1887d0d] — Olisar asks Google whether the Gemini key has billing on, and checks again every few hours.
+
+[ca0b56e] — The key check on API keys and in setup says which: "Works · free tier" or "Works · billing on".
+
+[1110973] — Olisar works out what each request costs from Google's published prices, and what a free key's usage would cost.
+
+[ca0b56e] — On a key with billing on, the Usage page shows money: the month's spend and where it's heading, each model's cost today, today's spend against yesterday's, and spend per day.
+
+[1110973] — A key with billing on can be held to a monthly budget. Past it, Olisar keeps replying on the cheapest model or stops until next month.
+
+[ca0b56e] — The monthly budget is set under API keys, and the Usage page and the sidebar warn at 80% of it.
+
+[1110973] — A key with billing on makes images with Gemini, so Cloudflare becomes optional.
+
+[ca0b56e] — **Make images with Gemini** under API keys turns that off, and shows as needing billing on a free key.
+
+[ca0b56e] — When a free key runs out for the day, the Usage page and the sidebar say what the day would have cost with billing on, with a link to turn it on.
+
+[ca0b56e] — The setup wizard says, for a free key, that Google may use what members send to improve its products, and that billing stops that.
+
 ### Changed
 
 [615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
+
+[495c272] — The reply chain starts on Gemini 3.8 Flash, then Gemini Flash (latest), Gemini 3.6 Flash and Gemini 2.5 Flash. The Flash-Lite half is Gemini 3.5 Flash-Lite, Flash-Lite (latest), Gemini 3.1 Flash-Lite and Gemini 2.5 Flash-Lite.
+
+[495c272] — Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain. A server set to either moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does a `GEMINI_CHAT_MODEL` naming one.
+
+[495c272] — Summaries, impressions, the glossary and image descriptions start on Gemini 3.5 Flash-Lite. Gemini 3.1 Flash-Lite stays in the chain until Google turns it off, no earlier than May 7, 2027.
+
+[495c272] — A spent budget set to keep replying falls back from Gemini 2.5 Flash-Lite to 3.1 and 3.5 Flash-Lite, since Google only serves the 2.5 models to projects that used them before.
+
+[1887d0d] — On a key with billing on, Olisar's own per-minute caps rise to Google's Tier 1 figures, 1,000 a minute for each Flash model and 4,000 for each Flash-Lite, so a busy server stays on its best model.
+
+[ffcf79d] — Web search on a key with billing on runs on the chat chain.
+
+[b00e1eb] — On a key with billing on, a server's web-search cap counts the month, 3,000 searches by default.
+
+[ca0b56e] — Behavior shows **Web searches per month** instead of per day for a key with billing on.
+
+[692e5dc] — The daily self-test checks every model in the chain again, history backfill describes two images per pass instead of one, and up to four images are described at once.
+
+[a705e53] — The docs, README and landing page describe running Olisar with billing on alongside the free tier, and no longer say there's no paid option.
 
 [181c749] — The docs say a new line in a reply starts a new message, and which replies stay whole.
 
 [96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
 
 ### Fixed
+
+[ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
+
+[5934411] — The first time the day's quota runs out, members get the rate-limit reply instead of "…my mind just went blank there" and a Report button.
+
+[b00e1eb] — A server's web-search cap counts that server's searches, not every server's combined.
 
 [181c749] — A reply Olisar writes on two or three lines arrives as that many messages. Lists, quotes and longer blocks still arrive as one.
 

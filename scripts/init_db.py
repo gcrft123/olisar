@@ -145,7 +145,8 @@ async def create_schema() -> None:
 
 
 async def migrate_model_default() -> int:
-    """Move guilds still on the old auto-updating default onto the pinned model.
+    """Move guilds off defaults that are gone: the old auto-updating default onto the
+    pinned model, and any model that left the chain onto its replacement.
 
     ``default_model`` used to default to ``gemini-flash-latest``, so every install
     carries that value whether or not anyone chose it — pinning the column default
@@ -153,20 +154,27 @@ async def migrate_model_default() -> int:
     the problem was. Only rows *equal to the old default* move: anyone who picked a
     different model (including the alias, deliberately, after this ships) keeps it.
 
+    A retired model (``models.RETIRED``) moves whoever is on it: Google is turning it off,
+    so keeping it would leave the server's chain starting on a model that's going away.
+
     Idempotent; returns how many rows changed so the caller can log it.
     """
     from sqlalchemy import update
 
     from olisar.db.models import GuildConfig
-    from olisar.gemini.models import DEFAULT_CHAT_MODEL, LEGACY_DEFAULT_CHAT_MODEL
+    from olisar.gemini.models import DEFAULT_CHAT_MODEL, LEGACY_DEFAULT_CHAT_MODEL, RETIRED
 
+    moves = {LEGACY_DEFAULT_CHAT_MODEL: DEFAULT_CHAT_MODEL, **RETIRED}
+    changed = 0
     async with session_scope() as session:
-        result = await session.execute(
-            update(GuildConfig)
-            .where(GuildConfig.default_model == LEGACY_DEFAULT_CHAT_MODEL)
-            .values(default_model=DEFAULT_CHAT_MODEL)
-        )
-    return int(result.rowcount or 0)
+        for old, new in moves.items():
+            result = await session.execute(
+                update(GuildConfig)
+                .where(GuildConfig.default_model == old)
+                .values(default_model=new)
+            )
+            changed += int(result.rowcount or 0)
+    return changed
 
 
 async def seed_defaults() -> None:

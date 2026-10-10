@@ -278,9 +278,13 @@ export const api = {
   getKeys: () => req('/api/keys'),
   putKeys: (b: any) => req('/api/keys', { method: 'PUT', body: JSON.stringify(b) }),
   clearKey: (field: string) => req(`/api/keys/${field}`, { method: 'DELETE' }),
+  // Whether the saved Gemini key has billing on ({ tier }), and the settings that only
+  // matter if it does: { monthly_budget_usd, budget_action, gemini_images }.
+  getBilling: () => req('/api/billing'),
+  putBilling: (b: any) => req('/api/billing', { method: 'PUT', body: JSON.stringify(b) }),
   // Whether a key works: the typed value, or the saved one when it's blank. Gemini answers
-  // { set, ok } and Cloudflare { set, ok, problem: 'token' | 'account' | '', account_id? },
-  // with `ok` null when the service couldn't be reached.
+  // { set, ok, tier: 'free' | 'paid' | null } and Cloudflare { set, ok, problem: 'token' |
+  // 'account' | '', account_id? }, with `ok` null when the service couldn't be reached.
   checkGeminiKey: (key: string) =>
     req('/api/keys/check/gemini', { method: 'POST', body: JSON.stringify({ key }), timeoutMs: 20000 }),
   checkCloudflareKey: (token: string, accountId: string) =>
