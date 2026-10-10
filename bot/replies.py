@@ -310,16 +310,18 @@ async def send_paced(
     *,
     reply_to: discord.Message | None = None,
     view: discord.ui.View | None = None,
+    split: bool = True,
 ) -> list[discord.Message]:
     """Send a reply the way a person sends one: as the one to three messages the model
-    asked for with ``SPLIT_MARKER``, each preceded by a typing indicator held for about as
-    long as that message would take to type.
+    asked for with ``SPLIT_MARKER`` or a line break, each preceded by a typing indicator
+    held for about as long as that message would take to type. ``split=False`` sends it as
+    one message, for text the operator wrote (``Reply.canned``).
 
     Only the first message carries the reply reference and only the last carries the view,
     matching :func:`send_reply` — a turn is one utterance however many bubbles it arrives in.
     """
     sent: list[discord.Message] = []
-    pieces = split_messages(text)
+    pieces = split_messages(text) if split else [text]
     for i, piece in enumerate(pieces):
         if i:
             await asyncio.sleep(random.uniform(*BREAK_PAUSE))

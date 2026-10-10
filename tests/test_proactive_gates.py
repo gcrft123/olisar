@@ -257,7 +257,7 @@ class ChimeRechecksBeforeSendingTest(_DbCase):
             fetch_message=AsyncMock(side_effect=Exception("not cached")),
         )
         self.cog.bot = SimpleNamespace(get_channel=lambda _cid: channel, user=SimpleNamespace(id=9))
-        reply = SimpleNamespace(silent=False, text="the Prospector, if you're solo", emoji=None)
+        reply = SimpleNamespace(silent=False, text="the Prospector, if you're solo", emoji=None, canned=False)
         send = AsyncMock(return_value=[])
         self.generate = AsyncMock(return_value=reply)
 
