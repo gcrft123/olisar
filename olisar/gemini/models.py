@@ -145,6 +145,39 @@ IMAGE_RANKED_NAMES = [m.name for m in IMAGE_RANKED]
 DEFAULT_VISION_MODEL = IMAGE_RANKED_NAMES[0]
 
 
+# The model each -latest alias points to, and so whose daily allowance it draws on. Measured
+# on 2026-10-10: a reply from gemini-flash-latest reports model_version gemini-3.8-flash, and
+# with 3.8 Flash refused for the day the alias was refused too, Google naming 3.8 Flash's
+# quota (20 a day) as the one spent. So the alias is a second way to reach one allowance,
+# not a second allowance. Google moves aliases, so each reply updates this (note_alias).
+_ALIAS_OF: dict[str, str] = {
+    "gemini-flash-latest": "gemini-3.8-flash",
+    "gemini-flash-lite-latest": "gemini-3.5-flash-lite",
+}
+
+
+def is_alias(model: str) -> bool:
+    return model.endswith("-latest")
+
+
+def quota_model(model: str) -> str:
+    """The model whose daily allowance ``model`` is counted against: itself, or for a
+    -latest alias, the model it points to."""
+    return _ALIAS_OF.get(model, model)
+
+
+def aliases_of(model: str) -> list[str]:
+    """The aliases that draw on ``model``'s allowance."""
+    return [alias for alias, target in _ALIAS_OF.items() if target == model and alias != model]
+
+
+def note_alias(alias: str, target: str | None) -> None:
+    """Record what a -latest alias points to now, from a reply's model_version or the quota
+    a refusal named."""
+    if isinstance(target, str) and target and is_alias(alias) and target != alias and not is_alias(target):
+        _ALIAS_OF[alias] = target
+
+
 def rpm_for(model: str, paid: bool = False) -> int:
     """Olisar's own per-minute throttle for ``model``: the free-tier figure, or Google's
     Tier 1 ballpark when the key has billing on."""

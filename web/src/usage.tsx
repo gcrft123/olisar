@@ -19,6 +19,9 @@ import { Badge, Section, Segmented, useAsync, usePoll } from './ui'
 
 type ChainModel = {
   model: string
+  // A -latest alias names the model whose daily allowance it draws on (it points to that
+  // model), when that model is in the chain too. The two rows are one allowance.
+  shares: string | null
   requests: number
   tokens: number
   limit: number
@@ -120,15 +123,20 @@ function modelName(id: string) {
 }
 
 // ── Reading ─────────────────────────────────────────────────────────────────
-type Row = ChainModel & { i: number; backAt: number | null; left: number }
+type Row = ChainModel & { i: number; backAt: number | null; left: number; used: number }
 
 function reading(live: Received, clientNow: number) {
   const t = clientNow + live.skew
+  // Requests per allowance: an alias's count goes to the model it shares with.
+  const bucket = (m: ChainModel) => m.shares ?? m.model
+  const usedBy: Record<string, number> = {}
+  for (const m of live.chain) usedBy[bucket(m)] = (usedBy[bucket(m)] ?? 0) + m.requests
   const chain: Row[] = live.chain.map((m, i) => {
     const backAt = m.back_in != null ? live.receivedAt + m.back_in * 1000 : null
     // A countdown that ran out between polls is back already; the next poll will agree.
     const state = m.state === 'resting' && backAt != null && backAt <= clientNow ? 'ok' : m.state
-    return { ...m, i, backAt, state, left: m.state === 'spent' ? 0 : Math.max(0, m.limit - m.requests) }
+    const used = usedBy[bucket(m)] ?? m.requests
+    return { ...m, i, backAt, state, used, left: m.state === 'spent' ? 0 : Math.max(0, m.limit - used) }
   })
   const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent')
   // Past a billed key's budget, replies go to the cheapest model alone, or nowhere.
@@ -142,10 +150,12 @@ function reading(live: Received, clientNow: number) {
     : chain.find((m) => m.state === 'ok')
       ?? chain.filter((m) => m.state === 'resting').sort((a, b) => (a.backAt ?? 0) - (b.backAt ?? 0))[0]
       ?? null
-  const capTotal = chain.reduce((s, m) => s + m.limit, 0)
+  // A shared allowance counts once, on the model that owns it.
+  const owners = chain.filter((m) => !m.shares)
+  const capTotal = owners.reduce((s, m) => s + m.limit, 0)
   const usedTotal = chain.reduce((s, m) => s + m.requests, 0)
   const tokens = chain.reduce((s, m) => s + m.tokens, 0)
-  const left = chain.reduce((s, m) => s + m.left, 0)
+  const left = owners.reduce((s, m) => s + m.left, 0)
   const reset = Date.parse(live.reset_at)
   // Today's pace: everything counted since Google's day began, spread over the hours so far.
   const hours = Math.max(0.25, (t - Date.parse(live.day_start)) / 3.6e6)
@@ -412,6 +422,7 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                 <td>
                   <span className="m-name">{modelName(m.model)}</span>
                   <span className="m-id">{m.model}</span>
+                  {m.shares && <span className="m-shares">Shares {modelName(m.shares)}’s limit</span>}
                   <div className="m-status"><Status m={m} R={R} /></div>
                 </td>
                 <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
@@ -422,7 +433,7 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                     </div>
                   ) : (
                     <div className="today">
-                      <Meter used={m.requests} limit={m.limit} out={out} lost={out && m.requests < m.limit} />
+                      <Meter used={m.used} limit={m.limit} out={out} lost={out && m.used < m.limit} />
                       <span className="v"><span className="left-v">{n(m.left)}</span><s> / {n(m.limit)}</s></span>
                     </div>
                   )}

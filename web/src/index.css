@@ -3312,6 +3312,8 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-chain tr.cur .m-name { font-weight: 600; }
 .u-chain tr.gone .m-name { color: var(--text-2); font-weight: 400; }
 .u-chain .m-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
+/* A -latest alias draws on the allowance of the model it points to: said under its name. */
+.u-chain .m-shares { display: block; font-size: 12px; color: var(--text-3); margin-top: 2px; }
 .u-chain .m-status { display: none; }
 .u-chain .st { display: flex; align-items: center; gap: 8px; }
 .u-chain .when { font-size: 12px; color: var(--text-3); white-space: nowrap; }
