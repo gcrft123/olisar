@@ -1032,22 +1032,22 @@ The chain, best model first:
 
 | Model | In the console | Per-minute cap, free key | Per-minute cap, billing on | Daily limit, free key |
 | --- | --- | --- | --- | --- |
-| \`gemini-3.8-flash\` | Gemini 3.8 Flash | 10 | 1,000 | 250 |
-| \`gemini-flash-latest\` | newest Flash (auto-updates) | 10 | 1,000 | 250 |
-| \`gemini-3.6-flash\` | Gemini 3.6 Flash | 10 | 1,000 | 250 |
-| \`gemini-2.5-flash\` | Gemini 2.5 Flash | 10 | 1,000 | 250 |
-| \`gemini-3.5-flash-lite\` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 1,000 |
-| \`gemini-flash-lite-latest\` | newest Flash-Lite (auto-updates) | 15 | 4,000 | 1,000 |
-| \`gemini-3.1-flash-lite\` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 1,000 |
+| \`gemini-3.8-flash\` | Gemini 3.8 Flash | 10 | 1,000 | 20 |
+| \`gemini-flash-latest\` | newest Flash (auto-updates) | 10 | 1,000 | Shares 3.8 Flash's |
+| \`gemini-3.6-flash\` | Gemini 3.6 Flash | 10 | 1,000 | 20 |
+| \`gemini-2.5-flash\` | Gemini 2.5 Flash | 10 | 1,000 | 20 |
+| \`gemini-3.5-flash-lite\` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 500 |
+| \`gemini-flash-lite-latest\` | newest Flash-Lite (auto-updates) | 15 | 4,000 | Shares 3.5 Flash-Lite's |
+| \`gemini-3.1-flash-lite\` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 500 |
 | \`gemini-2.5-flash-lite\` | Gemini 2.5 Flash-Lite | 15 | 4,000 | 1,000 |
 
 The per-minute cap is Olisar's own, set to stay near Google's limits for the key: the free tier's, or Google's Tier 1 limits once billing is on. When a model reaches it, Olisar moves to the next model instead of waiting. Memory search's model has a cap of its own, 100 a minute and 1,000 a day on a free key, and 3,000 a minute with billing on. Google counts every message or passage Olisar indexes as one request, so indexing 50 messages at once uses 50 of them.
 
-The daily limits are the last free-tier figures Google published; Google sets the real ones for each project, and once it turns a model away for the day, [Usage](#usage) shows Google's figure instead. With billing on, Google's daily limits are far higher than these.
+Google doesn't publish free-tier daily limits, so these are the ones it named when it turned a free key away in October 2026: 20 requests a day on each Flash model, 500 on Gemini 3.5 Flash-Lite, and 15 a minute on Flash-Lite. Gemini 3.1 Flash-Lite is listed at 500 as well. The two Gemini 2.5 models couldn't be checked, because Google only serves them to projects that used them before; 2.5 Flash is listed at the current Flash models' 20, and 2.5 Flash-Lite at its last published figure. Google sets the real limits for each project, and once it turns a model away for the day, [Usage](#usage) shows Google's figure instead. With billing on, Google's daily limits are far higher than these.
 
 The two \`-latest\` models are names Google points at its newest release, so what they run can change without an Olisar update. That's why they sit below the fixed versions, where they keep replies going if Google retires one. Google counts a \`-latest\` name against the daily limit of the model it points to (as of October 2026, \`gemini-flash-latest\` is \`gemini-3.8-flash\` and \`gemini-flash-lite-latest\` is \`gemini-3.5-flash-lite\`), so it adds no requests to the day: once that model is used up, so is its \`-latest\` name, and Olisar skips both. Olisar notices when Google moves a name.
 
-Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, a quarter of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does \`GEMINI_CHAT_MODEL\` if it names one.
+Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, about half of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them, and [Usage](#usage) shows them as **Not on this key**. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does \`GEMINI_CHAT_MODEL\` if it names one.
 
 ## Choose where the chain starts
 
@@ -3064,13 +3064,13 @@ The top panel says whether Olisar can keep replying until the reset.
 | **Replying with** | The first model in the chain that can take a request right now, or **No model left** |
 | Pace line | Whether today's rate of use lasts until the reset, or roughly when it runs out |
 | **Memory search** | What's left of the daily limit for looking things up by meaning, which has a model of its own |
-| **Web search** | What's left of Google's daily allowance for web searches. A server can stop sooner, at its **Web searches per day** setting |
+| **Web search** | What's left of Google's daily allowance for web searches. A server can stop sooner, at its **Web searches per day** setting. A free key searches on the Gemini 2.5 models only, so on a key from a newer project, which Google doesn't serve those to, there's no free web search and this reads **not on this key** |
 
 When memory search runs out, Olisar keeps replying but can't recall older messages, summaries, remembered facts or knowledge-base passages until the reset, and message search matches words only.
 
 A model Google has turned away for the day counts as zero, even if Olisar counted fewer requests than its limit. Google doesn't publish free-tier daily limits, so each limit starts as an estimate and switches to Google's own number the first time Google turns that model away.
 
-A \`-latest\` model shares the daily limit of the model it points to (see [Models](#models)). Its row says so, its meter shows the two models' requests together, and **Left today** counts that limit once.
+A \`-latest\` model shares the daily limit of the model it points to (see [Models](#models)). Its row says so, its meter shows the two models' requests together, and **Left today** counts that limit once. A model Google doesn't serve to the key's project, such as the Gemini 2.5 models on a newer project, shows **Not on this key** and counts for nothing.
 
 ### With billing on
 
@@ -3090,6 +3090,7 @@ One row per model, in the order Olisar tries them, with what's left of each mode
 | **Standby** | Further down the chain, waiting its turn |
 | **Back in** 0:48 | Resting after a per-minute limit or a brief error from Google. It comes back on its own |
 | **Used up** | Out for the day, with the time it ran out. Olisar skips it until the reset |
+| **Not on this key** | Google doesn't serve the model to the key's project, as with the Gemini 2.5 models on a newer project. Olisar skips it and asks again the next day |
 
 A hatched stretch on a used-up model's meter is quota Google says is gone that this bot never used. The limits belong to the key's Google Cloud project, so another app or bot using a key from the same project draws on them too.
 

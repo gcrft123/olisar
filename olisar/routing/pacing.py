@@ -45,6 +45,8 @@ async def flash_pressure(chain: list[str], now: datetime | None = None) -> float
         return _cache[2]
     now = now or datetime.now(timezone.utc)
     day = quota_day(now)
+    # A model Google doesn't serve to the key's project has no allowance to spend.
+    flash = [m for m in flash if not rate_limiter.get_rate_limiter().withheld(m)]
     used: dict[str, int] = {m: 0 for m in flash}
     limits: dict[str, int] = {m: rpd_for(m) for m in flash}
     spent: set[str] = set()

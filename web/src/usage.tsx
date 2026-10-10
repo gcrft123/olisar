@@ -27,7 +27,9 @@ type ChainModel = {
   tokens: number
   limit: number
   limit_from_google: boolean
-  state: 'ok' | 'resting' | 'spent'
+  // 'unavailable': Google doesn't serve the model to this key's project at all (the Gemini
+  // 2.5 pair on a newer one). It has no allowance and counts nothing.
+  state: 'ok' | 'resting' | 'spent' | 'unavailable'
   back_in: number | null
   spent_at: string | null
   cost: number
@@ -53,7 +55,7 @@ type Live = {
   reset_at: string
   chain: ChainModel[]
   memory_search: { model: string; requests: number; limit: number; spent: boolean }
-  web_search: { requests: number; limit: number; period: 'day' | 'month'; spent: boolean }
+  web_search: { requests: number; limit: number; period: 'day' | 'month'; spent: boolean; unavailable?: boolean }
   billing: Billing
 }
 
@@ -138,9 +140,10 @@ function reading(live: Received, clientNow: number) {
     // A countdown that ran out between polls is back already; the next poll will agree.
     const state = m.state === 'resting' && backAt != null && backAt <= clientNow ? 'ok' : m.state
     const used = usedBy[bucket(m)] ?? m.requests
-    return { ...m, i, backAt, state, used, left: m.state === 'spent' ? 0 : Math.max(0, m.limit - used) }
+    const gone = m.state === 'spent' || m.state === 'unavailable'
+    return { ...m, i, backAt, state, used, left: gone ? 0 : Math.max(0, m.limit - used) }
   })
-  const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent')
+  const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent' || m.state === 'unavailable')
   // Past a billed key's budget, replies go to the cheapest model alone, or nowhere.
   const budgetOut = live.tier === 'paid' && live.billing?.state === 'over'
   // The first model that can take a request. With every one resting for a moment, the one
@@ -276,7 +279,7 @@ function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: bool
             : <SideMeter label="Memory search" used={memory.requests} limit={memory.limit} spent={memory.spent} />}
           <SideMeter
             label={web.period === 'month' ? 'Free web searches' : 'Web search'}
-            used={web.requests} limit={web.limit} spent={web.spent}
+            used={web.requests} limit={web.limit} spent={web.spent} unavailable={web.unavailable}
           />
         </div>
       </div>
@@ -375,8 +378,16 @@ function Meter({ used, limit, out, lost, className }: { used: number; limit: num
   )
 }
 
-function SideMeter({ label, used, limit, spent }: { label: string; used: number; limit: number; spent: boolean }) {
+function SideMeter({ label, used, limit, spent, unavailable }: { label: string; used: number; limit: number; spent: boolean; unavailable?: boolean }) {
   const left = spent ? 0 : Math.max(0, limit - used)
+  if (unavailable) {
+    return (
+      <div className="u-side">
+        <span>{label}</span>
+        <span className="v"><s>not on this key</s></span>
+      </div>
+    )
+  }
   return (
     <div className="u-side">
       <span>{label}</span>
@@ -388,6 +399,7 @@ function SideMeter({ label, used, limit, spent }: { label: string; used: number;
 
 // ── Fallback chain ──────────────────────────────────────────────────────────
 function Status({ m, R }: { m: Row; R: Reading }) {
+  if (m.state === 'unavailable') return <Badge icon="minus-circle">Not on this key</Badge>
   if (m.state === 'spent') {
     return (
       <>
@@ -420,7 +432,7 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
             const isCur = !R.allSpent && R.cur?.i === m.i
             const out = m.state === 'spent'
             return (
-              <tr key={m.model} className={(isCur ? 'cur' : '') + (out ? ' gone' : '')}>
+              <tr key={m.model} className={(isCur ? 'cur' : '') + (out || m.state === 'unavailable' ? ' gone' : '')}>
                 <th scope="row" className="c-rank">{m.i + 1}</th>
                 <td>
                   <span className="m-name">{modelName(m.model)}</span>
@@ -430,7 +442,9 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                 </td>
                 <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
                 <td className="c-today">
-                  {R.paid ? (
+                  {m.state === 'unavailable' ? (
+                    <div className="today"><span className="v wide"><s>—</s></span></div>
+                  ) : R.paid ? (
                     <div className="today">
                       <span className="v wide"><span className="left-v">{usd(m.cost)}</span><s> · {n(m.requests)} req</s></span>
                     </div>

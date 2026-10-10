@@ -56,6 +56,11 @@ _SERVER_ERROR_COOLDOWN = 15.0  # short skip of a model that just returned a 5xx
 _MODEL_RETIRED = 404
 _RETIRED_COOLDOWN = 3600.0
 
+# How Google words a 404 for a model it still serves, just not to newer projects (the Gemini
+# 2.5 pair). Not a retirement: nothing in the chain needs editing, and the model is left out
+# of this key's day (RateLimiter.withhold) rather than retried every hour.
+NOT_FOR_THIS_PROJECT = "no longer available to new users"
+
 # Optional features whose support genuinely varies across the chain. A 400 naming one of
 # these means "this model can't do that" and should cost us the next model; any other 400
 # means the request itself is wrong and must fail loudly where it happened.
@@ -382,6 +387,12 @@ class GeminiClient:
                     limiter.penalize(
                         candidate, seconds=_SERVER_ERROR_COOLDOWN, reason=f"a {code} error"
                     )
+                elif code == _MODEL_RETIRED and NOT_FOR_THIS_PROJECT in _api_error_detail(exc).lower():
+                    log.info(
+                        "gemini %s isn't served to this key's project; leaving it out of the "
+                        "chain for this key", candidate,
+                    )
+                    limiter.withhold(candidate)
                 elif code == _MODEL_RETIRED:
                     log.error(
                         "gemini %s is gone: %s | dropping it for now and trying the next "
