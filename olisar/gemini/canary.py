@@ -34,8 +34,9 @@ from datetime import datetime, timezone
 from google.genai import types
 
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import DEFAULT_VISION_MODEL, RANKED_NAMES
-from olisar.gemini.rate_limiter import RateLimitExceeded
+from olisar.gemini.models import DEFAULT_VISION_MODEL, PRO_MODEL, RANKED_NAMES
+from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter
+from olisar.routing.state import cached_switches
 
 log = logging.getLogger("olisar.canary")
 
@@ -209,7 +210,9 @@ async def run_canary(model: str) -> CanaryResult:
 
 
 def _default_sweep() -> list[str]:
-    """Every chat rung, then the vision chain's head, each once.
+    """Every chat rung, then the vision chain's head, each once, and the Pro model when model
+    routing's deep tier asks it first (billing on and Pro turned on). A free key has no Pro
+    allowance, so there it could only ever come back a 429.
 
     Measured against the live API, the tool-shape incident was rejected *only* by the
     ``-latest`` aliases; every pinned model accepted it. Vision is included because that
@@ -220,6 +223,8 @@ def _default_sweep() -> list[str]:
     seen: dict[str, None] = {}
     for name in (*RANKED_NAMES, DEFAULT_VISION_MODEL):
         seen.setdefault(name, None)
+    if get_rate_limiter().paid and cached_switches().pro:
+        seen.setdefault(PRO_MODEL, None)
     return list(seen)
 
 

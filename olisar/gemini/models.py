@@ -1,8 +1,9 @@
 """Gemini model ranking and the fallback chain.
 
 *Chat* models ranked best -> worst. Every one is on Google's free tier. Pro models are
-excluded: they aren't (as of 2026), and a key with billing on replies through the same
-chain. Specialized models (computer-use, robotics, embeddings) aren't chat models and are
+excluded from the ranking: they aren't (as of 2026). A key with billing on reaches Pro only
+through model routing's deep tier (olisar/routing), never by walking this chain.
+Specialized models (computer-use, robotics, embeddings) aren't chat models and are
 excluded too.
 
 When the preferred model is rate-limited, the client walks DOWN this list to the
@@ -98,10 +99,35 @@ RETIRED: dict[str, str] = {
 LEGACY_DEFAULT_CHAT_MODEL = "gemini-flash-latest"
 
 RANKED_NAMES = [m.name for m in RANKED]
+
+# The stored ``default_model`` that means "let model routing pick" (olisar/routing). With
+# routing off it replies exactly as DEFAULT_CHAT_MODEL would, so a server on it loses
+# nothing on an install that never turns routing on.
+AUTO = "auto"
+
+# The Pro model routing's deep tier asks first on a key with billing on. Pro has no free
+# allowance: on a free key it answers 429 naming a -FreeTier quota (which is how
+# olisar.gemini.tier tells the tiers apart), so the free throttle below is 0 and a free key
+# never sends it a reply. A preview, so Google may retire it on short notice; the deep chain
+# falls back to the Flash rungs on a 404 like any other.
+PRO_MODEL = "gemini-3.1-pro-preview"
+PRO_LABEL = "Gemini 3.1 Pro"
+
+# Routing's light tier: the Flash-Lite rungs, best first, then the Flash rungs as a last
+# resort. Today's chain would answer from those anyway, and a light reply that falls up a
+# tier costs more but still answers.
+LIGHT_RANKED_NAMES = [
+    *(m.name for m in RANKED if "flash-lite" in m.name),
+    *(m.name for m in RANKED if "flash-lite" not in m.name),
+]
+
 _RPM = {m.name: m.rpm for m in RANKED}
 _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
+_RPM[PRO_MODEL] = 0  # no free allowance at all
 _PAID_RPM = {m.name: m.paid_rpm for m in RANKED}
 _PAID_RPM["gemini-embedding-001"] = 3000
+# Below Google's Tier 1 ballpark for Pro on purpose: past it, a deep reply goes to Flash.
+_PAID_RPM[PRO_MODEL] = 50
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
@@ -114,6 +140,7 @@ _LEVELS: dict[str, tuple[str, ...]] = {
     "gemini-3.8-flash": ("low", "medium", "high"),
     "gemini-3.6-flash": ("minimal", "low", "medium", "high"),
     "gemini-3.5-flash-lite": ("minimal", "low", "medium", "high"),
+    PRO_MODEL: ("low", "medium", "high"),
 }
 # The Gemini 2.5 models predate thinking levels and take a token budget instead. High stays
 # well under the deep tier's 8,192-token output ceiling, which thinking shares with the
@@ -210,13 +237,25 @@ def model_chain(preferred: str) -> list[str]:
     """Models to try, in order, starting from `preferred`.
 
     If `preferred` is in the ranking, the chain is everything from it downward. A retired
-    model starts where its replacement does (see RETIRED). Otherwise the chain is
-    `preferred` first, then the whole ranking as fallback.
+    model starts where its replacement does (see RETIRED), and AUTO where the default
+    does. Otherwise the chain is `preferred` first, then the whole ranking as fallback.
     """
-    preferred = RETIRED.get(preferred, preferred)
+    preferred = DEFAULT_CHAT_MODEL if preferred == AUTO else RETIRED.get(preferred, preferred)
     if preferred in RANKED_NAMES:
         return RANKED_NAMES[RANKED_NAMES.index(preferred) :]
     return [preferred, *RANKED_NAMES]
+
+
+def light_chain() -> list[str]:
+    """Routing's light tier: the Flash-Lite rungs, then the Flash rungs."""
+    return list(LIGHT_RANKED_NAMES)
+
+
+def deep_chain(preferred: str, *, pro: bool) -> list[str]:
+    """Routing's deep tier: Pro first when ``pro`` (a billed key with Pro allowed), then the
+    same chain a standard reply walks."""
+    chain = model_chain(preferred)
+    return [PRO_MODEL, *chain] if pro else chain
 
 
 def thinking_for(model: str, level: str) -> tuple[str, str | int] | None:

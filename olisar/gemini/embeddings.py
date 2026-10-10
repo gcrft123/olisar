@@ -15,6 +15,7 @@ Two things worth knowing:
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -91,7 +92,25 @@ async def embed_documents(texts: list[str]) -> list[list[float]]:
     return await _embed(texts, "RETRIEVAL_DOCUMENT")
 
 
+# The last few query vectors, by text. Recall embeds every incoming message, and model
+# routing (olisar.routing) reads the same vector afterwards rather than paying a second
+# request for it.
+_QUERY_CACHE: OrderedDict[str, list[float]] = OrderedDict()
+_QUERY_CACHE_SIZE = 64
+
+
 async def embed_query(text: str) -> list[float]:
     """Embed a single query string; returns one normalized vector."""
     result = await _embed([text], "RETRIEVAL_QUERY")
-    return result[0] if result else []
+    vector = result[0] if result else []
+    if vector:
+        _QUERY_CACHE[text] = vector
+        _QUERY_CACHE.move_to_end(text)
+        while len(_QUERY_CACHE) > _QUERY_CACHE_SIZE:
+            _QUERY_CACHE.popitem(last=False)
+    return vector
+
+
+def cached_query_vector(text: str) -> list[float] | None:
+    """The vector ``embed_query`` made for ``text`` recently, or None. Never asks Google."""
+    return _QUERY_CACHE.get(text)

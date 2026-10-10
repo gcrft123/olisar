@@ -213,7 +213,7 @@ class OnItsOwn(unittest.TestCase):
         with patch("olisar.pipeline.get_gemini", return_value=client), patch(
             "olisar.tools.search_messages", new=search
         ), patch(
-            "olisar.pipeline._complete_truncated", new=AsyncMock(side_effect=lambda *a: a[-1])
+            "olisar.pipeline._complete_truncated", new=AsyncMock(side_effect=lambda *a, **k: a[-1])
         ):
             out = asyncio.run(_run_tool_loop([], "sys", None, ctx, blank_fallback="blank"))
         return out, ctx, actions, search

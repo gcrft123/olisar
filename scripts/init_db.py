@@ -177,6 +177,44 @@ async def migrate_model_default() -> int:
     return changed
 
 
+async def migrate_to_auto() -> int:
+    """Move servers still on the seeded default model to Automatic (``AUTO``), once.
+
+    Before model routing, ``default_model`` was seeded with DEFAULT_CHAT_MODEL, so nearly
+    every server carries it without anyone having chosen it. Automatic replies exactly as
+    that model does while routing is off, which it is by default on a free key, so this
+    changes nothing there; with billing on it's what lets routing start. A server pinned to
+    any other model keeps it.
+
+    Runs once, marked by ``AppConfig.routing_migrated``: an operator who picks
+    DEFAULT_CHAT_MODEL deliberately afterwards keeps it, which re-running on every start
+    would undo. Returns how many rows moved.
+    """
+    from sqlalchemy import update
+
+    from olisar.db.models import AppConfig, GuildConfig
+    from olisar.gemini.models import AUTO, DEFAULT_CHAT_MODEL
+
+    async with session_scope() as session:
+        row = await session.get(AppConfig, 1)
+        if row is not None and row.routing_migrated:
+            return 0
+        if row is None:
+            row = AppConfig(id=1)
+            session.add(row)
+        row.routing_migrated = True
+        # Automatic starts on GEMINI_CHAT_MODEL. Where that's been set to something else,
+        # the stored default was what replies started on, so moving it would change them.
+        if settings.gemini_chat_model != DEFAULT_CHAT_MODEL:
+            return 0
+        result = await session.execute(
+            update(GuildConfig)
+            .where(GuildConfig.default_model == DEFAULT_CHAT_MODEL)
+            .values(default_model=AUTO)
+        )
+        return int(result.rowcount or 0)
+
+
 async def seed_defaults() -> None:
     guild_id = settings.target_guild_id
     if not guild_id:
