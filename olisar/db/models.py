@@ -1096,6 +1096,17 @@ class GeminiUsage(Base):
     quota_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
+class GeminiKeyTier(Base):
+    """Whether a Gemini key's project has billing on, as Google last answered (see
+    olisar.gemini.tier). Keyed by the key's one-way fingerprint, never the key."""
+
+    __tablename__ = "gemini_key_tier"
+
+    key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    tier: Mapped[str] = mapped_column(String(8))  # "free" | "paid"
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class UsageHour(Base):
     """Requests and tokens per model per hour of Google's day. The Usage page compares today
     with the same time yesterday, which a daily total can't answer before the day is over."""

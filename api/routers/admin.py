@@ -49,6 +49,7 @@ from olisar.db.models import (
     UserMemory,
     UserProfile,
 )
+from olisar.gemini import tier as gemini_tier
 from olisar.gemini.models import RANKED
 from olisar.gemini.quota import quota_day
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
@@ -433,14 +434,17 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_operator)
 @router.post("/keys/check/gemini")
 async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(require_operator)):
     """Whether the Gemini key works: the one typed, or the saved one when nothing is.
-    ``ok`` is null when Google couldn't be reached, and ``set`` false when there's no key."""
+    ``ok`` is null when Google couldn't be reached, and ``set`` false when there's no key.
+    ``tier`` is ``"free"`` or ``"paid"`` (billing on) for a key that works, null when
+    Google wouldn't say."""
     key = body.key.strip() or await runtime_keys.gemini_api_key()
     if not key:
-        return {"set": False, "ok": False}
+        return {"set": False, "ok": False, "tier": None}
     try:
-        return {"set": True, "ok": await key_checks.gemini(key)}
+        ok = await key_checks.gemini(key)
     except key_checks.Unreachable:
-        return {"set": True, "ok": None}
+        return {"set": True, "ok": None, "tier": None}
+    return {"set": True, "ok": ok, "tier": await gemini_tier.check(key) if ok else None}
 
 
 @router.post("/keys/check/cloudflare")

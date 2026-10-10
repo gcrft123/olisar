@@ -18,6 +18,7 @@ from google.genai import types
 
 from olisar import runtime_keys
 from olisar.config import settings
+from olisar.gemini import tier
 from olisar.gemini.models import image_model_chain, model_chain
 from olisar.gemini.quota import next_reset, read_refusal
 from olisar.gemini.rate_limiter import (
@@ -196,6 +197,7 @@ class GeminiClient:
             self._client = genai.Client(api_key=key)
             self._key = key
         get_rate_limiter().use_key(key_id(key))
+        tier.refresh_soon()
         return self._client
 
     async def _raw_generate(
@@ -235,7 +237,8 @@ class GeminiClient:
         skipped: list[str] = []
         for candidate in chain:
             state = limiter.state(candidate)
-            if state == "spent" and limiter.claim_probe(candidate):
+            probing = state == "spent" and limiter.claim_probe(candidate)
+            if probing:
                 # Out for the day, but it's been an hour: billing may have been turned on.
                 log.info("asking Google again whether %s is still out for today", candidate)
                 state = "ok"
@@ -285,6 +288,8 @@ class GeminiClient:
                 last_error = exc
                 if code == 429:
                     out_of_quota = True
+                    if "FreeTier" in _api_error_detail(exc):
+                        tier.saw_free_tier(kid)
                     # A grounded call's daily refusal can be about the search allowance
                     # rather than the model's, and parking the model until midnight for
                     # that would cost every reply it could still give. search() keeps its
@@ -343,6 +348,10 @@ class GeminiClient:
                 else 0
             ) or 0
             await record_usage(candidate, tokens, grounding=grounding, source=source)
+            if probing:
+                # A model Google had refused for the day took a request: billing was turned
+                # on, most likely, so ask again rather than wait out the last answer.
+                tier.recheck(kid)
             # Always say which model answered, not only when it wasn't the preferred one.
             # Diagnosing the blank-fallback incident meant inferring the serving model from
             # the daily gemini_usage rollup, because a reply served by the head of the chain

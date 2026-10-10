@@ -352,6 +352,8 @@ class _Db(unittest.IsolatedAsyncioTestCase):
                 rl.runtime_keys, "gemini_api_key",
                 AsyncMock(side_effect=lambda: self.key["value"]),
             ),
+            # Asking Google which tier the key is on would be a real request.
+            patch("olisar.gemini.tier.refresh_soon"),
         ]
         for p in self._patches:
             p.start()

@@ -41,8 +41,8 @@ from olisar.gemini.quota import aware, next_reset, quota_day, quota_hour
 
 log = logging.getLogger("olisar.gemini.ratelimit")
 
-# How long to avoid a model after it returns 429. Most free-tier 429s are
-# per-minute; this self-heals while keeping replies fast via fallback.
+# How long to avoid a model after it returns 429. Most 429s are per-minute; this
+# self-heals while keeping replies fast via fallback.
 COOLDOWN_SECONDS = 120.0
 
 # How often a model Google refused for the day is asked again anyway. The refusal holds
@@ -112,6 +112,9 @@ class RateLimiter:
         self._probe_at: dict[str, float] = {}
         # Fingerprint of the API key requests go out with (see use_key).
         self._key: str | None = None
+        # Fingerprints of keys Google says have billing on (olisar.gemini.tier). Their
+        # per-minute throttle is the billed one.
+        self._paid_keys: set[str] = set()
         # Global (all-model) rolling 60s window of (timestamp, tokens), for peak TPM.
         self._tokens: deque[tuple[float, int]] = deque()
 
@@ -128,7 +131,7 @@ class RateLimiter:
         if now < self._cooldown_until.get(model, 0.0):
             return "cooldown"
         self._clean(model, now)
-        if len(self._calls[model]) >= rpm_for(model):
+        if len(self._calls[model]) >= rpm_for(model, self.paid):
             return "rpm_full"
         return "ok"
 
@@ -136,6 +139,18 @@ class RateLimiter:
     def key(self) -> str | None:
         """Fingerprint of the API key in use (``key_id``), None before one is known."""
         return self._key
+
+    @property
+    def paid(self) -> bool:
+        """Whether the key in use has billing on. False until Google has said so."""
+        return self._key is not None and self._key in self._paid_keys
+
+    def set_paid(self, key: str, paid: bool) -> None:
+        """Record whether the key with fingerprint ``key`` has billing on."""
+        if paid:
+            self._paid_keys.add(key)
+        else:
+            self._paid_keys.discard(key)
 
     def use_key(self, key: str | None) -> None:
         """Record which key requests go out with. The daily quota belongs to the key's
@@ -210,7 +225,7 @@ class RateLimiter:
         wait = max(0.0, self._cooldown_until.get(model, 0.0) - now)
         self._clean(model, now)
         calls = self._calls[model]
-        if len(calls) >= rpm_for(model):
+        if len(calls) >= rpm_for(model, self.paid):
             wait = max(wait, 60.0 - (now - calls[0]))
         return wait
 
@@ -259,7 +274,7 @@ class RateLimiter:
                 continue
             self._clean(model, now)
             dq = self._calls[model]
-            if len(dq) >= rpm_for(model):
+            if len(dq) >= rpm_for(model, self.paid):
                 await asyncio.sleep(max(60.0 - (now - dq[0]) + 0.05, 0.1))
                 continue
             dq.append(time.monotonic())
