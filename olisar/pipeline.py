@@ -85,6 +85,10 @@ class Reply:
     separate flag rather than "``text`` came back empty" because those mean opposite
     things: an empty reply is the failure path, and this is a reply that worked.
 
+    ``canned`` marks text the operator wrote rather than the model: the rate-limit message
+    or the blank fallback. It goes out as one message, laid out the way they wrote it,
+    where a reply the model wrote is split into the beats its lines mark.
+
     ``str(reply)`` is the text, so a caller that only wants to send it can.
     """
 
@@ -92,6 +96,7 @@ class Reply:
     blanked: bool = False
     silent: bool = False
     emoji: str = ""
+    canned: bool = False
 
     def __str__(self) -> str:
         return self.text
@@ -970,10 +975,10 @@ async def generate_reply(
     except RateLimitExceeded:
         # Deliberately not a blank. The quota is spent, waiting fixes it, and the reply
         # says so — there is nothing here for the operator to diagnose or the team to fix.
-        return Reply(rate_limit_msg)
+        return Reply(rate_limit_msg, canned=True)
     except Exception:
         log.exception("gemini generation failed")
-        return Reply(blank_fallback, blanked=True)
+        return Reply(blank_fallback, blanked=True, canned=True)
     if ctx.silent:
         # Checked ahead of the blank test below: both carry empty text, and reading this
         # one as a blank would hang a Report button off a reply that did exactly what the
@@ -984,7 +989,8 @@ async def generate_reply(
     # result is the loop reporting that it never reached an answer. A model that happened
     # to write the operator's fallback text verbatim would also match; the cost of that
     # coincidence is one offered report button on a reply that was fine.
-    return Reply(text, blanked=text == blank_fallback)
+    blanked = text == blank_fallback
+    return Reply(text, blanked=blanked, canned=blanked)
 
 
 async def channel_task_prompt(

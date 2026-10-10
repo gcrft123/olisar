@@ -1,6 +1,6 @@
 ## [Unreleased]
 
-Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have.
+Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have. Separately, when Olisar wrote a reply as two lines, it arrived as one message with a line break in it instead of two messages.
 
 The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
 
@@ -14,9 +14,15 @@ The docs had drifted from the code they describe. They called the search index a
 
 [615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
 
+[181c749] — The docs say a new line in a reply starts a new message, and which replies stay whole.
+
 [96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
 
 ### Fixed
+
+[181c749] — A reply Olisar writes on two or three lines arrives as that many messages. Lists, quotes and longer blocks still arrive as one.
+
+[181c749] — The **When rate-limited** and **When it draws a blank** replies are sent as one message, laid out the way you wrote them.
 
 [d8cbb6b] — Saving an imported or marketplace extension's code in the editor keeps the capabilities you left unticked when you installed it turned off. A capability the edit adds is granted, as it is for an extension you wrote.
 

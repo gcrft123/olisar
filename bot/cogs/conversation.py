@@ -213,7 +213,7 @@ class Conversation(commands.Cog):
                 try:
                     await send_paced(
                         message.channel, render_message(command_messages, "rate_limit"),
-                        reply_to=anchor_for(self.bot, message),
+                        reply_to=anchor_for(self.bot, message), split=False,
                     )
                 except Exception:  # noqa: BLE001
                     log.exception("couldn't say the reply budget was spent")
@@ -288,6 +288,7 @@ class Conversation(commands.Cog):
             reply.text,
             reply_to=anchor_for(self.bot, message),
             view=report_view(report_url),
+            split=not reply.canned,
         )
 
         if stores:

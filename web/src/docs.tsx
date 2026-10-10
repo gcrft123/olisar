@@ -896,7 +896,7 @@ The persona decides what Olisar says. These parts of a reply happen on their own
 
 Olisar knows which channel it's in. The channel's name and the first 300 characters of its topic go into every reply, and Olisar pitches its tone to the room: complete answers in a help channel, short and loose ones in off-topic. Give a channel a topic to tell Olisar what it's for.
 
-A reply can arrive as two or three messages, the way people send a thought and then an aside. Olisar splits where it writes \`[[break]]\` or leaves a blank line, never inside a code block, and folds anything past the third message into the third. The default style notes show it how; you can use \`[[break]]\` in your own style notes the same way. A message longer than Discord's 2,000-character limit is split at line breaks.
+A reply can arrive as two or three messages, the way people send a thought and then an aside. Olisar splits where it writes \`[[break]]\`, leaves a blank line or starts a new line, and folds anything past the third message into the third. A code block, a list, a quote, or four or more lines in a row stay in one message, and so do your **When rate-limited** and **When it draws a blank** replies. The default style notes show it how; you can use \`[[break]]\` in your own style notes the same way. A message longer than Discord's 2,000-character limit is split at line breaks.
 
 Olisar uses Discord's reply arrow only when it helps point at a message: when someone else has posted since the message it's answering, or that message is more than 45 seconds old. In a quiet back-and-forth, and always in DMs, it posts without one. The reply arrow never pings the person it points at.
 

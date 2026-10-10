@@ -14,9 +14,11 @@ from __future__ import annotations
 import unittest
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import discord
 
+from bot import replies
 from bot.replies import STALE_ANCHOR, TYPING_MAX, TYPING_MIN, anchor_for, typing_seconds
 from olisar.context import channel_note
 from olisar.persona import (
@@ -81,10 +83,57 @@ class SplitMessagesTest(unittest.TestCase):
     def test_a_whitespace_only_line_counts_as_blank(self) -> None:
         self.assertEqual(split_messages("first\n \nsecond"), ["first", "second"])
 
-    def test_a_single_newline_stays_in_one_message(self) -> None:
-        """Deliberately narrower than 'any newline'. A lone newline is as likely to be a
-        list or a wrapped aside, and splitting those would be worse than the problem."""
-        self.assertEqual(split_messages("line one\nline two"), ["line one\nline two"])
+    def test_a_single_newline_breaks_like_the_marker(self) -> None:
+        """The shape production sent in October: two beats on two lines, which members got
+        as one message with a line break in it."""
+        self.assertEqual(
+            split_messages("cursed 😭\nthe eyes are a perfect match though"),
+            ["cursed 😭", "the eyes are a perfect match though"],
+        )
+
+    def test_an_asterisk_correction_is_its_own_message(self) -> None:
+        self.assertEqual(
+            split_messages("nope, per server\n*per install"), ["nope, per server", "*per install"]
+        )
+
+    def test_a_list_stays_in_one_message(self) -> None:
+        for body in (
+            "1. ButterSauce\n2. Wasted_Monsta\n3. GCRFT123",
+            "- mining\n- salvage",
+            "*   **Pilot:** two S4\n*   **Turret:** two S3",
+            "• one\n• two",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(split_messages(body), [body])
+
+    def test_a_list_after_its_lead_in_stays_together(self) -> None:
+        body = "the options are:\n1. mining\n2. combat"
+        self.assertEqual(split_messages(body), [body])
+
+    def test_a_line_ending_in_a_colon_keeps_what_it_introduces(self) -> None:
+        body = "the ranks above you:\ncommander and captain"
+        self.assertEqual(split_messages(body), [body])
+
+    def test_a_quote_stays_with_the_answer_to_it(self) -> None:
+        body = "> what's the best ship\nthe carrack, no contest"
+        self.assertEqual(split_messages(body), [body])
+
+    def test_more_lines_than_a_reply_may_arrive_in_stay_whole(self) -> None:
+        """Four lines is a block of writing, like steps or a verse, not four beats."""
+        body = "roses are red\nquantum is slow\nmy ship is in pieces\nand so is my cargo"
+        self.assertEqual(split_messages(body), [body])
+
+    def test_lines_split_within_each_blank_line_paragraph(self) -> None:
+        self.assertEqual(
+            split_messages("mid honestly\n\nthe ttk change\nis the only good bit"),
+            ["mid honestly", "the ttk change", "is the only good bit"],
+        )
+
+    def test_a_structured_paragraph_stays_whole_beside_split_ones(self) -> None:
+        self.assertEqual(
+            split_messages("here you go\n\n- mining\n- salvage"),
+            ["here you go", "- mining\n- salvage"],
+        )
 
     def test_a_fenced_code_block_is_never_split(self) -> None:
         """Code routinely contains blank lines, and a snippet delivered as three messages
@@ -99,6 +148,36 @@ class SplitMessagesTest(unittest.TestCase):
     def test_strip_breaks_folds_to_one_body(self) -> None:
         self.assertEqual(strip_breaks(f"one{SPLIT_MARKER}two{SPLIT_MARKER}three"), "one\ntwo\nthree")
         self.assertNotIn(SPLIT_MARKER, strip_breaks(f"a{SPLIT_MARKER}b"))
+
+    def test_strip_breaks_keeps_line_breaks(self) -> None:
+        self.assertEqual(strip_breaks("first line\nsecond line"), "first line\nsecond line")
+
+
+class SendPacedTest(unittest.IsolatedAsyncioTestCase):
+    """The operator's canned messages (``Reply.canned``) go out as they were written: a
+    blank fallback laid out as a three-line banner arrived as three messages once lines
+    started counting as breaks."""
+
+    BANNER = "**==SYSTEM ERROR==** \nCritical system/database error — mind rephrasing? \n**==SYSTEM ERROR==**"
+
+    async def _send(self, text: str, **kwargs) -> list[str]:
+        sent: list[str] = []
+
+        async def send_reply(channel, piece, **_):
+            sent.append(piece)
+            return []
+
+        with patch.object(replies, "send_reply", send_reply), patch.object(
+            replies, "_pace", AsyncMock()
+        ), patch.object(replies.asyncio, "sleep", AsyncMock()):
+            await replies.send_paced(object(), text, **kwargs)
+        return sent
+
+    async def test_a_reply_is_split_into_its_beats(self) -> None:
+        self.assertEqual(await self._send("cursed 😭\nperfect match"), ["cursed 😭", "perfect match"])
+
+    async def test_canned_text_is_sent_whole(self) -> None:
+        self.assertEqual(await self._send(self.BANNER, split=False), [self.BANNER])
 
 
 class AnchorForTest(unittest.TestCase):
