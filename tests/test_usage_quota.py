@@ -232,11 +232,13 @@ class ClientTests(unittest.TestCase):
         spent.assert_not_awaited()
         limiter.penalize.assert_called_once()
 
-    def test_a_grounded_call_never_parks_the_model_for_the_day(self):
-        """Its daily refusal can be the search allowance's, not the model's."""
+    def test_a_grounded_call_never_parks_the_model(self):
+        """Its refusal can be the search allowance's, not the model's: every Gemini 3 model
+        on a free key refuses a grounded request and still takes ordinary ones. search()
+        keeps its own block, so chat isn't parked either for the day or for the minute."""
         limiter, spent = self._run(_quota_429(DAILY, "500"), grounding=1)
         spent.assert_not_awaited()
-        limiter.penalize.assert_called_once()
+        limiter.penalize.assert_not_called()
 
 
 def _server_error(code: int = 503):

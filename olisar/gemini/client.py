@@ -19,7 +19,7 @@ from google.genai import types
 from olisar import runtime_keys
 from olisar.config import settings
 from olisar.gemini import tier
-from olisar.gemini.models import image_model_chain, model_chain
+from olisar.gemini.models import SEARCH_FREE_CHAIN, image_model_chain, model_chain
 from olisar.gemini.quota import next_reset, read_refusal
 from olisar.gemini.rate_limiter import (
     RateLimitExceeded,
@@ -294,8 +294,14 @@ class GeminiClient:
                     # rather than the model's, and parking the model until midnight for
                     # that would cost every reply it could still give. search() keeps its
                     # own block for grounding.
+                    #
+                    # Nor is any grounded 429 a reason to park the model for chat: a model
+                    # with no search allowance at all (every Gemini 3 model on a free key)
+                    # answers a grounded request with a 429 while still taking ordinary ones.
                     refusal = read_refusal(exc)
-                    if refusal.daily and not grounding:
+                    if grounding:
+                        pass
+                    elif refusal.daily:
                         await mark_spent(candidate, refusal.limit, key=kid)
                     else:
                         limiter.penalize(candidate, reason="a rate limit (429)")
@@ -525,10 +531,12 @@ class GeminiClient:
         Raises GroundingUnavailable when Google refuses (free-tier grounding is tiny)
         so the caller can degrade rather than crash.
 
-        Walks the same fallback chain as chat: grounding quota is usually per-model, so
-        a limit on the preferred model doesn't have to mean no web search at all. This
-        used to be pinned to one model with no fallback, which is why a single exhausted
-        model made every search fail while ordinary replies carried on."""
+        Walks a fallback chain: grounding quota is per model, so a limit on the preferred
+        model doesn't have to mean no web search at all. This used to be pinned to one
+        model with no fallback, which is why a single exhausted model made every search
+        fail while ordinary replies carried on. A billed key walks the chat chain. A free
+        key walks only the Gemini 2.5 models, the only ones with a free search allowance
+        (see SEARCH_FREE_CHAIN)."""
         blocked_until = self._grounding_blocked_until
         if blocked_until is not None:
             if datetime.now(timezone.utc) < blocked_until:
@@ -543,11 +551,13 @@ class GeminiClient:
         config = types.GenerateContentConfig(
             tools=[types.Tool(google_search=types.GoogleSearch())]
         )
+        chain = model_chain(model) if get_rate_limiter().paid else list(SEARCH_FREE_CHAIN)
         try:
             resp = await self._raw_generate(
                 contents=query,
                 config=config,
-                model=model,
+                model=chain[0],
+                chain=chain,
                 source="grounding",
                 grounding=1,  # counts toward the per-guild grounding cap
                 fall_back_on=(400,),  # a model that won't take the search tool

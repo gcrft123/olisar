@@ -83,8 +83,13 @@ _PAID_RPM["gemini-embedding-001"] = 3000
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
-# Google Search grounding has a daily allowance of its own, on top of the model's.
+# Google Search grounding has a daily allowance of its own, on top of the model's. On a free
+# key it's only the Gemini 2.5 models that have one, shared between the two below; every
+# Gemini 3 model answers a grounded request with a bare 429. So that's where a free key's
+# web search runs (see GeminiClient.search). Walking the chat chain instead spent three
+# refused requests per search and parked the top three chat models for two minutes each.
 GROUNDING_RPD = 500
+SEARCH_FREE_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
 
 # Vision (image-understanding) fallback chain, used for image recognition and the
