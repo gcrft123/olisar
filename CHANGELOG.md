@@ -8,6 +8,10 @@ Google deprecated Gemini 3.5 Flash, the head of the reply chain, and Gemini 3.1 
 
 The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
 
+Every reply went to the same model, so a "thanks" and a stack trace got the same treatment, and a key with billing on had no way to reach Gemini Pro. Model routing now picks a tier for each reply on servers set to Automatic: Flash-Lite for acknowledgements and banter, the usual chain for ordinary questions, and Gemini 3.1 Pro for code, math and long requests, held to a small share of replies. It's on by default with billing on and off on a free key, where it saves the Flash allowance for the questions that need it. Pro stays the deep model because, tested on a billed key, Gemini 3.8 Flash thinking as hard kept running web searches first and took up to two minutes on a debugging question, where Pro answered in 8 to 14 seconds.
+
+That testing also showed how little a free key really gets. Google grants 20 requests a day on each Flash model and 500 on Flash-Lite, not the 250 and 1,000 Olisar assumed, counts each -latest alias against the model it points to, and doesn't serve the Gemini 2.5 models to newer projects at all, so the Usage page was promising several times the requests that exist. It now counts the day the way Google does, and counts each embedded text as a request, as Google does. A budget set to stop used to tell members to try again in a minute; it has its own reply now. And re-embedding a memory whose text had changed failed every time, paying for the same embeddings every 20 seconds.
+
 ### New
 
 [615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
@@ -33,6 +37,28 @@ The docs had drifted from the code they describe. They called the search index a
 [ca0b56e] — When a free key runs out for the day, the Usage page and the sidebar say what the day would have cost with billing on, with a link to turn it on.
 
 [ca0b56e] — The setup wizard says, for a free key, that Google may use what members send to improve its products, and that billing stops that.
+
+[373e4cd] — Model routing picks a tier for each reply on servers set to Automatic: Flash-Lite for acknowledgements and banter, the usual chain for ordinary questions, and Gemini 3.1 Pro for code, math and long or many-part requests.
+
+[373e4cd] — Routing is on by default with billing on and off on a free key, with a setting kept for each tier, so turning billing on or off brings back the choice made for it.
+
+[373e4cd] — Pro is held to 5% of the last day's replies (at least 3 a day), 10 replies a member a day, and none past 80% of the monthly budget. A deep reply without Pro is sent as an ordinary one.
+
+[373e4cd] — A light reply that reaches for a tool, types a tool call out or comes back empty is answered on the standard tier instead, and nothing the light model asked for runs.
+
+[373e4cd] — Servers still on the seeded default model move to Automatic once; a server set to another model keeps it.
+
+[f337dfb] — **Model routing** and **Use Gemini Pro for hard questions** under API keys, and an **Automatic** option for **Primary model** on Behavior.
+
+[f337dfb] — The Usage page shows replies per routing tier and roughly what routing saved or added against replying with Gemini 3.8 Flash throughout.
+
+[f337dfb] — The test chat shows each reply's tier and the model that wrote it.
+
+[59703e8] — A **When the budget is spent** command reply, for when the monthly budget stops Olisar.
+
+[bfd920e] — `design/model-routing/README.md` records the routing design, what changed while building it, and the tests on a billed key.
+
+[c901860] — Arena tools for routing and billing: a routing probe through the test chat, a Pro-against-Flash comparison, a helper for running the arena on a billed key, routing A/B variants and a Gemini image scenario.
 
 ### Changed
 
@@ -61,6 +87,20 @@ The docs had drifted from the code they describe. They called the search index a
 [181c749] — The docs say a new line in a reply starts a new message, and which replies stay whole.
 
 [96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
+
+[68c2cec] — The Gemini client can ask each model for a thinking level, and records which models answered a reply and what it cost.
+
+[45c29a2] — Each text in an embedding batch counts as one request against the per-minute and daily limits, as Google counts it.
+
+[d440f9d] — A -latest model counts against the daily limit of the model it points to. Once that model is used up the chain skips both, and Usage counts the limit once.
+
+[45e767a] — Daily limits are the ones Google grants a free key: 20 on each Flash model and 500 on Flash-Lite.
+
+[45e767a] — A model Google doesn't serve to the key's project is left out of the chain and the day's allowance, and Usage shows it as **Not on this key**, as it does free web search when neither Gemini 2.5 model is served.
+
+[373e4cd] — A server's **Primary model** can only be Automatic or a model in the chain, so it can't send every reply to Pro.
+
+[f6bfebc] — The docs and product brief cover model routing, shared -latest limits, the budget reply and how embeddings are counted.
 
 ### Fixed
 
@@ -93,6 +133,14 @@ The docs had drifted from the code they describe. They called the search index a
 [615f883] — Links in DOCUMENTATION.md to a section whose title has "&" in it go to that section.
 
 [615f883] — A Setup page on the docs site can be retitled without breaking the build, and its headings are the same size as every other page's.
+
+[32b8b80] — Re-embedding a memory whose text changed works. It failed every time, and the background pass paid for the same embeddings every 20 seconds.
+
+[d5b2ac9] — The daily self-test calls a model Google doesn't serve to newer projects untested rather than failed, ending a false alarm in the log every day.
+
+[40a8964] — Arena live-lane runs set up their channel again, waiting for the bot to see a new channel before setting its mode.
+
+[59703e8] — A spent budget set to stop sends its own reply instead of the rate-limit one, which told members to try again in a minute.
 
 ## [2.0] — 2026-10-01
 
