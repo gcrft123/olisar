@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 
 from google.genai import types
 
-from olisar.gemini.client import get_gemini
+from olisar.gemini.client import NOT_FOR_THIS_PROJECT, get_gemini
 from olisar.gemini.models import DEFAULT_VISION_MODEL, PRO_MODEL, RANKED_NAMES
 from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter
 from olisar.routing.state import cached_switches
@@ -108,8 +108,6 @@ _last: ChainResult | None = None
 # A daily sweep that cries wolf on quota is a daily sweep nobody reads.
 _INCONCLUSIVE_CODES = frozenset({429, 500, 502, 503, 504})
 
-# How Google words a 404 for a model it still serves, just not to newer projects.
-_NOT_FOR_THIS_PROJECT = "no longer available to new users"
 
 
 def _verdict_for(exc: Exception) -> str:
@@ -123,7 +121,7 @@ def _verdict_for(exc: Exception) -> str:
     if isinstance(exc, RateLimitExceeded):
         return "inconclusive"
     code = getattr(exc, "code", None)
-    if code == 404 and _NOT_FOR_THIS_PROJECT in str(getattr(exc, "message", None) or exc).lower():
+    if code == 404 and NOT_FOR_THIS_PROJECT in str(getattr(exc, "message", None) or exc).lower():
         return "inconclusive"
     return "inconclusive" if code in _INCONCLUSIVE_CODES else "failed"
 

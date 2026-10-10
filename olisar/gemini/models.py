@@ -19,13 +19,14 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ModelInfo:
     name: str
-    rpm: int  # our conservative per-minute throttle on a free key (free-tier ballpark)
+    rpm: int  # our per-minute throttle on a free key: Google's figure where it named one
     label: str
-    # Free-tier requests per day. Google's rate-limits page stopped listing these (AI Studio
-    # shows a project its own), so these are the last published figures. They stand in until
-    # Google names the real one in a daily 429 (see olisar.gemini.quota.read_refusal), and the
-    # Usage page counts against that instead. Nothing here stops a request: Olisar only treats
-    # a model as spent when Google says so.
+    # Free-tier requests per day. Google doesn't publish these (AI Studio shows a project its
+    # own), so they were measured on 2026-10-10 by asking a free key until Google refused it
+    # and named the limit (see the table's comment). They stand in until Google names the
+    # project's own in a daily 429 (olisar.gemini.quota.read_refusal), and the Usage page
+    # counts against that instead. Nothing here stops a request: Olisar only treats a model as
+    # spent when Google says so.
     rpd: int = 0
     # The per-minute throttle on a key with billing on: Google's Tier 1 ballpark. Google
     # turns a billed key away far later than a free one, so the free figure there only
@@ -57,19 +58,30 @@ class ModelInfo:
 # routed to 3.6 Flash) and Gemini 3 Flash Preview (superseded by 3.6 Flash) are gone; see
 # RETIRED. Gemini 3.1 Flash-Lite is deprecated too but stays a lower rung until it shuts
 # down, no earlier than 2027-05-07: every model brings its own free daily allowance, and
-# dropping it early would cut a free key's day by about a quarter. Remove it then.
+# dropping it early would cut a free key's day by about half (500 of a newer project's 1,040).
 #
 # The 2.5 pair isn't deprecated, but Google only serves it to projects that used it before.
 # A newer project gets refused there, which parks each for an hour like a retired model and
 # costs the chain nothing else.
 RANKED: list[ModelInfo] = [
-    ModelInfo("gemini-3.8-flash", 10, "Gemini 3.8 Flash", rpd=250),
-    ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=250),
-    ModelInfo("gemini-3.6-flash", 10, "Gemini 3.6 Flash", rpd=250),
-    ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=250),
-    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite", rpd=1000, paid_rpm=4000),
-    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000, paid_rpm=4000),
-    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000, paid_rpm=4000),
+#
+# Daily limits, as Google named them refusing a free key on 2026-10-10: 20 on 3.8 and 3.6
+# Flash, 500 on 3.5 Flash-Lite, and 15 a minute on both Flash-Lite models. 3.1 Flash-Lite's
+# day couldn't be finished (Google kept answering 503), so it's put at 3.5 Flash-Lite's 500,
+# which is also what a September 2026 survey reported. The published figures (250 and
+# 1,000) were far out. A -latest alias draws on the allowance of the model
+# it points to (see _ALIAS_OF), so its figure is that model's and adds nothing to the day.
+# The 2.5 pair couldn't be measured, since Google doesn't serve them to newer projects: 2.5
+# Flash is put at the current Flash models' 20, and 2.5 Flash-Lite keeps its last published
+# figure. Google's per-minute limit for Flash never came up before the daily one, so 10
+# stays Olisar's own throttle there.
+    ModelInfo("gemini-3.8-flash", 10, "Gemini 3.8 Flash", rpd=20),
+    ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=20),
+    ModelInfo("gemini-3.6-flash", 10, "Gemini 3.6 Flash", rpd=20),
+    ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=20),
+    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite", rpd=500, paid_rpm=4000),
+    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=500, paid_rpm=4000),
+    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=500, paid_rpm=4000),
     ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000, paid_rpm=4000),
 ]
 

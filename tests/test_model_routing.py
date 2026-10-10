@@ -601,6 +601,7 @@ class PacingTests(_DatabaseCase):
         half = day_start(day) + timedelta(hours=12)
         limiter = MagicMock()
         limiter.spent_at.return_value = None
+        limiter.withheld.return_value = False
         with patch.object(pacing.rate_limiter, "get_rate_limiter", return_value=limiter):
             p = await pacing.flash_pressure(model_chain(DEFAULT_CHAT_MODEL), now=half)
         # One allowance per model Google counts against: gemini-flash-latest draws on

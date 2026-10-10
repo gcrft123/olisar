@@ -53,6 +53,10 @@ log = logging.getLogger("olisar.gemini.ratelimit")
 # self-heals while keeping replies fast via fallback.
 COOLDOWN_SECONDS = 120.0
 
+# How long a model Google doesn't serve to the key's project (RateLimiter.withhold) is left out
+# before it's asked again.
+WITHHELD_SECONDS = 24 * 3600.0
+
 # How often a model Google refused for the day is asked again anyway. The refusal holds
 # until midnight Pacific on a free-tier key, but turning on billing lifts it at once, and
 # without a retry the bot would sit out the rest of the day regardless.
@@ -138,6 +142,9 @@ class RateLimiter:
         self._paid_keys: set[str] = set()
         # Global (all-model) rolling 60s window of (timestamp, tokens), for peak TPM.
         self._tokens: deque[tuple[float, int]] = deque()
+        # Models Google doesn't serve to the key's project at all: the key's fingerprint, and
+        # when Google said so (monotonic). See withhold.
+        self._withheld: dict[str, tuple[str | None, float]] = {}
 
     def _clean(self, model: str, now: float) -> None:
         dq = self._calls[model]
@@ -145,7 +152,9 @@ class RateLimiter:
             dq.popleft()
 
     def state(self, model: str) -> str:
-        """'ok' | 'spent' | 'cooldown' | 'rpm_full' — without reserving a slot."""
+        """'ok' | 'withheld' | 'spent' | 'cooldown' | 'rpm_full' — without reserving a slot."""
+        if self.withheld(model):
+            return "withheld"
         if self.spent_at(model) is not None:
             return "spent"
         now = time.monotonic()
@@ -188,6 +197,22 @@ class RateLimiter:
                 "requests again", len(dropped),
             )
         self._key = key
+
+    def withhold(self, model: str) -> None:
+        """Google doesn't serve ``model`` to this key's project (it answered 404 "no longer
+        available to new users", as it does for the Gemini 2.5 pair on a newer project).
+        Left out of the chain and of the day's allowance for this key, and asked again after
+        WITHHELD_SECONDS."""
+        self._withheld[model] = (self._key, time.monotonic())
+
+    def withheld(self, model: str) -> bool:
+        entry = self._withheld.get(model)
+        if entry is None:
+            return False
+        if entry[0] != self._key or time.monotonic() - entry[1] > WITHHELD_SECONDS:
+            del self._withheld[model]
+            return False
+        return True
 
     def spent_at(self, model: str) -> datetime | None:
         """When Google refused ``model`` for the rest of today, or None if it hasn't. A
@@ -253,7 +278,11 @@ class RateLimiter:
         """True when Google has refused every model in ``chain`` for the day. Pass the
         chain the bot actually replies through (``union_chain(chains_in_use(...))``); the
         default is the whole ranking."""
-        return all(self.spent_at(name) is not None for name in chain or RANKED_NAMES)
+        # A model the project can't use at all is as out as one refused for the day.
+        return all(
+            self.spent_at(name) is not None or self.withheld(name)
+            for name in chain or RANKED_NAMES
+        )
 
     def back_in(self, model: str) -> float:
         """Seconds until a resting model can take a request again: the rest of its cooldown,
