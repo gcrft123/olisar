@@ -2473,6 +2473,8 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .sb-msg:hover .sb-report, .sb-report:focus-visible { opacity: 1; }
 @media (hover: none) { .sb-report { opacity: 1; } }
 .sandbox-err .linklike { color: inherit; }
+/* Where model routing sent a test-chat reply: the tier, then the model that wrote it. */
+.sb-route { padding: 0 4px; color: var(--text-3); font-size: 11.5px; }
 .sb-bubble {
   padding: 9px 13px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--bg-inset);
@@ -3303,6 +3305,11 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-chain .c-today { width: 250px; }
 .u-chain tbody tr > * { transition: background var(--dur-fast) var(--ease-out); }
 .u-chain tbody tr:hover > * { background: var(--bg-inset); }
+/* Model routing's breakdown reuses the chain table's rules; its counts and costs read as
+   columns of figures. */
+.u-route .c-n { width: 132px; text-align: right; font-variant-numeric: tabular-nums; }
+.u-route .r-note { margin-left: 8px; color: var(--text-3); font-size: 12px; }
+.u-route-note { margin-top: 12px; color: var(--text-2); font-size: 13px; }
 .u-chain tbody tr:hover > :first-child { border-radius: var(--radius-xs) 0 0 var(--radius-xs); }
 .u-chain tbody tr:hover > :last-child { border-radius: 0 var(--radius-xs) var(--radius-xs) 0; }
 .u-chain tbody th.c-rank { padding-left: 2px; }
