@@ -324,6 +324,7 @@ function mockMessages() {
     ['dm_indexing', 'DM saving & indexing is now **{state}**.', ['state']],
     ['proactive', 'proactive chiming is now **{state}** (level: **{level}**).', ['state', 'level']],
     ['rate_limit', "i'm a bit rate-limited right now — give me a minute and try again?", []],
+    ['budget_spent', "i've hit this month's spending limit, so i can't reply until the 1st.", []],
     ['blank_fallback', '…my mind just went blank there. mind rephrasing?', []],
     ['access_denied', "sorry — you don't have access to me here.", []],
     ['tool_pin_prompt', 'I need a PIN before I can run **{tool}**. See Settings > Security in the console or ask an admin if you don\'t have access.', ['tool', 'seconds']],

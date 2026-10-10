@@ -17,7 +17,7 @@ from olisar.config import settings
 from olisar.context import name_map, persona_name, speaker_name
 from olisar.db.models import ChannelSummary, Message
 from olisar.gemini.client import get_gemini
-from olisar.gemini.rate_limiter import RateLimitExceeded
+from olisar.gemini.rate_limiter import BudgetSpent, RateLimitExceeded
 
 log = logging.getLogger("olisar.catchup")
 
@@ -109,6 +109,8 @@ async def generate_catchup(
             max_output_tokens=600,
             source="catchup",
         )
+    except BudgetSpent:
+        return "I've hit this month's spending limit, so catch-ups are off until the 1st."
     except RateLimitExceeded:
         return "I'm rate-limited right now — try the catch-up again in a minute."
     except Exception:

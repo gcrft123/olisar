@@ -31,7 +31,7 @@ from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
 from olisar.gemini import trace
 from olisar.gemini.models import AUTO
-from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter
+from olisar.gemini.rate_limiter import BudgetSpent, RateLimitExceeded, get_rate_limiter
 from olisar.memory.retriever import recall, server_memory
 from olisar.memory.writer import ACK_MARKER
 from olisar.message_links import channel_filter, link_ids, strip_unoffered_links
@@ -925,6 +925,7 @@ async def generate_reply(
     model = _pinned_model(config)
     cmd_msgs = config.command_messages if config and config.command_messages else {}
     rate_limit_msg = render_message(cmd_msgs, "rate_limit")
+    budget_msg = render_message(cmd_msgs, "budget_spent")
     blank_fallback = render_message(cmd_msgs, "blank_fallback")
 
     contents, recent_ids = await build_contents(
@@ -1064,6 +1065,9 @@ async def generate_reply(
             routing=routing,
         )
         answered = text != blank_fallback
+    except BudgetSpent:
+        # The month's budget, set to stop: waiting a minute won't fix it, the 1st will.
+        return Reply(budget_msg, canned=True)
     except RateLimitExceeded:
         # Deliberately not a blank. The quota is spent, waiting fixes it, and the reply
         # says so — there is nothing here for the operator to diagnose or the team to fix.
@@ -1195,6 +1199,7 @@ async def generate_sandbox_reply(
     model = _pinned_model(config)
     cmd_msgs = config.command_messages if config and config.command_messages else {}
     rate_limit_msg = render_message(cmd_msgs, "rate_limit")
+    budget_msg = render_message(cmd_msgs, "budget_spent")
     blank_fallback = render_message(cmd_msgs, "blank_fallback")
 
     # Context is ONLY the supplied transcript — no channel read, no recall.
@@ -1272,6 +1277,8 @@ async def generate_sandbox_reply(
         ))
         answered = text != blank_fallback
         return _without_invented_links(text, system_instruction, contents) or blank_fallback
+    except BudgetSpent:
+        return budget_msg
     except RateLimitExceeded:
         return rate_limit_msg
     except Exception:
