@@ -22,12 +22,12 @@ Olisar is a self-hosted AI Discord bot that behaves like a member of the server.
 
 ## Positioning
 
-It runs as the owner's own Discord bot, with their name, avatar and persona, on their own computer or a free cloud server, using their own free API keys. There is no Olisar cloud and no subscription. A hosted AI bot can't say the bot and its database belong to the owner.
+It runs as the owner's own Discord bot, with their name, avatar and persona, on their own computer or a free cloud server, using their own API keys, on Gemini's free tier unless they choose to turn on billing. There is no Olisar cloud and no subscription. A hosted AI bot can't say the bot and its database belong to the owner.
 
 ## Operating Context
 
 - Installed as a desktop app: macOS 13+ on Apple Silicon, or Windows 64-bit. No Linux or Intel Mac desktop build; server hosting runs on Linux.
-- Setup is a wizard: paste a bot token, a client secret and a free Gemini key. It turns on the intents the bot needs, invites the bot, and notices when it joins.
+- Setup is a wizard: paste a bot token, a client secret and a Gemini key (a free one is enough). It turns on the intents the bot needs, invites the bot, and notices when it joins.
 - Three places to run it, mirroring the wizard: on your computer (online while it's on); on your computer and shared over Tailscale Funnel, so co-admins sign in from anywhere; or 24/7 on a free Oracle Cloud Arm server, which the app installs over SSH with no terminal. Oracle asks for a card to verify identity, its free Arm servers are often out of capacity, and this path needs a Tailscale account.
 - One install runs several bots at once, each in its own process with its own data, keys and sign-in.
 - Members reach it by saying its name, @mentioning it, replying to it, DMing it, or `/ask`.
@@ -43,11 +43,11 @@ Everything below is true of 2.0. The landing page describes 2.0 and goes live wh
 - Ends a turn with a reaction instead of a reply when a message only needs acknowledging ("thanks", an FYI), or after doing what was asked.
 - Welcome messages written for the channel the new member lands in.
 - Reminders, DMs, and posting to other channels when asked.
-- Looks at posted images; generates images with an optional free Cloudflare Workers AI key.
+- Looks at posted images; generates images with Gemini when the key has billing on, or with an optional free Cloudflare Workers AI key.
 - Extensions: built-ins (dice, calculator, concise mode), a marketplace inside the console, and an SDK for writing your own. A Star Citizen pack exists; it is one example, not the lead.
 - Control: every channel starts off; per channel the owner picks where it reads, where it talks, and where it only takes reference. Roles decide who can use it. Joining conversations on its own is opt-in, with cooldowns and quiet hours. @everyone pings are off until an admin turns them on.
-- Free to run on Gemini's free tier. Each model has a daily limit; Olisar falls back through a ranked chain of models, and when all are spent it stops replying until midnight Pacific. The Usage page shows what's left.
-- Data: each bot keeps one local SQLite database on the owner's computer or server. Anything Olisar replies to is sent to Google Gemini. On the free tier Google may use that content to improve its products and human reviewers may read it; the EEA, UK and Switzerland are exempt.
+- Free to run on Gemini's free tier. Each model has a daily limit; Olisar falls back through a ranked chain of models, and when all are spent it stops replying until midnight Pacific. The Usage page shows what's left. A key with billing on works too: Olisar detects it, raises its own per-minute caps, can make images with Gemini, and shows the month's spend against an optional budget. The model chain is the same on both, with no Pro model.
+- Data: each bot keeps one local SQLite database on the owner's computer or server. Anything Olisar replies to is sent to Google Gemini. On the free tier Google may use that content to improve its products and human reviewers may read it; the EEA, UK and Switzerland are exempt. With billing on, it doesn't.
 - Members control their own data: `/privacy` shows what's kept, `/forget-me` removes a person entirely, and the member portal lets them see and delete single facts. The all-channel search index is an admin's explicit choice and is disclosed by `/privacy`.
 
 ## Brand Commitments

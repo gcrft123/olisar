@@ -22,8 +22,9 @@
 Olisar reads the channels you allow, remembers context, builds a sense of who people
 are, and chimes in with its own personality — by name, by @mention, by reply, in DMs,
 through `/ask`, or unprompted when it can genuinely help. Everything is configured from
-a **React admin dashboard** (Discord-OAuth, admins only), and it runs entirely on the
-**free tier of Google Gemini**.
+a **React admin dashboard** (Discord-OAuth, admins only), and it runs on the
+**free tier of Google Gemini**, or on a key with billing on if you'd rather pay for
+higher limits.
 
 You run it yourself: **one desktop app** on your own machine hosts the bot, the API, and
 the dashboard together. There's no server to rent and no cloud, and all of your data
@@ -41,7 +42,7 @@ stays local.
   (PDF/DOCX/TXT/MD); it chunks + embeds them in the background and draws on them in its
   own voice. A small glossary carries your community's dialect into every reply.
 - **Sees & draws** — looks at posted images, describes them for search, and generates
-  images (Cloudflare Workers AI, optional).
+  images (optional: Gemini with billing on, or Cloudflare Workers AI).
 - **Fully customizable** — persona, behavior, per-channel modes, role-based access,
   knowledge, extensions, and **every system and command reply** (with `{placeholder}`
   templates), all from the dashboard.
@@ -49,9 +50,11 @@ stays local.
   **Star Citizen** pack (live trade/ship/location tools + `/citizen` profiles).
 - **Secure by design** — Discord-OAuth login, admins only, with **live permission
   re-checks**: lose Manage Server and your console access is revoked on the next request.
-- **Free to run** — each install uses *your own* Discord bot and *your own* free API
-  keys, so you stay on the free tiers; it auto-falls-back across a ranked chain of Gemini
-  models when one is rate-limited.
+- **Free to run** — each install uses *your own* Discord bot and *your own* API keys, and
+  Gemini's free tier is enough; it falls back across a ranked chain of Gemini models when
+  one is rate-limited. Turn on billing for the key for far higher limits; Olisar notices,
+  raises its own caps to match, and shows what it's spending, held to a monthly budget if
+  you set one.
 
 ## Get started
 
@@ -65,8 +68,8 @@ In short:
 2. Create a Discord application in the
    [Developer Portal](https://discord.com/developers/applications).
 3. Launch Olisar and complete the first-run wizard: paste the bot token and client
-   secret, add the redirect URL it shows, press **Add to Discord**, and paste a free
-   [Gemini key](https://aistudio.google.com/apikey). It turns on the intents the bot needs
+   secret, add the redirect URL it shows, press **Add to Discord**, and paste a
+   [Gemini key](https://aistudio.google.com/apikey) (a free one is enough). It turns on the intents the bot needs
    and notices when the bot joins your server.
 4. Sign in to the console with the Discord account that owns the application, or one
    that has **Manage Server**.
@@ -94,7 +97,9 @@ Maintainers: see **[RELEASING.md](RELEASING.md)** for how to cut a release.
   FastAPI, run together on one asyncio loop.
 - **SQLite** with [`sqlite-vec`](https://github.com/asg017/sqlite-vec) + FTS5 for hybrid
   semantic + keyword search; all data is local.
-- **Google Gemini** (free tier) for chat, embeddings, vision, and web-grounded search.
+- **Google Gemini** (free tier, or billing on) for chat, embeddings, vision, and
+  web-grounded search, plus image generation with billing on; **Cloudflare Workers AI**
+  for images otherwise.
 - **React + Vite + TypeScript** dashboard, served same-origin by the backend.
 - **Electron** desktop shell (macOS + Windows) bundling the PyInstaller backend, the
   dashboard, `sqlite-vec`, and a Tailscale Funnel helper.
