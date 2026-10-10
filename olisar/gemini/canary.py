@@ -14,16 +14,15 @@ any of it is validated fails here — on a schedule, to the operator's log — i
 **Not just the first rung.** Measured against the live API, the shape that caused the
 incident was rejected *only* by the two ``-latest`` aliases; every pinned model in the
 chain accepted it. A self-test that checked only the head of the chain would therefore
-have passed happily all the way through the outage. Each model in the (slim) default
-sweep is tested on its own, pinned to a single-model chain so a healthy neighbour can't
-answer on its behalf.
+have passed happily all the way through the outage. Each model in the sweep is tested on
+its own, pinned to a single-model chain so a healthy neighbour can't answer on its behalf.
 
 Two requests per model per run, once a day. Routed through the normal client, so it respects
 the rate limiter and lands in the usage rollup like any other call.
 
-The default sweep is intentionally small. A full walk of every chat and vision rung used to
-cost ~14 free-tier requests a day; most of that never caught anything the slim set below
-wouldn't. The models that matter are the ones that actually broke in production.
+The sweep walks every chat rung and the vision chain's head: about 14 requests a day, a
+small share of even a free key's allowance. It was cut to the ``-latest`` aliases for a
+while to save those, which left a pinned model's retirement to be found by a reply.
 """
 
 from __future__ import annotations
@@ -201,7 +200,7 @@ async def run_canary(model: str) -> CanaryResult:
 
 
 def _default_sweep() -> list[str]:
-    """The models whose failure modes this canary exists to catch — not every rung.
+    """Every chat rung, then the vision chain's head, each once.
 
     Measured against the live API, the tool-shape incident was rejected *only* by the
     ``-latest`` aliases; every pinned model accepted it. Vision is included because that
@@ -210,16 +209,13 @@ def _default_sweep() -> list[str]:
     would have stayed green through both of those outages.
     """
     seen: dict[str, None] = {}
-    for name in (
-        *(n for n in RANKED_NAMES if n.endswith("-latest")),
-        DEFAULT_VISION_MODEL,
-    ):
+    for name in (*RANKED_NAMES, DEFAULT_VISION_MODEL):
         seen.setdefault(name, None)
     return list(seen)
 
 
 async def run_chain_canary(models: list[str] | None = None) -> ChainResult:
-    """Self-test each model in ``models`` (or the slim default sweep), one at a time.
+    """Self-test each model in ``models`` (or the default sweep), one at a time.
 
     Never raises. Sequential rather than concurrent: the rate limiter is per model, but
     the free tier's ceilings are low enough that firing several models at once would
