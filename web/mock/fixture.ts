@@ -236,6 +236,20 @@ function mockSummary() {
       limit: paidTier() ? (sc.peak.cap === 15 ? 4000 : 1000) : sc.peak.cap,
     },
     last_ran_out: new Date(sc.ranOutToday ? ptAt(sc.ranOutToday) : ptAt('21:12', -4)).toISOString(),
+    // Model routing's rollup, on a billed key only: a free key has it off by default.
+    routing: paidTier() ? {
+      today: {
+        light: { replies: 46, escalated: 3, capped: 0, cost: 0.11, standard_cost: 0.34 },
+        standard: { replies: 92, escalated: 0, capped: 1, cost: 0.68, standard_cost: 0.68 },
+        deep: { replies: 6, escalated: 0, capped: 1, cost: 0.29, standard_cost: 0.05 },
+      },
+      month: {
+        light: { replies: 1180, escalated: 61, capped: 0, cost: 2.74, standard_cost: 8.61 },
+        standard: { replies: 2340, escalated: 0, capped: 0, cost: 17.20, standard_cost: 17.20 },
+        deep: { replies: 141, escalated: 0, capped: 22, cost: 6.35, standard_cost: 1.12 },
+      },
+      standard_model: 'gemini-3.8-flash',
+    } : undefined,
     days: values.map((v, k) => {
       const offset = k - (values.length - 1)
       const ranOut = offset === 0 ? sc.ranOutToday : v >= 4000 ? '21:12' : null
@@ -270,7 +284,7 @@ const MOCK_PERSONA = {
 const MOCK_CONFIG = {
   name_triggers: ['olisar', 'oli'],
   reply_in_dms: true,
-  default_model: 'gemini-flash-latest',
+  default_model: 'auto',
   grounding_enabled: true,
   grounding_daily_cap: 50,
   grounding_monthly_cap: 3000,
@@ -991,6 +1005,12 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
     if (keys[k]) keys[k].dashboard = false
     return send({ ok: true })
   }
+  // The test chat, routed (before the catch-all for writes below).
+  if (url.startsWith('/api/sandbox/chat')) {
+    return send(paidTier()
+      ? { reply: 'anytime. that\'s what i\'m here for.', route: { tier: 'light', model: 'gemini-3.5-flash-lite', escalated: '', capped: '' } }
+      : { reply: 'anytime. that\'s what i\'m here for.', route: null })
+  }
   if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
     if (url.startsWith('/api/')) return send({ ok: true })
   }
@@ -1000,11 +1020,13 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/marketplace/publisher')) return send({ registered: true, handle: 'rednebula', verified: false })
   if (url.startsWith('/api/marketplace/published') || url.startsWith('/api/marketplace/installed')) return send({})
   if (url.startsWith('/api/persona')) return send(MOCK_PERSONA)
-  if (url.startsWith('/api/config')) return send({ ...MOCK_CONFIG, gemini_tier: paidTier() ? 'paid' : 'free' })
+  // Model routing is on by default with billing, off by default on a free key.
+  if (url.startsWith('/api/config')) return send({ ...MOCK_CONFIG, gemini_tier: paidTier() ? 'paid' : 'free', routing: paidTier(), routing_head: 'gemini-3.8-flash' })
   if (url.startsWith('/api/billing')) {
     return send({
       tier: paidTier() ? 'paid' : 'free', checked_at: new Date().toISOString(),
       monthly_budget_usd: paidTier() ? 50 : 0, budget_action: TIER === 'paid-stop' ? 'stop' : 'cheapest', gemini_images: true,
+      routing_free: false, routing_paid: true, routing_pro: true,
     })
   }
   if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)

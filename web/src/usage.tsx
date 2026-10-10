@@ -14,6 +14,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { botName } from './botname'
 import { Icon } from './icons'
+import { modelName } from './models'
 import { Loading, PageHead } from './pages'
 import { Badge, Section, Segmented, useAsync, usePoll } from './ui'
 
@@ -65,7 +66,17 @@ type Summary = {
   busiest_minute: { model: string; requests: number; limit: number; at: string | null } | null
   last_ran_out: string | null
   days: { day: string; requests: number; ran_out_at: string | null; cost: number }[]
+  routing?: {
+    today: Partial<Record<Tier, TierRow>>
+    month: Partial<Record<Tier, TierRow>>
+    standard_model: string
+  }
 }
+
+// Model routing's daily rollup, per tier (olisar/routing). `standard_cost` is what the same
+// replies would have cost on the standard tier's model.
+type Tier = 'light' | 'standard' | 'deep'
+type TierRow = { replies: number; escalated: number; capped: number; cost: number; standard_cost: number }
 
 // When the reading arrived, and how far the server's clock is from this one, so countdowns
 // run between polls and "in 8h 12m" doesn't inherit a wrong clock on this machine.
@@ -112,15 +123,6 @@ function pacificDay(ms: number) {
 }
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000)
 
-/** "gemini-3.1-flash-lite" → "Gemini 3.1 Flash-Lite", "gemini-flash-latest" → "Gemini Flash
- *  (latest)". A model it doesn't recognise keeps its id. */
-function modelName(id: string) {
-  const m = id.match(/^gemini-(?:(\d[\d.]*)-)?(flash-lite|flash|pro)(?:-(latest|preview))?$/)
-  if (!m) return id
-  const [, version, family, tag] = m
-  const fam = family === 'flash-lite' ? 'Flash-Lite' : family[0].toUpperCase() + family.slice(1)
-  return `Gemini ${version ? version + ' ' : ''}${fam}${tag === 'latest' ? ' (latest)' : ''}`
-}
 
 // ── Reading ─────────────────────────────────────────────────────────────────
 type Row = ChainModel & { i: number; backAt: number | null; left: number; used: number }
@@ -217,6 +219,7 @@ export function Usage({ onGo }: { onGo?: (tab: string) => void } = {}) {
       )}
       <Now R={R} live={live.data} stale={stale} onGo={onGo} />
       <Chain R={R} stale={stale} />
+      <Routing R={R} data={summary.data} />
       <Features data={summary.data} range={range} setRange={setRange} />
       <Stats R={R} data={summary.data} day={live.data.day} />
     </div>
@@ -443,6 +446,60 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
           })}
         </tbody>
       </table>
+    </Section>
+  )
+}
+
+// ── Model routing ───────────────────────────────────────────────────────────
+const TIERS: { key: Tier; label: string }[] = [
+  { key: 'light', label: 'Light' },
+  { key: 'standard', label: 'Standard' },
+  { key: 'deep', label: 'Deep' },
+]
+
+/** Replies per routing tier, and what routing did to the bill. Absent until a reply has been
+ *  routed this month. */
+function Routing({ R, data }: { R: Reading; data: Summary }) {
+  const routing = data.routing
+  const month = routing?.month ?? {}
+  const today = routing?.today ?? {}
+  const sum = (f: keyof TierRow) => TIERS.reduce((s, t) => s + (month[t.key]?.[f] ?? 0), 0)
+  if (!routing || !sum('replies')) return null
+  const diff = sum('standard_cost') - sum('cost')
+  const head = modelName(routing.standard_model)
+  return (
+    <Section stacked title="Model routing">
+      <table className="u-chain u-route">
+        <thead>
+          <tr>
+            <th scope="col">Tier</th>
+            <th scope="col" className="c-n">Today</th>
+            <th scope="col" className="c-n">This month</th>
+            <th scope="col" className="c-n">{R.paid ? 'Cost this month' : 'Would cost'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {TIERS.map((t) => {
+            const m = month[t.key]
+            const note = t.key === 'light' && m?.escalated
+              ? `${n(m.escalated)} handed up`
+              : t.key === 'deep' && m?.capped ? `${n(m.capped)} kept off Pro` : ''
+            return (
+              <tr key={t.key}>
+                <th scope="row">{t.label}{note && <span className="r-note">{note}</span>}</th>
+                <td className="c-n">{n(today[t.key]?.replies ?? 0)}</td>
+                <td className="c-n">{n(m?.replies ?? 0)}</td>
+                <td className="c-n">{usd(m?.cost ?? 0)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <p className="u-route-note">
+        {R.paid
+          ? `About ${usd(Math.abs(diff))} ${diff >= 0 ? 'less' : 'more'} this month than replying with ${head} throughout.`
+          : `${n((month.light?.replies ?? 0) - (month.light?.escalated ?? 0))} replies went to Flash-Lite this month instead of ${head}.`}
+      </p>
     </Section>
   )
 }
