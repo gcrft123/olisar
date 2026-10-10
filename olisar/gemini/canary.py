@@ -102,8 +102,9 @@ _last: ChainResult | None = None
 
 # A busy or briefly broken model says nothing about whether our request shape is valid, so
 # it must not read as a failure. This matters more than it looks: a single-model chain has
-# nowhere to fall back to, so the client re-raises the provider's *raw* 429 rather than our
-# RateLimitExceeded — and catching only the latter reported a rate-limited model as broken.
+# nowhere to fall back to, so the client used to re-raise the provider's *raw* 429 rather than
+# our RateLimitExceeded — and catching only the latter reported a rate-limited model as
+# broken. It raises RateLimitExceeded now, but a 5xx still arrives raw, so both stay here.
 # A daily sweep that cries wolf on quota is a daily sweep nobody reads.
 _INCONCLUSIVE_CODES = frozenset({429, 500, 502, 503, 504})
 

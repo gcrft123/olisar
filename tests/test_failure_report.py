@@ -26,6 +26,7 @@ from datetime import timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from google.genai import errors as genai_errors
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -33,6 +34,10 @@ from olisar.db.models import Base, FailureReport, utcnow
 from olisar.failures import PER_USER_CAP, claim, open_report
 from olisar.gemini.rate_limiter import RateLimitExceeded
 from olisar.pipeline import Reply
+
+def _api_error(code: int, message: str) -> genai_errors.APIError:
+    return genai_errors.APIError(code, {"error": {"code": code, "message": message}})
+
 
 GUILD = 5001
 USER = 6001
@@ -111,6 +116,42 @@ class MarkingTests(unittest.TestCase):
         self.assertFalse(reply.blanked)
         self.assertEqual(reply.text, "rate limited")
         self.assertTrue(reply.canned)
+
+    def test_a_chain_that_runs_out_of_quota_is_not_a_blank(self):
+        """The whole way down: every model in the chain answers 429. The client used to
+        re-raise Google's raw error, which missed the rate-limit branch and blanked."""
+        reply = self._run_on_chain(_api_error(429, "You exceeded your current quota."))
+        self.assertFalse(reply.blanked)
+        self.assertEqual(reply.text, "rate limited")
+        self.assertTrue(reply.canned)
+
+    def test_a_chain_of_server_errors_is_still_a_blank(self):
+        """No quota involved: a real malfunction keeps its blank and its Report button."""
+        reply = self._run_on_chain(_api_error(503, "The model is overloaded."))
+        self.assertTrue(reply.blanked)
+        self.assertEqual(reply.text, "blank")
+
+    def _run_on_chain(self, error):
+        """generate_reply over the real tool loop and client, with every model refusing."""
+        from unittest.mock import MagicMock
+
+        from olisar import pipeline
+        from olisar.gemini.client import GeminiClient
+
+        client = GeminiClient()
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=error)
+        client.aclient = AsyncMock(return_value=sdk)
+        limiter = MagicMock()
+        limiter.state.return_value = "ok"
+        with (
+            patch.object(pipeline, "get_gemini", return_value=client),
+            patch("olisar.gemini.client.get_rate_limiter", return_value=limiter),
+            patch("olisar.gemini.client.mark_spent", new=AsyncMock()),
+        ):
+            reply = self._run(pipeline)
+        self.assertGreater(sdk.aio.models.generate_content.await_count, 1)  # it did fall back
+        return reply
 
     def test_the_loop_falling_through_to_the_fallback_is_a_blank(self):
         from olisar import pipeline
