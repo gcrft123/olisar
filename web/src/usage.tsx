@@ -6,6 +6,10 @@
 // Every figure is a "left" figure, so every meter fills with what's left rather than what's
 // used — a departure from DESIGN.md's meter recipe, made because a fill that meant the
 // opposite of the number beside it read wrong.
+//
+// A key with billing on has no daily allowance to count down, so the page shows money
+// instead: the month's spend against the budget, cost per model, and spend per day. A free
+// key that has run out is told what the day would have cost with billing on.
 import React, { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { botName } from './botname'
@@ -22,17 +26,31 @@ type ChainModel = {
   state: 'ok' | 'resting' | 'spent'
   back_in: number | null
   spent_at: string | null
+  cost: number
+}
+
+/** What today and the month cost, or would have on a free key. `budget` is null unless
+ *  the key has billing on and the operator set one. */
+export type Billing = {
+  today: number
+  month: number
+  projected: number
+  budget: number | null
+  action: 'stop' | 'cheapest'
+  state: 'none' | 'ok' | 'warn' | 'over'
 }
 
 type Live = {
   ts: string
+  tier: 'free' | 'paid' | null
   exhausted: boolean
   day: string
   day_start: string
   reset_at: string
   chain: ChainModel[]
   memory_search: { model: string; requests: number; limit: number; spent: boolean }
-  web_search: { requests: number; limit: number; spent: boolean }
+  web_search: { requests: number; limit: number; period: 'day' | 'month'; spent: boolean }
+  billing: Billing
 }
 
 type Range = 'today' | '7' | '30'
@@ -43,7 +61,7 @@ type Summary = {
   yesterday: { requests: number; tokens: number } | null
   busiest_minute: { model: string; requests: number; limit: number; at: string | null } | null
   last_ran_out: string | null
-  days: { day: string; requests: number; ran_out_at: string | null }[]
+  days: { day: string; requests: number; ran_out_at: string | null; cost: number }[]
 }
 
 // When the reading arrived, and how far the server's clock is from this one, so countdowns
@@ -55,6 +73,19 @@ type Received = Live & { receivedAt: number; skew: number }
 // Google's.
 const PACIFIC = 'America/Los_Angeles'
 const n = (v: number) => Math.round(v).toLocaleString()
+/** Dollars to the cent, whole dollars from $100 (or for a round sum like a budget), and
+ *  "<$0.01" for a fraction of a cent. */
+export function usd(v: number) {
+  if (v <= 0) return '$0'
+  if (v < 0.005) return '<$0.01'
+  return '$' + (v >= 100 || Number.isInteger(v) ? Math.round(v).toLocaleString() : v.toFixed(2))
+}
+/** A projection: cents would be false precision past a few dollars. */
+const usdAbout = (v: number) => (v >= 10 ? usd(Math.round(v)) : usd(v))
+// Where a key's project turns billing on: "Set up billing" beside it.
+export const AI_STUDIO_KEYS = 'https://aistudio.google.com/apikey'
+// Where replies go once a budget is spent, cheapest first (olisar.gemini.spend.BUDGET_CHAIN).
+const BUDGET_CHAIN = ['gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']
 const compact = (v: number) => (v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e4 ? Math.round(v / 1e3) + 'k' : n(v))
 function clock(ms: number) {
   const s = new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -100,11 +131,17 @@ function reading(live: Received, clientNow: number) {
     return { ...m, i, backAt, state, left: m.state === 'spent' ? 0 : Math.max(0, m.limit - m.requests) }
   })
   const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent')
+  // Past a billed key's budget, replies go to the cheapest model alone, or nowhere.
+  const budgetOut = live.tier === 'paid' && live.billing?.state === 'over'
   // The first model that can take a request. With every one resting for a moment, the one
   // back soonest is who replies next.
-  const cur = chain.find((m) => m.state === 'ok')
-    ?? chain.filter((m) => m.state === 'resting').sort((a, b) => (a.backAt ?? 0) - (b.backAt ?? 0))[0]
-    ?? null
+  const cur = budgetOut
+    ? (live.billing.action === 'cheapest'
+      ? BUDGET_CHAIN.map((name) => chain.find((m) => m.model === name && m.state !== 'spent')).find(Boolean) ?? null
+      : null)
+    : chain.find((m) => m.state === 'ok')
+      ?? chain.filter((m) => m.state === 'resting').sort((a, b) => (a.backAt ?? 0) - (b.backAt ?? 0))[0]
+      ?? null
   const capTotal = chain.reduce((s, m) => s + m.limit, 0)
   const usedTotal = chain.reduce((s, m) => s + m.requests, 0)
   const tokens = chain.reduce((s, m) => s + m.tokens, 0)
@@ -117,7 +154,8 @@ function reading(live: Received, clientNow: number) {
   const runsOutAt = !allSpent && perHour > 0 && perHour * (toReset / 3.6e6) > left
     ? t + (left / perHour) * 3.6e6
     : null
-  return { t, clientNow, chain, cur, allSpent, capTotal, usedTotal, tokens, left, reset, toReset, runsOutAt }
+  const paid = live.tier === 'paid'
+  return { t, clientNow, chain, cur, allSpent, capTotal, usedTotal, tokens, left, reset, toReset, runsOutAt, paid, billing: live.billing }
 }
 type Reading = ReturnType<typeof reading>
 
@@ -136,7 +174,8 @@ async function loadLive(): Promise<Received> {
   return { ...data, receivedAt, skew: Date.parse(data.ts) - receivedAt }
 }
 
-export function Usage() {
+/** `onGo` opens another page; given only to the operator, who can set a budget. */
+export function Usage({ onGo }: { onGo?: (tab: string) => void } = {}) {
   const live = useAsync<Received>(loadLive, [])
   // No .catch on either poll: usePoll needs the rejection to know the backend is gone.
   const livePoll = usePoll(() => live.refresh(), 4000)
@@ -166,7 +205,7 @@ export function Usage() {
           <div className="callout-body">Can’t reach the bot. These are the last figures it reported, not the current ones.</div>
         </div>
       )}
-      <Now R={R} live={live.data} stale={stale} />
+      <Now R={R} live={live.data} stale={stale} onGo={onGo} />
       <Chain R={R} stale={stale} />
       <Features data={summary.data} range={range} setRange={setRange} />
       <Stats R={R} data={summary.data} day={live.data.day} />
@@ -175,18 +214,31 @@ export function Usage() {
 }
 
 // ── What's left, and what's replying ────────────────────────────────────────
-function Now({ R, live, stale }: { R: Reading; live: Received; stale: boolean }) {
+function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: boolean; onGo?: (tab: string) => void }) {
   const memory = live.memory_search
   const web = live.web_search
+  const b = R.billing
   return (
     <div className={'u-now' + (stale ? ' stale' : '')}>
-      <div className="u-now-left">
-        <div className="u-top"><h2 className="u-eyebrow">Left today</h2></div>
-        <div className={'u-hero' + (R.left === 0 ? ' zero' : '')}>{n(R.left)}</div>
-        <div className="u-hero-sub">
-          of <b>{n(R.capTotal)}</b> requests · resets at {clock(R.reset)}, in {span(R.toReset)}
+      {R.paid ? (
+        <div className="u-now-left">
+          <div className="u-top"><h2 className="u-eyebrow">Spent this month</h2></div>
+          <div className="u-hero">{usd(b.month)}</div>
+          <div className="u-hero-sub">
+            {b.budget != null
+              ? <>of your <b>{usd(b.budget)}</b> budget · on pace for {usdAbout(b.projected)}</>
+              : <>On pace for <b>{usdAbout(b.projected)}</b> by the end of the month</>}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="u-now-left">
+          <div className="u-top"><h2 className="u-eyebrow">Left today</h2></div>
+          <div className={'u-hero' + (R.left === 0 ? ' zero' : '')}>{n(R.left)}</div>
+          <div className="u-hero-sub">
+            of <b>{n(R.capTotal)}</b> requests · resets at {clock(R.reset)}, in {span(R.toReset)}
+          </div>
+        </div>
+      )}
       <div className="u-now-right">
         <div className="u-top">
           <h2 className="u-eyebrow">Replying with</h2>
@@ -204,10 +256,15 @@ function Now({ R, live, stale }: { R: Reading; live: Received; stale: boolean })
         ) : <div className="u-cur none">No model left</div>}
       </div>
       <div className="u-now-foot">
-        <Pace R={R} />
+        {R.paid ? <PaidPace R={R} onGo={onGo} /> : <Pace R={R} />}
         <div className="u-side-limits">
-          <SideMeter label="Memory search" used={memory.requests} limit={memory.limit} spent={memory.spent} />
-          <SideMeter label="Web search" used={web.requests} limit={web.limit} spent={web.spent} />
+          {R.paid
+            ? <SideCount label="Memory search" count={memory.requests} />
+            : <SideMeter label="Memory search" used={memory.requests} limit={memory.limit} spent={memory.spent} />}
+          <SideMeter
+            label={web.period === 'month' ? 'Free web searches' : 'Web search'}
+            used={web.requests} limit={web.limit} spent={web.spent}
+          />
         </div>
       </div>
     </div>
@@ -216,10 +273,15 @@ function Now({ R, live, stale }: { R: Reading; live: Received; stale: boolean })
 
 function Pace({ R }: { R: Reading }) {
   if (R.allSpent) {
+    // The one moment billing is worth raising: the bot has stopped, and the day's own
+    // usage says what keeping it going would have cost.
     return (
       <div className="u-pace danger">
         <Icon.warn size={16} weight="Bold" />
-        <span>{botName()} can’t reply until the limits reset at {clock(R.reset)}.</span>
+        <span>
+          {botName()} can’t reply until the limits reset at {clock(R.reset)}. With billing on, today would cost about {usd(R.billing.today)}.{' '}
+          <a href={AI_STUDIO_KEYS} target="_blank" rel="noreferrer">Turn on billing</a>
+        </span>
       </div>
     )
   }
@@ -235,6 +297,54 @@ function Pace({ R }: { R: Reading }) {
     <div className="u-pace ok">
       <Icon.check size={16} weight="Bold" />
       <span>At today’s pace, this lasts until the reset.</span>
+    </div>
+  )
+}
+
+/** The pace line on a key with billing on: where the month is heading, against the budget. */
+function PaidPace({ R, onGo }: { R: Reading; onGo?: (tab: string) => void }) {
+  const b = R.billing
+  const setBudget = onGo && <button className="linklike" onClick={() => onGo('keys')}>{b.budget != null ? 'Change the budget' : 'Set a budget'}</button>
+  if (b.state === 'over') {
+    return b.action === 'stop' ? (
+      <div className="u-pace danger">
+        <Icon.warn size={16} weight="Bold" />
+        <span>The month’s budget is spent. {botName()} won’t reply until the month ends. {setBudget}</span>
+      </div>
+    ) : (
+      <div className="u-pace warn">
+        <Icon.warn size={16} weight="Bold" />
+        <span>The month’s budget is spent. Until the month ends, {botName()} replies with its cheapest models, with no web search or Gemini images. {setBudget}</span>
+      </div>
+    )
+  }
+  if (b.budget != null && (b.state === 'warn' || b.projected > b.budget)) {
+    return (
+      <div className="u-pace warn">
+        <Icon.warn size={16} weight="Bold" />
+        <span>
+          {b.projected > b.budget
+            ? <>At this pace, the month comes to about {usdAbout(b.projected)}, over the budget.</>
+            : <>{Math.floor((b.month / b.budget) * 100)}% of the month’s budget is spent.</>}{' '}
+          {setBudget}
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="u-pace ok">
+      <Icon.check size={16} weight="Bold" />
+      <span>{b.budget != null ? 'Within the month’s budget.' : 'No monthly budget.'} {setBudget}</span>
+    </div>
+  )
+}
+
+/** A count with no limit to measure it against. */
+function SideCount({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="u-side">
+      <span>{label}</span>
+      <span className="v">{n(count)} <s>today</s></span>
     </div>
   )
 }
@@ -289,7 +399,7 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
             <th scope="col" className="c-rank"><span className="visually-hidden">Position</span></th>
             <th scope="col">Model</th>
             <th scope="col" className="c-status">Status</th>
-            <th scope="col" className="c-today">Left today</th>
+            <th scope="col" className="c-today">{R.paid ? 'Today' : 'Left today'}</th>
           </tr>
         </thead>
         <tbody>
@@ -306,10 +416,16 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                 </td>
                 <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
                 <td className="c-today">
-                  <div className="today">
-                    <Meter used={m.requests} limit={m.limit} out={out} lost={out && m.requests < m.limit} />
-                    <span className="v"><span className="left-v">{n(m.left)}</span><s> / {n(m.limit)}</s></span>
-                  </div>
+                  {R.paid ? (
+                    <div className="today">
+                      <span className="v wide"><span className="left-v">{usd(m.cost)}</span><s> · {n(m.requests)} req</s></span>
+                    </div>
+                  ) : (
+                    <div className="today">
+                      <Meter used={m.requests} limit={m.limit} out={out} lost={out && m.requests < m.limit} />
+                      <span className="v"><span className="left-v">{n(m.left)}</span><s> / {n(m.limit)}</s></span>
+                    </div>
+                  )}
                 </td>
               </tr>
             )
@@ -336,7 +452,7 @@ const NAMED = new Set(FEATURES.map((f) => f.key))
 // What "Everything else" is made of, keyed by the `source` each Gemini call is tagged with.
 const OTHER_LABEL: Record<string, string> = {
   proactivity: 'Chiming in', grounding: 'Web search', catchup: 'Catch-up', extension: 'Extensions',
-  review: 'Extension reviews', canary: 'Health checks', status: 'Status', other: 'Other',
+  review: 'Extension reviews', canary: 'Health checks', status: 'Status', image: 'Making images', other: 'Other',
 }
 const RANGES: { value: Range; label: string }[] = [
   { value: 'today', label: 'Today' },
@@ -457,7 +573,9 @@ function Stats({ R, data, day }: { R: Reading; data: Summary; day: string }) {
           cap: modelName(busiest.model) + (busiest.at ? ` at ${clock(Date.parse(busiest.at))}` : ''),
         }
       : { k: 'Busiest minute', big: '0', cap: 'No requests yet today' },
-    { k: 'Last ran out', big: out.big, cap: out.cap },
+    R.paid
+      ? { k: 'Spent today', big: usd(R.billing.today), cap: data.days.length > 1 ? `${usd(data.days[data.days.length - 2].cost)} yesterday` : '' }
+      : { k: 'Last ran out', big: out.big, cap: out.cap },
   ]
   return (
     <Section stacked title="Stats">
@@ -494,10 +612,12 @@ function useBoxWidth(fallback: number) {
 }
 
 const axisNum = (v: number) => (v >= 1000 ? (v % 1000 === 0 ? v / 1000 : (v / 1000).toFixed(1)) + 'k' : String(v))
-/** Gridline values for a scale up to `max`: a round step, two or three lines. */
-function gridlines(max: number) {
+const axisUsd = (v: number) => '$' + (v >= 1000 ? axisNum(v) : v >= 1 ? String(+v.toFixed(1)) : v.toFixed(2))
+/** Gridline values for a scale up to `max`: a round step, two or three lines. Steps go no
+ *  finer than `floor`: whole requests, or cents. */
+function gridlines(max: number, floor = 1) {
   const raw = max / 2.5
-  const mag = 10 ** Math.floor(Math.log10(Math.max(raw, 1)))
+  const mag = 10 ** Math.floor(Math.log10(Math.max(raw, floor)))
   const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= raw) ?? 10 * mag
   const out: number[] = []
   for (let v = step; v < max; v += step) out.push(v)
@@ -508,13 +628,18 @@ function Days({ R, data }: { R: Reading; data: Summary }) {
   const [box, W] = useBoxWidth(900)
   const [hover, setHover] = useState(-1)
   // Today's bar reads the live count, so it agrees with the figures above it.
+  // On a billed key the bars are dollars and there's no daily limit to draw.
+  const paid = R.paid
   const days = data.days.map((d, k) => (k === data.days.length - 1
-    ? { ...d, requests: R.usedTotal, ranOut: R.allSpent || !!d.ran_out_at }
+    ? { ...d, requests: R.usedTotal, cost: R.billing.today, ranOut: R.allSpent || !!d.ran_out_at }
     : { ...d, ranOut: !!d.ran_out_at }))
+    .map((d) => ({ ...d, value: paid ? d.cost : d.requests }))
   const last = days.length - 1
-  const limit = R.capTotal
+  const limit = paid ? 0 : R.capTotal
+  const fmt = paid ? usd : n
+  const axis = paid ? axisUsd : axisNum
   const H = 150, x0 = 38, x1 = W - 4, y0 = H - 22, y1 = 14
-  const yMax = Math.max(limit * 1.08, ...days.map((d) => d.requests), 1)
+  const yMax = Math.max(limit * 1.08, ...days.map((d) => d.value), paid ? 0.05 : 1)
   const yAt = (v: number) => y0 - (v / yMax) * (y0 - y1)
   const slot = (x1 - x0) / Math.max(1, days.length)
   const bw = Math.min(24, slot * 0.56)
@@ -522,31 +647,38 @@ function Days({ R, data }: { R: Reading; data: Summary }) {
   const dateOf = (day: string, opts: Intl.DateTimeFormatOptions) =>
     new Date(day + 'T12:00:00Z').toLocaleDateString([], { ...opts, timeZone: 'UTC' })
   const label = (k: number) => (k === last ? 'Today' : dateOf(days[k].day, { month: 'short', day: 'numeric' }))
-  const ticks = gridlines(yMax).filter((v) => Math.abs(yAt(v) - yAt(limit)) > 12)
+  const ticks = gridlines(yMax, paid ? 0.01 : 1).filter((v) => paid || Math.abs(yAt(v) - yAt(limit)) > 12)
   const tip = hover >= 0 ? days[hover] : null
+  const what = paid ? 'Spend' : 'Requests'
 
   return (
     <div className="u-daily">
-      <div className="u-days-head"><h3>Requests per day</h3><span>last {days.length} days</span></div>
+      <div className="u-days-head"><h3>{what} per day</h3><span>last {days.length} days</span></div>
       <div className="u-days" ref={box}>
         <svg
           className="u-days-chart" width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img"
-          aria-label={`Requests per day over the last ${days.length} days, against the daily limit of ${n(limit)}. Today so far ${n(R.usedTotal)}.`}
+          aria-label={paid
+            ? `Spend per day over the last ${days.length} days. Today so far ${usd(R.billing.today)}.`
+            : `Requests per day over the last ${days.length} days, against the daily limit of ${n(limit)}. Today so far ${n(R.usedTotal)}.`}
           onPointerLeave={() => setHover(-1)}
         >
           {ticks.map((v) => (
             <g key={v}>
               <line className="grid" x1={x0} x2={x1} y1={yAt(v)} y2={yAt(v)} />
-              <text className="axis" x={x0 - 8} y={yAt(v) + 4} textAnchor="end">{axisNum(v)}</text>
+              <text className="axis" x={x0 - 8} y={yAt(v) + 4} textAnchor="end">{axis(v)}</text>
             </g>
           ))}
           <line className="grid" x1={x0} x2={x1} y1={y0} y2={y0} />
-          <text className="axis" x={x0 - 8} y={y0 + 4} textAnchor="end">0</text>
-          <line className="limit" x1={x0} x2={x1} y1={yAt(limit)} y2={yAt(limit)} strokeDasharray="5 4" />
-          <text className="limit-txt" x={x0 - 8} y={yAt(limit) + 4} textAnchor="end">{axisNum(limit)}</text>
+          <text className="axis" x={x0 - 8} y={y0 + 4} textAnchor="end">{paid ? '$0' : '0'}</text>
+          {!paid && (
+            <>
+              <line className="limit" x1={x0} x2={x1} y1={yAt(limit)} y2={yAt(limit)} strokeDasharray="5 4" />
+              <text className="limit-txt" x={x0 - 8} y={yAt(limit) + 4} textAnchor="end">{axisNum(limit)}</text>
+            </>
+          )}
           {days.map((d, k) => {
             const cx = x0 + slot * (k + 0.5)
-            const top = yAt(d.requests), h = Math.max(0, y0 - top)
+            const top = yAt(d.value), h = Math.max(0, y0 - top)
             const rr = Math.min(4, h)
             const today = k === last
             // A 4px rounded data end, square at the baseline.
@@ -559,7 +691,7 @@ function Days({ R, data }: { R: Reading; data: Summary }) {
               <g key={d.day} className={'col' + (k === hover ? ' hl' : '')} onPointerEnter={() => setHover(k)}>
                 <rect className="hit" x={x0 + slot * k} y={y1} width={slot} height={y0 - y1 + 18} />
                 <path className={'bar' + (today ? ' today' : d.ranOut ? ' ranout' : '')} d={path} />
-                {today && <text className="tag" x={Math.min(cx, x1 - 20)} y={top - 7} textAnchor="middle">{n(d.requests)}</text>}
+                {today && <text className="tag" x={Math.min(cx, x1 - 20)} y={top - 7} textAnchor="middle">{fmt(d.value)}</text>}
                 {showLabel && (
                   <text className={'axis' + (today ? ' on' : '')} x={today ? Math.min(cx, x1 - 18) : cx} y={y0 + 16} textAnchor="middle">{label(k)}</text>
                 )}
@@ -568,8 +700,8 @@ function Days({ R, data }: { R: Reading; data: Summary }) {
           })}
         </svg>
         {tip && (
-          <div className="u-tip" style={{ left: Math.min(Math.max(x0 + slot * (hover + 0.5), 70), W - 70), top: yAt(tip.requests) - 8 }} aria-hidden>
-            <b>{n(tip.requests)}{hover === last ? ' so far' : ''}</b>
+          <div className="u-tip" style={{ left: Math.min(Math.max(x0 + slot * (hover + 0.5), 70), W - 70), top: yAt(tip.value) - 8 }} aria-hidden>
+            <b>{fmt(tip.value)}{hover === last ? ' so far' : ''}</b>
             <span>{hover === last ? 'Today' : dateOf(tip.day, { weekday: 'long', month: 'short', day: 'numeric' })}{tip.ranOut ? ' · ran out' : ''}</span>
           </div>
         )}
@@ -578,11 +710,11 @@ function Days({ R, data }: { R: Reading; data: Summary }) {
           table, or the table sizes itself to its content and pushes the page sideways. */}
       <div className="visually-hidden">
         <table>
-          <caption>Requests per day, last {days.length} days. Daily limit {n(limit)}.</caption>
-          <thead><tr><th scope="col">Day</th><th scope="col">Requests</th></tr></thead>
+          <caption>{what} per day, last {days.length} days.{paid ? '' : ` Daily limit ${n(limit)}.`}</caption>
+          <thead><tr><th scope="col">Day</th><th scope="col">{what}</th></tr></thead>
           <tbody>
             {days.map((d, k) => (
-              <tr key={d.day}><th scope="row">{label(k)}</th><td>{n(d.requests)}{d.ranOut ? ' (ran out)' : ''}</td></tr>
+              <tr key={d.day}><th scope="row">{label(k)}</th><td>{fmt(d.value)}{d.ranOut ? ' (ran out)' : ''}</td></tr>
             ))}
           </tbody>
         </table>

@@ -161,7 +161,10 @@ class GuildConfig(Base):
     blocked_role_ids: Mapped[list] = mapped_column(JSON, default=list)
     default_model: Mapped[str] = mapped_column(String(64), default=DEFAULT_CHAT_MODEL)
     grounding_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The most web searches this server may run: a day's worth on a free key, whose search
+    # allowance is daily, and a month's on a billed one, whose free searches are monthly.
     grounding_daily_cap: Mapped[int] = mapped_column(Integer, default=100)
+    grounding_monthly_cap: Mapped[int] = mapped_column(Integer, default=3000)
     # When a channel accumulates this many unsummarized tokens, roll a summary.
     summary_token_threshold: Mapped[int] = mapped_column(Integer, default=4000)
     # Mine the guild glossary once a channel has this many un-mined tokens — runs
@@ -784,6 +787,13 @@ class AppConfig(Base):
     # Marketplace policy: block publishing an extension whose AI risk score (0-100) is at
     # or above this. Operator-tunable; 70 is a balanced default.
     extension_risk_threshold: Mapped[int] = mapped_column(Integer, default=70)
+    # Gemini billing, which only means anything on a key with billing on. A monthly budget
+    # of 0 is none. At the budget, Olisar either stops ("stop") or keeps replying on the
+    # cheapest model with no web search or images ("cheapest"). See olisar.gemini.spend.
+    monthly_budget_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    budget_action: Mapped[str] = mapped_column(Text, default="cheapest")
+    # Whether a billed key makes images on Gemini rather than Cloudflare (olisar/imaging.py).
+    gemini_images: Mapped[bool] = mapped_column(Boolean, default=True)
     # 'local' (bot runs here) or 'server' (bot runs on the operator's cloud VM; this
     # install is just the deploy + control tool — no local bot is started, no Discord
     # creds stored locally; they live in the VM's .env).
@@ -1081,6 +1091,11 @@ class GeminiUsage(Base):
     model: Mapped[str] = mapped_column(String(64))
     request_count: Mapped[int] = mapped_column(Integer, default=0)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
+    # The same tokens split the way Google prices them: input (the prompt and any search
+    # results) and output (the reply and the model's thinking). Rows from before the split
+    # have 0 in both; see olisar.gemini.pricing.tokens_cost.
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
     grounding_count: Mapped[int] = mapped_column(Integer, default=0)
     # The highest requests-in-any-60s window this model reached on this day — the day's
     # peak RPM, compared against the model's cap on the Usage dashboard — and when.
@@ -1094,6 +1109,30 @@ class GeminiUsage(Base):
     # key. The quota belongs to the key's project, so another key's refusal doesn't apply.
     exhausted_key: Mapped[str | None] = mapped_column(String(16), nullable=True)
     quota_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class GeminiKeyTier(Base):
+    """Whether a Gemini key's project has billing on, as Google last answered (see
+    olisar.gemini.tier). Keyed by the key's one-way fingerprint, never the key."""
+
+    __tablename__ = "gemini_key_tier"
+
+    key_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    tier: Mapped[str] = mapped_column(String(8))  # "free" | "paid"
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GuildSearchUsage(Base):
+    """Web searches per server per quota day, for each server's own search cap. The model
+    rollup has no server, so the cap used to be measured against the whole install."""
+
+    __tablename__ = "guild_search_usage"
+    __table_args__ = (UniqueConstraint("day", "guild_id", name="uq_guild_search_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[datetime] = mapped_column(Date, index=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class UsageHour(Base):

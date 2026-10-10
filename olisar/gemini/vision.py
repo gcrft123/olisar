@@ -9,8 +9,8 @@ Both want the same thing: a short, factual, search-oriented description, produce
 best-effort. When every vision model is rate-limited this returns '' rather than
 raising, so ingestion never blocks on captioning — the filename is already indexed.
 
-A small semaphore serializes captioning so a burst of image posts can't fan out
-into a thundering herd of vision calls against the free tier.
+A small semaphore bounds captioning so a burst of image posts can't fan out into a
+thundering herd of vision calls.
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ _PROMPT = (
     "logos (these are often what people search for). No preamble, no markdown."
 )
 
-# Serialize vision calls (free-tier friendliness); the rate limiter does the rest.
-_semaphore = asyncio.Semaphore(2)
+# Bound concurrent vision calls; the rate limiter does the rest.
+_semaphore = asyncio.Semaphore(4)
 
 
 async def describe_images(images: list[tuple[bytes, str, str]]) -> str:

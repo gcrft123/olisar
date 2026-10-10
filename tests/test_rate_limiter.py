@@ -41,8 +41,8 @@ class ChatExhaustedTests(unittest.TestCase):
 
 class UnionChainTests(unittest.TestCase):
     def test_every_model_any_server_replies_through_best_first(self):
-        chains = [model_chain("gemini-2.5-flash"), model_chain("gemini-3-flash-preview")]
-        self.assertEqual(union_chain(chains), model_chain("gemini-3-flash-preview"))
+        chains = [model_chain("gemini-2.5-flash"), model_chain("gemini-3.6-flash")]
+        self.assertEqual(union_chain(chains), model_chain("gemini-3.6-flash"))
 
     def test_an_unranked_default_comes_first(self):
         chains = [model_chain("gemini-2.5-flash"), model_chain("gemini-custom")]

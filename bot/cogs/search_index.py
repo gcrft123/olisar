@@ -41,7 +41,7 @@ TICK_SECONDS = 40       # was 120 — a third, with a third of the work per tick
 PAGE = 100              # messages per history request (max Discord allows; keeps calls efficient)
 PAGES_PER_TICK = 1      # history pages per channel per tick (was 3)
 CHANNELS_PER_TICK = 4   # channels advanced per tick
-CAPTIONS_PER_TICK = 1   # historical images described per tick (was 4 — keeps captions/min ~constant)
+CAPTIONS_PER_TICK = 2   # historical images described per tick: 3 a minute while a backfill has images left
 ARCHIVE_LIMIT = 100     # archived threads/posts discovered per parent channel
 DM_INDEX_PER_TICK = 150 # DM messages copied from the message table into the index per tick
 

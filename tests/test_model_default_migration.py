@@ -101,6 +101,21 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(moved, 1)
         self.assertEqual(models, {1: DEFAULT_CHAT_MODEL, 2: "gemini-2.5-flash-lite"})
 
+    def test_a_retired_model_moves_to_its_replacement(self):
+        """Google is turning it off, so even a deliberate choice of it moves."""
+        from olisar.gemini.models import RETIRED
+
+        async def go():
+            await self._seed({1: "gemini-3.5-flash", 2: "gemini-3-flash-preview", 3: "gemini-2.5-flash"})
+            moved = await self._migrate()
+            return moved, await self._models()
+
+        moved, models = asyncio.run(go())
+        self.assertEqual(moved, 2)
+        self.assertEqual(models, {
+            1: RETIRED["gemini-3.5-flash"], 2: RETIRED["gemini-3-flash-preview"], 3: "gemini-2.5-flash",
+        })
+
     def test_running_it_twice_changes_nothing(self):
         """It runs on every startup."""
         async def go():

@@ -299,6 +299,19 @@ async def _init_database() -> None:
         if spent:
             log.info("%d model(s) already out of requests for today; parked until the reset", spent)
 
+    from olisar.gemini import spend, tier
+
+    try:
+        await tier.restore()
+    except Exception:
+        # The first request asks Google again.
+        log.exception("couldn't restore whether the Gemini key has billing on")
+    try:
+        await spend.restore()
+    except Exception:
+        # The budget would count this month from zero: say so rather than spend past it.
+        log.exception("couldn't restore this month's Gemini spend; the budget counts from now")
+
 
 async def _self_check() -> bool:
     """Confirm sqlite-vec + FTS5 loaded (the #1 packaging risk). Returns True on

@@ -532,6 +532,10 @@ img.brand-logo, img.server-icon, .member-av img, .dcp-av img, .mp-who img.avatar
 }
 
 .weblink.off .weblink-hint { font-size: 11px; color: var(--text-2); line-height: 1.4; }
+/* What the Gemini key costs, when it matters (BillingNudge in App.tsx): the web link's card. */
+.weblink.nudge { gap: 4px; margin-bottom: 14px; }
+.nudge-text { font-size: 11.5px; color: var(--text-2); line-height: 1.45; }
+.weblink.nudge a, .weblink.nudge .linklike { align-self: flex-start; font-size: 12px; color: var(--accent); }
 
 /* ── Bot power (operator-only, sidebar footer) ──────────────────────────────── */
 .botpower {
@@ -1864,6 +1868,8 @@ input[type='number']::-webkit-inner-spin-button { -webkit-appearance: none; marg
   font-family: var(--mono); background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 11.5px;
 }
 .onb .tunnel-help-note { margin-top: 8px; }
+/* What the key's tier means for members' messages, under its check line. */
+.onb .key-note { color: var(--text-2); font-size: 12px; line-height: 1.5; margin: -8px 0 16px; }
 /* Collapsible "add this key to the VM" fallback on the connect and reconnect screens. */
 .onb .disclosure { margin: 4px 0 16px; }
 .onb .disclosure > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; color: var(--text-2); font-size: 12.5px; font-weight: 550; }
@@ -3314,6 +3320,7 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-chain .today .u-mini { flex: 1; width: auto; min-width: 48px; overflow: hidden; }
 .u-chain .today .v { width: 92px; flex: none; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .u-chain .today .v s { text-decoration: none; font-size: 11.5px; color: var(--text-3); }
+.u-chain .today .v.wide { width: auto; flex: 1; }
 .u-chain .left-v { font-size: 13px; color: var(--text); }
 .u-chain tr.gone .left-v { color: var(--text-3); }
 
