@@ -37,7 +37,13 @@ from olisar.db.models import (
     UsageSource,
 )
 from olisar.gemini import spend
-from olisar.gemini.models import RANKED_NAMES, model_chain, rpm_for
+from olisar.gemini.models import (
+    RANKED_NAMES,
+    aliases_of,
+    model_chain,
+    quota_model,
+    rpm_for,
+)
 from olisar.gemini.quota import aware, next_reset, quota_day, quota_hour
 
 log = logging.getLogger("olisar.gemini.ratelimit")
@@ -181,7 +187,15 @@ class RateLimiter:
     def spent_at(self, model: str) -> datetime | None:
         """When Google refused ``model`` for the rest of today, or None if it hasn't. A
         refusal from an earlier day has been cleared by the reset, and one for another key
-        says nothing about this one."""
+        says nothing about this one. A -latest alias is out when the model it points to is:
+        they share one allowance (models.quota_model)."""
+        own = self._own_spent_at(model)
+        if own is not None:
+            return own
+        twin = quota_model(model)
+        return self._own_spent_at(twin) if twin != model else None
+
+    def _own_spent_at(self, model: str) -> datetime | None:
         entry = self._spent.get(model)
         if entry is None:
             return None
@@ -210,6 +224,10 @@ class RateLimiter:
         replies sends one request, not one each."""
         if self.spent_at(model) is None:
             return False
+        # An alias out because its model is shares that model's hourly ask: asking through
+        # either answers for both.
+        if self._own_spent_at(model) is None:
+            model = quota_model(model)
         now = time.monotonic()
         if now < self._probe_at.get(model, 0.0):
             return False
@@ -217,10 +235,14 @@ class RateLimiter:
         return True
 
     def recover(self, model: str) -> bool:
-        """Google took a request for ``model``, so it isn't out after all. True if it was
-        parked."""
-        self._probe_at.pop(model, None)
-        return self._spent.pop(model, None) is not None
+        """Google took a request for ``model``, so it isn't out after all, and nor is
+        anything sharing its allowance. True if any of them was parked."""
+        names = {model, quota_model(model), *aliases_of(model), *aliases_of(quota_model(model))}
+        recovered = False
+        for name in names:
+            self._probe_at.pop(name, None)
+            recovered = self._spent.pop(name, None) is not None or recovered
+        return recovered
 
     def chain_spent(self, chain: list[str] | None = None) -> bool:
         """True when Google has refused every model in ``chain`` for the day. Pass the

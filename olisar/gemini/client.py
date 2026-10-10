@@ -19,7 +19,14 @@ from google.genai import types
 from olisar import runtime_keys
 from olisar.config import settings
 from olisar.gemini import spend, tier
-from olisar.gemini.models import SEARCH_FREE_CHAIN, image_model_chain, model_chain
+from olisar.gemini.models import (
+    RANKED_NAMES,
+    SEARCH_FREE_CHAIN,
+    image_model_chain,
+    is_alias,
+    model_chain,
+    note_alias,
+)
 from olisar.gemini.quota import next_reset, read_refusal
 from olisar.gemini.rate_limiter import (
     BudgetSpent,
@@ -330,6 +337,11 @@ class GeminiClient:
                         pass
                     elif refusal.daily:
                         await mark_spent(candidate, refusal.limit, key=kid)
+                        # Refused on another model's quota: a -latest alias, counted against
+                        # the model it points to. That model is out for the day too.
+                        if refusal.model and refusal.model != candidate and refusal.model in RANKED_NAMES:
+                            note_alias(candidate, refusal.model)
+                            await mark_spent(refusal.model, refusal.limit, key=kid)
                     else:
                         limiter.penalize(candidate, reason="a rate limit (429)")
                 elif code in _TRANSIENT_5XX:
@@ -375,6 +387,8 @@ class GeminiClient:
                     raise  # non-transient error — surface it, don't mask
                 continue  # fall back to the next model in the chain
 
+            if is_alias(candidate):
+                note_alias(candidate, getattr(resp, "model_version", None))
             tokens, input_tokens, output_tokens = token_split(resp)
             await record_usage(
                 candidate, tokens, grounding=grounding, source=source,

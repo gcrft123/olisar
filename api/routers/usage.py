@@ -33,7 +33,7 @@ from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageS
 from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import GEMINI_IMAGE_MODEL, GROUNDING_RPD, rpd_for, rpm_for
+from olisar.gemini.models import GEMINI_IMAGE_MODEL, GROUNDING_RPD, quota_model, rpd_for, rpm_for
 from olisar.gemini.pricing import SEARCH_FREE_PER_MONTH, daily_costs, tokens_cost
 from olisar.gemini.quota import aware, day_start, next_reset, quota_day, quota_hour
 from olisar.gemini.rate_limiter import (
@@ -114,7 +114,9 @@ async def live(
     A model is ``spent`` once Google has refused it for the day, whatever Olisar counted:
     the quota is per Google Cloud project, so something else on the project can use it up.
     ``limit`` is the daily limit Google last named in a refusal, else the assumed figure in
-    olisar/gemini/models.py.
+    olisar/gemini/models.py. ``shares`` names the model whose allowance a -latest alias draws
+    on, when that model is in the chain too; the alias's ``limit`` is then that model's, and
+    the two rows are one allowance between them.
 
     ``exhausted`` is bot-wide, for the sidebar: true only when no active server can be
     answered, every model in every server's chain parked or at its RPM cap. A single model
@@ -156,22 +158,34 @@ async def live(
     for model, limit in named:
         google_limit.setdefault(model, int(limit))
 
-    def spent_at(model: str) -> datetime | None:
+    def stored_spent(model: str) -> datetime | None:
         row = today.get(model)
-        stored = row.exhausted_at if row and row.exhausted_key == kid else None
-        return limiter.spent_at(model) or aware(stored)
+        return aware(row.exhausted_at) if row and row.exhausted_key == kid else None
+
+    def spent_at(model: str) -> datetime | None:
+        twin = quota_model(model)
+        return (
+            limiter.spent_at(model) or stored_spent(model)
+            or (stored_spent(twin) if twin != model else None)
+        )
 
     chain = []
     for name in shown:
         row = today.get(name)
         out = spent_at(name)
         resting = out is None and limiter.state(name) in ("cooldown", "rpm_full")
+        # A -latest alias draws on the allowance of the model it points to. Shown with that
+        # model's limit and marked as sharing it, so the page counts the allowance once.
+        twin = quota_model(name)
+        shares = twin if twin != name and twin in shown else None
+        bucket = shares or name
         chain.append({
             "model": name,
+            "shares": shares,
             "requests": row.request_count if row else 0,
             "tokens": row.token_count if row else 0,
-            "limit": google_limit.get(name) or rpd_for(name),
-            "limit_from_google": name in google_limit,
+            "limit": google_limit.get(bucket) or rpd_for(bucket),
+            "limit_from_google": bucket in google_limit,
             "state": "spent" if out else "resting" if resting else "ok",
             "back_in": math.ceil(limiter.back_in(name)) if resting else None,
             "spent_at": _iso(out),
