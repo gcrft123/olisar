@@ -69,9 +69,9 @@ export type MockSend = (obj: unknown, status?: number) => void
 // page adopts as the server's, and a reply arrives every four seconds on the first model that
 // can take it, so the numbers move the way they would on a live bot.
 const USAGE_CHAIN: [string, number][] = [
-  ['gemini-3.5-flash', 250], ['gemini-flash-latest', 250], ['gemini-3-flash-preview', 250],
-  ['gemini-2.5-flash', 250], ['gemini-3.1-flash-lite', 1000], ['gemini-flash-lite-latest', 1000],
-  ['gemini-2.5-flash-lite', 1000],
+  ['gemini-3.8-flash', 250], ['gemini-flash-latest', 250], ['gemini-3.6-flash', 250],
+  ['gemini-2.5-flash', 250], ['gemini-3.5-flash-lite', 1000], ['gemini-flash-lite-latest', 1000],
+  ['gemini-3.1-flash-lite', 1000], ['gemini-2.5-flash-lite', 1000],
 ]
 type UsageScene = {
   time: string
@@ -86,26 +86,26 @@ type UsageScene = {
 }
 const USAGE_SCENES: Record<string, UsageScene> = {
   fresh: {
-    time: '00:42', used: [38, 0, 0, 0, 21, 0, 3], embed: 14, web: 2,
-    peak: { v: 4, cap: 10, model: 'gemini-3.5-flash', at: '00:31' },
+    time: '00:42', used: [38, 0, 0, 0, 21, 0, 0, 3], embed: 14, web: 2,
+    peak: { v: 4, cap: 10, model: 'gemini-3.8-flash', at: '00:31' },
   },
   afternoon: {
-    time: '15:48', used: [250, 231, 131, 12, 468, 0, 22], embed: 388, web: 45,
+    time: '15:48', used: [250, 231, 131, 12, 468, 0, 0, 22], embed: 388, web: 45,
     out: { 0: '11:52', 1: '14:14' },
-    peak: { v: 9, cap: 10, model: 'gemini-3.5-flash', at: '11:40' },
+    peak: { v: 9, cap: 10, model: 'gemini-3.8-flash', at: '11:40' },
   },
   resting: {
-    time: '12:20', used: [212, 9, 0, 0, 301, 0, 10], embed: 290, web: 31, resting: { 0: 48 },
-    peak: { v: 10, cap: 10, model: 'gemini-3.5-flash', at: '12:19' },
+    time: '12:20', used: [212, 9, 0, 0, 301, 0, 0, 10], embed: 290, web: 31, resting: { 0: 48 },
+    peak: { v: 10, cap: 10, model: 'gemini-3.8-flash', at: '12:19' },
   },
   low: {
-    time: '19:05', used: [250, 250, 250, 250, 1000, 862, 610], embed: 802, web: 311,
+    time: '19:05', used: [250, 250, 250, 250, 1000, 862, 610, 0], embed: 802, web: 311,
     out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48' },
-    peak: { v: 15, cap: 15, model: 'gemini-3.1-flash-lite', at: '17:41' },
+    peak: { v: 15, cap: 15, model: 'gemini-3.5-flash-lite', at: '17:41' },
   },
   out: {
-    time: '21:50', used: [250, 250, 250, 250, 1000, 1000, 1000], embed: 941, web: 402,
-    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48', 5: '20:06', 6: '21:31' },
+    time: '21:50', used: [250, 250, 250, 250, 1000, 1000, 1000, 1000], embed: 941, web: 402,
+    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48', 5: '19:30', 6: '20:40', 7: '21:31' },
     peak: { v: 15, cap: 15, model: 'gemini-2.5-flash-lite', at: '21:12' },
     ranOutToday: '21:31',
   },
@@ -126,7 +126,7 @@ const USAGE_SPLIT_30: Record<string, number> = {
 // The 13 days before today.
 const USAGE_PAST = [2610, 2980, 3120, 2840, 3390, 3710, 2950, 3060, 3240, 4000, 3380, 3150, 3290]
 // What a request costs on each model in the chain, about: ~5k tokens in, a few hundred out.
-const USAGE_COST = [0.0052, 0.0052, 0.0035, 0.0022, 0.0016, 0.002, 0.0006]
+const USAGE_COST = [0.0052, 0.0052, 0.0052, 0.0022, 0.0025, 0.0025, 0.0016, 0.0006]
 const PER_REQUEST = 0.0021  // the mix of a typical day
 // The month so far before today, by billing state: the budget is $50.
 const MONTH_BEFORE: Record<string, number> = { paid: 14.1, 'paid-warn': 38.6, 'paid-over': 49.8, 'paid-stop': 49.8 }
@@ -295,13 +295,16 @@ const MOCK_PROACTIVITY = {
   reaction_enabled: true, reaction_threshold: 0.6, reaction_cooldown_sec: 300, reaction_max_per_hour: 8,
 }
 
+// Mirrors RANKED in olisar/gemini/models.py, which /api/models returns.
 const MOCK_MODELS = [
-  { name: 'gemini-flash-latest', label: 'Flash (latest)' },
-  { name: 'gemini-3.5-flash', label: 'Flash 3.5' },
-  { name: 'gemini-2.5-flash', label: 'Flash 2.5' },
-  { name: 'gemini-2.0-flash', label: 'Flash 2.0' },
-  { name: 'gemini-flash-lite-latest', label: 'Flash-Lite (latest)' },
-  { name: 'gemini-2.0-flash-lite', label: 'Flash-Lite 2.0' },
+  { name: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+  { name: 'gemini-flash-latest', label: 'newest Flash (auto-updates)' },
+  { name: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
+  { name: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { name: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
+  { name: 'gemini-flash-lite-latest', label: 'newest Flash-Lite (auto-updates)' },
+  { name: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { name: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
 ]
 
 // Mirrors olisar/messages.py — every key carries `placeholders`, including the empty

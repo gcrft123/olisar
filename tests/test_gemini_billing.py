@@ -220,8 +220,8 @@ class BudgetTests(unittest.TestCase):
             ))
         return [c.kwargs["model"] for c in sdk.aio.models.generate_content.await_args_list]
 
-    def test_cheapest_answers_on_the_cheapest_model_alone(self):
-        self.assertEqual(self._run(spend.CHEAPEST_ACTION), [spend.CHEAPEST])
+    def test_cheapest_answers_on_the_cheapest_models_alone(self):
+        self.assertEqual(self._run(spend.CHEAPEST_ACTION), spend.BUDGET_CHAIN[:1])
 
     def test_stop_refuses_like_a_rate_limit(self):
         with self.assertRaises(BudgetSpent):

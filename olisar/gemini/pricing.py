@@ -32,16 +32,20 @@ class Price:
 _FLASH = ((date.min, Price(0.75, 3.75)), (date(2027, 1, 1), Price(1.50, 7.50)))
 
 _PRICES: dict[str, tuple[tuple[date, Price], ...]] = {
-    # Not on Google's page any more; priced as the Flash that replaced it.
-    "gemini-3.5-flash": _FLASH,
+    "gemini-3.8-flash": _FLASH,
+    "gemini-3.6-flash": _FLASH,
     # An alias for the newest Flash, whatever Google points it at.
     "gemini-flash-latest": _FLASH,
-    "gemini-3-flash-preview": ((date.min, Price(0.50, 3.00)),),
     "gemini-2.5-flash": ((date.min, Price(0.30, 2.50)),),
-    "gemini-3.1-flash-lite": ((date.min, Price(0.25, 1.50)),),
+    "gemini-3.5-flash-lite": ((date.min, Price(0.30, 2.50)),),
     # An alias for the newest Flash-Lite (3.5 Flash-Lite as of this table).
     "gemini-flash-lite-latest": ((date.min, Price(0.30, 2.50)),),
+    "gemini-3.1-flash-lite": ((date.min, Price(0.25, 1.50)),),
     "gemini-2.5-flash-lite": ((date.min, Price(0.10, 0.40)),),
+    # Retired from the chain (models.RETIRED), kept so the month they were used in still
+    # adds up. 3.5 Flash isn't on Google's page any more; priced as the Flash replacing it.
+    "gemini-3.5-flash": _FLASH,
+    "gemini-3-flash-preview": ((date.min, Price(0.50, 3.00)),),
     # Not on Google's page any more; its last published price.
     "gemini-embedding-001": ((date.min, Price(0.15, 0.0)),),
     # A 1K image is 1,120 output tokens at $30 per million.

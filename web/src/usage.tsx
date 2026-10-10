@@ -84,8 +84,8 @@ export function usd(v: number) {
 const usdAbout = (v: number) => (v >= 10 ? usd(Math.round(v)) : usd(v))
 // Where a key's project turns billing on: "Set up billing" beside it.
 export const AI_STUDIO_KEYS = 'https://aistudio.google.com/apikey'
-// The model a spent budget falls back to (olisar.gemini.spend.CHEAPEST).
-const CHEAPEST = 'gemini-2.5-flash-lite'
+// Where replies go once a budget is spent, cheapest first (olisar.gemini.spend.BUDGET_CHAIN).
+const BUDGET_CHAIN = ['gemini-2.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3.5-flash-lite']
 const compact = (v: number) => (v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e4 ? Math.round(v / 1e3) + 'k' : n(v))
 function clock(ms: number) {
   const s = new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
@@ -136,7 +136,9 @@ function reading(live: Received, clientNow: number) {
   // The first model that can take a request. With every one resting for a moment, the one
   // back soonest is who replies next.
   const cur = budgetOut
-    ? (live.billing.action === 'cheapest' ? chain.find((m) => m.model === CHEAPEST) ?? null : null)
+    ? (live.billing.action === 'cheapest'
+      ? BUDGET_CHAIN.map((name) => chain.find((m) => m.model === name && m.state !== 'spent')).find(Boolean) ?? null
+      : null)
     : chain.find((m) => m.state === 'ok')
       ?? chain.filter((m) => m.state === 'resting').sort((a, b) => (a.backAt ?? 0) - (b.backAt ?? 0))[0]
       ?? null
@@ -312,7 +314,7 @@ function PaidPace({ R, onGo }: { R: Reading; onGo?: (tab: string) => void }) {
     ) : (
       <div className="u-pace warn">
         <Icon.warn size={16} weight="Bold" />
-        <span>The month’s budget is spent. Until the month ends, {botName()} replies with {modelName(CHEAPEST)}, with no web search or Gemini images. {setBudget}</span>
+        <span>The month’s budget is spent. Until the month ends, {botName()} replies with its cheapest models, with no web search or Gemini images. {setBudget}</span>
       </div>
     )
   }

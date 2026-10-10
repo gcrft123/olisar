@@ -196,7 +196,7 @@ def _verdict(deltas: dict[str, float], a_sd: dict[str, float], b_sd: dict[str, f
 # to draw more strong-model calls looks better for a reason that has nothing to do with
 # the variant. It has already happened once here: two arms drew 31% and 11% of their calls
 # from the strong end, in the same direction as the result.
-_STRONG = ("gemini-3.5-flash", "gemini-flash-latest", "gemini-3-flash-preview")
+_STRONG = ("gemini-3.8-flash", "gemini-flash-latest", "gemini-3.6-flash")
 
 
 def _model_mix(arm: Arm) -> dict:

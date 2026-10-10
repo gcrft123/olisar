@@ -242,7 +242,8 @@ class GeminiClient:
 
         On a billed key past its monthly budget (olisar.gemini.spend), this raises
         ``BudgetSpent`` if the operator chose to stop there, and otherwise answers on the
-        cheapest model alone. Web search is refused either way: it's a paid extra."""
+        cheapest models alone (spend.BUDGET_CHAIN). Web search is refused either way: it's a
+        paid extra."""
         limiter = get_rate_limiter()
         chain = chain or model_chain(model)
         # Resolve the key before reading the chain's state: a key changed since the last
@@ -252,7 +253,7 @@ class GeminiClient:
         if limiter.paid and await spend.over_budget():
             if grounding or (await spend.budget()).action == spend.STOP:
                 raise BudgetSpent(chain[0])
-            chain = [spend.CHEAPEST]
+            chain = list(spend.BUDGET_CHAIN)
         last_error: Exception | None = None
         # Whether quota had a hand in this walk: a model refused with a 429, or skipped as
         # out for the day or full for the minute. Decides what an exhausted chain raises.

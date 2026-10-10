@@ -50,24 +50,46 @@ class ModelInfo:
 # The 2.0 pair used to sit at positions 4 and 8 and are gone: generateContent answers
 # `404 ... is no longer available`. Note models.get still returns metadata for a retired
 # model, so "does this name resolve?" is not the question — only a real generation is.
-# The daily self-test (olisar/gemini/canary.py) still sweeps the ``-latest`` aliases.
+# The daily self-test (olisar/gemini/canary.py) sweeps every rung, aliases included.
+#
+# Matched to Google's deprecations page as of 2026-10-09. Gemini 3.5 Flash (requests now
+# routed to 3.6 Flash) and Gemini 3 Flash Preview (superseded by 3.6 Flash) are gone; see
+# RETIRED. Gemini 3.1 Flash-Lite is deprecated too but stays a lower rung until it shuts
+# down, no earlier than 2027-05-07: every model brings its own free daily allowance, and
+# dropping it early would cut a free key's day by about a quarter. Remove it then.
+#
+# The 2.5 pair isn't deprecated, but Google only serves it to projects that used it before.
+# A newer project gets refused there, which parks each for an hour like a retired model and
+# costs the chain nothing else.
 RANKED: list[ModelInfo] = [
-    ModelInfo("gemini-3.5-flash", 10, "Gemini 3.5 Flash", rpd=250),
+    ModelInfo("gemini-3.8-flash", 10, "Gemini 3.8 Flash", rpd=250),
     ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=250),
-    ModelInfo("gemini-3-flash-preview", 10, "Gemini 3 Flash", rpd=250),
+    ModelInfo("gemini-3.6-flash", 10, "Gemini 3.6 Flash", rpd=250),
     ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=250),
-    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite", rpd=1000, paid_rpm=4000),
     ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000, paid_rpm=4000),
     ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000, paid_rpm=4000),
 ]
 
 # The head of the chain, and the default for a fresh guild / an unset GEMINI_CHAT_MODEL.
 # Imported by olisar.config and olisar.db.models so the default lives in exactly one place.
-DEFAULT_CHAT_MODEL = "gemini-3.5-flash"
+DEFAULT_CHAT_MODEL = "gemini-3.8-flash"
 
 # The cheap model for off-reply-path synthesis (summaries, personas, glossary). Pinned for
 # the same reason, and to the concrete twin of the alias it used to name.
-DEFAULT_LITE_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_LITE_MODEL = "gemini-3.5-flash-lite"
+
+# Models that left the chain, and what takes their place. A server's stored default_model
+# moves to the replacement on startup (see migrate_model_default), and model_chain reads a
+# retired name as its replacement, so a GEMINI_CHAT_MODEL left in someone's .env (the old
+# .env.example set it to gemini-3.5-flash) doesn't pin the head of every reply to a model
+# Google is turning off. Gemini 3.5 Flash goes to the new default rather than 3.6 Flash,
+# where Google routes it: it was the seeded default, so almost nobody chose it.
+RETIRED: dict[str, str] = {
+    "gemini-3.5-flash": DEFAULT_CHAT_MODEL,
+    "gemini-3-flash-preview": "gemini-3.6-flash",
+}
 
 # What installs before this change defaulted to. Stored `guild_config.default_model` rows
 # still holding it are moved to DEFAULT_CHAT_MODEL on startup (see migrate_model_default):
@@ -88,6 +110,8 @@ _RPD["gemini-embedding-001"] = 1000
 # Gemini 3 model answers a grounded request with a bare 429. So that's where a free key's
 # web search runs (see GeminiClient.search). Walking the chat chain instead spent three
 # refused requests per search and parked the top three chat models for two minutes each.
+# A project Google won't serve the 2.5 models to (one that never used them) has no free
+# web search at all.
 GROUNDING_RPD = 500
 SEARCH_FREE_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
@@ -110,6 +134,7 @@ GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
 # model instead of the request (see client._MODEL_RETIRED), and the self-test still
 # sweeps this chain's head so the next retirement is a log line rather than a silent outage.
 IMAGE_RANKED: list[ModelInfo] = [
+    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite (multimodal)"),
     ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite (multimodal)"),
     ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite (multimodal)"),
     ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (multimodal)"),
@@ -136,9 +161,11 @@ def rpd_for(model: str) -> int:
 def model_chain(preferred: str) -> list[str]:
     """Models to try, in order, starting from `preferred`.
 
-    If `preferred` is in the ranking, the chain is everything from it downward.
-    Otherwise the chain is `preferred` first, then the whole ranking as fallback.
+    If `preferred` is in the ranking, the chain is everything from it downward. A retired
+    model starts where its replacement does (see RETIRED). Otherwise the chain is
+    `preferred` first, then the whole ranking as fallback.
     """
+    preferred = RETIRED.get(preferred, preferred)
     if preferred in RANKED_NAMES:
         return RANKED_NAMES[RANKED_NAMES.index(preferred) :]
     return [preferred, *RANKED_NAMES]
@@ -149,6 +176,7 @@ def image_model_chain(preferred: str | None = None) -> list[str]:
     image-capable ranking; ``preferred=None`` runs the whole chain top-down."""
     if not preferred:
         return list(IMAGE_RANKED_NAMES)
+    preferred = RETIRED.get(preferred, preferred)
     if preferred in IMAGE_RANKED_NAMES:
         return IMAGE_RANKED_NAMES[IMAGE_RANKED_NAMES.index(preferred) :]
     return [preferred, *IMAGE_RANKED_NAMES]

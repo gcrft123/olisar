@@ -66,12 +66,23 @@ class PinnedDefaultTests(unittest.TestCase):
         """Still reachable — an alias resolves when a pinned model is retired — but never
         first, and always below the concrete model they shadow."""
         for alias, pinned in (
-            ("gemini-flash-latest", "gemini-3.5-flash"),
-            ("gemini-flash-lite-latest", "gemini-3.1-flash-lite"),
+            ("gemini-flash-latest", "gemini-3.8-flash"),
+            ("gemini-flash-lite-latest", "gemini-3.5-flash-lite"),
         ):
             with self.subTest(alias=alias):
                 self.assertIn(alias, RANKED_NAMES)
                 self.assertGreater(RANKED_NAMES.index(alias), RANKED_NAMES.index(pinned))
+
+    def test_a_retired_model_starts_where_its_replacement_does(self):
+        """A GEMINI_CHAT_MODEL or stored default naming a model Google is turning off
+        must not keep it at the head of every reply."""
+        from olisar.gemini.models import RETIRED
+
+        for old, new in RETIRED.items():
+            with self.subTest(retired=old):
+                self.assertNotIn(old, RANKED_NAMES)
+                self.assertIn(new, RANKED_NAMES)
+                self.assertEqual(model_chain(old), model_chain(new))
 
     def test_legacy_default_is_still_a_real_chain_entry(self):
         """The migration moves guilds off it, so it has to remain selectable."""
