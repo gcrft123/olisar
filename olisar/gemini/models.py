@@ -105,6 +105,21 @@ _PAID_RPM["gemini-embedding-001"] = 3000
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
+# Thinking levels each model takes, from Google's thinking guide as read on 2026-10-10. A
+# level a model doesn't take is sent as the nearest one it does (see thinking_level_for).
+# Models not listed (the -latest aliases, 3.1 Flash-Lite) get the level as asked; a 400
+# for it is remembered and the request retried without (GeminiClient._raw_generate).
+THINKING_LEVELS = ("minimal", "low", "medium", "high")
+_LEVELS: dict[str, tuple[str, ...]] = {
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.6-flash": ("minimal", "low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("minimal", "low", "medium", "high"),
+}
+# The Gemini 2.5 models predate thinking levels and take a token budget instead. High stays
+# well under the deep tier's 8,192-token output ceiling, which thinking shares with the
+# reply: a budget equal to the ceiling could spend all of it thinking and send nothing.
+_BUDGET_FOR_LEVEL = {"minimal": 0, "low": 512, "medium": 1024, "high": 4096}
+
 # Google Search grounding has a daily allowance of its own, on top of the model's. On a free
 # key it's only the Gemini 2.5 models that have one, shared between the two below; every
 # Gemini 3 model answers a grounded request with a bare 429. So that's where a free key's
@@ -202,6 +217,24 @@ def model_chain(preferred: str) -> list[str]:
     if preferred in RANKED_NAMES:
         return RANKED_NAMES[RANKED_NAMES.index(preferred) :]
     return [preferred, *RANKED_NAMES]
+
+
+def thinking_for(model: str, level: str) -> tuple[str, str | int] | None:
+    """How to ask ``model`` for thinking ``level``: ``("level", name)``, or
+    ``("budget", tokens)`` for a Gemini 2.5 model, which predates levels. A level a model is
+    known not to take becomes the nearest one it does, rounding up first: the tier asked for
+    more thought than the model's floor allows, not less."""
+    if level not in THINKING_LEVELS:
+        return None
+    if "2.5" in model:
+        return ("budget", _BUDGET_FOR_LEVEL[level])
+    supported = _LEVELS.get(model)
+    if supported is None or level in supported:
+        return ("level", level)
+    rank = THINKING_LEVELS.index(level)
+    higher = [lv for lv in supported if THINKING_LEVELS.index(lv) > rank]
+    lower = [lv for lv in supported if THINKING_LEVELS.index(lv) < rank]
+    return ("level", higher[0] if higher else lower[-1])
 
 
 def image_model_chain(preferred: str | None = None) -> list[str]:
