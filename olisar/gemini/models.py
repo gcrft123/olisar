@@ -91,6 +91,11 @@ _RPD["gemini-embedding-001"] = 1000
 GROUNDING_RPD = 500
 SEARCH_FREE_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
 
+# Text-to-image on a key with billing on (Nano Banana 2 Lite). Gemini's image models have a
+# free quota of 0, so a free key makes images on Cloudflare Workers AI instead, if at all
+# (see olisar/imaging.py).
+GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
+
 
 # Vision (image-understanding) fallback chain, used for image recognition and the
 # one-time index descriptions. Every Gemini Flash model is multimodal, so this is
@@ -113,10 +118,6 @@ IMAGE_RANKED_NAMES = [m.name for m in IMAGE_RANKED]
 
 # The vision chain's head, and the default for an unset GEMINI_VISION_MODEL.
 DEFAULT_VISION_MODEL = IMAGE_RANKED_NAMES[0]
-
-# Note: image *generation* (text -> image) does NOT run on Gemini — its image
-# models are paid-only (free request quota = 0). That lives in olisar/imaging.py
-# on Cloudflare Workers AI instead.
 
 
 def rpm_for(model: str, paid: bool = False) -> int:

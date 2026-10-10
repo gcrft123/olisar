@@ -18,7 +18,9 @@ from google.genai import types
 from olisar.config import settings
 from olisar.gemini.client import get_gemini
 from olisar.gemini.quota import read_refusal
+from olisar.gemini import spend
 from olisar.gemini.rate_limiter import (
+    BudgetSpent,
     RateLimitExceeded,
     get_rate_limiter,
     mark_spent,
@@ -38,6 +40,11 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
         return []
     model = settings.gemini_embed_model
     client = await get_gemini().aclient()
+    # A billed key past a budget that stops there: memory search and indexing wait for the
+    # month too. Answering on the cheapest model changes nothing here; there's one model.
+    if get_rate_limiter().paid and await spend.over_budget():
+        if (await spend.budget()).action == spend.STOP:
+            raise BudgetSpent(model)
     out: list[list[float]] = []
     for start in range(0, len(texts), BATCH_SIZE):
         batch = texts[start : start + BATCH_SIZE]
@@ -65,7 +72,11 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
                 get_rate_limiter().penalize(model, reason="a rate limit (429)")
                 raise RateLimitExceeded(model, "rpm") from exc
             raise
-        await record_usage(model, 0, source="embed")  # embeddings don't report token counts
+        # Embeddings don't report token counts. About four characters a token is close
+        # enough to price them, and they're the cheapest thing Olisar sends.
+        await record_usage(
+            model, 0, source="embed", input_tokens=sum(len(t) for t in batch) // 4
+        )
         out.extend(_normalize(e.values) for e in resp.embeddings)
     return out
 

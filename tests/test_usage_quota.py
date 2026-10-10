@@ -355,7 +355,12 @@ class _Db(unittest.IsolatedAsyncioTestCase):
                 AsyncMock(side_effect=lambda: self.key["value"]),
             ),
             # Asking Google which tier the key is on would be a real request.
+            patch.object(usage_router, "_tier", AsyncMock(return_value=None)),
             patch("olisar.gemini.tier.refresh_soon"),
+            patch.object(
+                usage_router.spend, "budget",
+                AsyncMock(return_value=usage_router.spend.Budget(0.0, "cheapest", True)),
+            ),
         ]
         for p in self._patches:
             p.start()
@@ -630,6 +635,31 @@ class EndpointTests(_Db):
         data = await self._live()
         self.assertEqual(data["memory_search"]["requests"], 12)
         self.assertEqual(data["web_search"]["requests"], 4)
+
+    async def test_a_billed_key_is_shown_in_money(self):
+        """No daily allowance to count down: the day's cost, the month's, and the free
+        searches left in the month."""
+        from olisar.gemini.pricing import tokens_cost
+
+        await self._seed(RANKED_NAMES[0], 10, input_tokens=1_000_000, output_tokens=100_000, grounding=3)
+        await self._seed(RANKED_NAMES[0], 5, day=quota_day().replace(day=1) - timedelta(days=1), grounding=50)
+        with patch.object(usage_router, "_tier", AsyncMock(return_value="paid")):
+            data = await self._live()
+        today = (await self.rows(GeminiUsage))[0]
+        self.assertEqual(data["tier"], "paid")
+        self.assertAlmostEqual(data["billing"]["today"], round(tokens_cost(today), 4))
+        self.assertEqual(data["chain"][0]["cost"], round(tokens_cost(today), 4))
+        self.assertEqual(
+            {k: data["web_search"][k] for k in ("requests", "limit", "period")},
+            {"requests": 3, "limit": 5000, "period": "month"},
+        )
+
+    async def test_a_free_key_counts_web_search_by_the_day(self):
+        await self._seed(RANKED_NAMES[3], 30, grounding=4)
+        data = await self._live()
+        self.assertEqual(data["web_search"]["period"], "day")
+        self.assertEqual(data["web_search"]["limit"], 500)
+        self.assertGreater(data["billing"]["today"], 0)  # what it would have cost
 
     async def test_summary_leaves_memory_search_out_of_the_chain(self):
         async with self.scope() as session:

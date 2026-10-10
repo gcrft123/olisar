@@ -16,6 +16,7 @@ from api.botinfo import bot_name
 from api.trust import is_local_request
 from api.schemas import (
     ApiKeysIn,
+    BillingIn,
     ChannelModeIn,
     CloudflareCheckIn,
     ConfigIn,
@@ -33,6 +34,7 @@ from olisar.memory.purge import wipe_brain
 from olisar.db.engine import session_scope
 from olisar.db.models import (
     AdminUser,
+    AppConfig,
     AppSecret,
     ChannelAllowlist,
     ChannelMode,
@@ -49,6 +51,7 @@ from olisar.db.models import (
     UserMemory,
     UserProfile,
 )
+from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.gemini.models import RANKED
 from olisar.gemini.quota import quota_day
@@ -445,6 +448,54 @@ async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(requi
     except key_checks.Unreachable:
         return {"set": True, "ok": None, "tier": None}
     return {"set": True, "ok": ok, "tier": await gemini_tier.check(key) if ok else None}
+
+
+async def _tier_or_none() -> str | None:
+    try:
+        return await gemini_tier.current()
+    except Exception:  # noqa: BLE001 — a page that can't learn the tier still renders
+        log.exception("couldn't learn the Gemini key's tier")
+        return None
+
+
+async def _billing() -> dict:
+    budget = await spend.budget()
+    tier = await _tier_or_none()
+    at = gemini_tier.checked_at()
+    return {
+        "tier": tier,
+        "checked_at": at.isoformat() if at else None,
+        "monthly_budget_usd": budget.usd,
+        "budget_action": budget.action,
+        "gemini_images": budget.gemini_images,
+    }
+
+
+@router.get("/billing")
+async def get_billing(admin: AdminUser = Depends(require_operator)):
+    """Whether the Gemini key has billing on, and the settings that only matter if it does:
+    the monthly budget, what happens at it, and whether Gemini makes images."""
+    return await _billing()
+
+
+@router.put("/billing")
+async def put_billing(body: BillingIn, admin: AdminUser = Depends(require_operator)):
+    data = body.model_dump(exclude_unset=True, exclude_none=True)
+    if data:
+        async with session_scope() as session:
+            row = await session.get(AppConfig, 1)
+            if row is None:
+                row = AppConfig(id=1)
+                session.add(row)
+            before = {k: getattr(row, k, None) for k in data}
+            for k, v in data.items():
+                setattr(row, k, v)
+            await record_audit(
+                session, actor=admin.discord_user_id, action="update_billing",
+                target_type="app_config", target_id=1, before=before, after=data,
+            )
+        spend.invalidate()
+    return await _billing()
 
 
 @router.post("/keys/check/cloudflare")

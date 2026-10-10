@@ -843,9 +843,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "Image generation failed — tell the user you couldn't make it right now."
             if not data:
                 return (
-                    "Image generation is unavailable right now (the daily free "
-                    "allocation may be used up) — tell the user you can't make an "
-                    "image at the moment."
+                    "Image generation is unavailable right now — tell the user you "
+                    "can't make an image at the moment."
                 )
             ext = "jpg" if "jpeg" in (mime or "") or "jpg" in (mime or "") else "png"
             result = await ctx.actions.send_image(data, filename=f"image.{ext}")
