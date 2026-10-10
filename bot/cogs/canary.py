@@ -1,8 +1,7 @@
 """Runs the model self-test once a day.
 
 See olisar/gemini/canary.py for what it checks and why. Two requests per model in the
-slim default sweep. The first run waits a full day so a restart does not spend another
-sweep on free-tier quota.
+default sweep. The first run waits a full day so a restart does not spend another sweep.
 """
 
 from __future__ import annotations
