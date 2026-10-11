@@ -12,7 +12,9 @@ extension that reacts to ``memberJoin`` (see olisar/extensions/sdk_builtins/welc
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import random
 from typing import Any
 
 import discord
@@ -20,7 +22,7 @@ from discord.ext import commands
 from sqlalchemy import select
 
 from bot.cogs.sdk_commands import _build_view, _to_discord_files, _to_embed
-from bot.replies import chunk_text
+from bot.replies import BREAK_PAUSE, _pace, chunk_text, typing_seconds
 from olisar import guild_approval
 from olisar.db.engine import session_scope
 from olisar.db.models import ExtensionPackage
@@ -34,7 +36,10 @@ log = logging.getLogger("olisar.cogs.sdk_events")
 
 class _EventBridge:
     """DiscordBridge for an event handler: post to a channel in the event's guild via
-    ``host.discord.send``. Interaction-bound methods (reply/modal/buttons) aren't available."""
+    ``host.discord.send``. Interaction-bound methods (reply/modal/buttons) aren't available.
+
+    An array is posted the way the bot posts a reply in beats (``send_paced``): a typing
+    indicator before each message, held for about as long as it would take to type."""
 
     def __init__(self, guild: discord.Guild, ext_key: str) -> None:
         self.guild = guild
@@ -58,6 +63,14 @@ class _EventBridge:
                 channel = None
         if channel is None or not hasattr(channel, "send"):
             log.info("event send: channel %s not usable in guild %s", channel_id, self.guild.id)
+            return
+        if isinstance(payload, list):
+            for i, piece in enumerate(payload):
+                if i:
+                    await asyncio.sleep(random.uniform(*BREAK_PAUSE))
+                await _pace(channel, typing_seconds(piece))
+                for chunk in chunk_text(piece):
+                    await channel.send(content=chunk)
             return
         p = self._unpack(payload)
         embed = _to_embed(p.get("embed"))

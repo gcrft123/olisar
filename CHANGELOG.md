@@ -1,6 +1,6 @@
 ## [Unreleased]
 
-Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have. Separately, when Olisar wrote a reply as two lines, it arrived as one message with a line break in it instead of two messages.
+Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have. Separately, when Olisar wrote a reply as two lines, it arrived as one message with a line break in it instead of two messages. Welcome messages did the same with every break, because an extension had no way to send generated text as more than one message.
 
 Olisar assumed every Gemini key was on the free tier. A key with billing on was held to free-tier per-minute caps, measured against free-tier daily limits it would never reach, kept off Gemini's image models, and given no idea what it was spending. Olisar now asks Google which tier a key is on and acts on the answer: a billed key gets Google's Tier 1 per-minute caps, a Usage page in dollars with an optional monthly budget, images from Gemini, and web search on the current models. A free key that runs out for the day is told what the day would have cost with billing on, which is the honest case for turning it on. Web search on a free key had its own problem: only the Gemini 2.5 models have a free search allowance, so every search was refused by the Gemini 3 models first, and each refusal benched one of them for two minutes. And the first time the day's quota really ran out, members got the blank reply and a Report button instead of the rate-limit message.
 
@@ -107,6 +107,10 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 [bbaed60] — `design/model-routing/EVALUATION.md` records the routing evaluation: what each message needed, Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and the live lane.
 
 [bbaed60] — `arena/experiments/routing_eval/labels.jsonl` holds every answer the evaluation judged, with its cost, time, models and verdicts.
+
+[2a9e5a3] — `host.generate({ split: true })` resolves to the messages Olisar would send the text as, one to three, instead of one string.
+
+[2a9e5a3] — `host.discord.send` takes an array of strings and posts each as its own message, with a typing indicator before each from an event handler, and counts the array as one post toward the rate limit.
 
 ### Changed
 
@@ -221,6 +225,8 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 [1065faa] — The arena's A/B report reads each dimension against the noise of the runs that scored it, so a delta from 6 runs no longer reads as sure as one from 36.
 
 [3e08eef] — A quota test no longer fails for the two hours after Google's daily reset.
+
+[2a9e5a3] — A welcome message Olisar writes in two or three beats arrives as that many messages, not one message with line breaks in it.
 
 ## [2.0] — 2026-10-01
 

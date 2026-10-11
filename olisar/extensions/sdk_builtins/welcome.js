@@ -49,15 +49,18 @@ defineExtension({
       // that channel's name, topic and recent conversation. The bot only knows a channel
       // once its roster sync has picked it up (not yet, for one made a minute ago), so when
       // that fails the greeting is written from the persona alone rather than not at all.
-      let text;
+      //
+      // split: the greeting goes out as the messages the model broke it into, one by one,
+      // the way a reply would, instead of as one message with line breaks.
+      let messages;
       try {
-        text = await host.generate({ task: task, channelId: channelId, maxTokens: 600 });
+        messages = await host.generate({ task: task, channelId: channelId, maxTokens: 600, split: true });
       } catch (err) {
-        text = await host.generate({ task: task, maxTokens: 600 });
+        messages = await host.generate({ task: task, maxTokens: 600, split: true });
       }
-      if (!text) return;
-      const mention = member.mention ? member.mention + " " : "";
-      await host.discord.send(channelId, mention + text);
+      if (!messages || !messages.length) return;
+      if (member.mention) messages[0] = member.mention + " " + messages[0];
+      await host.discord.send(channelId, messages);
     },
   },
 });
