@@ -124,22 +124,45 @@ def view(run: ReplayRun, *, viewer: int, starter: str | None, now: datetime) -> 
 
 
 # ── Redaction ──
+# Two kinds of token in the stored text stand for people, so their names can go when they
+# do: a Discord mention, <@id>, inside a member's message, and <name:id> in a line a model
+# wrote ("<name:2> said it first"). Both resolve when the report is served.
 
 _MENTION = re.compile(r"<@!?(\d+)>")
+_NAME = re.compile(r"<name:(\d+)>")
+TEXT_KEYS = ("text", "said", "intro", "spread", "why", "line", "sphere")
 
 
 def _is_message(node) -> bool:
     return isinstance(node, dict) and "text" in node and "who" in node and "at" in node
 
 
-def redact(report: dict, hidden: set[str]) -> dict:
-    """``report`` without anyone in ``hidden`` (user ids as strings), with mentions
-    resolved to the names the report knows."""
+def name_tokens(text: str, people: dict) -> str:
+    """A model-written line with the names it uses turned into <name:id> tokens."""
+    if not text:
+        return text
+    for key, p in sorted(people.items(), key=lambda kv: -len(kv[1].get("name") or "")):
+        name = (p.get("name") or "").strip()
+        if len(name) >= 2:
+            text = re.sub(r"(?<![\w<:])" + re.escape(name) + r"(?![\w>])", f"<name:{key}>", text)
+    return text
+
+
+def redact(report: dict, hidden: set[str], *, resolve: bool = True) -> dict:
+    """``report`` without anyone in ``hidden`` (user ids as strings): their messages go and
+    their names read "Someone". With ``resolve``, every token is turned into the name the
+    report knows (for serving); without it, only hidden people's are (for storing)."""
     people = {k: v for k, v in (report.get("people") or {}).items() if k not in hidden}
 
     def mention(m: re.Match) -> str:
-        p = people.get(m.group(1))
-        return "@" + (p["name"] if p else "someone")
+        if m.group(1) in hidden or (resolve and m.group(1) not in people):
+            return "@someone"
+        return "@" + people[m.group(1)]["name"] if resolve else m.group(0)
+
+    def name(m: re.Match) -> str:
+        if m.group(1) in hidden or (resolve and m.group(1) not in people):
+            return "Someone"
+        return people[m.group(1)]["name"] if resolve else m.group(0)
 
     def walk(node):
         if isinstance(node, list):
@@ -159,18 +182,32 @@ def redact(report: dict, hidden: set[str]) -> dict:
                     out[key] = None
                 elif key == "people" and isinstance(value, dict):
                     out[key] = {k: v for k, v in value.items() if k not in hidden}
-                elif key == "count" and gone:
+                elif key in ("count", "said") and gone:
                     out[key] = None
                 elif _is_message(value) and value.get("who") in hidden:
                     out[key] = None
-                elif key == "text" and isinstance(value, str):
-                    out[key] = _MENTION.sub(mention, value)
+                elif key in TEXT_KEYS and isinstance(value, str):
+                    out[key] = _NAME.sub(name, _MENTION.sub(mention, value))
                 else:
                     out[key] = walk(value)
             return out
         return node
 
-    return walk(report)
+    out = walk(report)
+    # A chapter that lost what it stands on goes with it.
+    pick = out.get("pick")
+    if isinstance(pick, dict) and not pick.get("origin"):
+        out["pick"] = None
+    first = out.get("first")
+    if isinstance(first, dict) and not first.get("messages"):
+        out["first"] = None
+    night = out.get("night")
+    if isinstance(night, dict) and sum("text" in m for m in night.get("excerpt") or []) < 3:
+        night["excerpt"] = []
+    arrive = out.get("arrive")
+    if isinstance(arrive, dict) and arrive.get("reply") and arrive["reply"][0].get("who") != "bot" and len(arrive["reply"]) < 2:
+        arrive["reply"] = []
+    return out
 
 
 def present(report: dict, hidden: set[int]) -> dict:
@@ -186,10 +223,17 @@ async def scrub_user(session: AsyncSession, user_id: int, guild_ids: list[int]) 
     for run in runs:
         touched = False
         if run.report and str(user_id) in _ids(run.report):
-            run.report = redact(run.report, key)
+            run.report = redact(run.report, key, resolve=False)
             touched = True
         if run.state and str(user_id) in _ids(run.state):
-            run.state = redact(run.state, key)
+            state = redact(run.state, key, resolve=False)
+            # The judge's evidence is prose with their name and words in it: it goes, and so
+            # do the answers that cited it, so the pick is made again without them.
+            if isinstance(state.get("pick"), dict):
+                state["pick"] = {}
+                state["calls"] = {k: v for k, v in (state.get("calls") or {}).items()
+                                  if not k.startswith(("judge", "check:c", "write:"))}
+            run.state = state
             touched = True
         changed += touched
     return changed

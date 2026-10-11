@@ -13,7 +13,7 @@ from datetime import timedelta
 
 from olisar.db.engine import session_scope
 from olisar.db.models import GuildFact, ReplayRun
-from olisar.replay import check, pick, runner
+from olisar.replay import check, pick, runner, store
 from tests.replay_fakes import FakeGemini
 from tests.test_replay import BRAM, GAMES, GENERAL, JUNIPER, NIGHTJAR, OKAPI, T0, TESS, FakeRoster, _Case, msg
 
@@ -87,7 +87,9 @@ class PickTests(_Pick):
 
     async def test_a_writer_that_breaks_the_rules_gets_the_template(self) -> None:
         g = FakeGemini(writer={"intro": "The legendary goose era began!", "spread": "212 people said it."})
-        p = (await self.run_with(g))["pick"]
+        report = await self.run_with(g)
+        self.assertIn("<name:", report["pick"]["intro"])   # stored as a token, served as a name
+        p = store.present(report, set())["pick"]
         self.assertEqual(p["intro"], "Here, goose means a win nobody saw coming. okapi started it.")
         self.assertEqual(p["spread"], "{people} of you have kept it going. {count} times so far.")
         self.assertEqual(sum(p.startswith("Write the two lines") for _, p in g.calls), 2)   # one retry, then the template
@@ -153,6 +155,62 @@ class MomentAndCheckTests(_Pick):
         self.assertEqual([m.get("text", m.get("gap")) for m in report["night"]["excerpt"]], ["a", "2 hours later", "b", "c"])
         self.assertEqual(report["arrive"]["reply"], [])
         self.assertEqual(report["names"], [{"to": "Pinecone"}])
+
+
+class ReviewFixTests(_Pick):
+    async def test_a_pick_whose_first_poster_leaves_is_dropped_not_broken(self) -> None:
+        report = await self.run_with(FakeGemini())
+        served = store.present(report, {OKAPI})
+        self.assertIsNone(served["pick"])
+        self.assertNotIn("okapi", json.dumps(served["pick"]))
+        # Someone quoted in a spot goes with their quote.
+        spot = next(s for s in report["pick"]["spots"] if s.get("said"))
+        gone = store.present(report, {int(spot["who"])})
+        self.assertNotIn(spot["said"], json.dumps(gone))
+
+    async def test_someone_who_opts_out_mid_run_isnt_in_the_finished_report(self) -> None:
+        from olisar.db.models import UserProfile
+        g = FakeGemini()
+        original = g.generate_json
+
+        async def opt_out_then_answer(**kw):
+            if kw["system_instruction"].startswith("You check a replay"):
+                async with session_scope() as s:
+                    s.add(UserProfile(user_id=TESS, guild_id=self.home, display_name="tess", search_opt_out=True))
+            return await original(**kw)
+        g.generate_json = opt_out_then_answer  # type: ignore[method-assign]
+        report = await self.run_with(g)
+        self.assertNotIn(str(TESS), report["people"])
+        self.assertNotIn("is this the book club", json.dumps(report))
+
+    async def test_a_chain_full_for_the_minute_waits_rather_than_pausing_for_the_day(self) -> None:
+        from unittest import mock
+
+        from olisar.gemini.rate_limiter import RateLimitExceeded
+        from olisar.replay import llm
+        g = FakeGemini()
+        original, failed = g.generate_json, []
+
+        async def busy_once(**kw):
+            if not failed:
+                failed.append(1)
+                raise RateLimitExceeded("m", "minute")
+            return await original(**kw)
+        g.generate_json = busy_once  # type: ignore[method-assign]
+        with mock.patch.object(llm, "MINUTE_WAIT", 0.01):
+            report = await self.run_with(g)
+        self.assertIsNotNone(report)
+
+    async def test_start_replaces_a_failed_run(self) -> None:
+        async with session_scope() as s:
+            s.add(ReplayRun(guild_id=self.home, status="failed", started_by=1, error="boom"))
+        c = await self.client()
+        r = await c.post("/api/replay/start", json={})
+        self.assertEqual(r.status_code, 200, r.text)
+        async with session_scope() as s:
+            from sqlalchemy import select
+            statuses = sorted((await s.scalars(select(ReplayRun.status))).all())
+        self.assertEqual(statuses, ["abandoned", "queued"])
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ Server there. One runs at a time per server.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -27,6 +28,10 @@ from olisar.replay import preflight, runner, store
 from olisar.replay.scope import aware, hidden_users
 
 router = APIRouter(prefix="/api/replay", tags=["replay"])
+
+# One run at a time per server: the API and the bot share one process, so a lock per server
+# keeps two admins pressing Start together from both getting through.
+_starting: dict[int, asyncio.Lock] = {}
 
 
 def _bot(request: Request):
@@ -116,9 +121,18 @@ async def replay_status(gctx: GuildContext = Depends(require_guild_admin)):
 
 @router.post("/start")
 async def start_replay(body: ReplayStartIn, request: Request, gctx: GuildContext = Depends(require_guild_admin)):
+    async with _starting.setdefault(gctx.guild_id, asyncio.Lock()):
+        return await _start(body, request, gctx)
+
+
+async def _start(body: ReplayStartIn, request: Request, gctx: GuildContext):
     now = utcnow()
     async with session_scope() as session:
-        if await store.active_run(session, gctx.guild_id) is not None:
+        active = await store.active_run(session, gctx.guild_id)
+        # A run that failed waits for Try again, but a new one may replace it.
+        if active is not None and active.status == "failed":
+            active.status, active.state = "abandoned", {}
+        elif active is not None:
             raise HTTPException(status_code=409, detail="A replay of this server is already running.")
     check = await preflight.check(gctx.guild_id, now=now, bots=_bot_ids(request, gctx.guild_id))
     refusal = {
