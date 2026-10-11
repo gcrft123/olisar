@@ -3,10 +3,11 @@
 The pipeline is design/memory-replay/PICK.md's, and the prompts are its first draft:
 
 1. Candidates (code). Detectors propose things that recur: the glossary, the server's own words
-   and phrases, custom emoji and stickers, weekly rituals, named things ("the lighthouse"), and
-   the motifs channel summaries keep mentioning. Each is counted the same way, by phrase match
-   in the search index, and goes through PICK.md's hard filters. The top 12 go on, at most 4
-   from any one detector.
+   and phrases, custom emoji and stickers, weekly rituals, named things ("the lighthouse"),
+   threads named for an event that comes round again, and the motifs channel summaries keep
+   mentioning. Only what members wrote counts: a filename, caption or link doesn't. Each is
+   counted the same way, by phrase match in the search index, and goes through PICK.md's
+   hard filters. The top 12 go on, at most 4 from any one detector.
 2. Evidence (code). For each: its counts, its earliest uses with context, and later uses
    sampled across time and channels. Messages get short ids only code can map back.
 3. The judge (the strongest model in the chain, thinking on). Scores, disqualifications and up
@@ -19,10 +20,10 @@ The pipeline is design/memory-replay/PICK.md's, and the prompts are its first dr
    then a template.
 
 One difference from PICK.md: it bundles no general-English frequency list (the one worth
-having would add tens of megabytes to the desktop app), so the "server words" detector's
-unusualness comes from the motifs request instead, which is asked which of the shortlisted
-words are ordinary English any server would use. Glossary entries skip that screen: Olisar
-already judged them the server's own.
+having would add tens of megabytes to the desktop app). Instead the motifs request is also
+asked which candidates aren't this server's own: ordinary English, and the public vocabulary
+of the game or topic it's about, which every server about it shares. The first real replay
+needed that: a Star Citizen server's most-shared words were Star Citizen's.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import ChannelSummary, GuildChannelInfo, GuildConfig, GuildFact, GuildRole, Persona, SearchMessage
 from olisar.replay import stats
 from olisar.replay.scope import aware
-from olisar.replay.words import blocked, is_filler, line_problem, tokens
+from olisar.replay.words import blocked, is_filler, line_problem, says, strip_markup, tokens
 
 log = logging.getLogger("olisar.replay")
 
@@ -175,8 +176,12 @@ running jokes, rituals or regular events, things members made, places, games, ni
 things. Each as the server would write it, in 1 to 4 words. Nothing about one member's private \
 life, conflict, moderation, or anything sensitive.
 
-2. Below that is a list of words and phrases this server uses a lot. List the ones that are \
-ordinary English any server would use, or internet slang that means the same thing everywhere.
+2. Below that is a list of words, phrases and names this server's messages turned up. List \
+the ones that aren't this server's own: ordinary English any server would use, internet slang \
+that means the same thing everywhere, and the public vocabulary of the game, hobby or topic \
+the server is about (names from the game itself, its places, characters, factions, ships and \
+items), which every server about it shares. Keep anything that looks like the server's own: \
+its in-jokes, its events and their names, what its members made or call things.
 
 Return only JSON: {"motifs": ["..."], "ordinary": ["..."]}
 """
@@ -188,10 +193,12 @@ def _fts(phrase: str) -> str:
     return '"' + phrase.replace('"', '""') + '"'
 
 
-async def uses(ctx, phrase: str, *, skip_window: tuple | None) -> list:
-    """Every use of a phrase in scope, oldest first: (row id, message id, channel, author, at)."""
+async def uses(ctx, phrase: str, *, skip_window: tuple | None, literal: bool = False) -> list:
+    """Every use of a phrase in scope, oldest first: (row id, message id, channel, author, at).
+    Only a message's own words count, not a filename or link that happens to contain the
+    phrase; ``literal`` takes every match (an emoji's id, which only ever is markup)."""
     sql = text(
-        "SELECT m.id, m.message_id, m.channel_id, m.author_id, m.created_at FROM search_message_fts f "
+        "SELECT m.id, m.message_id, m.channel_id, m.author_id, m.created_at, m.content FROM search_message_fts f "
         "JOIN search_message m ON m.id = f.rowid WHERE search_message_fts MATCH :q AND m.guild_id = :g "
         "AND m.channel_id IN :chs AND m.author_id NOT IN :skip ORDER BY m.created_at LIMIT 50000"
     ).bindparams(bindparam("chs", expanding=True), bindparam("skip", expanding=True))
@@ -205,7 +212,9 @@ async def uses(ctx, phrase: str, *, skip_window: tuple | None) -> list:
                 return []   # a phrase the index can't parse is no candidate
             raise
     # Raw SQL hands back the stored text; every time here is UTC.
-    rows = [(r[0], r[1], r[2], r[3], aware(r[4] if isinstance(r[4], datetime) else datetime.fromisoformat(r[4]))) for r in rows]
+    wanted = tokens(phrase)
+    rows = [(r[0], r[1], r[2], r[3], aware(r[4] if isinstance(r[4], datetime) else datetime.fromisoformat(r[4])))
+            for r in rows if literal or says(r[5], wanted)]
     if skip_window:
         lo, hi = skip_window
         rows = [r for r in rows if not (lo <= r[4] < hi)]
@@ -235,7 +244,9 @@ async def _names(ctx) -> set[str]:
     """Everything a pick can't be: members' names, channels, roles, and Olisar's own."""
     async with session_scope() as session:
         roles = (await session.scalars(select(GuildRole.name).where(GuildRole.guild_id == ctx.guild_id))).all()
-        channels = (await session.scalars(select(GuildChannelInfo.name).where(GuildChannelInfo.guild_id == ctx.guild_id))).all()
+        # Threads aren't in it: a thread is often named for the very event a pick could be.
+        channels = (await session.scalars(select(GuildChannelInfo.name).where(
+            GuildChannelInfo.guild_id == ctx.guild_id, GuildChannelInfo.kind != "thread"))).all()
         persona = await session.scalar(select(Persona.name).where(Persona.guild_id == ctx.guild_id))
         triggers = await session.scalar(select(GuildConfig.name_triggers).where(GuildConfig.guild_id == ctx.guild_id))
     out = {n.lower() for n in (*roles, *channels, persona or "", *(triggers or []), "olisar") if n}
@@ -264,7 +275,7 @@ def _proposals_from_sample(sample: list, names: set[str], tz: int) -> tuple[dict
     server-words shortlist the motifs request screens for ordinary English."""
     grams: Counter = Counter()
     for _, _, content, _ in sample:
-        toks = tokens(content)
+        toks = tokens(strip_markup(content))
         for i, w in enumerate(toks):
             grams[w] += 1
             if i + 1 < len(toks):
@@ -277,7 +288,8 @@ def _proposals_from_sample(sample: list, names: set[str], tz: int) -> tuple[dict
     stickers: dict[str, set] = defaultdict(set)
     named: dict[str, set] = defaultdict(set)
     for author, _, content, at in sample:
-        toks = tokens(content)
+        said = strip_markup(content)
+        toks = tokens(said)
         seen = set()
         for i, w in enumerate(toks):
             for g in (w, w + " " + toks[i + 1] if i + 1 < len(toks) else None):
@@ -291,12 +303,12 @@ def _proposals_from_sample(sample: list, names: set[str], tz: int) -> tuple[dict
             emoji.setdefault(eid, (name, set()))[1].add(author)
         for st in _STICKER.findall(content or ""):
             stickers[st.strip().lower()].add(author)
-        for m in _THE.findall((content or "").lower()):
+        for m in _THE.findall(said.lower()):
             phrase = m.replace("’", "'")
             if not is_filler(phrase) and phrase not in names:
                 named[phrase].add(author)
-        for m in _CAPS.findall(content or ""):
-            phrase = m.strip().lower()
+        for m in _CAPS.findall(said):
+            phrase = m.strip().lower().replace("’", "'")
             if not is_filler(phrase) and phrase not in names:
                 named[phrase].add(author)
 
@@ -350,7 +362,7 @@ async def _rituals_by_channel(ctx, tz: int, names: set[str], sample: list) -> di
         grams: Counter = Counter()
         for _, ch, content, at in sample:
             if ch == channel_id and (aware(at) + timedelta(hours=tz)).weekday() == weekday:
-                toks = tokens(content)
+                toks = tokens(strip_markup(content))
                 for i in range(len(toks) - 1):
                     g = toks[i] + " " + toks[i + 1]
                     if not is_filler(g) and g not in names:
@@ -358,6 +370,59 @@ async def _rituals_by_channel(ctx, tz: int, names: set[str], sample: list) -> di
         if grams:
             g = grams.most_common(1)[0][0]
             out[g] = {"phrase": g, "title": g, "detector": "ritual", "weekday": weekday}
+    return out
+
+
+_SHORTCODE = re.compile(r":[a-z0-9_]+:")
+
+
+def _thread_title(name: str) -> str:
+    """A thread's name as words: no emoji, shortcodes or markdown."""
+    name = _SHORTCODE.sub(" ", name or "")
+    name = re.sub(r"[^\w\s'’&:-]", " ", name, flags=re.UNICODE).replace("_", " ")
+    return " ".join(name.split()).strip(" :-")
+
+
+async def _threads(ctx, names: set[str]) -> dict[str, dict]:
+    """Threads and forum posts named for something: an event that comes round again
+    ("Friday Night Salvage", with a thread each time), or one a crowd took part in. Titles
+    starting with the same three words count as one."""
+    async with session_scope() as session:
+        rows = (await session.execute(
+            select(GuildChannelInfo.channel_id, GuildChannelInfo.name).where(
+                GuildChannelInfo.guild_id == ctx.guild_id, GuildChannelInfo.kind == "thread",
+                GuildChannelInfo.channel_id.in_(list(ctx.scope.channels)),
+            )
+        )).all()
+        authors = dict((await session.execute(
+            select(SearchMessage.channel_id, func.count(func.distinct(SearchMessage.author_id)))
+            .where(*ctx.scope.where()).group_by(SearchMessage.channel_id)
+        )).all())
+    groups: dict[str, dict] = {}
+    for cid, name in rows:
+        title = _thread_title(name)
+        words = tokens(title)
+        if len(words) < 2 or is_filler(" ".join(words)) or blocked(title) or " ".join(words) in names:
+            continue
+        key = " ".join(words[:3])
+        g = groups.setdefault(key, {"phrase": key, "title": title, "detector": "threads", "threads": [], "posters": 0})
+        g["threads"].append(int(cid))
+        g["posters"] += int(authors.get(int(cid), 0))
+        if len(title) < len(g["title"]):
+            g["title"] = title   # the shortest name for it, without "Titans" or a date on it
+    return {k: g for k, g in groups.items() if g["posters"] >= 3}
+
+
+async def _thread_rows(ctx, ids: list[int], skip_window: tuple | None) -> list:
+    async with session_scope() as session:
+        rows = (await session.execute(
+            select(SearchMessage.id, SearchMessage.message_id, SearchMessage.channel_id, SearchMessage.author_id, SearchMessage.created_at)
+            .where(*ctx.scope.where(), SearchMessage.channel_id.in_(ids)).order_by(SearchMessage.created_at)
+        )).all()
+    out = [(r[0], r[1], r[2], r[3], aware(r[4])) for r in rows]
+    if skip_window:
+        lo, hi = skip_window
+        out = [r for r in out if not (lo <= r[4] < hi)]
     return out
 
 
@@ -389,7 +454,7 @@ async def _motifs(ctx, words: list[str]) -> dict:
             ).order_by(ChannelSummary.id.desc()).limit(40)
         )).all()
     summaries = "\n".join(f"#{ctx.scope.name(ch)}: {' '.join((s or '').split())[:600]}" for ch, s in rows)
-    prompt = f"Channel summaries:\n{summaries or '(none)'}\n\nWords and phrases:\n" + "\n".join(words)
+    prompt = f"Channel summaries:\n{summaries or '(none)'}\n\nWords, phrases and names:\n" + "\n".join(words)
     return await ctx.asker.ask("motifs", kind="lite", system=MOTIFS_SYSTEM, prompt=prompt, temperature=0.2, max_output_tokens=800) or {}
 
 
@@ -405,16 +470,24 @@ async def candidates(ctx) -> list[dict]:
     sample = await _sample(ctx, tally.messages)
     proposals, words = _proposals_from_sample(sample, names, tz)
     proposals.update(await _rituals_by_channel(ctx, tz, names, sample))
-    motifs = await _motifs(ctx, words)
+    proposals.update(await _glossary(ctx, names))   # glossary wins a tie: the strongest source
+    threads = await _threads(ctx, names)
+    # One request finds the motifs and screens everything else for what isn't this server's
+    # own: ordinary English, and the public vocabulary of whatever game or topic it's about.
+    screen = [p["title"] for p in proposals.values() if p["detector"] in ("words", "named", "glossary", "ritual")][:150]
+    screen += [p["title"] for p in threads.values()]
+    motifs = await _motifs(ctx, screen)
     ordinary = {" ".join(tokens(w)) for w in motifs.get("ordinary") or [] if isinstance(w, str)}
     for g in list(proposals):
-        if proposals[g]["detector"] == "words" and g in ordinary:
+        if " ".join(tokens(proposals[g]["title"])) in ordinary or g in ordinary:
             del proposals[g]
+    for key, t in threads.items():
+        if " ".join(tokens(t["title"])) not in ordinary:
+            proposals.setdefault(key, t)
     for m in motifs.get("motifs") or []:
         phrase = " ".join(tokens(m)) if isinstance(m, str) else ""
         if phrase and phrase not in proposals and not is_filler(phrase) and phrase not in names:
             proposals[phrase] = {"phrase": phrase, "title": m.strip(), "detector": "motifs"}
-    proposals.update(await _glossary(ctx, names))   # glossary wins a tie: the strongest source
     # Each source gets its turn: words alone would fill the list on a busy server.
     cap = {"glossary": 30, "words": 30}
     per_source: Counter = Counter()
@@ -431,8 +504,17 @@ async def candidates(ctx) -> list[dict]:
     floor = max(6, math.ceil(0.03 * posters))
     scored = []
     for p in picked:
-        rows = await uses(ctx, p["phrase"], skip_window=skip)
+        rows = await uses(ctx, p["phrase"], skip_window=skip, literal=p["detector"] == "emoji")
+        if p.get("threads"):
+            # An event's own threads are its uses too, alongside every mention of it.
+            seen_ids = {r[0] for r in rows}
+            rows = sorted(rows + [r for r in await _thread_rows(ctx, p["threads"], skip) if r[0] not in seen_ids], key=lambda r: r[4])
+        def out(why: str) -> None:
+            # Which candidates the filters let go, and why: what tuning them needs to see.
+            log.info("replay pick: left out %r (%s): %s", p["title"], p["detector"], why)
+
         if not rows:
+            out("no uses")
             continue
         per_author = Counter(r[3] for r in rows)
         people = len(per_author)
@@ -441,18 +523,24 @@ async def candidates(ctx) -> list[dict]:
         top_share = per_author.most_common(1)[0][1] / len(rows)
         staff = sum(n for ch, n in channels.items() if STAFFISH.search(ctx.scope.name(ch) or "") or ctx.roster.public(ch) is False)
         distinct_days = len({(aware(r[4]) + timedelta(hours=tz)).date() for r in rows})
-        own_channel = p["detector"] == "ritual" and len(channels) == 1 and distinct_days >= 20
+        # A ritual or event that lives in its own channel or thread passes on how often it
+        # came round: eight separate days, as PICK.md asks of a weekly ritual.
+        own_channel = p["detector"] in ("ritual", "threads") and len(channels) == 1 and distinct_days >= 8
         # The hard filters (PICK.md).
         if people < floor or top_share > 0.35 or months < 3:
+            out(f"{people} people (needs {floor}), top person {top_share:.0%} (at most 35%), {months} months (needs 3)")
             continue
         if len(channels) < 2 and not own_channel:
+            out(f"one channel, on {distinct_days} days")
             continue
         if staff / len(rows) >= 0.4:
+            out(f"{staff / len(rows):.0%} in staff or private channels")
             continue
         # The origin: the earliest use by someone who can be named, in a channel everyone sees.
         origin = next((r for r in rows[:25] if ctx.people.nameable(r[3]) and ctx.roster.public(r[2]) is not False
                        and not STAFFISH.search(ctx.scope.name(r[2]) or "")), None)
         if origin is None:
+            out("no first use by someone who can be named, in a channel everyone sees")
             continue
         unusual = 1.5 if p["detector"] == "glossary" else 1.0
         score = math.log(people) * math.sqrt(months) * len(channels) ** 0.3 * (1 - top_share) * unusual
@@ -709,6 +797,7 @@ async def run(ctx) -> None:
         for i, c in enumerate(cands, 1):
             b = await evidence(ctx, c, i)
             b["stats"] = {k: c[k] for k in ("phrase", "title", "detector", "people", "channels", "months", "days")}
+            b["stats"]["threads"] = c.get("threads") or []
             blocks[b["id"]] = b
         st["blocks"] = blocks
         await ctx.keep()
@@ -731,7 +820,10 @@ async def run(ctx) -> None:
             log.info("replay pick: %s didn't pass the check", f["id"])
             continue
         intro, spread = await write(ctx, f, block, trail, persona)
-        rows = await uses(ctx, block["stats"]["phrase"], skip_window=_skip(ctx.report, tz))
+        rows = await uses(ctx, block["stats"]["phrase"], skip_window=_skip(ctx.report, tz), literal=block["stats"]["detector"] == "emoji")
+        if block["stats"].get("threads"):
+            seen_ids = {r[0] for r in rows}
+            rows = sorted(rows + [r for r in await _thread_rows(ctx, block["stats"]["threads"], _skip(ctx.report, tz)) if r[0] not in seen_ids], key=lambda r: r[4])
         c = {**block["stats"], "rows": rows}
         count, unit = _unit(f, c, tz)
         ctx.report["pick"] = {

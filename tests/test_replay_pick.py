@@ -287,6 +287,46 @@ class MediaAndHighlightTests(_Pick):
         self.assertFalse(any("wi" in m for m in excerpt))
 
 
+class CandidateTests(_Pick):
+    def test_only_what_members_wrote_counts(self) -> None:
+        from olisar.replay.words import says
+        self.assertFalse(says("[image: Star_Citizen_Screenshot.png]", ["star"]))
+        self.assertFalse(says("https://robertsspaceindustries.com/star-citizen", ["star"]))
+        self.assertTrue(says("star citizen is down again", ["star", "citizen"]))
+        sample = [(i, GENERAL, "[image: Star_Citizen_Screenshot.png]", T0 + timedelta(days=i)) for i in range(40)]
+        proposals, _ = pick._proposals_from_sample(sample, set(), 0)
+        self.assertNotIn("star", proposals)
+        self.assertNotIn("png", proposals)
+
+    async def test_a_thread_named_for_an_event_is_a_candidate(self) -> None:
+        from olisar.db.models import GuildChannelInfo
+        from tests.test_replay import sf
+        salvage = [sf(T0 + timedelta(days=100 + k * 30), 900 + k) for k in range(4)]
+        async with session_scope() as s:
+            for k, tid in enumerate(salvage):
+                s.add(GuildChannelInfo(channel_id=tid, guild_id=self.home, name=f"🛰️ Friday Night Salvage {k + 1}",
+                                       kind="thread", parent_id=GENERAL, backfill_done=True))
+                for j, who in enumerate([JUNIPER, BRAM, TESS, NIGHTJAR, OKAPI, 10_001, 10_002]):
+                    s.add(msg(tid, who, T0 + timedelta(days=100 + k * 30, minutes=j), f"salvage run {k} {j}"))
+        g = FakeGemini()
+        await self.run_with(g)
+        judged = next(p for k, p in g.calls if k.startswith("You're choosing"))
+        self.assertIn('from threads · "Friday Night Salvage', judged)
+
+    async def test_what_isnt_the_servers_own_is_screened_out(self) -> None:
+        g = FakeGemini()
+        original = g.generate_json
+
+        async def goose_is_ordinary(**kw):
+            if kw["system_instruction"].startswith("You help find"):
+                from olisar.gemini.client import JsonResult
+                data = {"motifs": [], "ordinary": ["goose", "chatter"]}
+                return JsonResult(data=data, text=json.dumps(data), model="m", input_tokens=1, output_tokens=1)
+            return await original(**kw)
+        g.generate_json = goose_is_ordinary  # type: ignore[method-assign]
+        self.assertIsNone((await self.run_with(g))["pick"])
+
+
 if __name__ == "__main__":
     import unittest
     unittest.main()
