@@ -155,9 +155,11 @@ def _render(ctx, rows: list, tz: int) -> tuple[str, dict[str, int]]:
     return "\n".join(lines), ids
 
 
-def _gap(a, b, between: int) -> str | None:
-    """What the replay says between two quoted messages that aren't next to each other."""
-    secs = (aware(b.created_at) - aware(a.created_at)).total_seconds()
+def _gap(a: dict, b: dict) -> str | None:
+    """What the replay says between two quoted messages that aren't next to each other.
+    Each carries ``wi``, its place in the window it was read from."""
+    between = int(b.get("wi", 0)) - int(a.get("wi", 0)) - 1
+    secs = (stats.parse(b["at"]) - stats.parse(a["at"])).total_seconds()
     if secs < 20 * 60 and between < 15:
         return None
     if secs >= 3600:
@@ -166,6 +168,48 @@ def _gap(a, b, between: int) -> str | None:
     else:
         lead = f"{max(1, round(secs / 60))} minutes"
     return f"{lead} and {between:,} messages later" if between >= 15 else f"{lead} later"
+
+
+def with_gaps(msgs: list[dict]) -> list[dict]:
+    """Quoted messages in the order they were sent, with a line between any two that
+    weren't next to each other ("2 hours and 611 messages later")."""
+    msgs = sorted(msgs, key=lambda m: int(m.get("wi", 0)))
+    out: list[dict] = []
+    for n, m in enumerate(msgs):
+        if n:
+            gap = _gap(msgs[n - 1], m)
+            if gap:
+                out.append({"gap": gap})
+        out.append(m)
+    return out
+
+
+HIGHLIGHTS = 10   # messages kept besides the model's own picks, in case the last check drops some
+
+
+def _highlights(rows: list, ids: dict[str, int], picked: list[int]) -> list[int]:
+    """More messages worth showing from a window, chosen in code: a GIF, image or sticker
+    first, then something with a few words to it, spread across the window and its people."""
+    from olisar.replay.media import hinted
+    taken, authors = set(picked), set()
+    scored = []
+    for idx in ids.values():
+        if idx in taken:
+            continue
+        row = rows[idx]
+        words = len((row.content or "").split())
+        score = (2 if hinted(row.content or "") else 0) + (1 if 5 <= words <= 60 else 0)
+        scored.append((score, idx))
+    out: list[int] = []
+    for k in range(HIGHLIGHTS):
+        lo, hi = k * len(rows) // HIGHLIGHTS, (k + 1) * len(rows) // HIGHLIGHTS
+        part = [(s, i) for s, i in scored if lo <= i < hi and i not in out]
+        if not part:
+            continue
+        best = max(part, key=lambda si: (si[0], rows[si[1]].author_id not in authors))
+        out.append(best[1])
+        authors.add(rows[best[1]].author_id)
+    return sorted(out)
 
 
 async def read(ctx, cand: dict) -> dict | None:
@@ -184,13 +228,14 @@ async def read(ctx, cand: dict) -> dict | None:
         return {"key": cand["key"], "ok": False}
     picked = [ids[h] for h in (answer.get("excerpt") or []) if isinstance(h, str) and h in ids]
     picked = sorted(dict.fromkeys(picked))[:8]
-    excerpt: list[dict] = []
-    for n, idx in enumerate(picked):
-        if n:
-            gap = _gap(rows[picked[n - 1]], rows[idx], idx - picked[n - 1] - 1)
-            if gap:
-                excerpt.append({"gap": gap})
-        excerpt.append(stats.message(rows[idx], ctx.scope, ctx.people))
+
+    def quoted(idx: int) -> dict:
+        m = stats.message(rows[idx], ctx.scope, ctx.people)
+        m["wi"] = idx
+        return m
+
+    excerpt = with_gaps([quoted(i) for i in picked])
+    more = [quoted(i) for i in _highlights(rows, ids, picked)]
     what = (answer.get("what") or "").strip()
     title = (answer.get("title") or "").strip().strip('"“”')
     why = (answer.get("why_came") or "").strip() if cand["kind"] == "burst" else ""
@@ -204,7 +249,8 @@ async def read(ctx, cand: dict) -> dict | None:
         "what": what if what and not line_problem(what, max_words=16, max_sentences=1) and not any(ch.isdigit() for ch in what) else None,
         "title": title if title and len(title) <= 48 and len(title.split()) <= 6 and not blocked(title) else None,
         "why_came": why if why and not line_problem(why, max_words=20, max_sentences=1, names_known=names, names_allowed=set()) else None,
-        "excerpt": excerpt if len(excerpt) >= 3 else [],
+        "excerpt": excerpt,
+        "more": more,
         "faces": faces[:5],
         "channel": excerpt[0]["chn"] if excerpt else None,
     }
@@ -251,7 +297,8 @@ async def apply(ctx) -> None:
         rank_of = {d: i for i, d in enumerate(order)}
         days = sorted((c for c in state.get("candidates", []) if c["kind"] in ("busy", "year")),
                       key=lambda c: rank_of.get(c["day"], len(order)))
-        chosen = next(((c, m) for c in days if (m := found.get(c["key"])) and m.get("ok") and m.get("safe") and m.get("excerpt")), None)
+        chosen = next(((c, m) for c in days if (m := found.get(c["key"])) and m.get("ok") and m.get("safe")
+                       and (m.get("excerpt") or m.get("more"))), None)
         if chosen is None:
             report["night"] = None   # nothing about the busiest days is safe to show
         else:
@@ -263,6 +310,8 @@ async def apply(ctx) -> None:
             night["line"] = m.get("what")
             night["sphere"] = m.get("title")
             night["excerpt"] = m["excerpt"]
+            # Other messages from that day, for when the last check drops some (check.py).
+            night["more"] = m.get("more") or []
             night["faces"] = list(dict.fromkeys(m["faces"] + night.get("faces", [])))[:5]
             report["night"] = night
     for mile in (report.get("arrivals") or {}).get("milestones", []):

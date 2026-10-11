@@ -58,6 +58,9 @@ class Refusal:
     # The quota's size, when Google named it. Google's docs stopped listing free-tier daily
     # limits, so this is the only authoritative source there is.
     limit: int | None = None
+    # The model whose quota it was, when Google named it. Not always the model asked: a
+    # -latest alias is counted against the model it points to.
+    model: str | None = None
 
 
 # A daily quota's id, e.g. `GenerateRequestsPerDayPerProjectPerModel-FreeTier`.
@@ -105,12 +108,15 @@ def read_refusal(exc: Exception) -> Refusal:
     # against. A token quota's (1,000,000 input tokens a day) would read as a million
     # requests left, so when only a token quota ran out the model is out with no limit.
     limit = None
+    model = None
     for v in daily:
         if not _counts_requests(v):
             continue
+        dims = v.get("quotaDimensions") or v.get("quota_dimensions") or {}
+        model = dims.get("model") if isinstance(dims, dict) else None
         try:
             limit = int(str(v.get("quotaValue") or v.get("quota_value") or ""))
             break
         except ValueError:
             continue
-    return Refusal(daily=True, limit=limit)
+    return Refusal(daily=True, limit=limit, model=model)

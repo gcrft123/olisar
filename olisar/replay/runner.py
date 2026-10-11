@@ -36,9 +36,9 @@ from olisar.replay.scope import Roster, Scope, aware, build_scope, hidden_users
 
 log = logging.getLogger("olisar.replay")
 
-STEPS = ("gather", "count", "moments", "pick", "write", "check")
+STEPS = ("gather", "count", "moments", "pick", "write", "check", "media")
 # The four the remembering screen names: Gathering, Counting, Reading, Writing.
-PHASE = {"gather": 0, "count": 1, "moments": 2, "pick": 2, "write": 3, "check": 3}
+PHASE = {"gather": 0, "count": 1, "moments": 2, "pick": 2, "write": 3, "check": 3, "media": 3}
 PROGRESS_EVERY = 0.75   # seconds between progress writes
 
 
@@ -155,9 +155,14 @@ async def step_check(ctx: Context) -> None:
     await check.run(ctx)
 
 
+async def step_media(ctx: Context) -> None:
+    from olisar.replay import media
+    await media.attach(ctx.report, ctx.roster)
+
+
 STEP_FN = {
     "gather": step_gather, "count": step_count, "moments": step_moments,
-    "pick": step_pick, "write": step_write, "check": step_check,
+    "pick": step_pick, "write": step_write, "check": step_check, "media": step_media,
 }
 
 

@@ -202,8 +202,16 @@ def redact(report: dict, hidden: set[str], *, resolve: bool = True) -> dict:
     if isinstance(first, dict) and not first.get("messages"):
         out["first"] = None
     night = out.get("night")
-    if isinstance(night, dict) and sum("text" in m for m in night.get("excerpt") or []) < 3:
-        night["excerpt"] = []
+    if isinstance(night, dict):
+        # Someone's message gone from between two gaps leaves them side by side.
+        tidy: list = []
+        for m in night.get("excerpt") or []:
+            if "gap" in m and (not tidy or "gap" in tidy[-1]):
+                continue
+            tidy.append(m)
+        while tidy and "gap" in tidy[-1]:
+            tidy.pop()
+        night["excerpt"] = tidy if any("text" in m for m in tidy) else []
     arrive = out.get("arrive")
     if isinstance(arrive, dict) and arrive.get("reply") and arrive["reply"][0].get("who") != "bot" and len(arrive["reply"]) < 2:
         arrive["reply"] = []

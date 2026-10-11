@@ -9,7 +9,10 @@ with it: the pick without its first message, the first reply without both halves
 
 from __future__ import annotations
 
+from olisar.replay.moments import with_gaps
 from olisar.replay.words import blocked
+
+SHOWN = 6   # messages the busiest day's memory aims to show
 
 CHECK_SYSTEM = """\
 You check a replay of a Discord server's history before it plays on a big screen in front of \
@@ -19,6 +22,9 @@ For each, answer "ok" if it's fine to show everyone, or "drop" if it could embar
 single out anyone; if it touches conflict, moderation, health, grief, money, politics, religion \
 or sex; or if it shares something private (a full name, an address, a phone number, a place \
 someone lives or works). If you're unsure, "drop".
+
+Some messages are only a GIF, an image or a sticker, shown as a link or as [image: …] or \
+[sticker: …]. Those are fine to show unless what they name isn't.
 
 Return only JSON with every id: {"q1": "ok", "q2": "drop"}
 """
@@ -36,6 +42,8 @@ def _quotes(report: dict) -> list[tuple[str, dict, str]]:
     for m in night.get("excerpt") or []:
         if "text" in m:
             out.append(("night", m, "text"))
+    for m in night.get("more") or []:
+        out.append(("night-more", m, "text"))
     for key in ("line", "sphere"):
         if night.get(key):
             out.append(("night-" + key, night, key))
@@ -73,16 +81,16 @@ def _drop(report: dict, dropped: list[tuple[str, dict, str]]) -> None:
             night["line"] = None
         if "night-sphere" in kinds:
             night["sphere"] = None
-        kept = [m for m in night.get("excerpt") or [] if id(m) not in gone]
-        # No gap at either end, and never two in a row.
-        tidy: list[dict] = []
-        for m in kept:
-            if "gap" in m and (not tidy or "gap" in tidy[-1]):
-                continue
-            tidy.append(m)
-        while tidy and "gap" in tidy[-1]:
-            tidy.pop()
-        night["excerpt"] = tidy if sum("text" in m for m in tidy) >= 3 else []
+        # What the model picked that passed, topped up from the day's other messages that
+        # passed, so a day with a few hard messages in it still has something to read.
+        kept = [m for m in night.get("excerpt") or [] if "text" in m and id(m) not in gone]
+        spare = [m for m in night.pop("more", None) or [] if id(m) not in gone]
+        if len(kept) < SHOWN:
+            step = max(1, len(spare) // max(1, SHOWN - len(kept)))
+            kept += spare[::step][: SHOWN - len(kept)]
+        night["excerpt"] = with_gaps(kept)
+        for m in night["excerpt"]:
+            m.pop("wi", None)
     arrive = report.get("arrive")
     if arrive and any(id(m) in gone for m in arrive.get("reply", [])):
         arrive["reply"] = []

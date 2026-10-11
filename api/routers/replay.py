@@ -9,16 +9,21 @@ Server there. One runs at a time per server.
     POST /api/replay/start    start one ({"anyway": true} while the index is still reading)
     POST /api/replay/retry    carry on a run that failed or stopped, from where it stopped
     GET  /api/replay/report   the finished replay, redacted for who can be shown today
+    GET  /api/replay/media    an image or video a quoted message holds, at a fresh address
     POST /api/replay/answer   save the answer to its last question, for next year's
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from api.auth.deps import GuildContext, require_guild_admin
+import discord
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
+
+from api.auth.deps import COOKIE_NAME, GuildContext, require_guild_admin
 from api.botinfo import bot_name
 from api.schemas import ReplayAnswerIn, ReplayStartIn
 from olisar.audit import record_audit
@@ -175,8 +180,8 @@ async def retry_replay(request: Request, gctx: GuildContext = Depends(require_gu
     return {"run": view}
 
 
-@router.get("/report")
-async def replay_report(request: Request, run: int | None = None, gctx: GuildContext = Depends(require_guild_admin)):
+async def _served(request: Request, gctx: GuildContext, run: int | None = None) -> tuple[dict, ReplayRun]:
+    """The replay as it may be shown today: redacted for anyone who opted out or left."""
     now = utcnow()
     async with session_scope() as session:
         if run is None:
@@ -188,12 +193,65 @@ async def replay_report(request: Request, run: int | None = None, gctx: GuildCon
         if row is None or not row.report:
             raise HTTPException(status_code=404, detail="There's no finished replay of this server.")
         hidden = await hidden_users(session, gctx.guild_id, now)
-        report, answer, run_id = row.report, row.answer, row.id
+        report = row.report
     hidden |= _gone(request, gctx.guild_id, (report.get("people") or {}).keys())
-    out = store.present(report, hidden)
-    out["run"] = run_id
-    out["answer"] = answer or None
+    return store.present(report, hidden), row
+
+
+@router.get("/report")
+async def replay_report(request: Request, run: int | None = None, gctx: GuildContext = Depends(require_guild_admin)):
+    out, row = await _served(request, gctx, run)
+    out["run"] = row.id
+    out["answer"] = row.answer or None
     return out
+
+
+# An upload's Discord address expires within a day, so the console asks here and is sent to
+# a fresh one. Kept a while, so a replay played twice doesn't look every message up again.
+_fresh: dict[tuple[int, str, int], tuple[str, float]] = {}
+FRESH_FOR = 3 * 3600
+
+
+def _quoted(node, message_id: str) -> dict | None:
+    """The quoted message with this id, anywhere in a served report."""
+    if isinstance(node, dict):
+        if node.get("id") == message_id and "text" in node and "ch" in node:
+            return node
+        node = list(node.values())
+    if isinstance(node, list):
+        for item in node:
+            found = _quoted(item, message_id)
+            if found is not None:
+                return found
+    return None
+
+
+@router.get("/media/{message_id}/{index}")
+async def replay_media(
+    message_id: str, index: int, request: Request, g: str = "",
+    olisar_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
+):
+    """An image or video in a message the replay quotes. An <img> can't send the server
+    header, so the server comes as ``g`` and goes through the same check."""
+    gctx = await require_guild_admin(request, olisar_session, g)
+    report, _ = await _served(request, gctx)
+    msg = _quoted(report, message_id)
+    if msg is None or not any(m.get("i") == index and m.get("kind") in ("image", "video") for m in msg.get("media") or []):
+        raise HTTPException(status_code=404, detail="That isn't in this server's replay.")
+    key = (gctx.guild_id, message_id, index)
+    hit = _fresh.get(key)
+    if hit is None or hit[1] < time.monotonic():
+        bot = _bot(request)
+        channel = bot.get_channel(int(msg["ch"])) if bot is not None else None
+        if channel is None:
+            raise HTTPException(status_code=503, detail="The bot can't reach that channel right now.")
+        try:
+            found = await channel.fetch_message(int(message_id))
+            url = found.attachments[index].url
+        except (discord.NotFound, discord.Forbidden, IndexError):
+            raise HTTPException(status_code=404, detail="Discord no longer has it.") from None
+        hit = _fresh[key] = (url, time.monotonic() + FRESH_FOR)
+    return RedirectResponse(hit[0], status_code=302, headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.post("/answer")

@@ -114,6 +114,21 @@ class FakeRoster:
     def names(self) -> set[str]:
         return {n.lower() for n in NAMES.values()}
 
+    async def media(self, channel_id: int, message_id: int):
+        """What Discord would say the message holds, read off the markers the index kept."""
+        from olisar.replay.media import _GIF_LINK, _MARKER
+        async with session_scope() as s:
+            text = await s.scalar(select(SearchMessage.content).where(SearchMessage.message_id == message_id)) or ""
+        out = []
+        if _GIF_LINK.search(text):
+            out.append({"kind": "gif", "src": "https://media.tenor.com/x.mp4", "poster": "https://media.tenor.com/x.png", "w": 220, "h": 160})
+        for kind, name in _MARKER.findall(text):
+            if kind == "sticker":
+                out.append({"kind": "sticker", "src": f"https://media.discordapp.net/stickers/{name}.png", "name": name})
+            elif kind == "image":
+                out.append({"kind": "image", "i": 0, "w": 640, "h": 480})
+        return out
+
 
 _seq = iter(range(1, 1 << 20))
 

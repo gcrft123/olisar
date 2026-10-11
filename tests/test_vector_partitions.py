@@ -88,6 +88,25 @@ class _Db(unittest.IsolatedAsyncioTestCase):
         return con
 
 
+class ReembedTests(_Db):
+    async def test_a_row_embedded_twice_keeps_the_new_vector(self):
+        """vec0 ignores OR REPLACE, so a second vector for the same row used to fail with a
+        UNIQUE error, and an edited memory could never be embedded again."""
+        dim = len(await self._probe_dim())
+        first, second = [1.0] + [0.0] * (dim - 1), [0.0, 1.0] + [0.0] * (dim - 2)
+        mid = await self._message(1, 100, first)
+        async with session_scope() as s:
+            await upsert_embedding(s, "message_embedding", mid, second)
+        hits = await self._knn("message_embedding", second, 1, [1])
+        self.assertEqual(hits[0][0], mid)
+        self.assertLess(hits[0][1], 1e-4)
+
+    async def _probe_dim(self):
+        from olisar.config import settings
+
+        return [0.0] * settings.embed_dim
+
+
 class PartitionedSearchTests(_Db):
     async def test_every_vector_table_is_partitioned_by_guild(self):
         con = self._raw()

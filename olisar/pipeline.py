@@ -7,6 +7,7 @@ it. The caller handles Discord I/O (typing, sending, recording the reply).
 from __future__ import annotations
 
 import ast
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -28,7 +29,9 @@ from olisar.context import (
 )
 from olisar.db.models import GuildConfig, Persona
 from olisar.gemini.client import get_gemini, safe_text, was_truncated
-from olisar.gemini.rate_limiter import RateLimitExceeded
+from olisar.gemini import trace
+from olisar.gemini.models import AUTO
+from olisar.gemini.rate_limiter import BudgetSpent, RateLimitExceeded, get_rate_limiter
 from olisar.memory.retriever import recall, server_memory
 from olisar.memory.writer import ACK_MARKER
 from olisar.message_links import channel_filter, link_ids, strip_unoffered_links
@@ -43,6 +46,9 @@ from olisar.persona import (
     strip_breaks,
 )
 from olisar.proactivity import first_emoji
+from olisar.gemini.embeddings import embed_query
+from olisar.routing import DEEP, Routing, choose as choose_route, enabled as routing_enabled
+from olisar.routing import finish as finish_route
 from olisar.extensions import GatheredExtensions, gather_enabled
 from olisar.tools import (
     GUILD_TOOLS,
@@ -502,6 +508,25 @@ async def _settle_typed_calls(text: str, ctx: ToolContext, tools: list) -> str |
     return None
 
 
+# Web searches a deep reply may run. A model thinking hard tends to check its answer on the
+# web, and on a billed key each grounded search took 30 to 60 seconds in testing: three of
+# them kept a debugging question waiting over two minutes.
+DEEP_WEB_SEARCH_CAP = 1
+
+
+def _lookup_cap(tool: str, routing: Routing | None) -> int:
+    """How many times this reply may call the lookup ``tool``."""
+    if tool == "web_search" and routing is not None and routing.route.tier == DEEP:
+        return DEEP_WEB_SEARCH_CAP
+    return LOOKUP_CALL_CAP
+
+
+def _model_args(model: str | None, routing: Routing | None) -> dict:
+    """The model, chain and thinking for a reply's next request: its route's when it's
+    routed, else the server's model as before routing."""
+    return routing.route.model_args() if routing is not None else {"model": model}
+
+
 def _fallback_when_synthesis_fails(blank_fallback: str, gathered: list[str]) -> str:
     """Last resort when both synthesis and the forced final answer fail.
 
@@ -526,7 +551,7 @@ def _fallback_when_synthesis_fails(blank_fallback: str, gathered: list[str]) -> 
 
 async def _complete_truncated(
     client, contents: list, system_instruction: str, model: str | None, tools: list,
-    resp, text: str,
+    resp, text: str, routing: Routing | None = None,
 ) -> str:
     """If ``resp`` was cut off at the token ceiling, ask the model to continue and
     stitch the pieces so the reply finishes instead of stopping mid-sentence. Bounded
@@ -553,9 +578,9 @@ async def _complete_truncated(
                 contents=contents,
                 system_instruction=system_instruction,
                 tools=tools,
-                model=model,
                 force_text=True,
                 source="conversation",
+                **_model_args(model, routing),
             )
         except Exception:
             log.exception("continuation %d after truncation failed; sending the partial", n + 1)
@@ -576,7 +601,8 @@ async def _complete_truncated(
 
 
 async def _force_final_answer(
-    client, contents: list, system_instruction: str, model: str | None, tools: list
+    client, contents: list, system_instruction: str, model: str | None, tools: list,
+    routing: Routing | None = None,
 ) -> str:
     """Close out the loop with a plain-text answer. First bar tool-calling
     (mode=NONE); if a weaker fallback model emits a function_call anyway and returns
@@ -588,13 +614,15 @@ async def _force_final_answer(
             contents=contents,
             system_instruction=nudged,
             tools=tools,
-            model=model,
             force_text=True,
             source="conversation",
+            **_model_args(model, routing),
         )
         text = _response_text(resp)
         if text:
-            return await _complete_truncated(client, contents, nudged, model, tools, resp, text)
+            return await _complete_truncated(
+                client, contents, nudged, model, tools, resp, text, routing=routing
+            )
     except RateLimitExceeded:
         raise  # generate_reply says "I'm rate limited" — see the note below
     except Exception:
@@ -610,12 +638,14 @@ async def _force_final_answer(
     # admin configured — leaving no hint that waiting would fix it.
     for attempt in range(2):
         try:
+            # 1024 matches the other chat paths so this fallback isn't the one that cuts off.
+            # A deep route's own ceiling replaces it: high thinking needs the room.
+            args = {"max_output_tokens": 1024, **_model_args(model, routing)}
             result = await client.generate(
                 contents=contents,
                 system_instruction=nudged,
-                model=model,
-                max_output_tokens=1024,  # match the other chat paths so this fallback isn't the one that cuts off
                 source="conversation",
+                **args,
             )
             if result.text:
                 return result.text
@@ -635,22 +665,48 @@ async def _run_tool_loop(
     ctx: ToolContext,
     blank_fallback: str = FALLBACK_EMPTY,
     tools: list = TOOLS,
+    routing: Routing | None = None,
 ) -> str:
     """Generate with tools, executing any function calls and looping until the
-    model returns a plain text answer (or the iteration budget is spent)."""
+    model returns a plain text answer (or the iteration budget is spent).
+
+    ``routing`` is the reply's model route (olisar.routing), None when the server isn't
+    routed. A light route only ever answers in words or with a reaction: the first time it
+    reaches for any other tool, types a call out, or comes back empty, the rest of the reply
+    goes to the standard tier, which asks the same turn again. Nothing the light model asked
+    for runs, so no tool result is ever read back by the model least able to use it."""
     client = get_gemini()
     gathered: list[str] = []  # every useful tool result, for the graceful fallback
     lookups: dict[str, int] = {}  # lookup tool -> calls so far this reply
-    for _ in range(MAX_TOOL_ITERS):
+    # A light route gets one more round: handing it up spends one on the light model's turn.
+    rounds = MAX_TOOL_ITERS + (1 if routing is not None and routing.light else 0)
+    for _ in range(rounds):
         resp = await client.generate_with_tools(
             contents=contents,
             system_instruction=system_instruction,
             tools=tools,
-            model=model,
             source="conversation",
+            **_model_args(model, routing),
         )
         calls = _function_calls(resp)
+        if (
+            calls and routing is not None and routing.light
+            and any(call.name not in _REACTION_TOOLS for call in calls)
+        ):
+            routing.escalate("tool " + ", ".join(sorted({c.name for c in calls})))
+            continue
         if not calls:
+            if routing is not None and routing.light:
+                # Checked before _settle_typed_calls, which would carry out a typed call: a
+                # typed tool call or an empty turn from the light tier is asked again on
+                # standard instead. A typed reaction is the light tier's to make.
+                typed, _ = _split_typed_calls(_response_text(resp), _declared(tools))
+                if any(name not in _REACTION_TOOLS for name, _ in typed):
+                    routing.escalate("typed tool call")
+                    continue
+                if not _response_text(resp).strip():
+                    routing.escalate("empty turn")
+                    continue
             text = await _settle_typed_calls(_response_text(resp), ctx, tools)
             if text is None:
                 if TYPED_CALL_RULE not in system_instruction:
@@ -660,7 +716,8 @@ async def _run_tool_loop(
                 return ""
             if text:
                 full = await _complete_truncated(
-                    client, contents, system_instruction, model, tools, resp, text
+                    client, contents, system_instruction, model, tools, resp, text,
+                    routing=routing,
                 )
                 # A continuation is the model writing too, and can hold a typed call.
                 return full if full == text else _split_typed_calls(full, _declared(tools))[1]
@@ -674,19 +731,18 @@ async def _run_tool_loop(
         for call in calls:
             if call.name in LOOKUP_TOOLS:
                 lookups[call.name] = lookups.get(call.name, 0) + 1
-                if lookups[call.name] > LOOKUP_CALL_CAP:
+                cap = _lookup_cap(call.name, routing)
+                if lookups[call.name] > cap:
                     log.info(
                         "%s called %d times this reply — capped at %d, telling the model "
                         "to answer with what it has",
-                        call.name, lookups[call.name], LOOKUP_CALL_CAP,
+                        call.name, lookups[call.name], cap,
                     )
                     responses.append(
                         types.Part.from_function_response(
                             name=call.name,
                             response={
-                                "result": LOOKUP_CAP_NOTE.format(
-                                    name=call.name, cap=LOOKUP_CALL_CAP
-                                )
+                                "result": LOOKUP_CAP_NOTE.format(name=call.name, cap=cap)
                             },
                         )
                     )
@@ -718,7 +774,11 @@ async def _run_tool_loop(
 
     # Budget spent (or an empty turn) — force a plain-text final answer. Barred from calling
     # tools, or given none, the model is likelier still to type one out.
-    answer = await _force_final_answer(client, contents, system_instruction, model, tools)
+    if routing is not None:
+        routing.escalate("final answer")
+    answer = await _force_final_answer(
+        client, contents, system_instruction, model, tools, routing=routing
+    )
     if answer:
         answer = await _settle_typed_calls(answer, ctx, tools)
     if ctx.silent:
@@ -728,6 +788,21 @@ async def _run_tool_loop(
 
     # Last resort: apologize. Raw tool results are never shown to the user — see below.
     return _fallback_when_synthesis_fails(blank_fallback, gathered)
+
+
+def _pinned_model(config: GuildConfig | None) -> str | None:
+    """The model the server pins replies to, or None for Automatic (or no setting), which
+    replies from GEMINI_CHAT_MODEL down whenever routing doesn't pick otherwise."""
+    model = getattr(config, "default_model", None)
+    return model if model and model != AUTO else None
+
+
+def _route_names(persona: Persona | None, config: GuildConfig | None) -> tuple[str, ...]:
+    """What the bot answers to in this server, for the router to read past ("thanks
+    olisar" acknowledges as much as "thanks" does)."""
+    names = [(persona.name if persona else "") or DEFAULT_PERSONA_NAME]
+    names += [str(t) for t in (getattr(config, "name_triggers", None) or [])]
+    return tuple(dict.fromkeys(n.strip() for n in names if n and n.strip()))
 
 
 def _persona_prompt(persona: Persona | None, runtime_note: str = "") -> str:
@@ -847,9 +922,10 @@ async def generate_reply(
         "to resolve any 'remind me' / scheduling request before calling add_reminder."
     )
 
-    model = config.default_model if config and config.default_model else None
+    model = _pinned_model(config)
     cmd_msgs = config.command_messages if config and config.command_messages else {}
     rate_limit_msg = render_message(cmd_msgs, "rate_limit")
+    budget_msg = render_message(cmd_msgs, "budget_spent")
     blank_fallback = render_message(cmd_msgs, "blank_fallback")
 
     contents, recent_ids = await build_contents(
@@ -963,6 +1039,21 @@ async def generate_reply(
         addressed=addressed,
         in_guild=in_guild,
     )
+    # Which tier this reply goes to, when the server is on Automatic and routing is on.
+    # After recall, so the message's embedding is already cached for the classifier.
+    routing = Routing.of(await choose_route(
+        text=user_text,
+        default_model=getattr(config, "default_model", None),
+        names=_route_names(persona, config),
+        images=bool(images),
+        addressed=addressed,
+        in_guild=in_guild,
+        user_id=user_id,
+        channel_id=channel_id,
+    ))
+    reply_trace = trace.ReplyTrace()
+    traced = trace.current.set(reply_trace)
+    answered = False
     try:
         text = await _run_tool_loop(
             contents,
@@ -971,7 +1062,12 @@ async def generate_reply(
             ctx,
             blank_fallback=blank_fallback,
             tools=reply_tools,
+            routing=routing,
         )
+        answered = text != blank_fallback
+    except BudgetSpent:
+        # The month's budget, set to stop: waiting a minute won't fix it, the 1st will.
+        return Reply(budget_msg, canned=True)
     except RateLimitExceeded:
         # Deliberately not a blank. The quota is spent, waiting fixes it, and the reply
         # says so — there is nothing here for the operator to diagnose or the team to fix.
@@ -979,6 +1075,11 @@ async def generate_reply(
     except Exception:
         log.exception("gemini generation failed")
         return Reply(blank_fallback, blanked=True, canned=True)
+    finally:
+        trace.current.reset(traced)
+        await finish_route(
+            routing, reply_trace, user_id=user_id, channel_id=channel_id, answered=answered
+        )
     if ctx.silent:
         # Checked ahead of the blank test below: both carry empty text, and reading this
         # one as a blank would hang a Report button off a reply that did exactly what the
@@ -1049,6 +1150,13 @@ async def channel_task_prompt(
     return system_instruction, contents
 
 
+# "name: " at the start of a test chat line, read past when routing it. Not "system:" and
+# its kind: that's a pasted turn dressed as the system's, which the router has to see.
+_SPEAKER_LABEL = re.compile(r"^(?!\s*(?:system|assistant|developer|admin)\s*:)[\w .'-]{1,32}:\s+", re.I)
+
+# The longest the test chat waits to embed a message for model routing.
+SANDBOX_EMBED_TIMEOUT = 5.0
+
 SANDBOX_NOTE = (
     "This is a private SANDBOX test chat with a server administrator — used to try out "
     "your persona, knowledge base, and tools. There is no real Discord channel here and "
@@ -1064,12 +1172,17 @@ async def generate_sandbox_reply(
     guild_id: int,
     messages: list[dict],
     runtime_note: str = "",
+    route_report: dict | None = None,
 ) -> str:
     """Reply for the dashboard's enclosed test chat. Same persona, KB, and tool-calling
     as a live reply, but deliberately memory-free: context is built only from the
     supplied transcript (no channel history), there is NO glossary/semantic recall, no
     message is recorded, and the tool set excludes every memory and Discord-action tool
-    (see ``sandbox_tools``). Nothing here touches or pollutes the server's memory."""
+    (see ``sandbox_tools``). Nothing here touches or pollutes the server's memory.
+
+    Routed like a live reply when the server is on Automatic. ``route_report``, when given,
+    is filled with where the reply went (olisar.routing.finish), for the test chat to show.
+    There's no recall here, so the message is embedded for the classifier first."""
     cfg_guild = guild_id or settings.target_guild_id
 
     persona = await session.get(Persona, cfg_guild)
@@ -1083,9 +1196,10 @@ async def generate_sandbox_reply(
     system_instruction += f"\n\nCurrent time (UTC): {datetime.now(timezone.utc):%Y-%m-%d %H:%M}."
 
     config = await session.get(GuildConfig, cfg_guild)
-    model = config.default_model if config and config.default_model else None
+    model = _pinned_model(config)
     cmd_msgs = config.command_messages if config and config.command_messages else {}
     rate_limit_msg = render_message(cmd_msgs, "rate_limit")
+    budget_msg = render_message(cmd_msgs, "budget_spent")
     blank_fallback = render_message(cmd_msgs, "blank_fallback")
 
     # Context is ONLY the supplied transcript — no channel read, no recall.
@@ -1119,6 +1233,36 @@ async def generate_sandbox_reply(
         actions=None,  # no Discord side-effects in the sandbox
         extension_tools=ext.handlers,
     )
+    last_user = next(
+        ((m.get("content") or "").strip() for m in reversed(messages) if m.get("role") != "assistant"),
+        "",
+    )
+    # A pasted transcript labels each line with its speaker ("dtrain: thanks!"), as the
+    # arena's fast lane does; the label isn't part of what was said.
+    last_user = _SPEAKER_LABEL.sub("", last_user, count=1)
+    # A live reply's recall has embedded the message by now, and the classifier reads that
+    # vector. The test chat recalls nothing, so it embeds the message itself, or it would
+    # route differently from the same message in Discord.
+    # Only when the embedding model can take it now, and never for long: the rate limiter
+    # waits out a cooldown rather than refusing, and the test chat used to sit for two
+    # minutes behind one. Without the vector the classifier routes on the features alone.
+    if (
+        last_user
+        and await routing_enabled(getattr(config, "default_model", None))
+        and get_rate_limiter().state(settings.gemini_embed_model) == "ok"
+    ):
+        try:
+            await asyncio.wait_for(embed_query(last_user), timeout=SANDBOX_EMBED_TIMEOUT)
+        except Exception:  # noqa: BLE001 — the classifier still has the features
+            log.info("couldn't embed the test chat message; routing on its features alone")
+    routing = Routing.of(await choose_route(
+        text=last_user,
+        default_model=getattr(config, "default_model", None),
+        names=_route_names(persona, config),
+    ))
+    reply_trace = trace.ReplyTrace()
+    traced = trace.current.set(reply_trace)
+    answered = False
     try:
         # The sandbox renders one reply as one bubble, so a split marker would show up as
         # literal text there rather than as the extra message it asks for on Discord.
@@ -1129,10 +1273,19 @@ async def generate_sandbox_reply(
             ctx,
             blank_fallback=blank_fallback,
             tools=sandbox_tools(list(ext.declarations)),
+            routing=routing,
         ))
+        answered = text != blank_fallback
         return _without_invented_links(text, system_instruction, contents) or blank_fallback
+    except BudgetSpent:
+        return budget_msg
     except RateLimitExceeded:
         return rate_limit_msg
     except Exception:
         log.exception("sandbox generation failed")
         return blank_fallback
+    finally:
+        trace.current.reset(traced)
+        report = await finish_route(routing, reply_trace, answered=answered)
+        if route_report is not None and report is not None:
+            route_report.update(report)

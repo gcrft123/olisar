@@ -179,6 +179,7 @@ class MarkingTests(unittest.TestCase):
         with (
             patch.object(pipeline, "render_message", side_effect=lambda _c, key, **k: {
                 "rate_limit": "rate limited", "blank_fallback": "blank",
+                "budget_spent": "budget spent",
             }[key]),
             patch.object(pipeline, "build_contents", AsyncMock(return_value=([], []))),
             patch.object(pipeline, "people_directory", AsyncMock(return_value="")),

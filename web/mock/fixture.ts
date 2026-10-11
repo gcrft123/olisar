@@ -73,11 +73,17 @@ export type MockSend = (obj: unknown, status?: number) => void
 // time and runs on from there: the live payload's `ts` carries the scene's clock, which the
 // page adopts as the server's, and a reply arrives every four seconds on the first model that
 // can take it, so the numbers move the way they would on a live bot.
+// Daily limits as Google named them refusing a free key (olisar/gemini/models.py).
 const USAGE_CHAIN: [string, number][] = [
-  ['gemini-3.8-flash', 250], ['gemini-flash-latest', 250], ['gemini-3.6-flash', 250],
-  ['gemini-2.5-flash', 250], ['gemini-3.5-flash-lite', 1000], ['gemini-flash-lite-latest', 1000],
-  ['gemini-3.1-flash-lite', 1000], ['gemini-2.5-flash-lite', 1000],
+  ['gemini-3.8-flash', 20], ['gemini-flash-latest', 20], ['gemini-3.6-flash', 20],
+  ['gemini-2.5-flash', 20], ['gemini-3.5-flash-lite', 500], ['gemini-flash-lite-latest', 500],
+  ['gemini-3.1-flash-lite', 500], ['gemini-2.5-flash-lite', 1000],
 ]
+// A -latest alias draws on the allowance of the model it points to: alias index -> owner.
+const USAGE_SHARES: Record<number, number> = { 1: 0, 5: 4 }
+const usageOwner = (i: number) => USAGE_SHARES[i] ?? i
+// Google doesn't serve the 2.5 pair to newer projects, which is most installs.
+const USAGE_UNAVAILABLE = new Set([3, 7])
 type UsageScene = {
   time: string
   used: number[]
@@ -91,27 +97,27 @@ type UsageScene = {
 }
 const USAGE_SCENES: Record<string, UsageScene> = {
   fresh: {
-    time: '00:42', used: [38, 0, 0, 0, 21, 0, 0, 3], embed: 14, web: 2,
+    time: '00:42', used: [6, 0, 0, 0, 9, 0, 0, 0], embed: 14, web: 2,
     peak: { v: 4, cap: 10, model: 'gemini-3.8-flash', at: '00:31' },
   },
   afternoon: {
-    time: '15:48', used: [250, 231, 131, 12, 468, 0, 0, 22], embed: 388, web: 45,
-    out: { 0: '11:52', 1: '14:14' },
+    time: '15:48', used: [17, 3, 20, 0, 231, 12, 0, 0], embed: 388, web: 45,
+    out: { 0: '11:52', 1: '11:52', 2: '14:14' },
     peak: { v: 9, cap: 10, model: 'gemini-3.8-flash', at: '11:40' },
   },
   resting: {
-    time: '12:20', used: [212, 9, 0, 0, 301, 0, 0, 10], embed: 290, web: 31, resting: { 0: 48 },
+    time: '12:20', used: [14, 0, 0, 0, 120, 0, 0, 0], embed: 290, web: 31, resting: { 0: 48 },
     peak: { v: 10, cap: 10, model: 'gemini-3.8-flash', at: '12:19' },
   },
   low: {
-    time: '19:05', used: [250, 250, 250, 250, 1000, 862, 610, 0], embed: 802, web: 311,
-    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48' },
+    time: '19:05', used: [18, 2, 20, 0, 470, 30, 380, 0], embed: 802, web: 311,
+    out: { 0: '10:31', 1: '10:31', 2: '12:58', 4: '17:48', 5: '17:48' },
     peak: { v: 15, cap: 15, model: 'gemini-3.5-flash-lite', at: '17:41' },
   },
   out: {
-    time: '21:50', used: [250, 250, 250, 250, 1000, 1000, 1000, 1000], embed: 941, web: 402,
-    out: { 0: '10:31', 1: '12:58', 2: '14:40', 3: '15:22', 4: '17:48', 5: '19:30', 6: '20:40', 7: '21:31' },
-    peak: { v: 15, cap: 15, model: 'gemini-2.5-flash-lite', at: '21:12' },
+    time: '21:50', used: [18, 2, 20, 0, 470, 30, 500, 0], embed: 941, web: 402,
+    out: { 0: '10:31', 1: '10:31', 2: '12:58', 4: '17:48', 5: '17:48', 6: '21:31' },
+    peak: { v: 15, cap: 15, model: 'gemini-3.1-flash-lite', at: '21:12' },
     ranOutToday: '21:31',
   },
 }
@@ -172,12 +178,17 @@ function usageScene() {
   const outAt: (number | null)[] = USAGE_CHAIN.map((_, i) => (sc.out?.[i] ? ptAt(sc.out[i]) : null))
   const restLeft = (i: number) => Math.max(0, (sc.resting?.[i] ?? 0) - elapsed / 1000)
   const replies = sc.stale ? 0 : Math.floor(elapsed / 4000)
+  // What an allowance has taken: a model's own requests plus its -latest alias's.
+  const bucketUsed = (j: number) => used.reduce((sum, n, k) => sum + (usageOwner(k) === usageOwner(j) ? n : 0), 0)
   for (let k = 1; k <= replies; k++) {
     const at = ptAt(sc.time) + k * 4000
-    const i = USAGE_CHAIN.findIndex(([, limit], j) => !outAt[j] && used[j] < limit && (sc.resting?.[j] ?? 0) * 1000 <= k * 4000)
+    const i = USAGE_CHAIN.findIndex(([, limit], j) =>
+      !USAGE_UNAVAILABLE.has(j) && !outAt[j] && bucketUsed(j) < limit && (sc.resting?.[j] ?? 0) * 1000 <= k * 4000)
     if (i < 0) break
     used[i] += 1
-    if (used[i] >= USAGE_CHAIN[i][1]) outAt[i] = at
+    if (bucketUsed(i) >= USAGE_CHAIN[i][1]) {
+      USAGE_CHAIN.forEach((_, j) => { if (usageOwner(j) === usageOwner(i)) outAt[j] = at })
+    }
   }
   return { sc, t, used, outAt, restLeft, replies }
 }
@@ -188,11 +199,13 @@ function mockLive() {
   const paid = paidTier()
   // A billed key isn't turned away for the day, so nothing in its chain is used up.
   const chain = USAGE_CHAIN.map(([model, limit], i) => {
+    const unavailable = USAGE_UNAVAILABLE.has(i)
     const out = !paid && outAt[i]
     const resting = !out && restLeft(i) > 0
     return {
-      model, requests: used[i], tokens: used[i] * 1420, limit, limit_from_google: false,
-      state: out ? 'spent' : resting ? 'resting' : 'ok',
+      model, shares: i in USAGE_SHARES ? USAGE_CHAIN[USAGE_SHARES[i]][0] : null,
+      requests: used[i], tokens: used[i] * 1420, limit: unavailable ? 0 : limit, limit_from_google: false,
+      state: unavailable ? 'unavailable' : out ? 'spent' : resting ? 'resting' : 'ok',
       back_in: resting ? Math.ceil(restLeft(i)) : null,
       spent_at: out ? new Date(outAt[i]!).toISOString() : null,
       cost: used[i] * USAGE_COST[i],
@@ -214,7 +227,8 @@ function mockLive() {
     memory_search: { model: 'gemini-embedding-001', requests: sc.embed + Math.floor(replies * 0.4), limit: 1000, spent: false },
     web_search: paid
       ? { requests: 1240 + sc.web, limit: 5000, period: 'month', spent: false }
-      : { requests: sc.web, limit: 500, period: 'day', spent: false },
+      // A free key searches on the 2.5 models alone, which a newer project doesn't get.
+      : { requests: 0, limit: 0, period: 'day', spent: false, unavailable: true },
     billing: {
       today, month, projected: (month / Math.max(1, dayOfMonth)) * 31, budget,
       action: TIER === 'paid-stop' ? 'stop' : 'cheapest',
@@ -241,6 +255,20 @@ function mockSummary() {
       limit: paidTier() ? (sc.peak.cap === 15 ? 4000 : 1000) : sc.peak.cap,
     },
     last_ran_out: new Date(sc.ranOutToday ? ptAt(sc.ranOutToday) : ptAt('21:12', -4)).toISOString(),
+    // Model routing's rollup, on a billed key only: a free key has it off by default.
+    routing: paidTier() ? {
+      today: {
+        light: { replies: 46, escalated: 3, capped: 0, cost: 0.11, standard_cost: 0.34 },
+        standard: { replies: 92, escalated: 0, capped: 1, cost: 0.68, standard_cost: 0.68 },
+        deep: { replies: 6, escalated: 0, capped: 1, cost: 0.29, standard_cost: 0.05 },
+      },
+      month: {
+        light: { replies: 1180, escalated: 61, capped: 0, cost: 2.74, standard_cost: 8.61 },
+        standard: { replies: 2340, escalated: 0, capped: 0, cost: 17.20, standard_cost: 17.20 },
+        deep: { replies: 141, escalated: 0, capped: 22, cost: 6.35, standard_cost: 1.12 },
+      },
+      standard_model: 'gemini-3.8-flash',
+    } : undefined,
     days: values.map((v, k) => {
       const offset = k - (values.length - 1)
       const ranOut = offset === 0 ? sc.ranOutToday : v >= 4000 ? '21:12' : null
@@ -275,7 +303,7 @@ const MOCK_PERSONA = {
 const MOCK_CONFIG = {
   name_triggers: ['olisar', 'oli'],
   reply_in_dms: true,
-  default_model: 'gemini-flash-latest',
+  default_model: 'auto',
   grounding_enabled: true,
   grounding_daily_cap: 50,
   grounding_monthly_cap: 3000,
@@ -303,11 +331,9 @@ const MOCK_PROACTIVITY = {
 // Mirrors RANKED in olisar/gemini/models.py, which /api/models returns.
 const MOCK_MODELS = [
   { name: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-  { name: 'gemini-flash-latest', label: 'newest Flash (auto-updates)' },
   { name: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
   { name: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { name: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
-  { name: 'gemini-flash-lite-latest', label: 'newest Flash-Lite (auto-updates)' },
   { name: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
   { name: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
 ]
@@ -329,6 +355,7 @@ function mockMessages() {
     ['dm_indexing', 'DM saving & indexing is now **{state}**.', ['state']],
     ['proactive', 'proactive chiming is now **{state}** (level: **{level}**).', ['state', 'level']],
     ['rate_limit', "i'm a bit rate-limited right now — give me a minute and try again?", []],
+    ['budget_spent', "i've hit this month's spending limit, so i can't reply until the 1st.", []],
     ['blank_fallback', '…my mind just went blank there. mind rephrasing?', []],
     ['access_denied', "sorry — you don't have access to me here.", []],
     ['tool_pin_prompt', 'I need a PIN before I can run **{tool}**. See Settings > Security in the console or ask an admin if you don\'t have access.', ['tool', 'seconds']],
@@ -996,6 +1023,12 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
     if (keys[k]) keys[k].dashboard = false
     return send({ ok: true })
   }
+  // The test chat, routed (before the catch-all for writes below).
+  if (url.startsWith('/api/sandbox/chat')) {
+    return send(paidTier()
+      ? { reply: 'anytime. that\'s what i\'m here for.', route: { tier: 'light', model: 'gemini-3.5-flash-lite', escalated: '', capped: '' } }
+      : { reply: 'anytime. that\'s what i\'m here for.', route: null })
+  }
   if (['PUT', 'POST', 'PATCH', 'DELETE'].includes(req.method || '')) {
     if (url.startsWith('/api/')) return send({ ok: true })
   }
@@ -1005,11 +1038,13 @@ export function handle(req: any, url: string, send: MockSend, next: () => void):
   if (url.startsWith('/api/marketplace/publisher')) return send({ registered: true, handle: 'rednebula', verified: false })
   if (url.startsWith('/api/marketplace/published') || url.startsWith('/api/marketplace/installed')) return send({})
   if (url.startsWith('/api/persona')) return send(MOCK_PERSONA)
-  if (url.startsWith('/api/config')) return send({ ...MOCK_CONFIG, gemini_tier: paidTier() ? 'paid' : 'free' })
+  // Model routing is on by default with billing, off by default on a free key.
+  if (url.startsWith('/api/config')) return send({ ...MOCK_CONFIG, gemini_tier: paidTier() ? 'paid' : 'free', routing: paidTier(), routing_head: 'gemini-3.8-flash' })
   if (url.startsWith('/api/billing')) {
     return send({
       tier: paidTier() ? 'paid' : 'free', checked_at: new Date().toISOString(),
       monthly_budget_usd: paidTier() ? 50 : 0, budget_action: TIER === 'paid-stop' ? 'stop' : 'cheapest', gemini_images: true,
+      routing_free: false, routing_paid: true, routing_pro: true,
     })
   }
   if (url.startsWith('/api/proactivity')) return send(MOCK_PROACTIVITY)

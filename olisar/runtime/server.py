@@ -265,6 +265,7 @@ async def _init_database() -> None:
     from scripts.init_db import (
         create_schema,
         migrate_model_default,
+        migrate_to_auto,
         seed_builtins,
         seed_defaults,
     )
@@ -284,6 +285,9 @@ async def _init_database() -> None:
             "moved %d guild(s) off the auto-updating model alias onto %s",
             moved, DEFAULT_CHAT_MODEL,
         )
+    automatic = await migrate_to_auto()
+    if automatic:
+        log.info("moved %d guild(s) from the seeded default model to Automatic", automatic)
     dbbackup.record_version(settings.database_path, version)
     await seed_defaults()
     await seed_builtins()
