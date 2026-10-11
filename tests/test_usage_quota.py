@@ -141,6 +141,11 @@ class AliasTests(unittest.TestCase):
         self.assertEqual(limiter.state("gemini-3.8-flash"), "ok")
 
     def test_they_share_the_hourly_ask(self):
+        # Two hours ago is yesterday for the first two hours after Google's reset, which
+        # clears the refusal and leaves nothing to ask about: pin the quota day.
+        day = patch("olisar.gemini.rate_limiter.quota_day", return_value=date(2026, 10, 10))
+        day.start()
+        self.addCleanup(day.stop)
         limiter = RateLimiter()
         limiter.exhaust("gemini-3.8-flash", datetime.now(timezone.utc) - timedelta(hours=2))
         self.assertTrue(limiter.claim_probe("gemini-flash-latest"))
