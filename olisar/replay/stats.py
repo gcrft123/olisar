@@ -200,12 +200,15 @@ async def first_messages(scope: Scope, people: People) -> dict | None:
 
 
 async def founders(scope: Scope, tally: Tally, people: People) -> list[dict]:
-    """The first five people to post. Anyone who has left keeps their place as Someone."""
+    """The first five people to post."""
     first = sorted(((at, uid) for uid, (_, at) in tally.authors.items() if at), key=lambda x: x[0])[:5]
     out = []
     for at, uid in first:
         who = people.ref(uid)
-        entry = {"who": who, "at": iso(at), "count": tally.authors[uid][0] if who else None, "msg": None}
+        # Someone who has left keeps their place as Someone; "gone" lets the replay say how
+        # many of the first five are still here, since a later opt-out also reads Someone.
+        entry = {"who": who, "at": iso(at), "count": tally.authors[uid][0] if who else None, "msg": None,
+                 "gone": not people.roster.present(uid)}
         if who:
             async with session_scope() as session:
                 row = (
