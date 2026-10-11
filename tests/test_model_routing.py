@@ -45,8 +45,8 @@ TRACEBACK = (
 )
 
 
-def _limiter(paid: bool):
-    return SimpleNamespace(paid=paid)
+def _limiter(paid: bool, pro: str = "ok"):
+    return SimpleNamespace(paid=paid, state=lambda model: pro if model == PRO_MODEL else "ok")
 
 
 class FeatureTests(unittest.TestCase):
@@ -388,6 +388,17 @@ class ProCapTests(_RoutingCase):
         # Finishing them gives the slots back to the share, which counts them as replies.
         for r in routes:
             await policy.finish(policy.Routing.of(r), trace.ReplyTrace(), user_id=1)
+        self.assertEqual(state._reserved, 0)
+
+    async def test_pro_out_for_the_day_sends_deep_as_standard(self):
+        """A Tier 1 key gets 250 Pro requests a day. Once Google refuses, the chain would skip
+        Pro and answer from Flash at high thinking until midnight Pacific."""
+        for pro in ("spent", "cooldown", "rpm_full"):
+            with patch.object(policy, "get_rate_limiter", return_value=_limiter(True, pro)):
+                r = await self.route(TRACEBACK)
+            self.assertEqual((r.tier, r.pro, r.capped), (policy.DEEP, False, "unavailable"))
+            self.assertNotIn(PRO_MODEL, r.chain)
+            self.assertIsNone(r.thinking_level)
         self.assertEqual(state._reserved, 0)
 
     async def test_pro_stops_at_the_budgets_warning(self):
