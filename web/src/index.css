@@ -3319,8 +3319,15 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-chain tr.cur .m-name { font-weight: 600; }
 .u-chain tr.gone .m-name { color: var(--text-2); font-weight: 400; }
 .u-chain .m-id { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); margin-left: 8px; }
-/* A -latest alias draws on the allowance of the model it points to: said under its name. */
-.u-chain .m-shares { display: block; font-size: 12px; color: var(--text-3); margin-top: 2px; }
+/* A -latest alias: another name for the model above it, joined to that row by a corner and
+   no rule between them. */
+.u-chain tr:has(+ tr.alias) > * { border-bottom: 0; padding-bottom: 2px; }
+.u-chain tr.alias > * { padding-top: 0; }
+.u-chain tr.alias .m-id { display: inline-block; position: relative; margin-left: 0; padding-left: 18px; }
+.u-chain tr.alias .m-id::before {
+  content: ""; position: absolute; left: 4px; top: -4px; width: 8px; height: 12px;
+  border-left: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong);
+}
 .u-chain .m-status { display: none; }
 .u-chain .st { display: flex; align-items: center; gap: 8px; }
 .u-chain .when { font-size: 12px; color: var(--text-3); white-space: nowrap; }

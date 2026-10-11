@@ -3369,7 +3369,7 @@ When memory search runs out, Olisar keeps replying but can't recall older messag
 
 A model Google has turned away for the day counts as zero, even if Olisar counted fewer requests than its limit. Google doesn't publish free-tier daily limits, so each limit starts as an estimate and switches to Google's own number the first time Google turns that model away.
 
-A `-latest` model shares the daily limit of the model it points to (see [Models](#models)). Its row says so, its meter shows the two models' requests together, and **Left today** counts that limit once. A model Google doesn't serve to the key's project, such as the Gemini 2.5 models on a newer project, shows **Not on this key** and counts for nothing.
+A `-latest` model is listed under the model it points to, whose daily limit it shares (see [Models](#models)). A model Google doesn't serve to the key's project, such as the Gemini 2.5 models on a newer project, shows **Not on this key** and counts for nothing.
 
 #### With billing on
 

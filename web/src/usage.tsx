@@ -266,7 +266,7 @@ function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: bool
         </div>
         {R.cur && !R.allSpent ? (
           <>
-            <div className="u-cur">{modelName(R.cur.model)}</div>
+            <div className="u-cur">{modelName(R.cur.shares ?? R.cur.model)}</div>
             <div className="u-cur-id">{R.cur.model}</div>
           </>
         ) : <div className="u-cur none">No model left</div>}
@@ -416,6 +416,11 @@ function Status({ m, R }: { m: Row; R: Reading }) {
 }
 
 function Chain({ R, stale }: { R: Reading; stale: boolean }) {
+  // A -latest alias sits under the model it points to, as another name for it: no number,
+  // meter or status of its own, and its requests and cost folded into that model's row.
+  const isAlias = (m: Row) => !!m.shares && R.chain.some((o) => o.model === m.shares)
+  const aliasesOf = (m: Row) => R.chain.filter((a) => isAlias(a) && a.shares === m.model)
+  let rank = 0
   return (
     <Section stacked title="Fallback chain">
       <table className={'u-chain' + (stale ? ' stale' : '')}>
@@ -431,13 +436,26 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
           {R.chain.map((m) => {
             const isCur = !R.allSpent && R.cur?.i === m.i
             const out = m.state === 'spent'
+            if (isAlias(m)) {
+              return (
+                <tr key={m.model} className={'alias' + (isCur ? ' cur' : '') + (out ? ' gone' : '')}>
+                  <th scope="row" className="c-rank" />
+                  <td><span className="m-id">{m.model}</span>{isCur && <div className="m-status"><Status m={m} R={R} /></div>}</td>
+                  <td className="c-status">{isCur && <div className="st"><Status m={m} R={R} /></div>}</td>
+                  <td className="c-today" />
+                </tr>
+              )
+            }
+            rank += 1
+            const aliases = aliasesOf(m)
+            const cost = m.cost + aliases.reduce((s, a) => s + a.cost, 0)
+            const requests = m.requests + aliases.reduce((s, a) => s + a.requests, 0)
             return (
               <tr key={m.model} className={(isCur ? 'cur' : '') + (out || m.state === 'unavailable' ? ' gone' : '')}>
-                <th scope="row" className="c-rank">{m.i + 1}</th>
+                <th scope="row" className="c-rank">{rank}</th>
                 <td>
                   <span className="m-name">{modelName(m.model)}</span>
                   <span className="m-id">{m.model}</span>
-                  {m.shares && <span className="m-shares">Shares {modelName(m.shares)}’s limit</span>}
                   <div className="m-status"><Status m={m} R={R} /></div>
                 </td>
                 <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
@@ -446,7 +464,7 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                     <div className="today"><span className="v wide"><s>—</s></span></div>
                   ) : R.paid ? (
                     <div className="today">
-                      <span className="v wide"><span className="left-v">{usd(m.cost)}</span><s> · {n(m.requests)} req</s></span>
+                      <span className="v wide"><span className="left-v">{usd(cost)}</span><s> · {n(requests)} req</s></span>
                     </div>
                   ) : (
                     <div className="today">
