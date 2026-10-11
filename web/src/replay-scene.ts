@@ -853,12 +853,17 @@ export function createScene(o: SceneOpts) {
     const st = renameStory()!
     const lasted = st.back ? span(Date.parse(st.back.at) - Date.parse(st.to.at)) : `Since ${monthYear(st.to.at, tz)}`
     const by = (n: Report['names'][number]) => `${n.by ? nm(n.by) : 'Someone'}${n.via === 'chat' ? ', through chat' : ', in the console'}`
+    // The same person the same way both times reads as one change and its undoing.
+    const changed = (to: Report['names'][number], back: Report['names'][number] | null) =>
+      !back ? `Changed by ${by(to)}.`
+        : back.by === to.by && back.via === to.via ? `Changed by ${by(to)}, and back again.`
+        : `Changed by ${by(to)}. Changed back by ${by(back)}.`
     return {
       kind: 'name', text: st.to.to, foot: lasted, more: 'Open', label: st.back ? `The ${lasted} I was ${st.to.to}` : `When I became ${st.to.to}`,
       open: () => [
         head(st.back ? `${shortDate(st.to.at, tz)} to ${shortDate(st.back.at, tz)}` : longDate(st.to.at, tz)),
         h('div', { class: 'rp-mo-term', dir: 'auto' }, st.to.to),
-        meta(`Changed by ${by(st.to)}.${st.back ? ` Changed back by ${by(st.back)}.` : ''} The Activity log kept the old name.`),
+        meta(`${changed(st.to, st.back)} The Activity log kept the old name.`),
       ],
     }
   }
