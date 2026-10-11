@@ -14,21 +14,21 @@ from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
 from google.genai import types
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar import budgets, self_settings, toolpin
 from olisar.db.models import (
     MASS_MENTIONS,
-    GeminiUsage,
     GuildConfig,
+    GuildSearchUsage,
     Reminder,
     UserMemory,
     UserMemoryKind,
 )
 from olisar.gemini.client import GroundingUnavailable, get_gemini
 from olisar.gemini.quota import quota_day
-from olisar.gemini.rate_limiter import pending_grounding
+from olisar.gemini.rate_limiter import get_rate_limiter
 from olisar.imaging import generate_image, is_configured as image_is_configured
 from olisar.knowledge.retrieval import search_knowledge
 from olisar.memory.retriever import recall
@@ -559,15 +559,42 @@ def sandbox_tools(extra_declarations: list) -> list:
     return [types.Tool(function_declarations=[*core, *extras])]
 
 
+async def _searches_used(session: AsyncSession, guild_id: int, since) -> int:
+    return await session.scalar(
+        select(func.coalesce(func.sum(GuildSearchUsage.request_count), 0)).where(
+            GuildSearchUsage.guild_id == guild_id, GuildSearchUsage.day >= since
+        )
+    ) or 0
+
+
 async def _grounding_allowed(session: AsyncSession, cfg_guild: int) -> bool:
+    """Whether this server may run another web search: under its own cap for the day on a
+    free key, whose search allowance is daily, or for the month on a billed one. This used
+    to measure each server's cap against the whole install's searches."""
     config = await session.get(GuildConfig, cfg_guild)
     if config is None or not config.grounding_enabled:
         return False
     today = quota_day()
-    rows = (await session.scalars(select(GeminiUsage).where(GeminiUsage.day == today))).all()
-    # Searches this reply (or any other still running) already made aren't written yet.
-    used = sum(r.grounding_count for r in rows) + pending_grounding(today)
-    return used < config.grounding_daily_cap
+    if get_rate_limiter().paid:
+        used = await _searches_used(session, cfg_guild, today.replace(day=1))
+        return used < config.grounding_monthly_cap
+    return await _searches_used(session, cfg_guild, today) < config.grounding_daily_cap
+
+
+async def _count_search(session: AsyncSession, guild_id: int) -> None:
+    """Count a search Google ran against this server's cap. Flushed at once, so the next
+    search in the same reply sees it."""
+    day = quota_day()
+    row = await session.scalar(
+        select(GuildSearchUsage).where(
+            GuildSearchUsage.day == day, GuildSearchUsage.guild_id == guild_id
+        )
+    )
+    if row is None:
+        session.add(GuildSearchUsage(day=day, guild_id=guild_id, request_count=1))
+    else:
+        row.request_count += 1
+    await session.flush()
 
 
 def _summarize(text: str, limit: int = 200) -> str:
@@ -806,7 +833,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
 
         if name == "web_search":
             if not await _grounding_allowed(ctx.session, ctx.cfg_guild):
-                return "Web search is unavailable right now (daily limit) — answer from what you know."
+                return "Web search is unavailable right now (this server's search limit) — answer from what you know."
             try:
                 text, sources = await get_gemini().search(args.get("query", ""))
             except GroundingUnavailable:
@@ -814,6 +841,7 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
             except Exception:
                 log.exception("web_search failed")
                 return "Web search failed — answer from what you know."
+            await _count_search(ctx.session, ctx.cfg_guild)
             log.info(
                 "web_search(%r): %d source(s) — %s",
                 args.get("query", ""), len(sources), "; ".join(sources[:5]) or "none",
@@ -843,9 +871,8 @@ async def _dispatch(name: str, args: dict, ctx: ToolContext) -> str:
                 return "Image generation failed — tell the user you couldn't make it right now."
             if not data:
                 return (
-                    "Image generation is unavailable right now (the daily free "
-                    "allocation may be used up) — tell the user you can't make an "
-                    "image at the moment."
+                    "Image generation is unavailable right now — tell the user you "
+                    "can't make an image at the moment."
                 )
             ext = "jpg" if "jpeg" in (mime or "") or "jpg" in (mime or "") else "png"
             result = await ctx.actions.send_image(data, filename=f"image.{ext}")

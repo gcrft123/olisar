@@ -30,7 +30,7 @@ You set it up and control it from the *console*, a web app that comes with Olisa
 
 One person, the *operator*, installs the Olisar desktop app on a Mac or Windows PC and connects it to a Discord application they create. The app runs the bot either on that computer or on a Linux cloud server (a VM), so it can stay online while the computer is off. Whatever Olisar stores stays on the machine that runs it. See [Hosting & your data](#hosting) and [Host on a server](#host-server).
 
-Olisar writes its replies with Google's Gemini models, using the operator's own API key. The free tier is enough to run the bot. Image generation is optional and uses Cloudflare Workers AI. See [API keys](#keys), [Models](#models) and [Usage & rate limits](#usage).
+Olisar writes its replies with Google's Gemini models, using the operator's own API key. The free tier is enough to run the bot, and turning on billing for the key lifts its daily limits. Image generation is optional: it uses Gemini when the key has billing on, and Cloudflare Workers AI otherwise. See [API keys](#keys), [Models](#models) and [Usage & rate limits](#usage).
 
 One install can run several bots ([Running multiple bots](#bots)), and each bot can be in several servers, with separate settings for each ([Servers](#servers)).
 
@@ -64,8 +64,8 @@ The sidebar holds everything you switch between. From the top:
 | **Knowledge** | The knowledge base, the glossary, the message search index and **Clear memory** | [Knowledge base & glossary](#knowledge) |
 | **Members** | What Olisar has learned about each member | [Members](#members) |
 | **Extensions** | Optional features you turn on per server. The operator also writes and installs them here | [Extensions](#extensions) |
-| **API keys** | The Gemini and Cloudflare keys. Only the operator sees this tab | [API keys](#keys) |
-| **Usage** | Today's model quota and what's using it, for all servers together | [Usage & rate limits](#usage) |
+| **API keys** | The Gemini and Cloudflare keys, and the monthly budget when the key has billing on. Only the operator sees this tab | [API keys](#keys) |
+| **Usage** | Today's model quota, or the month's spend with billing on, and what's using it, for all servers together | [Usage & rate limits](#usage) |
 | **Docs** | This documentation | |
 
 At the foot of the sidebar, a drawer shows whether the bot is online. Tap it or drag it up for the console's web address, the account you're signed in with, **Settings** and **Log out**. Settings holds preferences that apply to the whole app rather than one server ([Console settings](#settings)).
@@ -166,8 +166,8 @@ Discord lets anyone who shares a server with Olisar DM it. Someone who isn't in 
 | Installed extensions | Shared. The operator installs an extension once, and each server turns it on or off |
 | API keys, including the **UEX API token** on the Star Citizen extension | Shared. Only the operator can see or change them |
 | The tool PIN | Shared. One PIN for every server |
-| Gemini quota and the **Usage** tab | Shared. Every server draws on the same daily quota |
-| **Web searches per day** | Set per server on the Behavior tab, but counted against the searches every server made that day |
+| Gemini quota and the **Usage** tab | Shared. Every server draws on the same daily quota, or with billing on, the same budget |
+| **Web searches per day** (**per month** with billing on) | Per server. Each server's cap counts only its own searches, but Google's search allowance is shared |
 | DMs | Follow the main server |
 | A member's \`/forget-me\` | Covers every server Olisar is in, and DMs |
 
@@ -224,7 +224,7 @@ You don't need commands for any of this. Ask in your own words.
 A few limits apply:
 
 - When Olisar searches the server, it only uses channels you can open yourself, and it links to the message its answer comes from.
-- Web search and image generation may not be available on your server, and both stop for the day once their daily allowance is used. One message can get up to two images.
+- Web search and image generation may not be available on your server, and both stop for a while once their allowance is used. One message can get up to two images.
 - A catch-up covers only channels where Olisar keeps the conversation.
 - Reminders arrive by DM unless you ask for them in the channel. Ask "what are my reminders?" to see them, or ask it to cancel one.
 - Olisar only posts in a channel for you if you could post there yourself. It sends at most 20 DMs to other people for you in a day, and only to members of the server.
@@ -683,7 +683,7 @@ Every bot on the install is online at once, each in its own process. If one bot 
 | [Web link](#remote) and Tailscale device name | |
 | Where it runs: this computer or a cloud server | |
 
-Two bots can use the same Gemini key, but Google's daily limits are counted per Google Cloud project, so they share one allowance. See [Usage & rate limits](#usage).
+Two bots can use the same Gemini key, but Google's daily limits are counted per Google Cloud project, so they share one allowance. With billing on they share one bill, and each bot's budget counts only what that bot spends. See [Usage & rate limits](#usage).
 
 ## Add a bot
 
@@ -983,10 +983,18 @@ These settings are under **Model & tools**, next to **Primary model**, which set
 | Setting | What it does | Default |
 | --- | --- | --- |
 | **Web search** | Lets Olisar look things up on the web with Google Search. | On |
-| **Web searches per day** | Olisar stops searching once this many searches have run today. The count includes searches on every server this install runs, and resets at midnight Pacific time. | 100 |
+| **Web searches per day** | Shown on a free key. The most searches Olisar runs in this server in a day, which resets at midnight Pacific time. | 100 |
+| **Web searches per month** | Shown instead when the key has billing on. The most searches Olisar runs in this server in a calendar month. | 3,000 |
 | **Status & voice awareness** | Lets Olisar check, when someone asks, a member's current status and activity and who's in voice channels. It reads these live and never stores them. \`/privacy\` tells members about it. | Off |
 
-Google's own free allowance for web search can run out before your cap does. Either way, Olisar answers from what it already knows until the reset. [Usage](#usage) shows what's left.
+Each server's cap counts only that server's searches, but Google's own allowance is shared by every server on the install, and it depends on the key:
+
+| Key | Google's search allowance |
+| --- | --- |
+| Free | 500 searches a day, and only on Gemini 2.5 Flash and 2.5 Flash-Lite. Google's Gemini 3 models don't search on a free key, so Olisar runs a free key's searches on those two. Google only serves the 2.5 models to projects that used them before, so a key from a newer project has no free web search |
+| Billing on | 5,000 searches a month across Gemini 3 and newer, then $14 per 1,000. The Gemini 2.5 models have 1,500 a day of their own, then $35 per 1,000. Searches run on the reply chain |
+
+Once the server reaches its cap, a free key's daily allowance runs out, or a key with billing on has spent its [budget](#keys), Olisar answers from what it already knows. [Usage](#usage) shows what's left.
 
 Checking who's in voice works as soon as the setting is on. Reading a member's status and activity also needs **Presence Intent**, which is off unless the operator sets it up.
 
@@ -1014,32 +1022,37 @@ Lower the context window a little, raise the summary token threshold, keep web s
     id: 'models',
     title: 'Models',
     body: `
-Olisar writes with Google's Gemini models and is built for the Gemini API's free tier. For replies it uses a *fallback chain*: a ranked list of models it works down whenever the one it wants is busy or has run out of requests for the day. Gemini Pro models aren't in the chain, because the free tier doesn't include them.
+Olisar writes with Google's Gemini models. For replies it uses a *fallback chain*: a ranked list of models it works down whenever the one it wants is busy or has run out of requests for the day. Every model in the chain is on the Gemini API's free tier, so a free key runs all of it. Gemini Pro models aren't in the chain, because the free tier doesn't include them, and a key with billing on uses the same chain.
 
 ## The reply chain
 
 The chain, best model first:
 
-| Model | In the console | Olisar's per-minute cap | Daily limit |
-| --- | --- | --- | --- |
-| \`gemini-3.5-flash\` | Gemini 3.5 Flash | 10 | 250 |
-| \`gemini-flash-latest\` | newest Flash (auto-updates) | 10 | 250 |
-| \`gemini-3-flash-preview\` | Gemini 3 Flash | 10 | 250 |
-| \`gemini-2.5-flash\` | Gemini 2.5 Flash | 10 | 250 |
-| \`gemini-3.1-flash-lite\` | Gemini 3.1 Flash-Lite | 15 | 1,000 |
-| \`gemini-flash-lite-latest\` | newest Flash-Lite (auto-updates) | 15 | 1,000 |
-| \`gemini-2.5-flash-lite\` | Gemini 2.5 Flash-Lite | 15 | 1,000 |
+| Model | In the console | Per-minute cap, free key | Per-minute cap, billing on | Daily limit, free key |
+| --- | --- | --- | --- | --- |
+| \`gemini-3.8-flash\` | Gemini 3.8 Flash | 10 | 1,000 | 250 |
+| \`gemini-flash-latest\` | newest Flash (auto-updates) | 10 | 1,000 | 250 |
+| \`gemini-3.6-flash\` | Gemini 3.6 Flash | 10 | 1,000 | 250 |
+| \`gemini-2.5-flash\` | Gemini 2.5 Flash | 10 | 1,000 | 250 |
+| \`gemini-3.5-flash-lite\` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 1,000 |
+| \`gemini-flash-lite-latest\` | newest Flash-Lite (auto-updates) | 15 | 4,000 | 1,000 |
+| \`gemini-3.1-flash-lite\` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 1,000 |
+| \`gemini-2.5-flash-lite\` | Gemini 2.5 Flash-Lite | 15 | 4,000 | 1,000 |
 
-The per-minute cap is Olisar's own, set low enough to stay under Google's limits. When a model reaches it, Olisar moves to the next model instead of waiting. The daily limits are the last free-tier figures Google published; Google sets the real ones for each project, and once it turns a model away for the day, [Usage](#usage) shows Google's figure instead.
+The per-minute cap is Olisar's own, set to stay near Google's limits for the key: the free tier's, or Google's Tier 1 limits once billing is on. When a model reaches it, Olisar moves to the next model instead of waiting. Memory search's model has a cap of its own, 100 a minute on a free key and 3,000 with billing on.
+
+The daily limits are the last free-tier figures Google published; Google sets the real ones for each project, and once it turns a model away for the day, [Usage](#usage) shows Google's figure instead. With billing on, Google's daily limits are far higher than these.
 
 The two \`-latest\` models are names Google points at its newest release, so what they run can change without an Olisar update. That's why they sit below the fixed versions, where they keep replies going if Google retires one.
 
+Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, a quarter of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does \`GEMINI_CHAT_MODEL\` if it names one.
+
 ## Choose where the chain starts
 
-**Primary model** on the [Behavior](tab:behavior) tab sets where this server's chain starts. Olisar only works down the chain from there, never up, so starting at \`gemini-3.1-flash-lite\` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy.
+**Primary model** on the [Behavior](tab:behavior) tab sets where this server's chain starts. Olisar only works down the chain from there, never up, so starting at \`gemini-3.5-flash-lite\` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy, and with billing on, for cheaper replies.
 
 1. Open [Behavior](tab:behavior).
-2. Under **Model & tools**, choose a **Primary model**. It starts on \`gemini-3.5-flash\`.
+2. Under **Model & tools**, choose a **Primary model**. It starts on \`gemini-3.8-flash\`.
 3. Press **Save changes**.
 
 Each server picks its own starting point, but every server on the install draws on the same daily limits.
@@ -1056,33 +1069,36 @@ Each server picks its own starting point, but every server on the install draws 
 
 If every model in the chain is unavailable at once, Olisar sends the **When rate-limited** reply, which you can reword on [Command replies](#replies). Replies come back on their own as models free up. [Usage](#usage) shows where each model stands and how much of today's allowance is left.
 
-## Use a paid Gemini key
+## Turn on billing
 
-Olisar also works with a key whose Google Cloud project has billing turned on. To turn it on, press **Set up billing** next to the key's project in [Google AI Studio](https://aistudio.google.com/apikey). From then on Google charges for everything the bot uses, at the rates on its [pricing page](https://ai.google.dev/gemini-api/docs/pricing), and that project has no free allowance.
+Billing belongs to the key's Google Cloud project. To turn it on, press **Set up billing** next to the key's project in [Google AI Studio](https://aistudio.google.com/apikey). From then on Google charges for everything that project uses, at the rates on its [pricing page](https://ai.google.dev/gemini-api/docs/pricing), and the project has no free allowance left. So a key is either free or billed.
 
-With billing on, Google's daily limits are far higher, so replies stay near the top of the chain instead of working down it. Google also stops using the bot's prompts and replies to improve its products (see [Privacy & data](#privacy)). If a model had already run out today, Olisar notices the change within an hour.
+Olisar asks Google which one a key is with one tiny request to a model only billed keys can use. Google turns a free key away at no cost, and a billed one pays well under a hundredth of a cent. Olisar asks again every 6 hours on a free key and every 24 on a billed one, and sooner when a model Google had turned away for the day starts answering again, which is what turning on billing looks like. The check under the key on [API keys](#keys) shows the answer: **Works · free tier** or **Works · billing on**.
 
-A paid key doesn't change the rest of Olisar:
+With billing on:
 
-- The chain is the same, so a paid key doesn't give you a Pro model.
-- Olisar's own per-minute caps, in the table above, still apply. On a busy server, Olisar moves down the chain when a model reaches its cap, even though Google would allow more.
-- Image generation still runs on Cloudflare.
-- The [Usage](#usage) tab keeps measuring against the free-tier daily figures, so it can show 0 left for a model that's still answering.
+- Replies stay near the top of the chain, because Google's daily limits are far higher and Olisar raises its own per-minute caps to match (see the table above).
+- Olisar makes images with Gemini, and Cloudflare becomes optional (see [Images](#images)).
+- Web search runs on the reply chain, with 5,000 searches a month included (see [Behavior](#behavior)).
+- [Usage](#usage) shows what the bot has spent instead of what's left, and you can set a monthly budget on [API keys](#keys).
+- Google stops using what Olisar sends to improve its products (see [Privacy & data](#privacy)).
+
+The chain itself doesn't change, so billing doesn't give you a Pro model.
 
 ## Models for other work
 
 | Work | Models |
 | --- | --- |
 | Replies and \`/ask\` | The reply chain, from the server's **Primary model** down |
-| Summaries, member impressions, the glossary, \`/catchup\`, deciding whether to join in or react, and checking whether a mention of Olisar's name is addressed to it | \`gemini-3.1-flash-lite\`, then \`gemini-flash-lite-latest\`, then \`gemini-2.5-flash-lite\` |
-| Web search | The reply chain from \`gemini-3.5-flash\` down, with Google Search, whatever the server's **Primary model** |
-| Describing posted images for search | \`gemini-3.1-flash-lite\`, then \`gemini-2.5-flash-lite\`, then \`gemini-flash-lite-latest\` |
+| Summaries, member impressions, the glossary, \`/catchup\`, deciding whether to join in or react, and checking whether a mention of Olisar's name is addressed to it | \`gemini-3.5-flash-lite\`, then \`gemini-flash-lite-latest\`, then \`gemini-3.1-flash-lite\`, then \`gemini-2.5-flash-lite\` |
+| Web search | With Google Search, whatever the server's **Primary model**. On a free key, \`gemini-2.5-flash\`, then \`gemini-2.5-flash-lite\`. With billing on, the reply chain from \`gemini-3.8-flash\` down |
+| Describing posted images for search | \`gemini-3.5-flash-lite\`, then \`gemini-3.1-flash-lite\`, then \`gemini-2.5-flash-lite\`, then \`gemini-flash-lite-latest\` |
 | Memory search | \`gemini-embedding-001\`, with no fallback |
-| Image generation | FLUX.1 [schnell] on Cloudflare Workers AI |
+| Image generation | With billing on, \`gemini-3.1-flash-lite-image\` (Nano Banana 2 Lite). On a free key, FLUX.1 [schnell] on Cloudflare Workers AI |
 
 When someone posts an image in a message Olisar answers, the reply model looks at the image itself.
 
-Image generation runs on Cloudflare because Gemini's image models aren't on the free tier. It needs a Cloudflare token and account ID on [API keys](#keys), and [Images](#images) covers how it works.
+Gemini's image models aren't on the free tier, so a free key makes images on Cloudflare, which needs a Cloudflare token and account ID on [API keys](#keys). [Images](#images) covers both.
 `,
   },
   {
@@ -1291,7 +1307,7 @@ A placeholder is a word in braces that Olisar fills in when it sends the reply. 
 | Reply | When Olisar sends it | Placeholders |
 | --- | --- | --- |
 | **/forget-me (opt-out line)** | After the \`/forget-me\` confirmation, when the member also chose \`stop_remembering: true\`. | None |
-| **When rate-limited** | Every model is out of requests, or a member is sending messages faster than their reply allowance (see [Behavior](#behavior)). When the allowance runs out on \`/ask\` or \`/catchup\`, only the person who ran it sees the reply. | None |
+| **When rate-limited** | Every model is out of requests, the month's budget is spent and set to stop (see [API keys](#keys)), or a member is sending messages faster than their reply allowance (see [Behavior](#behavior)). When the allowance runs out on \`/ask\` or \`/catchup\`, only the person who ran it sees the reply. | None |
 | **When it draws a blank** | A reply came back empty or failed, which includes having no Gemini key. With remote access on, Olisar adds a **Report this** button that sends you the failure (see [Console settings](#settings)). | None |
 | **When access is denied** | Someone the [Access control](#access) rules shut out runs \`/ask\` or \`/catchup\`. Only they see it. In chat, they get no reply at all. | None |
 | **When a tool needs the PIN** | Olisar asks for the tool PIN before changing its own settings. The prompt never pings anyone, and it can't be reworded by asking Olisar in chat. If your text leaves out \`{details}\`, Olisar adds it on its own line, because whoever types the PIN needs to see what they're approving. | \`{tool}\`, \`{details}\`, \`{seconds}\` |
@@ -1309,29 +1325,44 @@ The [API keys](tab:keys) tab holds the keys Olisar uses to reach outside service
 | Service | What it powers | Required |
 | --- | --- | --- |
 | Google Gemini | Every reply, plus summaries, memory search, image descriptions and everything else that uses a model (see [Models](#models)) | Yes |
-| Cloudflare Workers AI | Image generation (see [Images](#images)) | No |
+| Cloudflare Workers AI | Image generation on a free Gemini key, and a fallback for Gemini's images with billing on (see [Images](#images)) | No |
 
 The setup wizard asks for the Gemini key, and you can add or change keys here at any time (see [First-run setup wizard](#wizard)). The Star Citizen extension's optional UEX token is on that extension's page instead (see [Extensions](#extensions)).
 
 ## Add a Gemini key
 
-1. Create a key on [Google AI Studio's API keys page](https://aistudio.google.com/apikey). The free tier is enough to run Olisar.
+1. Create a key on [Google AI Studio's API keys page](https://aistudio.google.com/apikey). A free key is enough to run Olisar.
 2. Open [API keys](tab:keys) and paste the key into **Gemini API key**.
-3. When **Works** appears under the field, press **Save keys**.
+3. When **Works · free tier** or **Works · billing on** appears under the field, press **Save changes**.
 
-To pay for higher limits instead, see [Models](#models).
+To pay for higher limits, turn on billing for the key's project (see [Models](#models)).
 
 Without a Gemini key, Olisar can't reply: every reply comes back as the **When it draws a blank** message (see [Command replies](#replies)). A new key comes with its own daily allowance, so models the old key had used up for the day are available again straight away.
 
+## Set a monthly budget
+
+When the saved key has billing on, two settings appear under it:
+
+| Setting | What it does | Default |
+| --- | --- | --- |
+| **Monthly budget** | The most Olisar spends on Gemini in a calendar month, in US dollars. 0 is no budget. | 0 |
+| **At the budget** | **Keep replying on the cheapest model** answers with the cheapest models only (Gemini 2.5 Flash-Lite, then 3.1 and 3.5 Flash-Lite), with no web search and no Gemini images. **Stop until next month** stops replying: members get the **When rate-limited** reply, and background work waits for the new month. | Keep replying on the cheapest model |
+
+From 80% of the budget, the pace line on [Usage](#usage) warns and the sidebar shows how much is spent, such as **Budget at 85%**. Usage also warns when the month is on pace to go over. Once the budget is spent, the sidebar shows **Budget spent**. The month starts over on the 1st, Pacific time.
+
+The budget holds Olisar to its own estimate of what it spent (see [Usage & rate limits](#usage)). It doesn't limit anything else that uses the same Google Cloud project, and Google's bill is what you actually pay.
+
 ## Turn on image generation
 
-Image generation needs a Cloudflare API token and the ID of the account it belongs to. Without them, Olisar tells people it can't make images.
+With billing on, Olisar makes images with Gemini, at about 3¢ an image, and Cloudflare is optional: it makes the image when Gemini can't. **Make images with Gemini**, under the Gemini key, is on by default; turn it off to use only Cloudflare. On a free key the switch shows **Needs billing**, and images need a Cloudflare API token and the ID of the account it belongs to. With neither, Olisar tells people it can't make images.
+
+To add Cloudflare:
 
 1. On Cloudflare's [Workers AI page](https://dash.cloudflare.com/?to=/:account/ai/workers-ai), choose **Use REST API**.
 2. Choose **Create a Workers AI API Token**, then **Create API Token**, and copy the token.
 3. In [API keys](tab:keys), paste the token into **API token** under **Cloudflare Workers AI**.
 4. Copy the **Account ID** shown on the same Cloudflare page into **Account ID**.
-5. When **Works** appears under **Account ID**, press **Save keys**.
+5. When **Works** appears under **Account ID**, press **Save changes**.
 
 If you create a token yourself instead of using that button, give it the **Account > Workers AI > Read** permission. When a token can also read its own account, Olisar fills in the account ID for you; the token from the Workers AI button can't, which is why you copy the ID.
 
@@ -1345,9 +1376,9 @@ Each field shows where its key comes from:
 | **From environment** | The key comes from an environment variable on the machine Olisar runs on, such as \`GEMINI_API_KEY\`. Paste a key to override it. |
 | **Not set** | There's no key. |
 
-Olisar checks each key with its service: the key you've typed, or the saved one when the field is empty. Under the field it shows **Works**, or what's wrong, such as "Google didn't accept that key." or "That token can't use this account." If the service can't be reached, it shows nothing rather than guess.
+Olisar checks each key with its service: the key you've typed, or the saved one when the field is empty. Under the field it shows **Works**, or what's wrong, such as "Google didn't accept that key." or "That token can't use this account." For a Gemini key that works, it adds whether the key is on the free tier or has billing on (see [Models](#models)). If the service can't be reached, it shows nothing rather than guess.
 
-**Save keys** stores only the fields you've typed in, and leaves the others as they are. Olisar starts using a new key within a few seconds, with no restart.
+**Save changes** stores the key fields you've typed in and any change to the budget or Gemini images, and leaves the other keys as they are. Olisar starts using a new key within a few seconds, with no restart.
 
 To remove a saved key, press the trash icon beside it and confirm with **Remove key**. Olisar then uses the environment variable for that key if there is one; otherwise the feature it powers stops working.
 
@@ -1628,7 +1659,7 @@ Impressions are written by the model and can be wrong or unflattering. Read a fe
     id: 'images',
     title: 'Images',
     body: `
-Olisar looks at images people post to it, describes the images members upload so search can find them later, and draws new images when someone asks. Seeing and describing images run on Gemini. Drawing them needs a Cloudflare key, and without one Olisar tells members it can't make images.
+Olisar looks at images people post to it, describes the images members upload so search can find them later, and draws new images when someone asks. Seeing and describing images run on Gemini. Drawing them runs on Gemini too when the key has billing on, and otherwise needs a Cloudflare key; without either, Olisar tells members it can't make images.
 
 ## Seeing posted images
 
@@ -1643,7 +1674,7 @@ When a message that addresses Olisar has images in it, Olisar sees them along wi
 
 Every image a member uploads to an indexed channel gets a one- or two-sentence description, including any text, usernames, links or logos visible in it. The description is added to the stored message, so a later search for "the screenshot with the 30k error" finds it. Channels set to \`off\` count too, since indexing doesn't depend on a channel's mode, and each image is described once.
 
-Older images are described while Olisar reads back through history, at about one every 40 seconds. When the Gemini models that write descriptions are busy, Olisar skips the image, and only its file name is searchable.
+Older images are described while Olisar reads back through history, at about three a minute. When the Gemini models that write descriptions are busy, Olisar skips the image, and only its file name is searchable.
 
 Descriptions use your Gemini quota and show as **Image** in the by-feature breakdown on the [Usage](tab:usage) tab. To stop them in a channel, set it to **not indexed** on the [Channels](tab:channels) tab, which also takes the channel out of search. See [Memory & search](#memory) for the index.
 
@@ -1651,7 +1682,14 @@ Descriptions use your Gemini quota and show as **Image** in the by-feature break
 
 Members ask in plain language: "olisar, draw a neon space whale over the city". Olisar writes a detailed prompt from the request, posts the image to the channel and adds a short caption. Anyone who can talk to Olisar can ask; there's no separate switch for image generation.
 
-Generation runs on [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) with the FLUX.1 [schnell] model, because Gemini's image models aren't on the free tier. It needs the Cloudflare account ID and API token on the [API keys](tab:keys) tab; see [API keys](#keys) for how to get them.
+Where the image is made depends on the Gemini key:
+
+| Key | Images come from |
+| --- | --- |
+| Billing on | Gemini's Nano Banana 2 Lite (\`gemini-3.1-flash-lite-image\`), at about 3¢ an image on the key's bill. If Gemini fails and Cloudflare is set up, Cloudflare makes it instead |
+| Free | [Cloudflare Workers AI](https://developers.cloudflare.com/workers-ai/) with the FLUX.1 [schnell] model, because Gemini's image models aren't on the free tier. It needs the Cloudflare account ID and API token |
+
+**Make images with Gemini** on the [API keys](tab:keys) tab turns Gemini images off, leaving Cloudflare. Gemini images also stop once the month's budget is spent. See [API keys](#keys) for both, and for getting the Cloudflare keys.
 
 ### Limits
 
@@ -1662,7 +1700,7 @@ Generation runs on [Cloudflare Workers AI](https://developers.cloudflare.com/wor
 
 ### When Olisar can't make an image
 
-Without Cloudflare keys, or when the key is wrong or the day's allocation is used up, Olisar tells the member it can't make an image right now. It gives the same answer for all three, so if images stop working, check the key on the API keys tab first. The operator can see the exact error from Cloudflare in the bot's logs under **Settings > Logs**.
+Olisar tells the member it can't make an image right now when nothing can make it: Gemini can't (a free key, **Make images with Gemini** off, the budget spent, or a failed request) and Cloudflare isn't set up, its key is wrong, or the day's allocation is used up. It gives the same answer for all of these, so if images stop working, check the API keys tab first. The operator can see the exact error from Gemini or Cloudflare in the bot's logs under **Settings > Logs**.
 `,
   },
   {
@@ -2972,7 +3010,7 @@ If you change an installed extension's code with **Edit code** and save it, the 
     id: 'usage',
     title: 'Usage & rate limits',
     body: `
-The [Usage](tab:usage) tab shows how much of today's free Gemini allowance the bot has left, which model is answering, and where the requests went. Any admin can open it.
+The [Usage](tab:usage) tab shows how much of today's free Gemini allowance the bot has left (or, when the key has billing on, what it has spent), which model is answering, and where the requests went. Any admin can open it.
 
 Google's daily limits reset at midnight Pacific time, and the tab shows that moment in your own time zone. The counts cover every request the bot makes, in every server it's in. The fallback chain listed is the selected server's: its **Primary model** on the [Behavior](tab:behavior) tab and every model below it. The order and the models themselves are on [Models](#models).
 
@@ -2986,11 +3024,17 @@ The top panel says whether Olisar can keep replying until the reset.
 | **Replying with** | The first model in the chain that can take a request right now, or **No model left** |
 | Pace line | Whether today's rate of use lasts until the reset, or roughly when it runs out |
 | **Memory search** | What's left of the daily limit for looking things up by meaning, which has a model of its own |
-| **Web search** | What's left of Google's daily allowance for web searches. Olisar can stop sooner, at the **Web searches per day** setting |
+| **Web search** | What's left of Google's daily allowance for web searches. A server can stop sooner, at its **Web searches per day** setting |
 
 When memory search runs out, Olisar keeps replying but can't recall older messages, summaries, remembered facts or knowledge-base passages until the reset, and message search matches words only.
 
 A model Google has turned away for the day counts as zero, even if Olisar counted fewer requests than its limit. Google doesn't publish free-tier daily limits, so each limit starts as an estimate and switches to Google's own number the first time Google turns that model away.
+
+### With billing on
+
+A key with billing on has no daily allowance to count down, so the panel shows **Spent this month** instead, with "of your $50 budget · on pace for $38", or "On pace for $38 by the end of the month" when there's no budget. The pace line warns from 80% of the budget, and when the month is on pace to go over it. **Free web searches** counts the month's searches against the 5,000 Google includes, and **Memory search** shows a plain count for today.
+
+The money is Olisar's estimate, from Google's standard paid prices as of October 2026, and Google's own bill is what you pay. Thinking tokens count as output, as Google bills them. The embedding model behind memory search doesn't report tokens, so its cost assumes about four characters a token. Usage recorded before Olisar split input from output tokens is priced as input, so those days read a little low. A month is a calendar month on Pacific time, as Google bills.
 
 The **Live** badge means the figures are current. If the console loses contact with the bot, the badge reads **Not responding**, the figures dim, and a banner says they're the last ones the bot reported.
 
@@ -3007,13 +3051,17 @@ One row per model, in the order Olisar tries them, with what's left of each mode
 
 A hatched stretch on a used-up model's meter is quota Google says is gone that this bot never used. The limits belong to the key's Google Cloud project, so another app or bot using a key from the same project draws on them too.
 
+With billing on, the last column is **Today**: what each model has cost today, and how many requests it took.
+
 ## By feature
 
-Where the requests went today, or over the last 7 or 30 days: **Replies**, **Summaries**, **Impressions**, **Glossary**, **Image** and **Everything else**, which lists its parts underneath (chiming in, web search, catch-up, extensions and a few smaller ones). **Image** is Olisar describing posted images. Generating images uses Cloudflare's allowance, not Google's, and isn't counted here. Memory search isn't counted either, since it has its own limit.
+Where the requests went today, or over the last 7 or 30 days: **Replies**, **Summaries**, **Impressions**, **Glossary**, **Image** and **Everything else**, which lists its parts underneath (chiming in, web search, catch-up, extensions and a few smaller ones). **Image** is Olisar describing posted images. Images Gemini makes show under **Everything else** as making images; Cloudflare's aren't counted here. Memory search isn't counted either, since it has its own limit.
 
 ## Stats
 
 Four tiles: **Requests today** and **Tokens today** against the same time yesterday, the **Busiest minute** against that model's per-minute limit, and when every model **Last ran out**. Under them, **Requests per day** charts the last 14 days against the chain's combined daily limit (the dashed line), with the days it ran out in amber.
+
+With billing on, **Spent today**, with yesterday's spend under it, takes the place of **Last ran out**, and the chart is **Spend per day**, with no limit line.
 
 ## When every model is used up
 
@@ -3021,8 +3069,9 @@ Olisar keeps reading and storing messages but can't write replies until the rese
 
 - Anyone who addresses it gets the **When rate-limited** reply, "i'm a bit rate-limited right now — give me a minute and try again?", which you can reword on [Command replies](tab:messages).
 - The bot status at the bottom of the sidebar reads **Rate-limited**. It also shows this for a moment when every model is resting at once.
+- The sidebar shows **Out of requests**, back at midnight Pacific, with what the day would cost with billing on. The pace line on Usage says the same: "With billing on, today would cost about $1.20." Both link to Google AI Studio with **Turn on billing**, the sidebar only for the operator.
 - Summaries, impressions and the glossary wait and catch up after the reset. Images posted in the meantime don't get a description, so search finds them by file name only.
-- Once an hour, Olisar asks Google again about each used-up model. If you turn on billing for the key's Google Cloud project, Olisar notices within the hour (see [Models](#models) for what a paid key changes).
+- Once an hour, Olisar asks Google again about each used-up model. If you turn on billing for the key's Google Cloud project, the next of those requests goes through, and Olisar checks the key again and switches to billing on (see [Models](#models) for what billing changes).
 
 A used-up model is tied to the key it ran out on. A Gemini key from a different Google Cloud project, pasted on the [API keys](#keys) tab, has its own limits, and the models take requests again at once.
 
@@ -3031,10 +3080,10 @@ A used-up model is tied to the key it ran out on. A Gemini key from a different 
 1. Open **By feature** and find what's spending the most.
 2. On [Behavior](tab:behavior), turn off **Speak up on its own** and **React with emoji** if they're on. Both read the conversation to decide whether to join in.
 3. Raise **Summary token threshold**, **Glossary mine threshold** and **Persona rebuild (messages)** so background work runs less often.
-4. Lower **Web searches per day**. Each web search also spends a request from the chain.
+4. Lower **Web searches per day**. Each web search also spends a request from Gemini 2.5 Flash or 2.5 Flash-Lite.
 5. If **Image** is large, set busy image channels to **not indexed** on [Channels](tab:channels). Every image posted in an indexed channel gets a description. A channel set to not indexed also drops out of message search, and what's already indexed there is erased.
 
-Summaries, impressions, the glossary, catch-ups and image descriptions run on the Flash-Lite models at the bottom of the chain, the same ones replies fall back to when the top models are used up.
+Summaries, impressions, the glossary, catch-ups and image descriptions run on the Flash-Lite models at the bottom of the chain, the same ones replies fall back to when the top models are used up. With billing on, the same steps lower the bill.
 
 ## Limits that apply before the quota runs out
 
@@ -3045,7 +3094,7 @@ Olisar also limits how fast it can be used, whatever is left today.
 | Replies to one member | 8 in a row, then 1 every 15 seconds | In chat, Olisar sends the **When rate-limited** reply once and ignores further messages until the member can have a reply again. \`/ask\` and \`/catchup\` show it privately each time |
 | Replies in one server | 30 in a row, then 1 every 4 seconds | The same. All DMs share one budget |
 | Requests per model per minute | Set per model, see [Models](#models) | The model shows **Back in** and the next one answers |
-| Web searches per day | 100, set on [Behavior](tab:behavior) | Olisar answers from what it already knows. The count includes searches from every server the bot is in |
+| Web searches per server | 100 a day, or 3,000 a month with billing on, set on [Behavior](tab:behavior) | Olisar answers from what it already knows. Each server counts only its own searches |
 | Images per reply | 2 | Olisar says how many it made, and that you can ask for more in another message |
 `,
   },
@@ -3082,7 +3131,7 @@ Before each update, Olisar copies the database beside it as \`olisar.db.pre-<ver
 | Activity record | The last 50 statuses Olisar set itself and the last 50 prompts for images it generated | Kept |
 | Activity log | Changes admins make in the console or by asking Olisar in chat, and member-portal actions with the member's IP address. Only the operator can read it | Kept |
 | Sign-ins | Discord ID, username and servers of each admin and member-portal user | Kept |
-| Usage counts | Requests and tokens per model per day, with no content | Not member data |
+| Usage counts | Requests and tokens per model per day, and web searches per server per day, with no content | Not member data |
 | Settings and keys | Configuration, the Discord bot token, the Gemini and Cloudflare keys, and the Tailscale auth key | Not member data |
 
 Admins of a server see its members' profiles, impressions and remembered facts on the [Members](tab:members) tab. Members who opted out don't appear there.
@@ -3106,21 +3155,22 @@ Gemini writes every reply and does Olisar's background work, so the text it work
 | Olisar replies, or someone runs \`/catchup\` | The message and any images on it, recent messages in that channel or DM, what it recalls (summaries, older messages, remembered facts, the glossary, knowledge-base passages, reference snapshots), and whatever a tool looks up for the reply, including message-search results |
 | Background work | Conversation memory, to write summaries, impressions and the glossary. Conversation memory, summaries, remembered facts and the knowledge base, to index them by meaning |
 | An image is posted | Each image a member posts in an indexed channel, to write its description |
+| An image is requested, with billing on | The prompt Olisar writes for it, when Gemini makes the image |
 | A name is used | A message that mentions Olisar's name without clearly talking to it, to decide whether to answer |
 | Optional features | Recent messages, when **Speak up on its own** or **React with emoji** is on. A member's live status or voice channel, when **Status & voice awareness** is on. Web search queries |
 | An admin asks | Messages from the search index, when an admin presses **Create impression** on the Members tab or **Deep mine from index** on the Knowledge tab |
 
 The rest of the search index stays on the machine. Text from a channel set to \`off\` reaches Google only when one of the lookups above turns it up, while images posted there are sent to be described.
 
-### Google's free-tier terms
+### Free tier and billing
 
 On the free tier, Google's [Gemini API terms](https://ai.google.dev/gemini-api/terms) let it use what Olisar sends, and what Gemini answers, to improve its products, and human reviewers may read it. Google says it disconnects that data from your account before review, and asks that nothing sensitive, confidential or personal be sent to the free tier.
 
-Paid quota works differently: Google doesn't use it to improve its products, and keeps logs only for a limited time to catch abuse. If the operator is in the European Economic Area, Switzerland or the United Kingdom, Google applies the paid terms to free requests too. [Models](#models) covers using a paid key.
+With billing on, Google doesn't use any of it to improve its products, and keeps logs only for a limited time to catch abuse. The setup wizard points this out when the key it checks is on the free tier. If the operator is in the European Economic Area, Switzerland or the United Kingdom, Google applies the paid terms to free requests too. [Models](#models) covers turning on billing.
 
 ## What's sent to Cloudflare
 
-If you add Cloudflare keys on the [API keys](#keys) tab, the prompt for each image Olisar generates goes to Cloudflare Workers AI. Olisar writes the prompt from the request, so it can include what the member asked for. Workers AI receives nothing else. Cloudflare's [data usage terms](https://developers.cloudflare.com/workers-ai/platform/data-usage/) say it doesn't train its Workers AI models on what you send.
+If you add Cloudflare keys on the [API keys](#keys) tab, the prompt for each image Cloudflare makes goes to Cloudflare Workers AI. With billing on, Gemini makes images unless you turn that off, and Cloudflare gets a prompt only when Gemini can't make the image. Olisar writes the prompt from the request, so it can include what the member asked for. Workers AI receives nothing else. Cloudflare's [data usage terms](https://developers.cloudflare.com/workers-ai/platform/data-usage/) say it doesn't train its Workers AI models on what you send.
 
 ## Other services
 
@@ -3201,9 +3251,10 @@ Olisar registers its commands in each server, not in DMs, so none of them appear
 
 ### Olisar says it's rate-limited
 
-The reply "i'm a bit rate-limited right now — give me a minute and try again?" has two causes. Open the [Usage](tab:usage) tab to tell them apart.
+The reply "i'm a bit rate-limited right now — give me a minute and try again?" has three causes. Open the [Usage](tab:usage) tab to tell them apart.
 
 - If **Left today** is 0 and **Replying with** reads **No model left**, every model is used up for the day. Olisar replies again after the reset at midnight Pacific time, and the bot status at the bottom of the sidebar reads **Rate-limited** until then.
+- With billing on, if the sidebar shows **Budget spent** and **At the budget** is **Stop until next month**, Olisar stops until the month ends. Raise the budget on [API keys](tab:keys) to start it again sooner (see [API keys](#keys)).
 - Otherwise a member, or the server as a whole, sent messages faster than Olisar's reply limits allow. It clears within seconds.
 
 [Usage & rate limits](#usage) covers both limits and how to make the daily allowance last.
@@ -3221,12 +3272,13 @@ Otherwise, ask again or rephrase. With [remote access](#remote) on, the blank re
 Olisar answers from what it already knows when web search isn't available. Check, in order:
 
 1. **Web search** is on, on [Behavior](tab:behavior).
-2. **Web searches per day** hasn't been reached. The count includes searches from every server the bot is in.
-3. Google's own web-search allowance isn't spent. If **Web search** on the [Usage](tab:usage) tab shows 0 left, it's back after midnight Pacific time, and raising the setting won't help.
+2. This server hasn't reached its **Web searches per day** (or **Web searches per month**, with billing on). The count is this server's searches only.
+3. On a free key, Google's own web-search allowance isn't spent. If **Web search** on the [Usage](tab:usage) tab shows 0 left, it's back after midnight Pacific time, and raising the setting won't help.
+4. With billing on, the month's budget isn't spent. Web search stops when it is, whatever **At the budget** says.
 
 ### Olisar says it can't make images
 
-Image generation needs a Cloudflare API token and account ID on the [API keys](tab:keys) tab. If they're there, look under them for "Cloudflare didn't accept that token." or "That token can't use this account." A token that works but still makes no images usually means Cloudflare's free daily allocation is used up, and it comes back when Cloudflare resets it. A refused token and a used-up allocation look the same to a member, so check the keys first. See [Images](#images).
+With billing on and **Make images with Gemini** on, Gemini makes images until the month's budget is spent. Otherwise, image generation needs a Cloudflare API token and account ID on the [API keys](tab:keys) tab. If they're there, look under them for "Cloudflare didn't accept that token." or "That token can't use this account." A token that works but still makes no images usually means Cloudflare's free daily allocation is used up, and it comes back when Cloudflare resets it. A refused token and a used-up allocation look the same to a member, so check the keys first. See [Images](#images).
 
 ### Olisar doesn't use a knowledge source you added
 

@@ -349,7 +349,7 @@ export function Behavior() {
     const {
       pin_actions: _pin, allowed_role_ids: _allow, blocked_role_ids: _block,
       member_portal_enabled: _portal, member_portal_show_persona: _portalPersona,
-      remote_access_configured: _remote, ...cfg
+      remote_access_configured: _remote, gemini_tier: _tier, ...cfg
     } = configEd.data
     await api.putConfig({
       ...cfg,
@@ -501,12 +501,25 @@ export function Behavior() {
         >
           <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
         </Field>
-        <Field label="Web search" desc={`Let ${botName()} look things up on the web. Google's free search quota is small, so searches can stop for the rest of the day.`}>
+        {/* Google's search allowance is daily on a free key, and only on its Gemini 2.5
+            models, and monthly on a billed one, so the cap follows the key. */}
+        <Field
+          label="Web search"
+          desc={data.gemini_tier === 'paid'
+            ? `Let ${botName()} look things up on the web. Google includes 5,000 searches a month, then charges $14 per 1,000.`
+            : `Let ${botName()} look things up on the web. On a free key, Google allows 500 searches a day across all your servers, on its older Gemini 2.5 models.`}
+        >
           <Toggle value={data.grounding_enabled} onChange={(v) => set('grounding_enabled', v)} />
         </Field>
-        <Field label="Web searches per day" desc={`The most lookups ${botName()} will run in a day.`}>
-          <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
-        </Field>
+        {data.gemini_tier === 'paid' ? (
+          <Field label="Web searches per month" desc={`The most lookups ${botName()} will run for this server in a month.`}>
+            <Num value={data.grounding_monthly_cap} onChange={(v) => set('grounding_monthly_cap', v)} min={0} unit="searches / month" def={3000} />
+          </Field>
+        ) : (
+          <Field label="Web searches per day" desc={`The most lookups ${botName()} will run for this server in a day.`}>
+            <Num value={data.grounding_daily_cap} onChange={(v) => set('grounding_daily_cap', v)} min={0} unit="searches / day" def={100} />
+          </Field>
+        )}
         <Field label="Status & voice awareness" desc={`Let ${botName()} check a member's live status/activity and who's in voice. Requires the Presence Intent permission in the Discord Developer Portal.`}>
           <Toggle value={data.presence_tools_enabled} onChange={(v) => set('presence_tools_enabled', v)} />
         </Field>
@@ -3462,10 +3475,10 @@ function useKeyCheck<T>(dep: string, run: () => Promise<T>): { checking: boolean
 }
 
 // A key check's result under its field. `bad` null means there's nothing to say: no key, or
-// the service couldn't be reached to ask.
-function KeyCheckLine(props: { checking: boolean; ok: boolean | null; bad: string; next?: string }) {
+// the service couldn't be reached to ask. `works` replaces the plain "Works".
+function KeyCheckLine(props: { checking: boolean; ok: boolean | null; bad: string; next?: string; works?: string }) {
   if (props.checking) return <div className="check-line" role="status"><span className="spinner" /> Checking…</div>
-  if (props.ok) return <div className="check-line ok" role="status"><Icon.check size={14} weight="Bold" /> Works</div>
+  if (props.ok) return <div className="check-line ok" role="status"><Icon.check size={14} weight="Bold" /> {props.works ?? 'Works'}</div>
   // A step still to take, not a mistake: said plainly rather than in red.
   if (props.ok === false && props.next) return <div className="check-line" role="status">{props.next}</div>
   if (props.ok === false && props.bad) return <div className="check-line err" role="alert">{props.bad}</div>
@@ -3488,22 +3501,33 @@ async function removeKey(field: string, label: string): Promise<boolean> {
   return true
 }
 
+type BillingSettings = { monthly_budget_usd: number; budget_action: 'stop' | 'cheapest'; gemini_images: boolean }
+type Billing = BillingSettings & { tier: 'free' | 'paid' | null; checked_at: string | null }
+
 export function ApiKeys() {
   const keys = useAsync<Record<string, KeyStatus>>(api.getKeys)
   const { data, loading, reload } = keys
+  // Whether the saved Gemini key has billing on, and the settings that only matter if it
+  // does. A failed read leaves them off the page rather than blocking the keys.
+  const billing = useAsync<Billing>(api.getBilling)
   const [edits, setEdits] = useState<Record<string, string>>({})
+  const [bEdits, setBEdits] = useState<Partial<BillingSettings>>({})
   const saver = useSaver(async () => {
     const body: Record<string, string> = {}
     for (const [k, v] of Object.entries(edits)) if (v.trim()) body[k] = v.trim()
-    await api.putKeys(body)
+    if (Object.keys(body).length) await api.putKeys(body)
+    if (Object.keys(bEdits).length) await api.putBilling(bEdits)
     setEdits({})
+    setBEdits({})
     reload()
+    billing.reload()
   })
   // These must run before the loading return: a hook called only on the render where data
   // has arrived is a different hook count than the render before it, which is a hard React
   // crash rather than a degraded page. `edits` exists from the first render, so there is
   // nothing to wait for.
-  const dirty = Object.values(edits).some((v) => v.trim() !== '')
+  const bChanged = Object.entries(bEdits).some(([k, v]) => billing.data?.[k as keyof BillingSettings] !== v)
+  const dirty = Object.values(edits).some((v) => v.trim() !== '') || bChanged
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
   const typed = (k: string) => (edits[k] ?? '').trim()
   const gemini = useKeyCheck(typed('gemini_api_key'), () => api.checkGeminiKey(typed('gemini_api_key')))
@@ -3530,6 +3554,12 @@ export function ApiKeys() {
   const g = gemini.result as any
   const c = cf.result as any
   const cfBad = (field: 'token' | 'account') => (c?.set && c.ok === false && c.problem === field)
+  const b = billing.data
+  const setB = <K extends keyof BillingSettings>(k: K, v: BillingSettings[K]) => setBEdits({ ...bEdits, [k]: v })
+  const bval = <K extends keyof BillingSettings>(k: K): BillingSettings[K] => (bEdits[k] ?? b?.[k]) as BillingSettings[K]
+  // The saved key's tier: what the budget and Gemini images depend on.
+  const paid = b?.tier === 'paid'
+  const geminiImages = paid && !!bval('gemini_images')
 
   return (
     <>
@@ -3541,11 +3571,11 @@ export function ApiKeys() {
 
       {/* Required first, then the optional one. The UEX key lives on the Star Citizen
           extension's page, since nobody without the extension needs it. */}
-      <Section title="Google Gemini" hint={`Required. Powers everything ${botName()} says. The free tier is enough to run the bot.`}>
+      <Section title="Google Gemini" hint={`Required. Powers everything ${botName()} says.`}>
         <KeyField
           fieldKey="gemini_api_key"
           label="Gemini API key"
-          desc={<>Create a free key in {A('https://aistudio.google.com/apikey', 'Google AI Studio → Get API key')}.</>}
+          desc={<>Create a key in {A('https://aistudio.google.com/apikey', 'Google AI Studio → Get API key')}.</>}
           status={st('gemini_api_key')}
           value={val('gemini_api_key')}
           example="AQ.…"
@@ -3556,11 +3586,44 @@ export function ApiKeys() {
               checking={gemini.checking}
               ok={g?.ok ?? null}
               bad={typed('gemini_api_key') ? 'Google didn’t accept that key.' : 'Google no longer accepts the saved key.'}
+              works={g?.tier === 'paid' ? 'Works · billing on' : g?.tier === 'free' ? 'Works · free tier' : undefined}
             />
           )}
         />
+        {/* A budget only means something once Google charges for the key. */}
+        {paid && (
+          <>
+            <Field label="Monthly budget" desc="Warns at 80%. 0 is no budget.">
+              <Num value={bval('monthly_budget_usd')} onChange={(v) => setB('monthly_budget_usd', v)} min={0} step={5} unit="USD" def={0} />
+            </Field>
+            <Field label="At the budget">
+              <Select
+                value={bval('budget_action')}
+                onChange={(v) => setB('budget_action', v as BillingSettings['budget_action'])}
+                options={[
+                  { value: 'cheapest', label: 'Keep replying on the cheapest model' },
+                  { value: 'stop', label: 'Stop until next month' },
+                ]}
+              />
+            </Field>
+          </>
+        )}
+        {b && (
+          <Field
+            label="Make images with Gemini"
+            desc={paid ? 'About 3¢ an image.' : undefined}
+            badge={paid ? undefined : <Badge icon="minus-circle">Needs billing</Badge>}
+          >
+            <Toggle value={geminiImages} onChange={(v) => setB('gemini_images', v)} disabled={!paid} />
+          </Field>
+        )}
       </Section>
-      <Section title="Cloudflare Workers AI" hint={`Optional. Turns on image generation. Without it, ${botName()} says it can't make images.`}>
+      <Section
+        title="Cloudflare Workers AI"
+        hint={geminiImages
+          ? 'Optional. Makes images if Gemini can’t.'
+          : `Optional. Turns on image generation. Without it, ${botName()} says it can't make images.`}
+      >
         <KeyField
           fieldKey="cloudflare_api_token"
           label="API token"
@@ -3594,7 +3657,7 @@ export function ApiKeys() {
         />
       </Section>
 
-      <SaveDock dirty={dirty} saver={saver} onReset={() => setEdits({})} label="Save keys" />
+      <SaveDock dirty={dirty} saver={saver} onReset={() => { setEdits({}); setBEdits({}) }} />
     </>
   )
 }

@@ -915,7 +915,7 @@
     <div class="cell txt" data-e="l" data-t="r" style="--c:1;--r:2;--i:3" data-k="google">
       <a class="cell-link" href="docs.html#privacy" aria-label="Privacy, in the docs"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></a>
       <h3>What Google sees</h3>
-      <p>Its memory stays in one database on your computer or server. What it replies to goes through Gemini, and on the free tier Google may use that to improve its products. The EEA, UK and Switzerland are exempt.</p>
+      <p>Its memory stays in one database on your computer or server. What it replies to goes through Gemini, and on the free tier Google may use that to improve its products. Turning on billing stops that, and the EEA, UK and Switzerland are exempt.</p>
     </div>
 
     <figure class="cell fig" data-t="l r" style="--c:2/4;--r:2;--tc:1/-1;--i:4" data-k="lightning">
@@ -924,10 +924,10 @@
         <div class="glass-wrap"><img class="glass" src="assets/icons/lightning.webp" alt="" width="800" height="800" loading="lazy" decoding="async" /></div>
         <div class="frag" aria-hidden="true">
           <div class="cpanel usage">
-            <div class="u-cur">Gemini 3.5 Flash</div>
+            <div class="u-cur">Gemini 3.8 Flash</div>
             <div class="u-chain">
-              <div class="u-row"><span>Gemini 3.5 Flash</span><span class="meter"><i style="--v:.58;--d:0"></i></span></div>
-              <div class="u-row"><span>Gemini 3.1 Flash-Lite</span><span class="meter"><i style="--v:1;--d:1"></i></span></div>
+              <div class="u-row"><span>Gemini 3.8 Flash</span><span class="meter"><i style="--v:.58;--d:0"></i></span></div>
+              <div class="u-row"><span>Gemini 3.5 Flash-Lite</span><span class="meter"><i style="--v:1;--d:1"></i></span></div>
               <div class="u-row"><span>Gemini 2.5 Flash</span><span class="meter"><i style="--v:1;--d:2"></i></span></div>
             </div>
             <div class="u-pace"><svg class="i"><use href="#i-check-bold"/></svg><span>At today’s pace, this lasts until the reset.</span></div>
@@ -940,7 +940,7 @@
     <div class="cell txt" data-e="r" data-t="l r" style="--c:4;--r:2;--tc:1/-1;--i:5" data-k="free">
       <a class="cell-link" href="docs.html#usage" aria-label="Usage, in the docs"><svg class="i" aria-hidden="true"><use href="#i-up-right"/></svg></a>
       <h3>Maximize your free usage</h3>
-      <p>When a model runs out of free usage, it seamlessly falls back to the next best one. This gives Olisar a high usage limit completely for free. You can also monitor limits easily through the console.</p>
+      <p>When a model runs out of free requests for the day, Olisar falls back to the next best one, so the free tier goes further. The console shows what’s left of each model’s limit.</p>
     </div>
   </section>
 
@@ -986,7 +986,7 @@
     <div class="cell blank-2" style="--i:1"></div><div class="cell blank" data-e="r" style="--i:2"></div>
 
     <div class="cell q" data-e="l" data-t="l r"><h3>Is it really free?</h3></div>
-    <div class="cell a" data-e="r" data-t="l r" style="--i:1"><p>There’s no paid tier. It runs on your own Gemini key’s free tier, so the cost is a daily limit: once every model in its chain has hit its limit, it stops replying until midnight Pacific. Image generation is optional and needs a free Cloudflare key.</p></div>
+    <div class="cell a" data-e="r" data-t="l r" style="--i:1"><p>Olisar has no subscription. By default it runs on your Gemini key’s free tier, so the cost is a daily limit: once every model in its chain has hit its limit, it stops replying until midnight Pacific. Turning on billing for the key in Google AI Studio lifts the daily limit. Google then charges per use, and the console shows what it costs and can hold it to a monthly budget. Image generation is optional: it uses Gemini once billing is on, or a free Cloudflare key.</p></div>
 
     <div class="cell q" data-e="l" data-t="l r"><h3>Does my computer have to stay on?</h3></div>
     <div class="cell a" data-e="r" data-t="l r" style="--i:1"><p>Only if that’s where Olisar runs. Closing the window keeps it running in the menu bar or system tray. To keep it online with your computer off, the app can set it up on a free Oracle Cloud server, or on any Linux machine with Docker.</p></div>

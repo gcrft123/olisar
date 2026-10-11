@@ -5,17 +5,20 @@ matching the legacy ``/stats`` endpoint. Two endpoints:
 
 * ``GET /api/usage/live`` — what's left of today's allowance: every model in the selected
   server's fallback chain with its count, its daily limit and whether it can take a request,
-  plus memory search and web search. The bot and API share this process, so the limiter
-  singleton is the live source of truth for which models are parked; the page polls this
-  every few seconds.
+  plus memory search and web search, and what it all cost (``billing``). The bot and API
+  share this process, so the limiter singleton is the live source of truth for which models
+  are parked; the page polls this every few seconds.
 * ``GET /api/usage/summary`` — the slower-moving figures: requests by feature, the same time
-  yesterday, the busiest minute, when the chain last ran out and requests per day.
+  yesterday, the busiest minute, when the chain last ran out and requests and cost per day.
 
-A day is Google's quota day, midnight to midnight Pacific (see olisar.gemini.quota).
+A day is Google's quota day, midnight to midnight Pacific (see olisar.gemini.quota), and a
+month is a calendar month on the same clock, as Google bills. Cost is what Google charges a
+key with billing on (olisar.gemini.pricing); on a free key it's what the usage would cost.
 """
 
 from __future__ import annotations
 
+import calendar
 import math
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated
@@ -27,8 +30,11 @@ from api.auth.deps import require_admin
 from olisar.config import settings
 from olisar.db.engine import session_scope
 from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.gemini import spend
+from olisar.gemini import tier as gemini_tier
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import GROUNDING_RPD, rpd_for, rpm_for
+from olisar.gemini.models import GEMINI_IMAGE_MODEL, GROUNDING_RPD, rpd_for, rpm_for
+from olisar.gemini.pricing import SEARCH_FREE_PER_MONTH, daily_costs, tokens_cost
 from olisar.gemini.quota import aware, day_start, next_reset, quota_day, quota_hour
 from olisar.gemini.rate_limiter import (
     chains_in_use,
@@ -64,8 +70,25 @@ def _hour_spans(day: date) -> dict[int, tuple[datetime, timedelta]]:
 
 def _is_chat(model: str) -> bool:
     """Whether a model's requests count against the chat chain's daily limits. Memory search
-    runs on the embedding model, which has a limit of its own."""
-    return model != settings.gemini_embed_model
+    runs on the embedding model, which has a limit of its own, and images made with Gemini
+    on a model of their own."""
+    return model not in (settings.gemini_embed_model, GEMINI_IMAGE_MODEL)
+
+
+def _projected(month_cost: float, now: datetime, day: date) -> float:
+    """The month's cost at its pace so far. A day in, a pace means little, so the first day
+    counts as a whole one."""
+    start = day_start(spend.month_start(day))
+    elapsed = max(1.0, (now - start).total_seconds() / 86400)
+    days = calendar.monthrange(day.year, day.month)[1]
+    return month_cost / elapsed * days
+
+
+async def _tier() -> str | None:
+    try:
+        return await gemini_tier.current()
+    except Exception:  # noqa: BLE001 — the page still renders, as if on the free tier
+        return None
 
 
 def _selected_guild(admin: AdminUser | None, x_guild_id: str | None) -> int | None:
@@ -95,7 +118,12 @@ async def live(
 
     ``exhausted`` is bot-wide, for the sidebar: true only when no active server can be
     answered, every model in every server's chain parked or at its RPM cap. A single model
-    cooling down is normal fallback, not this flag."""
+    cooling down is normal fallback, not this flag.
+
+    ``billing`` is what today and the month have cost (or would have, on a free key), the
+    month's projection, and the budget. ``web_search`` counts the day on a free key, whose
+    search allowance is daily, and the month on a billed one, whose free searches are
+    monthly."""
     limiter = get_rate_limiter()
     # A key pasted into the dashboard is a new quota: un-park the old key's models now
     # rather than at the next reply.
@@ -105,8 +133,14 @@ async def live(
         kid = limiter.key
     now = datetime.now(timezone.utc)
     day = quota_day(now)
+    tier = await _tier()
     async with session_scope() as session:
-        rows = (await session.scalars(select(GeminiUsage).where(GeminiUsage.day == day))).all()
+        month_rows = (
+            await session.scalars(
+                select(GeminiUsage).where(GeminiUsage.day >= spend.month_start(day))
+            )
+        ).all()
+        rows = [r for r in month_rows if r.day == day]
         named = (
             await session.execute(
                 select(GeminiUsage.model, GeminiUsage.quota_limit)
@@ -141,15 +175,25 @@ async def live(
             "state": "spent" if out else "resting" if resting else "ok",
             "back_in": math.ceil(limiter.back_in(name)) if resting else None,
             "spent_at": _iso(out),
+            "cost": round(tokens_cost(row), 4) if row else 0.0,
         })
 
     embed = settings.gemini_embed_model
     embed_row = today.get(embed)
     reset = next_reset(now)
     blocked = get_gemini().grounding_blocked_until
+    paid = tier == gemini_tier.PAID
+    costs = daily_costs(month_rows)
+    month_cost = sum(costs.values())
+    budget = await spend.budget()
+    budget_state = await spend.state() if paid else "none"
+    searches = sum(r.grounding_count for r in (month_rows if paid else rows))
     return {
         "ts": now.isoformat(),
-        "exhausted": limiter.chat_exhausted(everyone),
+        "tier": tier,
+        # A billed key past a budget that stops there can't reply either.
+        "exhausted": limiter.chat_exhausted(everyone)
+        or (budget_state == "over" and budget.action == spend.STOP),
         "day": day.isoformat(),
         "day_start": day_start(day).isoformat(),
         "reset_at": reset.isoformat(),
@@ -161,11 +205,21 @@ async def live(
             "spent": spent_at(embed) is not None,
         },
         "web_search": {
-            "requests": sum(r.grounding_count for r in rows),
-            "limit": GROUNDING_RPD,
+            "requests": searches,
+            "limit": SEARCH_FREE_PER_MONTH if paid else GROUNDING_RPD,
+            "period": "month" if paid else "day",
             # Blocked until the reset means Google said the day's allowance is gone; a
-            # shorter block is a per-minute throttle.
+            # shorter block is a per-minute throttle. A billed key can go past its free
+            # searches, at a price, so it isn't spent then.
             "spent": blocked is not None and blocked >= reset - timedelta(minutes=1),
+        },
+        "billing": {
+            "today": round(costs.get(day, 0.0), 4),
+            "month": round(month_cost, 4),
+            "projected": round(_projected(month_cost, now, day), 2),
+            "budget": budget.usd if paid and budget.usd > 0 else None,
+            "action": budget.action,
+            "state": budget_state,
         },
     }
 
@@ -191,8 +245,12 @@ async def summary(_: AdminUser = Depends(require_admin)):
         sources = (
             await session.scalars(select(UsageSource).where(UsageSource.day >= first))
         ).all()
+        # From the start of the first day's month: the month's free searches are counted
+        # from its first day.
         usage = (
-            await session.scalars(select(GeminiUsage).where(GeminiUsage.day >= first_shown))
+            await session.scalars(
+                select(GeminiUsage).where(GeminiUsage.day >= spend.month_start(first_shown))
+            )
         ).all()
         hours = (
             await session.scalars(select(UsageHour).where(UsageHour.day == yesterday))
@@ -223,11 +281,13 @@ async def summary(_: AdminUser = Depends(require_admin)):
         so_far["requests"] += h.request_count * weight
         so_far["tokens"] += h.token_count * weight
 
+    paid = get_rate_limiter().paid
     busiest = max(
         (u for u in usage if u.day == today and _is_chat(u.model) and u.peak_rpm > 0),
-        key=lambda u: u.peak_rpm / max(rpm_for(u.model), 1),
+        key=lambda u: u.peak_rpm / max(rpm_for(u.model, paid), 1),
         default=None,
     )
+    costs = daily_costs(usage)
 
     per_day = {first_shown + timedelta(days=i): 0 for i in range(DAYS_SHOWN)}
     for u in usage:
@@ -250,14 +310,17 @@ async def summary(_: AdminUser = Depends(require_admin)):
             {
                 "model": busiest.model,
                 "requests": busiest.peak_rpm,
-                "limit": rpm_for(busiest.model),
+                "limit": rpm_for(busiest.model, paid),
                 "at": _iso(busiest.peak_rpm_at),
             }
             if busiest else None
         ),
         "last_ran_out": _iso(last_ran_out),
         "days": [
-            {"day": d.isoformat(), "requests": n, "ran_out_at": _iso(out_at.get(d))}
+            {
+                "day": d.isoformat(), "requests": n, "ran_out_at": _iso(out_at.get(d)),
+                "cost": round(costs.get(d, 0.0), 4),
+            }
             for d, n in per_day.items()
         ],
     }
