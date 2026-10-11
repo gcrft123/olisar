@@ -107,6 +107,7 @@ A Pro reply costs about 7 times a Flash reply and 22 times a light one, so the s
 - Deep is capped at 5% of the last 24 hours' replies, with a floor of 3 a day so a quiet server can still use it.
 - Each member gets at most 10 deep replies a day, so one person can't spend the owner's money by asking hard questions on purpose.
 - Pro turns off once the month passes 80% of the budget (`spend.WARN_AT`). Over budget, the existing behavior takes over: `BUDGET_CHAIN` or a stop, and routing only chooses among the cheapest models.
+- **Built:** Google holds a Tier 1 key to 25 Pro requests a minute and 250 a day. Olisar throttles Pro at 20 a minute, and while Google or the throttle has Pro parked, deep is sent as standard rather than falling through to Flash at high thinking.
 - A deep reply over a cap goes to standard with high thinking, not to Pro.
 
 Pro is slower. High thinking can take 10 to 30 seconds, which is fine for a hard question with the typing indicator running (`bot/replies.py` already keeps it alive) and wrong for chat, which the floors keep away from it.
@@ -172,6 +173,8 @@ All through the arena instance on a key with billing on, with a safety budget of
 | Over budget, keep going on the cheapest | Every tier answered from 3.1 Flash-Lite (2.5 Flash-Lite isn't served to new projects); web search refused |
 | Over budget, stop | The rate-limit reply, nothing spent. Its wording says to try again in a minute, which is wrong for a budget that's out until next month |
 | Red-team gate, fast lane, 3 reps | Passed 8 of 8 with real replies in every case (on the free key the last two had passed on rate-limit replies). Every red-team turn routed standard |
+
+The tier each message actually needs, measured on 249 fresh messages with every tier's answer judged, is in [EVALUATION.md](EVALUATION.md), along with Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and live-lane routing. In short: the router fails its pre-registered criteria on deep (13% of messages sent there didn't need it), Pro beats standard by 0.17 on the messages it gets, and sending deep as standard is the recommendation.
 
 ## Evaluation and rollout
 
