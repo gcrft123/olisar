@@ -33,6 +33,7 @@ from olisar.gemini.models import (
     deep_chain,
     light_chain,
     model_chain,
+    rpm_for,
     thinking_for,
 )
 from olisar.routing import classifier, features, pacing, policy, state
@@ -120,6 +121,12 @@ class ThinkingLevelTests(unittest.TestCase):
 
     def test_an_unlisted_model_gets_the_level_as_asked(self):
         self.assertEqual(thinking_for("gemini-flash-latest", "minimal"), ("level", "minimal"))
+
+    def test_pro_is_throttled_below_googles_tier_1_limit(self):
+        # Google's own figure, from a refusal on a billed key: 25 a minute. Olisar's throttle
+        # has to trip first, or Google's refusal parks Pro for every deep reply after it.
+        self.assertLess(rpm_for(PRO_MODEL, paid=True), 25)
+        self.assertEqual(rpm_for(PRO_MODEL, paid=False), 0)
 
     def test_chains(self):
         self.assertTrue(light_chain()[0].endswith("flash-lite"))

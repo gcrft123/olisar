@@ -136,8 +136,11 @@ _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
 _RPM[PRO_MODEL] = 0  # no free allowance at all
 _PAID_RPM = {m.name: m.paid_rpm for m in RANKED}
 _PAID_RPM["gemini-embedding-001"] = 3000
-# Below Google's Tier 1 ballpark for Pro on purpose: past it, a deep reply goes to Flash.
-_PAID_RPM[PRO_MODEL] = 50
+# Below Google's Tier 1 limit for Pro on purpose: past it, a deep reply goes to Flash. Google
+# named that limit refusing a billed key on 2026-10-11: 25 a minute
+# (GenerateRequestsPerMinutePerProjectPerModel). This was 50, and a refusal parks Pro for two
+# minutes, so a busy minute sent every deep reply for the next two to Flash instead.
+_PAID_RPM[PRO_MODEL] = 20
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
