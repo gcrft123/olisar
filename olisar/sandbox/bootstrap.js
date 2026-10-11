@@ -52,8 +52,9 @@
     embed: function (spec) { return { __embed: true, spec: spec || {} }; },
     log: cap("log", "write"),
     // Generate text in the server's persona voice (trusted extensions only). Resolves to
-    // the generated string. opts: { task, maxTokens?, systemNote?, channelId? } — with a
-    // channelId the host writes as if called in that channel (its history, name and topic).
+    // the generated string. opts: { task, maxTokens?, systemNote?, channelId?, split? } —
+    // with a channelId the host writes as if called in that channel (its history, name and
+    // topic); with split it resolves to the messages to post it as, for discord.send.
     generate: function (opts) { return request("generate", "run", [opts || {}]); },
     // Files: read (base64 into sandbox), ingest (host blobId — prefer for large files),
     // from (create a host blob from sandbox text/base64). Attachment methods only work
@@ -70,7 +71,8 @@
       },
     },
     // Post a message to a channel outside any interaction — for event handlers / tools.
-    // payload: string or { content, embed, components, files }.
+    // payload: string, an array of strings (one message each), or
+    // { content, embed, components, files }.
     discord: {
       send: function (channelId, payload) {
         return request("discord", "send", [String(channelId), payload]);

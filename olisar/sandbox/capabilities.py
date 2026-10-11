@@ -35,7 +35,7 @@ from olisar import netguard, runtime_keys
 from olisar.db.models import ExtensionKV, ExtensionState, KBSource, KBSourceType, KBStatus, utcnow
 from olisar.memory.facts import upsert_facts
 from olisar.message_links import ChannelFilter
-from olisar.persona import strip_breaks
+from olisar.persona import MAX_MESSAGE_PIECES, split_messages, strip_breaks
 
 log = logging.getLogger("olisar.sandbox.capabilities")
 
@@ -96,7 +96,8 @@ class DiscordBridge(Protocol):
     # Persistent-component handlers (button/select clicks) only:
     async def update(self, payload: Any) -> None: ...
     async def defer_update(self) -> None: ...
-    # Event handlers only (no interaction to reply to) — post to a channel by id:
+    # Event handlers only (no interaction to reply to) — post to a channel by id. A list
+    # payload is the messages of one turn, already capped by _as_messages:
     async def send(self, channel_id: str, payload: Any) -> None: ...
     # Slash-command attachment → raw bytes (command bridge only; never JSON-settled):
     async def fetch_attachment_bytes(
@@ -513,13 +514,30 @@ async def _discord(inv: Invocation, method: str, args: list) -> Any:
         # Operator-grantable for any extension (third-party included); risk is bounded by
         # install-time consent + the no-@mentions guard on the post + this rate limit.
         _require(inv, "discord.send")
+        channel_id = str(args[0]) if args else ""
+        body = args[1] if len(args) > 1 else {}
+        if isinstance(body, list):
+            body = _as_messages(body)
+            if not body:
+                return "nothing to post"
         if not _send_rate_ok(inv.ext_key, inv.guild_id):
             return ("I'm posting too frequently right now — that channel post was rate-limited. "
                     "Try again in a moment.")
-        channel_id = str(args[0]) if args else ""
-        body = args[1] if len(args) > 1 else {}
         return await inv.discord.send(channel_id, body)
     raise ValueError(f"unknown discord method: {method}")
+
+
+def _as_messages(items: list) -> list[str]:
+    """An array payload for host.discord.send as the messages to post: one per string,
+    blank ones dropped, at most MAX_MESSAGE_PIECES. The rest join the last one rather than
+    being sent, the same cap split_messages puts on a reply, so an array costs one post
+    against the rate limit and can't stand in for a burst of them."""
+    if not all(isinstance(item, str) for item in items):
+        raise ValueError("host.discord.send takes an array of strings, one per message")
+    pieces = [text for item in items if (text := item.strip())]
+    if len(pieces) > MAX_MESSAGE_PIECES:
+        pieces = pieces[: MAX_MESSAGE_PIECES - 1] + ["\n".join(pieces[MAX_MESSAGE_PIECES - 1 :])]
+    return pieces
 
 
 # ── files (slash attachments + host blobs) ───────────────────────────────────
@@ -650,7 +668,7 @@ async def _guild_channel(inv: Invocation, ref: str) -> tuple[int, str, str]:
     return row.channel_id, row.name or "", topic
 
 
-async def _generate(inv: Invocation, opts: dict) -> str:
+async def _generate(inv: Invocation, opts: dict) -> str | list[str]:
     """Generate text in the server's persona voice. Spends the *installing operator's* own
     model quota (their Gemini key), so it's operator-grantable for any extension — they
     consent to the cost at install. Bounded by _GENERATE_MAX_TOKENS and the model rate
@@ -665,7 +683,10 @@ async def _generate(inv: Invocation, opts: dict) -> str:
     For the same reason, when someone set the run off (a command, a button, a tool in a
     reply to them) the channel has to be one they can open, and a DM can't name one: a
     member mustn't get a staff channel read back to them by asking for it. A hook nobody
-    invoked, like Welcome's member join, writes for the channel the operator configured."""
+    invoked, like Welcome's member join, writes for the channel the operator configured.
+
+    ``split`` returns the text as the messages a reply would go out as, for an extension
+    that posts it with ``host.discord.send`` (see the fold at the bottom)."""
     _require(inv, "model.generate")
     opts = opts or {}
     task = str(opts.get("task") or "").strip()
@@ -714,14 +735,17 @@ async def _generate(inv: Invocation, opts: dict) -> str:
         system_instruction=system, max_output_tokens=max_tokens,
         source="extension",
     )
-    # Fold the delivery marker before it leaves the host. The generation runs on the
-    # persona system prompt, which teaches the model to separate beats with SPLIT_MARKER
-    # for bot/replies.py to turn into consecutive messages — but an extension gets a plain
-    # string back and has no idea the marker means anything. welcome.js passed one straight
-    # to host.discord.send and "[[break]]" appeared verbatim in the server.
+    # The delivery marker never leaves the host. The generation runs on the persona system
+    # prompt, which teaches the model to separate beats with SPLIT_MARKER for bot/replies.py
+    # to turn into consecutive messages — but an extension has no idea the marker means
+    # anything. welcome.js passed one straight to host.discord.send and "[[break]]"
+    # appeared verbatim in the server.
     #
-    # Folded rather than split because this boundary returns one string: there is nowhere
-    # for a second message to go, and an extension may well be putting this text somewhere
-    # that cannot be several messages at all — an embed body, a button label, a settings
-    # field. A newline is the honest rendering of a beat break in a single string.
-    return strip_breaks((result.text or "").strip())
+    # By default it's folded, because the text may go somewhere that can't be several
+    # messages at all: an embed body, a button label, a settings field. A newline is the
+    # honest rendering of a beat break in a single string. An extension that is posting it
+    # as chat asks for ``split`` and gets the pieces split_messages would send, which
+    # host.discord.send takes as an array. Folding first and splitting the newlines later
+    # isn't the same: four beats folded read as a four-line block, which stays whole.
+    text = (result.text or "").strip()
+    return split_messages(text) if opts.get("split") else strip_breaks(text)
