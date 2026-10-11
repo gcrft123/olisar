@@ -3,6 +3,10 @@
 
 const BASE: string = (import.meta as any).env?.VITE_API_BASE ?? ''
 
+/** An API address for something the browser loads itself (an <img>), which goes without
+ *  the headers req() adds. */
+export const apiUrl = (path: string) => BASE + path
+
 export class Unauthorized extends Error {}
 
 // Called whenever any request comes back 401 — e.g. the session was revoked mid-use

@@ -37,7 +37,7 @@ Each detector proposes things that recur. Every candidate is then counted the sa
 Hard filters, applied in code before anything reaches a model:
 
 - At least 6 distinct people, or 3% of everyone who posted in the range, whichever is more.
-- No one person accounts for more than 35% of uses.
+- No one person accounts for more than 35% of uses, or 60% for a ritual or an event with its own threads, which someone usually runs.
 - Used in at least 3 calendar months, and in at least 2 channels (a ritual in its own channel passes with 20 distinct days instead).
 - The earliest uses are in channels everyone can see, from people who can be named. If the first use is by someone opted out or gone, the next use by someone else is the origin, or the candidate goes.
 - Not a member's name or nickname, a channel or role name, Olisar's name or aliases, a stopword, or a word in the top 30,000 of general English.

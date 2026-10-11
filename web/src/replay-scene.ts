@@ -14,10 +14,11 @@
 // What a member, Discord or a model wrote is set as text, never as markup. Where a line has
 // to be markup (bold, mono), what goes into it is escaped, and names sit in <bdi>.
 
+import { apiUrl } from './api'
 import { NSAT, SHAPE, layoutRect, zoomOf, type Form, type Satellite } from './form'
 import {
   type Gap, type Msg, type Pick, type Progress, type Report,
-  bdi, cap, clip, clock, dateRange, dayName, dayShort, discordLink, esc, fmt, isGap, local, longDate, monthYear, ordinal,
+  bdi, cap, clip, clock, mediaWord, dateRange, dayName, dayShort, discordLink, esc, fmt, isGap, local, longDate, monthYear, ordinal,
   partOfDay, plural, shortDate, span, withNames, word,
 } from './replay-data'
 
@@ -500,10 +501,10 @@ export function createScene(o: SceneOpts) {
     const rows = msgs.map((m) => {
       const text = clip(m.text)
       const typed = h('span', { 'aria-hidden': 'true' })
-      const p = h('p', { dir: 'auto' }, h('span', { class: 'visually-hidden' }, text), h('span', { class: 'ghost', 'aria-hidden': 'true' }, text, h('span', { class: 'caret' })), typed)
+      const p = text ? h('p', { dir: 'auto' }, h('span', { class: 'visually-hidden' }, text), h('span', { class: 'ghost', 'aria-hidden': 'true' }, text, h('span', { class: 'caret' })), typed) : null
       const row = h('div', { class: 'rp-qmsg' + (m.who === 'bot' ? ' bot' : '') },
         img(av(m.who), 28, 'rp-qav'),
-        h('div', {}, h('b', {}, h('bdi', {}, nm(m.who)), h('time', {}, timeLabel(m))), p))
+        h('div', {}, h('b', {}, h('bdi', {}, nm(m.who)), h('time', {}, timeLabel(m))), p, pictures(m)))
       row.style.opacity = '0'
       return { row, typed, text }
     })
@@ -549,10 +550,36 @@ export function createScene(o: SceneOpts) {
   }
 
   // ── What the replay shows ──
+  // The GIFs, images and stickers in a message. A GIF plays as the short video Tenor and
+  // Klipy make of it, or shows its still under reduced motion; an upload comes through the
+  // API, which knows where Discord keeps it today.
+  function pictures(m: Msg): HTMLElement | null {
+    if (!m.media?.length || !report) return null
+    const guild = report.guild.id
+    const items = m.media.map((x, n) => {
+      const size = { width: x.w || undefined, height: x.h || undefined }
+      const label = x.kind === 'gif' ? 'GIF' : x.kind === 'sticker' ? `Sticker${x.name ? `: ${x.name}` : ''}` : x.kind === 'video' ? 'Video' : 'Image'
+      const upload = x.i != null ? apiUrl(`/api/replay/media/${encodeURIComponent(m.id)}/${x.i}?g=${encodeURIComponent(guild)}`) : ''
+      const src = x.kind === 'image' || x.kind === 'video' ? upload : x.src || ''
+      const moving = (x.kind === 'gif' && /\.(mp4|webm)(\?|$)/i.test(src)) || x.kind === 'video'
+      let el: HTMLElement
+      if (moving && !(x.kind === 'gif' && reduce.matches && x.poster)) {
+        el = h('video', { src, poster: x.poster || undefined, muted: true, loop: x.kind === 'gif', autoplay: x.kind === 'gif', playsinline: true, controls: x.kind === 'video', 'aria-label': label, ...size })
+        ;(el as HTMLVideoElement).muted = true
+      } else {
+        el = h('img', { src: x.kind === 'gif' && reduce.matches ? x.poster || src : src, alt: label, loading: 'lazy', ...size })
+      }
+      el.className = `rp-pic rp-pic-${x.kind}`
+      el.addEventListener('error', () => el.remove(), { once: true })
+      el.dataset.n = String(n)
+      return el
+    })
+    return h('div', { class: 'rp-pics' }, items)
+  }
   const msgRows = (msgs: (Msg | Gap)[]) => h('div', { class: 'rp-mo-chat' }, msgs.map((m) => isGap(m)
     ? h('div', { class: 'rp-mo-gap' }, m.gap)
     : h('div', { class: 'rp-mo-msg' + (m.who === 'bot' ? ' bot' : '') }, img(av(m.who), 24),
-        h('div', {}, h('b', {}, h('bdi', {}, nm(m.who)), h('time', {}, timeLabel(m))), h('p', { dir: 'auto' }, m.text)))))
+        h('div', {}, h('b', {}, h('bdi', {}, nm(m.who)), h('time', {}, timeLabel(m))), m.text ? h('p', { dir: 'auto' }, m.text) : null, pictures(m)))))
   const link = (m: Msg | undefined) => m && report
     ? h('a', { class: 'rp-mo-link', href: discordLink(report.guild.id, m), target: '_blank', rel: 'noopener noreferrer', onclick: (e: Event) => e.stopPropagation() }, 'Open in Discord')
     : null
@@ -593,7 +620,7 @@ export function createScene(o: SceneOpts) {
     const F = report!.first!
     const m = F.messages[0]
     return {
-      kind: 'quote', who: m.who, text: clip(m.text), foot: shortDate(m.at, tz), more: 'Open', label: 'The first message',
+      kind: 'quote', who: m.who, text: clip(m.text) || mediaWord(m), foot: shortDate(m.at, tz), more: 'Open', label: 'The first message',
       open: () => [head(`#${F.channel} · ${longDate(m.at, tz)}`), msgRows(F.messages), link(m)].filter(Boolean) as Node[],
     }
   }
@@ -640,7 +667,8 @@ export function createScene(o: SceneOpts) {
     let p = 0, playing = false, lastCount = M.countAt(0), debt = 0, scrubbing = false
     const num = h('span', { class: 'num' }, fmt(lastCount))
     const when = h('span', { class: 'sub mono' }, monthYear(M.iso(0), tz))
-    const title = h('div', {}, h('span', { 'aria-hidden': 'true' }, num, ' people', when),
+    const unit = h('span', {}, ' people')
+    const title = h('div', {}, h('span', { 'aria-hidden': 'true' }, num, unit, when),
       h('span', { class: 'visually-hidden' }, `From ${plural(M.countAt(0), 'person', 'people')} in ${monthYear(M.iso(0), tz)} to ${fmt(report!.arrivals.now)} now`))
     const input = h('input', { type: 'range', min: 0, max: 1000, value: 0, step: 1, 'aria-label': 'Scrub through the years' }) as HTMLInputElement
     const fill = h('div', { class: 'rp-track-fill' })
@@ -689,6 +717,7 @@ export function createScene(o: SceneOpts) {
         const t = p * M.tEnd
         const c = M.countAt(t)
         num.textContent = fmt(c)
+        unit.textContent = Math.round(c) === 1 ? ' person' : ' people'
         when.textContent = monthYear(M.iso(t), tz)
         input.value = String(Math.round(p * 1000))
         // Said when it changes by a month, not every frame.
@@ -725,7 +754,7 @@ export function createScene(o: SceneOpts) {
     const R = report!
     const faces = R.arrivals.milestones.filter((m) => m.kind === 'nth').map((m) => (m as { who: string | null }).who).filter(Boolean) as string[]
     return {
-      kind: 'count', faces: faces.slice(0, 3), big: fmt(R.arrivals.now), foot: 'people', more: 'Open', label: plural(R.arrivals.now, 'person', 'people'),
+      kind: 'count', faces: faces.slice(0, 3), big: fmt(R.arrivals.now), foot: R.arrivals.now === 1 ? 'person' : 'people', more: 'Open', label: plural(R.arrivals.now, 'person', 'people'),
       open: () => [
         head(`Since ${longDate(R.created, tz)}`),
         h('div', { class: 'rp-mo-term num' }, fmt(R.arrivals.now)),
@@ -835,7 +864,7 @@ export function createScene(o: SceneOpts) {
     const A = report!.arrive!
     const mine = A.reply[A.reply.length - 1]
     return {
-      kind: 'quote', who: 'bot', text: clip(mine.text), foot: shortDate(mine.at, tz), more: 'Open', label: 'My first reply',
+      kind: 'quote', who: 'bot', text: clip(mine.text) || mediaWord(mine), foot: shortDate(mine.at, tz), more: 'Open', label: 'My first reply',
       open: () => [head(`${mine.trigger === 'ask' ? '/ask · ' : ''}#${mine.chn} · ${longDate(mine.at, tz)}`), msgRows(A.reply), link(mine)].filter(Boolean) as Node[],
     }
   }
