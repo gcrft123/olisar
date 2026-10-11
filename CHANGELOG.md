@@ -116,6 +116,8 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 
 [ce47625] — A thread named for an event that comes round again can be Olisar's pick, where before its name ruled it out like a channel's.
 
+[091c1a2] — The API keys page asks Google about billing each time the Gemini key is typed, saved or removed, instead of showing an answer up to a day old. Turning billing off used to go on showing "Works · billing on".
+
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
 
 [5934411] — The first time the day's quota runs out, members get the rate-limit reply instead of "…my mind just went blank there" and a Report button.
