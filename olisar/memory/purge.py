@@ -29,6 +29,7 @@ from olisar.db.models import (
     UserProfile,
 )
 from olisar.memory.vectors import delete_embedding
+from olisar.replay.store import scrub_user as scrub_replays
 
 log = logging.getLogger("olisar.purge")
 
@@ -185,6 +186,10 @@ async def forget_user(
             FailureReport.guild_id.in_(guild_ids), FailureReport.user_id == user_id
         )
     )
+
+    # Memory replays quote members: take them out of every finished one, and out of the
+    # working state of a run still going (olisar/replay/store.py).
+    await scrub_replays(session, user_id, guild_ids)
 
     # Clear the synthesized persona on every matching profile.
     profiles = (
