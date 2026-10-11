@@ -334,3 +334,13 @@ class MemberForgetIn(BaseModel):
     # Mirrors `/forget-me stop_remembering:true` — delete everything, and optionally stop
     # recording from here on.
     stop_remembering: bool = False
+
+
+class ReplayStartIn(BaseModel):
+    # Start while the search index is still reading history ("Start anyway").
+    anyway: bool = False
+
+
+class ReplayAnswerIn(BaseModel):
+    # The answer to the replay's last question, one line (olisar/replay/store.py ANSWER_LIMIT).
+    text: str = Field(..., min_length=1, max_length=400)
