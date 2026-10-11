@@ -58,6 +58,13 @@ class DiscordRoster:
     def humans(self) -> int:
         return sum(1 for m in self._members.values() if is_member_author(m))
 
+    def names(self) -> set[str]:
+        """Every name a member goes by here, lowercased, so a pick is never someone's name."""
+        out: set[str] = set()
+        for m in self._members.values():
+            out.update(n.lower() for n in (m.name, m.global_name, m.nick) if n)
+        return out
+
     def public(self, channel_id: int) -> bool | None:
         channel = self.guild.get_channel_or_thread(int(channel_id))
         if channel is None:

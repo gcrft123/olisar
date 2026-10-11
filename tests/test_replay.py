@@ -111,6 +111,9 @@ class FakeRoster:
     def public(self, channel_id: int):
         return channel_id != STAFF
 
+    def names(self) -> set[str]:
+        return {n.lower() for n in NAMES.values()}
+
 
 _seq = iter(range(1, 1 << 20))
 
@@ -166,6 +169,11 @@ class _Case(unittest.IsolatedAsyncioTestCase):
         tier = mock.patch("olisar.replay.preflight.gemini_tier.current", mock.AsyncMock(return_value="free"))
         tier.start()
         self.addCleanup(tier.stop)
+        # The model steps run against a stand-in (tests/replay_fakes.py).
+        from tests.replay_fakes import FakeGemini
+        gemini = mock.patch("olisar.replay.llm.get_gemini", return_value=FakeGemini())
+        gemini.start()
+        self.addCleanup(gemini.stop)
         async with session_scope() as s:
             await ensure_guild_defaults(s, HOME, name="Hollow Pines")
             await ensure_guild_defaults(s, OTHER, name="Other")
