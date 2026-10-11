@@ -14,7 +14,41 @@ That testing also showed how little a free key really gets. Google grants 20 req
 
 Measuring the router against the tier each message actually needs turned up Google's real limits on Gemini Pro for a Tier 1 key: 25 requests a minute, not the 50 Olisar allowed, and 250 a day. Past either, Pro was parked and deep replies fell through to Flash thinking hard, the slow path the deep tier exists to avoid. They're sent as ordinary replies now. The measurements are in `design/model-routing/EVALUATION.md`.
 
+A server's history had nowhere to be seen whole. The memory replay is a fullscreen walk through it, played in Olisar's form: when the server started, its first messages and members, everyone who arrived, its busiest day, the one thing that most belongs to it, Olisar's own arrival, and a closing question whose answer is kept for next year. An admin or co-admin starts one from the Knowledge page. It's built on the bot, not in the console, because a big server takes minutes and the console may close. It reads only what the search index holds, never every message through a model: code counts and picks what's worth reading, and about fifty requests do the rest. Nobody reviews a replay before it plays, so the last check of every quote is strict and drops anything it doesn't clearly pass.
+
+The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply. And no pick was chosen, because the judge was shown screenshot filenames and Star Citizen's own vocabulary, and turned all of it down.
+
 ### New
+
+[17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
+
+[17b8395] — A replay pauses when the day's Gemini allowance or the month's budget runs out and carries on by itself afterwards, and Try again picks up a stopped one where it left off.
+
+[17b8395] — The start sheet says what a replay reads and what it costs before anything runs: about how long, and a share of today's allowance on a free key or dollars on a key with billing on.
+
+[17b8395] — A replay reads only the channels indexed on the Channels tab and never a DM or a bot, leaves out anyone who opted out of search or memory, and shows anyone who has left as Someone.
+
+[17b8395] — `/forget-me` takes a member out of every replay, and a replay is redacted again each time it's opened.
+
+[7f944d6] — The Knowledge page has a Replay section that opens the replay fullscreen: the start sheet, remembering, Play, and the chapters played in the form.
+
+[7f944d6] — The Usage page counts a replay's requests as Replays.
+
+[bb5cbab] — The replay says how many of the server's first five members are still here.
+
+[48fc558] — The busiest-day chapter says what the day was about, from a model's read of the messages around it, and moves to the next busiest day when that one isn't safe to show.
+
+[48fc558] — When a crowd arrived on one day, the replay says why if the messages say.
+
+[6b27bec] — Olisar picks the one thing that most belongs to the server, such as a word, a ritual or something members made, and shows how it started and spread.
+
+[ef23dbf] — Every quote a replay will show is checked once more before it can play, and anything that doesn't clearly pass is left out.
+
+[ef23dbf] — The replay's lines about what happened are said in the persona's voice.
+
+[2f51d95] — The form has a remembering shape, and can shrink to a single grain of light.
+
+[8b6bb62] — Background work can ask Gemini for JSON and see what each request cost.
 
 [615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
 
@@ -121,6 +155,28 @@ Measuring the router against the tier each message actually needs turned up Goog
 [eae3086] — With billing on, Olisar sends Gemini 3.1 Pro at most 20 requests a minute, under the 25 Google allows a Tier 1 key.
 
 ### Fixed
+
+[bc8bc14] — The messages a replay quotes keep their GIFs, uploads and stickers, instead of showing links and markers like `[sticker: Wave]`.
+
+[7105746] — The replay shows those GIFs, images and stickers under each message.
+
+[7105746] — The replay says "1 person", not "1 people", wherever it counts people.
+
+[bc8bc14] — Opening the busiest day's memory shows that day's messages that pass the last check, topped up from others that day, instead of only how many there were.
+
+[bc8bc14] — The last check passes a message that's only a GIF, image or sticker, unless what it shows isn't fine.
+
+[bc8bc14] — Olisar's first reply shows with the message it answered when the reply wasn't sent as a Discord reply.
+
+[ce47625] — Olisar's pick counts only what members wrote, so a screenshot's filename or a link can't make "star" or "png" a candidate.
+
+[ce47625] — Olisar's pick leaves out the public vocabulary of the game or topic a server is about, which every server about it shares.
+
+[ce47625] — A thread named for an event that comes round again can be Olisar's pick, where before its name ruled it out like a channel's.
+
+[b296278] — An event with its own threads, or a weekly ritual, can be Olisar's pick when its host posts up to 60% of what's said about it. The cap was 35%, as for a word, and most events have a host who posts more than that.
+
+[091c1a2] — The API keys page asks Google about billing each time the Gemini key is typed, saved or removed, instead of showing an answer up to a day old. Turning billing off used to go on showing "Works · billing on".
 
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
 

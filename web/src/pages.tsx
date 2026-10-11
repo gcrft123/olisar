@@ -8,6 +8,7 @@ import { modelName } from './models'
 import { Modal, confirmDialog, fromToasts, promptDialog, restoreFocus, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
+import { ReplaySection } from './replay'
 import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, serverDate, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
 
 export function PageHead(props: { icon: IconName; title: string; sub?: string; doc?: string }) {
@@ -1605,6 +1606,7 @@ export function Knowledge({ serverName, operator }: { serverName?: string; opera
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
       <SearchIndexCard />
+      <ReplaySection />
       <Section title="Knowledge base" hint={`A webpage or a crawled site ${botName()} can reference. Upload documents via /olisar learn-doc in Discord.`}>
         {/* A compose form, not a list of settings: type and URL are one entry, so they keep
             their labels above and sit side by side. */}
@@ -3545,6 +3547,8 @@ export function ApiKeys() {
   const billing = useAsync<Billing>(api.getBilling)
   const [edits, setEdits] = useState<Record<string, string>>({})
   const [bEdits, setBEdits] = useState<Partial<BillingSettings>>({})
+  // Bumped when a key is saved or removed, so the checks run again on what's now in use.
+  const [keyVersion, setKeyVersion] = useState(0)
   const saver = useSaver(async () => {
     const body: Record<string, string> = {}
     for (const [k, v] of Object.entries(edits)) if (v.trim()) body[k] = v.trim()
@@ -3552,6 +3556,7 @@ export function ApiKeys() {
     if (Object.keys(bEdits).length) await api.putBilling(bEdits)
     setEdits({})
     setBEdits({})
+    if (Object.keys(body).length) setKeyVersion((n) => n + 1)
     reload()
     billing.reload()
   })
@@ -3563,11 +3568,26 @@ export function ApiKeys() {
   const dirty = Object.values(edits).some((v) => v.trim() !== '') || bChanged
   useDirtyGuard(() => dirty)   // not useEditable-backed, so register by hand
   const typed = (k: string) => (edits[k] ?? '').trim()
-  const gemini = useKeyCheck(typed('gemini_api_key'), () => api.checkGeminiKey(typed('gemini_api_key')))
+  // The Gemini check asks Google about billing afresh each time, not from the answer the
+  // bot keeps for a day, since turning billing on or off is why someone comes here.
+  const gemini = useKeyCheck(
+    typed('gemini_api_key') + '|' + keyVersion,
+    () => api.checkGeminiKey(typed('gemini_api_key')),
+  )
   const cf = useKeyCheck(
-    typed('cloudflare_api_token') + '|' + typed('cloudflare_account_id'),
+    typed('cloudflare_api_token') + '|' + typed('cloudflare_account_id') + '|' + keyVersion,
     () => api.checkCloudflareKey(typed('cloudflare_api_token'), typed('cloudflare_account_id')),
   )
+  // That fresh answer can land after the billing settings were read from the old one. When
+  // it disagrees about the saved key, read them again (once per answer, so a tier the
+  // settings can't learn doesn't loop).
+  const synced = useRef<unknown>(null)
+  useEffect(() => {
+    const r = gemini.result as any
+    if (!r?.tier || typed('gemini_api_key') || !billing.data || synced.current === r) return
+    synced.current = r
+    if (r.tier !== billing.data.tier) billing.refresh().catch(() => {})
+  }, [gemini.result, billing.data])  // eslint-disable-line react-hooks/exhaustive-deps
   // A token that can read its own account answers with the ID, so it's filled in rather than
   // asked for. Cloudflare's Workers AI token can't, which is why the field is still here.
   const found = (cf.result as any)?.account_id
@@ -3581,7 +3601,12 @@ export function ApiKeys() {
   const val = (k: string) => edits[k] ?? (data[k]?.value ?? '')
   // Removing a saved key used to be the one destructive control in the console with no
   // guard: one stray click on the Gemini row took the bot mute with nothing to undo.
-  const clear = async (k: string, label: string) => { if (await removeKey(k, label)) reload() }
+  const clear = async (k: string, label: string) => {
+    if (!(await removeKey(k, label))) return
+    setKeyVersion((n) => n + 1)
+    reload()
+    billing.reload()
+  }
   const st = (k: string): KeyStatus => data[k] ?? { dashboard: false, env: false }
   const A = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>
   const g = gemini.result as any

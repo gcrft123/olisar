@@ -7,6 +7,7 @@ Tool/function calling is layered on in Phase 3.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -139,6 +140,31 @@ def _retry_after_seconds(exc: Exception) -> float | None:
 class GenResult:
     text: str
     tokens: int
+
+
+@dataclass
+class JsonResult:
+    data: dict | None   # None when the answer held no JSON object
+    text: str
+    model: str          # the model that answered
+    input_tokens: int
+    output_tokens: int
+
+
+def parse_json_object(text: str) -> dict | None:
+    """The JSON object in a model's answer: the whole text, or failing that the outermost
+    ``{...}`` in it (a fenced block, a sentence before it)."""
+    text = (text or "").strip()
+    for candidate in (text, text[text.find("{"): text.rfind("}") + 1] if "{" in text else ""):
+        if not candidate:
+            continue
+        try:
+            value = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def token_split(resp) -> tuple[int, int, int]:
@@ -516,6 +542,43 @@ class GeminiClient:
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
         ) or 0
         return GenResult(text=safe_text(resp), tokens=tokens)
+
+    async def generate_json(
+        self,
+        *,
+        contents: list,
+        system_instruction: str,
+        model: str | None = None,
+        chain: list[str] | None = None,
+        temperature: float = 0.2,
+        max_output_tokens: int = 2048,
+        thinking_budget: int | None = 0,
+        source: str = "other",
+    ) -> JsonResult:
+        """One request in JSON mode, for background work that reads an answer rather than
+        showing one. Says which model answered and what it cost in tokens, so a caller
+        running many of these can keep its own account. The answer is parsed here; a
+        model that ignored JSON mode still counts if its text holds one object."""
+        model = model or settings.gemini_chat_model
+        config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            response_mime_type="application/json",
+        )
+        resp = await self._raw_generate(
+            contents=contents, config=config, model=model, chain=chain,
+            thinking_budget=thinking_budget, source=source,
+        )
+        _, input_tokens, output_tokens = token_split(resp)
+        text = safe_text(resp)
+        return JsonResult(
+            data=parse_json_object(text),
+            text=text,
+            model=str(getattr(resp, "model_version", "") or (chain or model_chain(model))[0]),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
 
     async def generate_with_tools(
         self,

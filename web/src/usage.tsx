@@ -546,7 +546,7 @@ const NAMED = new Set(FEATURES.map((f) => f.key))
 // What "Everything else" is made of, keyed by the `source` each Gemini call is tagged with.
 const OTHER_LABEL: Record<string, string> = {
   proactivity: 'Chiming in', grounding: 'Web search', catchup: 'Catch-up', extension: 'Extensions',
-  review: 'Extension reviews', canary: 'Health checks', status: 'Status', image: 'Making images', other: 'Other',
+  review: 'Extension reviews', canary: 'Health checks', status: 'Status', image: 'Making images', replay: 'Replays', other: 'Other',
 }
 const RANGES: { value: Range; label: string }[] = [
   { value: 'today', label: 'Today' },
