@@ -12,6 +12,8 @@ Every reply went to the same model, so a "thanks" and a stack trace got the same
 
 That testing also showed how little a free key really gets. Google grants 20 requests a day on each Flash model and 500 on Flash-Lite, not the 250 and 1,000 Olisar assumed, counts each -latest alias against the model it points to, and doesn't serve the Gemini 2.5 models to newer projects at all, so the Usage page was promising several times the requests that exist. It now counts the day the way Google does, and counts each embedded text as a request, as Google does. A budget set to stop used to tell members to try again in a minute; it has its own reply now. And re-embedding a memory whose text had changed failed every time, paying for the same embeddings every 20 seconds.
 
+Measuring the router against the tier each message actually needs turned up Google's real limits on Gemini Pro for a Tier 1 key: 25 requests a minute, not the 50 Olisar allowed, and 250 a day. Past either, Pro was parked and deep replies fell through to Flash thinking hard, the slow path the deep tier exists to avoid. They're sent as ordinary replies now. The measurements are in `design/model-routing/EVALUATION.md`.
+
 ### New
 
 [615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
@@ -60,6 +62,18 @@ That testing also showed how little a free key really gets. Google grants 20 req
 
 [c901860] — Arena tools for routing and billing: a routing probe through the test chat, a Pro-against-Flash comparison, a helper for running the arena on a billed key, routing A/B variants and a Gemini image scenario.
 
+[a754c34] — A 249-message routing evaluation set with a synthetic server handbook, and the criteria it was held to, written before any answer existed.
+
+[75a249d] — `arena/experiments/route_eval.py` answers each message on every routing tier, has Gemini Pro judge the answers, and scores the router against the cheapest tier that was as good.
+
+[75a249d] — `arena/experiments/routing_checks.py` measures Pro's per-minute limit, web search at two thinking levels, and Pro's caps under concurrent requests.
+
+[75a249d] — Four live arena scenarios check routing on the live path: a deep follow-up, a yes to an offer, a run of banter, and an unrelated question after a deep answer.
+
+[bbaed60] — `design/model-routing/EVALUATION.md` records the routing evaluation: what each message needed, Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and the live lane.
+
+[bbaed60] — `arena/experiments/routing_eval/labels.jsonl` holds every answer the evaluation judged, with its cost, time, models and verdicts.
+
 ### Changed
 
 [615f883] — Every docs page is rewritten from the code, in the console's Docs tab, on the docs site and in DOCUMENTATION.md.
@@ -104,6 +118,8 @@ That testing also showed how little a free key really gets. Google grants 20 req
 
 [f6bfebc] — The docs and product brief cover model routing, shared -latest limits, the budget reply and how embeddings are counted.
 
+[eae3086] — With billing on, Olisar sends Gemini 3.1 Pro at most 20 requests a minute, under the 25 Google allows a Tier 1 key.
+
 ### Fixed
 
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
@@ -143,6 +159,12 @@ That testing also showed how little a free key really gets. Google grants 20 req
 [40a8964] — Arena live-lane runs set up their channel again, waiting for the bot to see a new channel before setting its mode.
 
 [59703e8] — A spent budget set to stop sends its own reply instead of the rate-limit one, which told members to try again in a minute.
+
+[c4b2bc6] — While Google has Pro parked for the day or the minute, a deep reply is sent as an ordinary one instead of coming from Gemini 3.8 Flash thinking hard.
+
+[1065faa] — The arena's A/B report reads each dimension against the noise of the runs that scored it, so a delta from 6 runs no longer reads as sure as one from 36.
+
+[3e08eef] — A quota test no longer fails for the two hours after Google's daily reset.
 
 ## [2.0] — 2026-10-01
 
