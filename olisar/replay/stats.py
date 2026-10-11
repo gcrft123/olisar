@@ -342,8 +342,10 @@ async def arrival(scope: Scope, people: People, roster: Roster, guild_row_create
                 ask = (await session.scalars(select(Message).where(Message.message_id == reply.reply_to_message_id))).first()
                 if ask is None:
                     ask = (await session.scalars(select(SearchMessage).where(SearchMessage.message_id == reply.reply_to_message_id))).first()
-                if ask is not None and (not people.nameable(ask.author_id) or ask.author_id in scope.skip):
-                    continue   # the question was someone who can't be shown
+                # The question was forgotten, never kept (its author opted out), or asked by
+                # someone who can't be shown: the answer isn't shown without it.
+                if ask is None or not people.nameable(ask.author_id) or ask.author_id in scope.skip:
+                    continue
             rows = []
             if ask is not None:
                 rows.append(message(ask, scope, people))

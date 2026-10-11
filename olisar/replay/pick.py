@@ -34,6 +34,7 @@ from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import bindparam, func, select, text
+from sqlalchemy.exc import OperationalError
 
 from olisar.db.engine import session_scope
 from olisar.db.models import ChannelSummary, GuildChannelInfo, GuildConfig, GuildFact, GuildRole, Persona, SearchMessage
@@ -198,8 +199,10 @@ async def uses(ctx, phrase: str, *, skip_window: tuple | None) -> list:
             rows = (await session.execute(sql, {
                 "q": _fts(phrase), "g": ctx.scope.guild_id, "chs": list(ctx.scope.channels), "skip": list(ctx.scope.skip),
             })).all()
-        except Exception:  # noqa: BLE001 — a phrase FTS can't parse is no candidate
-            return []
+        except OperationalError as exc:
+            if "fts5" in str(exc) or "syntax" in str(exc):
+                return []   # a phrase the index can't parse is no candidate
+            raise
     # Raw SQL hands back the stored text; every time here is UTC.
     rows = [(r[0], r[1], r[2], r[3], aware(r[4] if isinstance(r[4], datetime) else datetime.fromisoformat(r[4]))) for r in rows]
     if skip_window:
@@ -363,11 +366,11 @@ async def _glossary(ctx, names: set[str]) -> dict[str, dict]:
             select(GuildFact.subject, GuildFact.fact, GuildFact.source_channel_id).where(GuildFact.guild_id == ctx.guild_id)
             .order_by(GuildFact.mentions.desc()).limit(60)
         )).all()
-        known = set((await session.scalars(select(GuildChannelInfo.channel_id).where(GuildChannelInfo.guild_id == ctx.guild_id))).all())
     out = {}
     for subject, fact, source in facts:
-        # Something said in a DM can be filed under the server; it never shows here.
-        if source is not None and int(source) not in known:
+        # Learned in a channel the replay doesn't read, or in a DM filed under the server:
+        # neither shows here.
+        if source is not None and int(source) not in ctx.scope.channels:
             continue
         phrase = " ".join(tokens(subject))
         if not phrase or phrase in names or blocked(subject) or blocked(fact or ""):
@@ -411,6 +414,14 @@ async def candidates(ctx) -> list[dict]:
         if phrase and phrase not in proposals and not is_filler(phrase) and phrase not in names:
             proposals[phrase] = {"phrase": phrase, "title": m.strip(), "detector": "motifs"}
     proposals.update(await _glossary(ctx, names))   # glossary wins a tie: the strongest source
+    # Each source gets its turn: words alone would fill the list on a busy server.
+    cap = {"glossary": 30, "words": 30}
+    per_source: Counter = Counter()
+    picked: list[dict] = []
+    for p in sorted(proposals.values(), key=lambda p: p["detector"] != "glossary"):
+        if per_source[p["detector"]] < cap.get(p["detector"], 15):
+            per_source[p["detector"]] += 1
+            picked.append(p)
 
     # Not the subject of another chapter: the busiest day's messages don't count.
     night = report.get("night")
@@ -418,7 +429,7 @@ async def candidates(ctx) -> list[dict]:
     posters = max(1, len(tally.authors))
     floor = max(6, math.ceil(0.03 * posters))
     scored = []
-    for p in list(proposals.values())[:80]:
+    for p in picked:
         rows = await uses(ctx, p["phrase"], skip_window=skip)
         if not rows:
             continue
@@ -472,7 +483,8 @@ def _line(ctx, row, tz: int, handle: str | None) -> str:
 async def evidence(ctx, c: dict, index: int) -> dict:
     """One candidate's block for the judge, and the messages its ids stand for."""
     tz = ctx.report.get("tz") or 0
-    rows = c["rows"]
+    # Only uses everyone could see, by people who can be named, go in front of the judge.
+    rows = [r for r in c["rows"] if ctx.roster.public(r[2]) is not False and not STAFFISH.search(ctx.scope.name(r[2]) or "")]
     earliest_ids = [r[0] for r in rows if ctx.people.nameable(r[3])][:4]
     later_pool = rows[len(rows) // 10:] if len(rows) > 40 else rows[4:]
     later_ids: list[int] = []
@@ -491,8 +503,8 @@ async def evidence(ctx, c: dict, index: int) -> dict:
     lines = [f"c{index:02d} · from {c['detector']} · \"{c['title']}\""]
     if c.get("gloss"):
         lines.append(f"  glossary: {c['title']}: {c['gloss']}")
-    first, last = aware(rows[0][4]), aware(rows[-1][4])
-    lines.append(f"  uses {len(rows):,} · people {c['people']} · channels {c['channels']} · months {c['months']}"
+    first, last = aware(c["rows"][0][4]), aware(c["rows"][-1][4])
+    lines.append(f"  uses {len(c['rows']):,} · people {c['people']} · channels {c['channels']} · months {c['months']}"
                  f" · first {first:%Y-%m-%d} · last {last:%Y-%m-%d} · top person {round(c['top_share'] * 100)}%")
     n = 0
 
@@ -650,7 +662,7 @@ async def write(ctx, f: dict, block: dict, trail: list[str], persona: tuple[str,
 
 def _unit(f: dict, c: dict, tz: int) -> tuple[int, str]:
     rows = c["rows"]
-    if f.get("kind") == "ritual":
+    if f.get("kind") == "ritual" and rows:
         wd = Counter((aware(r[4]) + timedelta(hours=tz)).weekday() for r in rows).most_common(1)[0]
         days_on = {(aware(r[4]) + timedelta(hours=tz)).date() for r in rows if (aware(r[4]) + timedelta(hours=tz)).weekday() == wd[0]}
         if wd[1] / len(rows) >= 0.5:
@@ -671,7 +683,7 @@ def _spots(ctx, block: dict, trail: list[str], c: dict, tz: int) -> list[dict]:
     for h in trail:
         m = block["handles"][h]
         text_ = " ".join(m["text"].split())
-        out.append({"where": where(m["chn"], stats.parse(m["at"])), "said": text_ if len(text_) <= 48 else None})
+        out.append({"where": where(m["chn"], stats.parse(m["at"])), "said": text_ if len(text_) <= 48 else None, "who": m["who"]})
         seen.add(where(m["chn"], stats.parse(m["at"])))
     rows = c["rows"]
     step = max(1, len(rows) // 24)

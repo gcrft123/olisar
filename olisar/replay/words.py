@@ -100,7 +100,8 @@ def line_problem(text: str, *, max_words: int = 32, max_sentences: int = 2, name
     if re.search(r"[\U0001F300-\U0001FAFF☀-➿]", t):
         return "it has an emoji"
     if names_known is not None and names_allowed is not None:
-        for name in names_known - names_allowed:
+        allowed = {n.casefold() for n in names_allowed}
+        for name in {n for n in names_known if n.casefold() not in allowed}:
             if name and re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", t, re.IGNORECASE):
                 return f"it names {name}, who isn't in the evidence"
     return None

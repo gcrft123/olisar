@@ -47,7 +47,7 @@ def _quotes(report: dict) -> list[tuple[str, dict, str]]:
     pick = report.get("pick") or {}
     if pick:
         out.append(("pick-origin", pick["origin"], "text"))
-        for key in ("intro", "spread", "meaning", "title"):
+        for key in ("intro", "spread", "meaning", "title", "why"):
             out.append(("pick-" + key, pick, key))
         for spot in pick.get("spots") or []:
             if spot.get("said"):
@@ -93,6 +93,8 @@ def _drop(report: dict, dropped: list[tuple[str, dict, str]]) -> None:
     if pick:
         if kinds & {"pick-origin", "pick-intro", "pick-spread", "pick-meaning", "pick-title"}:
             report["pick"] = None
+        elif "pick-why" in kinds:
+            pick["why"] = ""
         else:
             for spot in pick.get("spots") or []:
                 if id(spot) in gone:

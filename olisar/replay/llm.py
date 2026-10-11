@@ -26,13 +26,15 @@ from olisar.gemini.client import get_gemini
 from olisar.gemini.models import model_chain, rpm_for
 from olisar.gemini.pricing import request_cost
 from olisar.gemini.quota import quota_day
-from olisar.gemini.rate_limiter import get_rate_limiter, reply_chain
+from olisar.gemini.rate_limiter import RateLimitExceeded, get_rate_limiter, reply_chain
 
 log = logging.getLogger("olisar.replay")
 
 SOURCE = "replay"
 PACE_SHARE = 0.5          # the replay waits while a model's minute is this full
 PACE_WAIT_MAX = 90.0      # and gives up waiting (and just asks) after this long
+MINUTE_RETRIES = 5        # a chain full for the minute is waited out this many times
+MINUTE_WAIT = 60.0
 
 
 def chain_for(kind: str, guild_model: str | None = None) -> list[str]:
@@ -90,23 +92,34 @@ class Asker:
     ) -> dict | None:
         """The model's JSON answer to ``prompt``, or None if it gave none. Raises the
         client's RateLimitExceeded or BudgetSpent for the run to pause on."""
-        if key in self.calls:
+        if self.calls.get(key) is not None:
             return self.calls[key]
         chain = chain_for(kind, self.guild_model)
-        await pace(chain)
         client = self.client or get_gemini()
-        result = await client.generate_json(
-            contents=[prompt], system_instruction=system, chain=chain, model=chain[0],
-            temperature=temperature, max_output_tokens=max_output_tokens,
-            thinking_budget=thinking_budget, source=SOURCE,
-        )
+        for attempt in range(MINUTE_RETRIES + 1):
+            await pace(chain)
+            try:
+                result = await client.generate_json(
+                    contents=[prompt], system_instruction=system, chain=chain, model=chain[0],
+                    temperature=temperature, max_output_tokens=max_output_tokens,
+                    thinking_budget=thinking_budget, source=SOURCE,
+                )
+                break
+            except RateLimitExceeded:
+                # Out for the day (or the budget's spent): the run pauses on this. Only full
+                # for the minute, or resting after a server error: wait and ask again.
+                if attempt == MINUTE_RETRIES or all(get_rate_limiter().state(m) == "spent" for m in chain):
+                    raise
+                await asyncio.sleep(MINUTE_WAIT)
         today: date = quota_day()
         self.spend = Spend(
             requests=1, input_tokens=result.input_tokens, output_tokens=result.output_tokens,
             cost_usd=request_cost(result.model, today, input_tokens=result.input_tokens, output_tokens=result.output_tokens),
         )
-        self.calls[key] = result.data
-        if result.data is None:
+        # An answer with no JSON in it isn't kept, so trying again asks again.
+        if result.data is not None:
+            self.calls[key] = result.data
+        else:
             log.warning("replay: %s answered %s with no JSON", result.model, key)
         await self.save(self.spend)
         return result.data

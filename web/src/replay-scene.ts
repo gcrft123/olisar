@@ -94,6 +94,10 @@ export function createScene(o: SceneOpts) {
   let W = innerWidth / zoomOf(), H = innerHeight / zoomOf()
   const wide = () => W > 900
   let dead = false
+  // Every listener on the overlay's own elements and the window goes when the scene does
+  // (StrictMode mounts it twice, and the React-owned nodes outlive the first).
+  const life = new AbortController()
+  const { signal } = life
 
   // ── Names and faces ──
   // A person the report can name, Olisar ("bot"), or Someone (null) with a blank face.
@@ -376,7 +380,7 @@ export function createScene(o: SceneOpts) {
     if (!quiet && openReturn && document.contains(openReturn)) openReturn.focus({ preventScroll: true })
     openReturn = null
   }
-  openBack.addEventListener('click', (e) => { e.stopPropagation(); closeSphere() })
+  openBack.addEventListener('click', (e) => { e.stopPropagation(); closeSphere() }, { signal })
   function stepOpen(dt: number) {
     const S = openId ? spheres.get(openId) : undefined
     if (S) {
@@ -953,7 +957,7 @@ export function createScene(o: SceneOpts) {
         hint: N.night ? 'Open it to read that night' : 'Open it to read that day',
       })
     }
-    if (R.pick) {
+    if (R.pick?.origin) {
       const P = R.pick
       const c3 = ch(cap(P.title))
       out.push({
@@ -1036,7 +1040,7 @@ export function createScene(o: SceneOpts) {
     if (R.first?.messages.length) list.push({ id: 'end-first', spec: firstSpec() })
     if (R.arrivals.now > 1) list.push({ id: 'end-people', spec: peopleSpec() })
     if (R.night) list.push({ id: 'end-night', spec: nightSpec() })
-    if (R.pick) list.push({ id: 'end-pick', spec: pickSpec(false, true) })
+    if (R.pick?.origin) list.push({ id: 'end-pick', spec: pickSpec(false, true) })
     if (R.arrive?.reply.length) list.push({ id: 'end-reply', spec: replySpec() })
     if (renameStory()) list.push({ id: 'end-renamed', spec: pineSpec() })
     if (answer) {
@@ -1081,7 +1085,7 @@ export function createScene(o: SceneOpts) {
       setSpheres(ring())
       form?.pulse(1)
       swap('Saved. See you next year.', 'It’ll be in next year’s replay.', 'done')
-    })
+    }, { signal })
     function swap(l: string, s: string, mode: 'count' | 'ask' | 'done') {
       centerEl.classList.remove('on')
       later(320, () => {
@@ -1114,9 +1118,9 @@ export function createScene(o: SceneOpts) {
       },
     }
   })()
-  $('.rp-again').addEventListener('click', (e) => { e.stopPropagation(); show(0) })
-  $('.rp-done').addEventListener('click', (e) => { e.stopPropagation(); o.go('play') })
-  centerEl.addEventListener('click', (e) => e.stopPropagation())
+  $('.rp-again').addEventListener('click', (e) => { e.stopPropagation(); show(0) }, { signal })
+  $('.rp-done').addEventListener('click', (e) => { e.stopPropagation(); o.go('play') }, { signal })
+  centerEl.addEventListener('click', (e) => e.stopPropagation(), { signal })
 
   // ── Moving between beats ──
   let cur = -1, autoplay = false, autoT = 0, seenHint = false
@@ -1171,7 +1175,7 @@ export function createScene(o: SceneOpts) {
     const l = v ? 'Stop autoplay' : 'Autoplay'
     autoBtn.setAttribute('aria-label', l); autoBtn.setAttribute('data-tip', l); autoBtn.setAttribute('aria-pressed', String(v))
   }
-  autoBtn.addEventListener('click', (e) => { e.stopPropagation(); setAuto(!autoplay) })
+  autoBtn.addEventListener('click', (e) => { e.stopPropagation(); setAuto(!autoplay) }, { signal })
   setAuto(false)
 
   // ── Stages ──
@@ -1179,8 +1183,8 @@ export function createScene(o: SceneOpts) {
   let keyed = false
   const onKeyFlag = () => { keyed = true }
   const onPointerFlag = () => { keyed = false }
-  addEventListener('keydown', onKeyFlag, true)
-  addEventListener('pointerdown', onPointerFlag, true)
+  addEventListener('keydown', onKeyFlag, { capture: true, signal })
+  addEventListener('pointerdown', onPointerFlag, { capture: true, signal })
 
   // Remembering: the form follows the steps (streams drawn in while it gathers, the server's
   // orbit while it counts, the whole body while it reads, keys while it writes), and each
@@ -1244,7 +1248,7 @@ export function createScene(o: SceneOpts) {
     if (stage !== 'replay') return
     if (openId) { closeSphere(); return }
     next()
-  })
+  }, { signal })
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement | null
     const typing = target?.closest?.('input, textarea') && !(target as HTMLInputElement).matches('[type=range]')
@@ -1261,7 +1265,7 @@ export function createScene(o: SceneOpts) {
       else next()
     } else if (e.key === 'ArrowLeft' && !target?.matches('[type=range]')) { e.preventDefault(); if (openId) closeSphere(); else prev() }
   }
-  addEventListener('keydown', onKey, true)
+  addEventListener('keydown', onKey, { capture: true, signal })
 
   // ── The clock ──
   function frame(dt: number) {
@@ -1296,7 +1300,7 @@ export function createScene(o: SceneOpts) {
     const b = stage === 'replay' ? beat() : undefined
     if (b?.spheres) setSpheres(b.spheres())
   }
-  addEventListener('resize', onResize)
+  addEventListener('resize', onResize, { signal })
   sizeFx()
   placeUnder()
   Object.assign(cam, camFn())
@@ -1321,10 +1325,7 @@ export function createScene(o: SceneOpts) {
       clearTimers(); stopQuote?.()
       stopFrames()
       slotSize.disconnect()
-      removeEventListener('keydown', onKey, true)
-      removeEventListener('keydown', onKeyFlag, true)
-      removeEventListener('pointerdown', onPointerFlag, true)
-      removeEventListener('resize', onResize)
+      life.abort()
       spreadEl?.remove()
       form?.satellites([])
     },

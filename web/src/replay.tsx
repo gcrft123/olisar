@@ -128,7 +128,8 @@ function ReplayOverlay({ fresh, onClose }: { fresh: boolean; onClose: () => void
       const st: ReplayState = await api.replay()
       setState(st)
       setRun(st.run)
-      if (st.run && (st.run.mine || HALTED.has(st.run.status))) setStage('remember')
+      // A new replay over one that failed goes to the start sheet; Start replaces it.
+      if (st.run && !(fresh && st.run.status === 'failed') && (st.run.mine || HALTED.has(st.run.status))) setStage('remember')
       else if (!st.run && st.latest && !fresh) await toPlay(false)
       else setStage('start')
     } catch (e: any) {
@@ -441,7 +442,10 @@ export function ReplaySection({ serverName }: { serverName?: string }) {
       <div className="reindex-top">
         <div className="reindex-stat">{status}</div>
         <div className="reindex-actions">
-          {run ? <button type="button" onClick={() => openReplay()}>{run.mine || HALTED.has(run.status) ? 'Open' : 'Watch'}</button>
+          {run ? <>
+                <button type="button" onClick={() => openReplay()}>{run.mine || HALTED.has(run.status) ? 'Open' : 'Watch'}</button>
+                {run.status === 'failed' ? <button type="button" className="ghost" onClick={() => openReplay({ fresh: true })}>New replay</button> : null}
+              </>
             : latest ? <>
                 <button type="button" onClick={() => openReplay()}><Icon.play size={14} /> Play</button>
                 <button type="button" className="ghost" onClick={() => openReplay({ fresh: true })}>New replay</button>

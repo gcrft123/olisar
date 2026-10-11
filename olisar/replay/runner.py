@@ -27,12 +27,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from olisar.db.engine import session_scope
-from olisar.db.models import Guild, GuildConfig, ReplayRun, utcnow
+from olisar.db.models import Guild, GuildConfig, Message, ReplayRun, utcnow
 from olisar.gemini.quota import PACIFIC, next_reset
 from olisar.gemini.rate_limiter import BudgetSpent, RateLimitExceeded
 from olisar.replay import stats, store
 from olisar.replay.llm import Asker, Spend
-from olisar.replay.scope import Roster, Scope, aware, build_scope
+from olisar.replay.scope import Roster, Scope, aware, build_scope, hidden_users
 
 log = logging.getLogger("olisar.replay")
 
@@ -181,6 +181,23 @@ def chapters(report: dict) -> int:
     return n
 
 
+def _name_tokens(report: dict) -> None:
+    """Names in the lines models wrote become <name:id> tokens, so they follow their owners
+    out of the report (store.redact)."""
+    people = report.get("people") or {}
+    night = report.get("night") or {}
+    for key in ("line", "sphere"):
+        if night.get(key):
+            night[key] = store.name_tokens(night[key], people)
+    pick = report.get("pick") or {}
+    for key in ("intro", "spread", "why"):
+        if pick.get(key):
+            pick[key] = store.name_tokens(pick[key], people)
+    for mile in (report.get("arrivals") or {}).get("milestones", []):
+        if mile.get("line"):
+            mile["line"] = store.name_tokens(mile["line"], people)
+
+
 def first_of_next_month(now: datetime) -> datetime:
     local = now.astimezone(PACIFIC)
     year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
@@ -193,7 +210,11 @@ async def _load(run_id: int, roster: Roster, client, now: datetime) -> Context |
         if run is None or run.status not in ("queued", "running", "paused"):
             return None
         guild_model = await session.scalar(select(GuildConfig.default_model).where(GuildConfig.guild_id == run.guild_id))
-        scope = await build_scope(session, run.guild_id, now=now, bots=roster.bot_ids())
+        # Bots that have since left aren't in the roster; the message table remembers them.
+        gone_bots = set((await session.scalars(
+            select(Message.author_id).where(Message.guild_id == run.guild_id, Message.author_is_bot.is_(True)).distinct()
+        )).all())
+        scope = await build_scope(session, run.guild_id, now=now, bots=roster.bot_ids() | {int(b) for b in gone_bots})
         state, progress, guild_id = dict(run.state or {}), dict(run.progress or {}), run.guild_id
     names = await stats.profile_names(guild_id, sorted(scope_authors_hint(state)))
     people = stats.People(roster, scope.hidden, fallback=names, seen=dict((state.get("report") or {}).get("people") or {}))
@@ -253,6 +274,11 @@ async def advance(run_id: int, roster: Roster, *, client=None) -> str:
         return "failed"
     report = ctx.report
     report["people"] = ctx.people.seen
+    _name_tokens(report)
+    # Anyone who opted out or was forgotten while this ran goes from what it kept.
+    async with session_scope() as session:
+        hidden = await hidden_users(session, ctx.guild_id, utcnow())
+    report = store.redact(report, {str(u) for u in hidden}, resolve=False)
     await ctx.tell(force=True, phase=4, chapters=chapters(report))
     await store.save(run_id, status="done", finished_at=utcnow(), report=_copy(report), state={"calls": {}}, step="done")
     log.info("replay %s: done", run_id)
