@@ -60,6 +60,17 @@ async def pace(chain: list[str]) -> None:
         waited += step
 
 
+def _back_soon(chain: list[str]) -> bool:
+    """Whether a model in the chain is only full for the minute or resting briefly, rather
+    than out for the day or retired."""
+    limiter = get_rate_limiter()
+    for m in chain:
+        state = limiter.state(m)
+        if state == "ok" or (state in ("rpm_full", "cooldown") and limiter.back_in(m) <= 120):
+            return True
+    return False
+
+
 @dataclass
 class Spend:
     requests: int = 0
@@ -108,7 +119,7 @@ class Asker:
             except RateLimitExceeded:
                 # Out for the day (or the budget's spent): the run pauses on this. Only full
                 # for the minute, or resting after a server error: wait and ask again.
-                if attempt == MINUTE_RETRIES or all(get_rate_limiter().state(m) == "spent" for m in chain):
+                if attempt == MINUTE_RETRIES or not _back_soon(chain):
                     raise
                 await asyncio.sleep(MINUTE_WAIT)
         today: date = quota_day()

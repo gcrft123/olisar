@@ -82,6 +82,8 @@ def line_problem(text: str, *, max_words: int = 32, max_sentences: int = 2, name
         return "it's empty"
     if "!" in t:
         return "it has an exclamation mark"
+    if "[[" in t or "]]" in t or "\n" in t:
+        return "it's written as chat messages, not one line"
     if "?" in t:
         return "it asks a question"
     if blocked(t):
