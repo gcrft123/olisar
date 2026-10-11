@@ -1,0 +1,17 @@
+{
+  "id": "routing-live-banter",
+  "title": "Model routing: a run of pure banter stays on the light tier",
+  "lane": "live",
+  "tags": ["routing"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["salt"],
+  "beats": [
+    {"speaker": "salt", "address": "name", "expect_reply": true, "timeout": 60, "text": "gm"},
+    {"speaker": "salt", "address": "name", "expect_reply": true, "timeout": 60, "text": "lol same"},
+    {"speaker": "salt", "address": "name", "expect_reply": true, "timeout": 60, "text": "haha ok"},
+    {"speaker": "salt", "address": "name", "expect_reply": true, "timeout": 60, "text": "aight cya later"}
+  ],
+  "checks": {"must_reply": true, "max_reply_chars": 300},
+  "rubric": ["naturalness", "brevity"],
+  "notes": "Routing, read from the instance log: every turn light, on Flash-Lite at minimal thinking, with no follow-up floor (each reply before it was light). The replies should stay short and in voice."
+}

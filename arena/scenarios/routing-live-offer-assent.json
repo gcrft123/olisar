@@ -1,0 +1,15 @@
+{
+  "id": "routing-live-offer-assent",
+  "title": "Model routing: a yes to something Olisar offered must not go to the light tier",
+  "lane": "live",
+  "tags": ["routing"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["mika"],
+  "beats": [
+    {"speaker": "mika", "address": "name", "expect_reply": true, "timeout": 90, "text": "i'm hosting game night this friday and i always forget to post the reminder in #events the day before. any ideas?"},
+    {"speaker": "mika", "address": "name", "expect_reply": true, "timeout": 90, "text": "do it"}
+  ],
+  "checks": {"must_reply": true, "must_not_contain": ["As an AI"]},
+  "rubric": ["helpfulness", "accuracy"],
+  "notes": "Routing, read from the instance log. The first message routes standard (it names a channel, a lookup floor) and invites an offer: a reminder, or a post. 'do it' is made of acknowledgement words, but one of them assents, and it follows a standard reply from the same member in the same channel, so the follow-up floor holds it at standard. On Flash-Lite it could answer 'done' without doing anything. Read the reply: if Olisar offered something, it should do it or say why it can't."
+}

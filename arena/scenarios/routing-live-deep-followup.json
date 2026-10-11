@@ -1,0 +1,16 @@
+{
+  "id": "routing-live-deep-followup",
+  "title": "Model routing: a deep debugging answer, a short follow-up that needs it, then thanks",
+  "lane": "live",
+  "tags": ["routing"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["rook"],
+  "beats": [
+    {"speaker": "rook", "address": "name", "expect_reply": true, "timeout": 120, "text": "my bot won't start:\n```\nTraceback (most recent call last):\n  File \"bot.py\", line 3, in <module>\n    import discord\nModuleNotFoundError: No module named 'discord'\n```\ni definitely installed discord.py with pip on my mac. what's going on"},
+    {"speaker": "rook", "address": "name", "expect_reply": true, "timeout": 120, "text": "and on windows?"},
+    {"speaker": "rook", "address": "name", "expect_reply": true, "timeout": 60, "text": "thanks!"}
+  ],
+  "checks": {"must_reply": true},
+  "rubric": ["accuracy", "helpfulness", "brevity"],
+  "notes": "Routing, read from the instance log's routing: lines. The traceback should route deep. 'and on windows?' is short and would score standard on its own, but it continues a deep answer from the same member in the same channel, so the follow-up rule keeps it deep. 'thanks!' only acknowledges, so it escapes the floor and goes light. Every route's reason should carry the classifier's scores without ', no embedding': in the live lane the vector comes from recall."
+}
