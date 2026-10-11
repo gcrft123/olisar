@@ -807,5 +807,31 @@ class DialogueTidyTests(unittest.TestCase):
         self.assertEqual(_tidy("literally in the pins", self.PERSONA), "literally in the pins")
 
 
+class AbNoiseTests(unittest.TestCase):
+    """An A/B's verdict reads each dimension against its own runs' noise."""
+
+    def _arm(self, name: str, accuracy: list[float], brevity: float) -> "Arm":
+        from arena.eval.judge import Scores
+        from arena.experiments.ab import Arm
+
+        arm = Arm(name)
+        for i in range(30):
+            dims = {"brevity": brevity + (0.5 if i % 2 else -0.5)}
+            if i < len(accuracy):
+                dims["accuracy"] = accuracy[i]
+            arm.scores.append(Scores(f"{name}-{i}", "s", name, dims))
+        return arm
+
+    def test_a_dimension_scored_on_few_runs_gets_their_noise(self):
+        from arena.experiments.ab import _report
+
+        # Accuracy on 3 runs an arm, brevity on all 30: a +1.67 on 3 noisy runs is
+        # suggestive at best, not the "clears 2 SE" that dividing by 30 made it.
+        report = _report(self._arm("a", [0, 2, 4], 2.0), self._arm("b", [3, 4, 4], 2.0), [])
+        self.assertEqual(report["a"]["n"], {"brevity": 30, "accuracy": 3})
+        self.assertTrue(report["read"]["accuracy"].startswith("suggestive"), report["read"])
+        self.assertTrue(report["read"]["brevity"].startswith("inside the noise"), report["read"])
+
+
 if __name__ == "__main__":
     unittest.main()
