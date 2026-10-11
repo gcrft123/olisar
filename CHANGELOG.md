@@ -94,7 +94,7 @@ That testing also showed how little a free key really gets. Google grants 20 req
 
 [d440f9d] — A -latest model counts against the daily limit of the model it points to. Once that model is used up the chain skips both, and Usage counts the limit once.
 
-[f327cba] — On Usage, a -latest model sits under the model it points to, with no number, status or meter of its own.
+[ff5ec58] — The console doesn't show the -latest aliases: their requests count in the model they point to, and the Primary model picker doesn't offer them.
 
 [45e767a] — Daily limits are the ones Google grants a free key: 20 on each Flash model and 500 on Flash-Lite.
 
