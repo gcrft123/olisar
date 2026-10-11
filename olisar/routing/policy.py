@@ -33,7 +33,14 @@ from dataclasses import dataclass, replace
 from olisar.config import settings
 from olisar.gemini import spend
 from olisar.gemini.embeddings import cached_query_vector
-from olisar.gemini.models import AUTO, PRO_MODEL, deep_chain, light_chain, model_chain
+from olisar.gemini.models import (
+    AUTO,
+    PRO_MODEL,
+    deep_chain,
+    light_chain,
+    model_chain,
+    quota_model,
+)
 from olisar.gemini.pricing import request_cost
 from olisar.gemini.quota import quota_day
 from olisar.gemini.rate_limiter import get_rate_limiter
@@ -300,8 +307,9 @@ async def finish(
     )
     return {
         "tier": chosen.tier,
-        "model": reply_trace.last_model,
-        "models": reply_trace.models(),
+        # A -latest alias is reported as the model it points to: it's another name for it.
+        "model": quota_model(reply_trace.last_model) if reply_trace.last_model else "",
+        "models": list(dict.fromkeys(quota_model(m) for m in reply_trace.models())),
         "reason": routing.route.reason,
         "escalated": routing.escalated,
         "pro": served_pro,

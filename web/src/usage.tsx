@@ -267,7 +267,7 @@ function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: bool
         {R.cur && !R.allSpent ? (
           <>
             <div className="u-cur">{modelName(R.cur.shares ?? R.cur.model)}</div>
-            <div className="u-cur-id">{R.cur.model}</div>
+            <div className="u-cur-id">{R.cur.shares ?? R.cur.model}</div>
           </>
         ) : <div className="u-cur none">No model left</div>}
       </div>
@@ -398,7 +398,7 @@ function SideMeter({ label, used, limit, spent, unavailable }: { label: string; 
 }
 
 // ── Fallback chain ──────────────────────────────────────────────────────────
-function Status({ m, R }: { m: Row; R: Reading }) {
+function Status({ m, R, viaAlias = false }: { m: Row; R: Reading; viaAlias?: boolean }) {
   if (m.state === 'unavailable') return <Badge icon="minus-circle">Not on this key</Badge>
   if (m.state === 'spent') {
     return (
@@ -408,6 +408,8 @@ function Status({ m, R }: { m: Row; R: Reading }) {
       </>
     )
   }
+  // Answering through its -latest alias, which isn't shown: it's the same model.
+  if (viaAlias) return <Badge tone="success" icon="play-circle">Replying</Badge>
   if (m.state === 'resting') {
     return <Badge tone="info" busy>Back in<span className="num">{mmss((m.backAt ?? 0) - R.clientNow)}</span></Badge>
   }
@@ -416,8 +418,8 @@ function Status({ m, R }: { m: Row; R: Reading }) {
 }
 
 function Chain({ R, stale }: { R: Reading; stale: boolean }) {
-  // A -latest alias sits under the model it points to, as another name for it: no number,
-  // meter or status of its own, and its requests and cost folded into that model's row.
+  // A -latest alias is another name for a model in the chain, so it isn't shown: its
+  // requests and cost count in that model's row.
   const isAlias = (m: Row) => !!m.shares && R.chain.some((o) => o.model === m.shares)
   const aliasesOf = (m: Row) => R.chain.filter((a) => isAlias(a) && a.shares === m.model)
   let rank = 0
@@ -434,18 +436,10 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
         </thead>
         <tbody>
           {R.chain.map((m) => {
-            const isCur = !R.allSpent && R.cur?.i === m.i
+            if (isAlias(m)) return null
+            const viaAlias = !R.allSpent && R.cur?.shares === m.model
+            const isCur = !R.allSpent && (R.cur?.i === m.i || viaAlias)
             const out = m.state === 'spent'
-            if (isAlias(m)) {
-              return (
-                <tr key={m.model} className={'alias' + (isCur ? ' cur' : '') + (out ? ' gone' : '')}>
-                  <th scope="row" className="c-rank" />
-                  <td><span className="m-id">{m.model}</span>{isCur && <div className="m-status"><Status m={m} R={R} /></div>}</td>
-                  <td className="c-status">{isCur && <div className="st"><Status m={m} R={R} /></div>}</td>
-                  <td className="c-today" />
-                </tr>
-              )
-            }
             rank += 1
             const aliases = aliasesOf(m)
             const cost = m.cost + aliases.reduce((s, a) => s + a.cost, 0)
@@ -456,9 +450,9 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
                 <td>
                   <span className="m-name">{modelName(m.model)}</span>
                   <span className="m-id">{m.model}</span>
-                  <div className="m-status"><Status m={m} R={R} /></div>
+                  <div className="m-status"><Status m={m} R={R} viaAlias={viaAlias} /></div>
                 </td>
-                <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
+                <td className="c-status"><div className="st"><Status m={m} R={R} viaAlias={viaAlias} /></div></td>
                 <td className="c-today">
                   {m.state === 'unavailable' ? (
                     <div className="today"><span className="v wide"><s>—</s></span></div>

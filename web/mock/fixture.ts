@@ -326,11 +326,9 @@ const MOCK_PROACTIVITY = {
 // Mirrors RANKED in olisar/gemini/models.py, which /api/models returns.
 const MOCK_MODELS = [
   { name: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-  { name: 'gemini-flash-latest', label: 'newest Flash (auto-updates)' },
   { name: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
   { name: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   { name: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
-  { name: 'gemini-flash-lite-latest', label: 'newest Flash-Lite (auto-updates)' },
   { name: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
   { name: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite' },
 ]

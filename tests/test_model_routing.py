@@ -630,6 +630,19 @@ class ApiTests(_DatabaseCase):
             )
         self.assertEqual((after["routing_free"], after["routing_paid"], after["routing_pro"]), (True, False, False))
 
+    async def test_the_model_picker_leaves_out_the_aliases(self):
+        from api.routers import admin
+
+        names = [m["name"] for m in await admin.models(SimpleNamespace())]
+        self.assertIn("gemini-3.8-flash", names)
+        self.assertFalse([n for n in names if n.endswith("-latest")])
+
+    async def test_the_route_report_names_the_model_an_alias_points_to(self):
+        routing = policy.Routing.of(policy._standard(None, "x"))
+        reply = trace.ReplyTrace([trace.Served("gemini-flash-latest", "conversation", 10, 10, 0.0001)])
+        summary = await policy.finish(routing, reply)
+        self.assertEqual((summary["model"], summary["models"]), ("gemini-3.8-flash", ["gemini-3.8-flash"]))
+
     async def test_a_server_cant_pin_a_model_outside_the_chain(self):
         """Pinning Pro would put every reply past routing's Pro switch, caps and budget."""
         from fastapi import HTTPException
