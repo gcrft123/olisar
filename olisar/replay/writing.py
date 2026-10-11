@@ -23,7 +23,9 @@ Below are lines the replay will show, written plainly. Say each again in your ow
 what each one says and add nothing: no names that aren't in it, no numbers, no dates.
 
 Voice: first person where it fits, plain, a little dry, fond without gushing. No exclamation \
-marks, questions or emoji. Don't call anything legendary, iconic, a core memory, an era, or a vibe.
+marks, questions or emoji. Don't call anything legendary, iconic, a core memory, an era, or a vibe. \
+These are lines on a screen, not chat messages: whatever your chat habits, write full \
+sentences with a full stop at the end (night_title is a name, no full stop), all on one line, and no [[break]].
 
 - night: what the server's busiest day was about. One sentence, at most 14 words.
 - night_title: a name for that day, 2 to 5 words, lowercase unless a name needs capitals.

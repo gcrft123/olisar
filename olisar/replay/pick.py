@@ -154,7 +154,8 @@ sentences. Where a number belongs, write {people} for how many members took part
 
 Voice: first person, plain, a little dry, fond without gushing, like a friend who was paying \
 attention. Use people's names exactly as given, lowercase if they're lowercase. "Someone" stays \
-"Someone".
+"Someone". These are lines on a screen, not chat messages: whatever your chat habits, write full \
+sentences that start with a capital and end with a full stop, all on one line, and no [[break]].
 
 Don't use exclamation marks, rhetorical questions, or emoji. Don't call anything legendary, \
 iconic, a core memory, an era, or a vibe. Don't explain the joke, quote the messages, mention \
