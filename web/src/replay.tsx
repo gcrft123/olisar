@@ -299,7 +299,7 @@ function StartSheet({ on, state, run, busy, start, watch }: {
 const READS = 'Channels that aren’t indexed on the Channels tab, and anyone who opted out of search, are left out.'
 
 function sheetCopy(p: Preflight, others: Run | null): { meta: React.ReactNode; go: string; off: boolean; notes: string[] } {
-  const reads = <><span className="num">{fmt(p.messages)}</span> messages in <span className="num">{fmt(p.channels)}</span> indexed {p.channels === 1 ? 'channel' : 'channels'}</>
+  const reads = <><span className="num">{fmt(p.messages)}</span> {one(p.messages, 'message', 'messages')} in <span className="num">{fmt(p.channels)}</span> indexed {p.channels === 1 ? 'channel' : 'channels'}</>
   const cost = p.cost.tier === 'paid'
     ? `${cap1(about(p.cost.minutes))} and ${p.cost.usd != null ? `about ${usd(p.cost.usd)}` : 'a little'} of Gemini usage.`
     : `${cap1(about(p.cost.minutes))} and ${share(p.cost.share || 0)} of today’s Gemini allowance.`
@@ -336,6 +336,8 @@ function sheetCopy(p: Preflight, others: Run | null): { meta: React.ReactNode; g
   return { meta: reads, go: 'Start', off: false, notes: [cost, READS] }
 }
 const cap1 = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
+/** The word for a count that may still be climbing (useClimb), as it reads on screen. */
+const one = (n: number, singular: string, many: string) => (Math.round(n) === 1 ? singular : many)
 
 // ── Remembering ──
 // The real job runs for minutes on a big server and goes on if this closes. Four steps under
@@ -368,9 +370,9 @@ function RememberSheet({ on, server, run, busy, retry, stale }: {
         : `It stopped partway through${run.error ? ` (${run.error})` : ''}. Nothing read so far is lost, and trying again carries on from here.`
     }
   } else if (phase === 0) {
-    line = <><span className="num">{fmt(read)}</span> messages read {p.where ? <span className="rp-where">{p.where}</span> : null}</>
+    line = <><span className="num">{fmt(read)}</span> {one(read, 'message', 'messages')} read {p.where ? <span className="rp-where">{p.where}</span> : null}</>
   } else if (phase === 1) {
-    line = <><span className="num">{fmt(people)}</span> people · <span className="num">{fmt(channels)}</span> channels · <span className="num">{fmt(p.years || 1)}</span> {(p.years || 1) === 1 ? 'year' : 'years'}</>
+    line = <><span className="num">{fmt(people)}</span> {one(people, 'person', 'people')} · <span className="num">{fmt(channels)}</span> {one(channels, 'channel', 'channels')} · <span className="num">{fmt(p.years || 1)}</span> {(p.years || 1) === 1 ? 'year' : 'years'}</>
   } else if (phase === 2) {
     line = <>Found <span className="num">{fmt(moments)}</span> {Math.round(moments) === 1 ? 'moment' : 'moments'} {p.where ? <span className="rp-where">{p.where}</span> : null}</>
   } else if (phase === 3) {
