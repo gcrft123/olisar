@@ -10,6 +10,8 @@ The docs had drifted from the code they describe. They called the search index a
 
 A server's history had nowhere to be seen whole. The memory replay is a fullscreen walk through it, played in Olisar's form: when the server started, its first messages and members, everyone who arrived, its busiest day, the one thing that most belongs to it, Olisar's own arrival, and a closing question whose answer is kept for next year. An admin or co-admin starts one from the Knowledge page. It's built on the bot, not in the console, because a big server takes minutes and the console may close. It reads only what the search index holds, never every message through a model: code counts and picks what's worth reading, and about fifty requests do the rest. Nobody reviews a replay before it plays, so the last check of every quote is strict and drops anything it doesn't clearly pass.
 
+The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -95,6 +97,18 @@ A server's history had nowhere to be seen whole. The memory replay is a fullscre
 [96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
 
 ### Fixed
+
+[bc8bc14] — The messages a replay quotes keep their GIFs, uploads and stickers, instead of showing links and markers like `[sticker: Wave]`.
+
+[7105746] — The replay shows those GIFs, images and stickers under each message.
+
+[7105746] — The replay says "1 person", not "1 people", wherever it counts people.
+
+[bc8bc14] — Opening the busiest day's memory shows that day's messages that pass the last check, topped up from others that day, instead of only how many there were.
+
+[bc8bc14] — The last check passes a message that's only a GIF, image or sticker, unless what it shows isn't fine.
+
+[bc8bc14] — Olisar's first reply shows with the message it answered when the reply wasn't sent as a Discord reply.
 
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
 
