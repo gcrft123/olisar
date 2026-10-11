@@ -29,7 +29,7 @@ from typing import Awaitable, Callable
 from sqlalchemy import func, select
 
 from olisar.db.engine import session_scope
-from olisar.db.models import AuditLog, Message, Persona, SearchMessage, UserProfile, snowflake_time
+from olisar.db.models import AuditLog, GuildConfig, Message, Persona, SearchMessage, UserProfile, snowflake_time
 from olisar.replay.scope import Roster, Scope, aware, clean_text
 
 Progress = Callable[[dict], Awaitable[None]]
@@ -338,7 +338,9 @@ async def arrival(scope: Scope, people: People, roster: Roster, guild_row_create
             if not (reply.content or "").strip():
                 continue
             ask = None
-            if reply.reply_to_message_id:
+            if not reply.reply_to_message_id:
+                ask = await _asked(session, scope, people, roster, reply)
+            else:
                 ask = (await session.scalars(select(Message).where(Message.message_id == reply.reply_to_message_id))).first()
                 if ask is None:
                     ask = (await session.scalars(select(SearchMessage).where(SearchMessage.message_id == reply.reply_to_message_id))).first()
@@ -355,6 +357,34 @@ async def arrival(scope: Scope, people: People, roster: Roster, guild_row_create
             out["reply"] = rows
             break
     return out
+
+
+ASKED_WITHIN = timedelta(minutes=10)
+
+
+async def _asked(session, scope: Scope, people: People, roster: Roster, reply):
+    """What a reply that wasn't sent as a Discord reply was answering: the last message in
+    its channel in the minutes before it, from someone the replay can name, preferring one
+    that mentions Olisar. None for a reply to a slash command, which has no message."""
+    lo = _naive(aware(reply.created_at) - ASKED_WITHIN)
+    hi = _naive(aware(reply.created_at))
+    found = []
+    for table in (Message, SearchMessage):
+        rows = (await session.scalars(
+            select(table).where(
+                table.guild_id == scope.guild_id, table.channel_id == reply.channel_id,
+                table.created_at >= lo, table.created_at < hi, table.author_id != roster.me_id,
+            ).order_by(table.created_at.desc()).limit(8)
+        )).all()
+        found += [r for r in rows if people.nameable(r.author_id) and r.author_id not in scope.skip and (r.content or "").strip()]
+        if found:
+            break
+    if not found:
+        return None
+    triggers = await session.scalar(select(GuildConfig.name_triggers).where(GuildConfig.guild_id == scope.guild_id))
+    calls = [f"<@{roster.me_id}>", f"<@!{roster.me_id}>", *[t.lower() for t in (triggers or []) if t]]
+    named = [r for r in found if any(c in (r.content or "").lower() for c in calls)]
+    return (named or found)[0]
 
 
 async def renames(guild_id: int, people: People) -> list[dict]:

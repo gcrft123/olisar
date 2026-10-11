@@ -19,7 +19,7 @@ from discord.ext import commands, tasks
 from olisar.db.engine import session_scope
 from olisar.db.models import utcnow
 from olisar.peers import is_member_author
-from olisar.replay import runner, store
+from olisar.replay import media, runner, store
 from olisar.replay.scope import Person
 
 log = logging.getLogger("olisar.replay")
@@ -57,6 +57,18 @@ class DiscordRoster:
 
     def humans(self) -> int:
         return sum(1 for m in self._members.values() if is_member_author(m))
+
+    async def media(self, channel_id: int, message_id: int) -> list[dict] | None:
+        """The GIFs, images and stickers a message holds (olisar/replay/media.py), or None
+        if Discord no longer has it or Olisar can't read the channel."""
+        channel = self.guild.get_channel_or_thread(int(channel_id))
+        if channel is None:
+            return None
+        try:
+            message = await channel.fetch_message(int(message_id))
+        except (discord.NotFound, discord.Forbidden):
+            return None
+        return media.from_message(message)
 
     def names(self) -> set[str]:
         """Every name a member goes by here, lowercased, so a pick is never someone's name."""
