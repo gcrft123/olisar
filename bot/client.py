@@ -24,6 +24,7 @@ INITIAL_COGS = [
     "bot.cogs.memory_worker",
     "bot.cogs.context_channels",
     "bot.cogs.search_index",
+    "bot.cogs.replay",  # memory replays, built in the background (olisar/replay/)
     "bot.cogs.events",
     "bot.cogs.proactive",
     "bot.cogs.reminders",

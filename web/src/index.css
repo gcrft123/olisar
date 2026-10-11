@@ -112,6 +112,9 @@
   /* The rail's foot sheet only. iOS's sheet curve: it leaves as fast as a drag lets go of it
      and takes its time arriving, which is what makes a flick look thrown rather than played. */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The memory replay's narration only: a slot easing to the height of its new words. In
+     and out alike, so the column below it never lurches. */
+  --ease-narr: cubic-bezier(0.45, 0, 0.25, 1);
   --dur-fast: 0.12s; --dur-mid: 0.16s; --dur-slow: 0.3s;
   /* Raster images only — avatars, the logo, server icons. User-supplied art on a #020203
      ground has no edge of its own: a dark avatar dissolves into the surface and a light one
@@ -3678,3 +3681,329 @@ th.num .th-sortbtn { text-align: right; }
 }
 /* The segmented control's raised chip keeps its own lift on top of the ring. */
 .settings-modal .useg button.on { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3); }
+
+/* ── The memory replay (replay.tsx, replay-scene.ts) ─────────────────────────────────
+   A fullscreen walk through a server's history. The overlay takes the window over the
+   console (below toasts and tooltips), opaque, with its layers stacked inside it: the form,
+   the dust thrown across it, a layer that takes clicks for "next", the sheets under the form,
+   the memories, an opened memory, the HUD and the chapters. Positions the scene writes are in
+   layout px, the page's own units under the interface-size zoom, and `.narrow` is set from
+   the same width the scene lays out by, since a media query fires at the unzoomed width. */
+.rp {
+  position: fixed; inset: 0; z-index: 160; overflow: hidden; isolation: isolate;
+  background: var(--bg); color: var(--text);
+}
+.rp-form, .rp-fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.rp-form { z-index: 0; }
+.rp-fx { z-index: 1; }
+.rp-catch { position: fixed; inset: 0; z-index: 2; display: none; cursor: pointer; }
+.rp.rp-replay .rp-catch { display: block; }
+.rp [hidden] { display: none; }
+
+/* Under the form: the start sheet, remembering and Play. */
+.rp-under {
+  position: fixed; left: 50%; top: var(--under-top, 62%); z-index: 4; width: min(560px, calc(var(--vw) * 0.9));
+  translate: -50% 0; text-align: center;
+  opacity: 0; visibility: hidden; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.rp-under.on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.rp-under h2 { font-size: 20px; letter-spacing: -0.015em; text-wrap: balance; overflow-wrap: anywhere; outline: none; }
+.rp-meta { margin-top: 8px; color: var(--text-2); font-size: 13.5px; overflow-wrap: anywhere; }
+.rp-actions { display: flex; justify-content: center; gap: 8px; margin-top: 22px; }
+/* A size up from the console's 34px, as the first-run screens' calls to action are. */
+.rp-actions button { height: 38px; padding: 0 18px; }
+.rp-note { margin-top: 20px; color: var(--text-3); font-size: 12.5px; line-height: 1.6; text-wrap: pretty; }
+.rp-note + .rp-note { margin-top: 6px; }
+.rp-rem-note { max-width: 420px; margin: 14px auto 0; }
+.rp .num { font-variant-numeric: tabular-nums; }
+.rp .mono { font-family: var(--font-mono); font-size: 0.85em; }
+
+.rp-steps { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px 22px; margin: 18px 0 0; padding: 0; list-style: none; }
+.rp-steps li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-3); transition: color var(--dur-slow) var(--ease-out); }
+.rp-steps li::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  transition: background var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
+}
+.rp-steps li.now { color: var(--text); }
+.rp-steps li.now::before { box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 4px var(--accent-soft); animation: rp-breathe 1.6s var(--ease-out) infinite; }
+.rp-steps li.done { color: var(--text-2); }
+.rp-steps li.done::before { background: var(--text-2); box-shadow: none; }
+.rp-steps li.now.halt { color: var(--text-2); }
+.rp-steps li.now.halt::before { animation: none; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+@keyframes rp-breathe { 50% { box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 7px transparent; } }
+.rp-live { margin-top: 22px; min-height: 26px; font-size: 16px; color: var(--text); }
+.rp-where { margin-left: 10px; font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); }
+
+/* ── Memories: spheres of the form's dust with their words laid over them ── */
+.rp-mems { position: fixed; inset: 0; z-index: 5; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+.rp-mem { position: absolute; left: 0; top: 0; pointer-events: none; visibility: hidden; will-change: transform; --d: 160px; overflow-wrap: anywhere; }
+.rp-mem-btn {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent;
+  pointer-events: auto; cursor: pointer; outline: none; clip-path: circle(var(--r, 0px) at 50% 50%);
+}
+.rp-mem-btn:hover { background: transparent; }
+.rp-mem-btn:focus-visible { box-shadow: none; }
+.rp-mem-btn:active:not(:disabled) { transform: none; }
+.rp-mem.inert .rp-mem-btn { cursor: default; }
+.rp-mem[data-open] .rp-mem-btn { pointer-events: none; }
+.rp-mem-mask {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+  mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+}
+/* Out of focus until hovered or focused, which is also the keyboard's cue. */
+.rp-mem-in {
+  position: relative; width: calc(var(--d) * 0.62); display: flex; flex-direction: column; align-items: center;
+  gap: 5px; text-align: center; transform: scale(var(--sv, 1)); filter: blur(0.55px); opacity: 0.66;
+  transition: filter var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
+}
+.rp-mem[data-peek] .rp-mem-in { filter: none; opacity: 1; }
+.rp-mem-in::before {
+  content: ""; position: absolute; inset: -24% -20%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 72%, transparent), transparent);
+}
+.rp-av { flex: none; border-radius: 50%; object-fit: cover; display: block; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.rp-mem-who { display: flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.rp-mem-who span, .rp-mem-who bdi { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-mem-member .rp-mem-who, .rp-mem-left .rp-mem-who { flex-direction: column; gap: 7px; font-size: 12.5px; }
+.rp-mem-member .rp-mem-who { color: var(--text); }
+.rp-mem-faces { display: flex; justify-content: center; }
+.rp-mem-faces .rp-av + .rp-av { margin-left: -7px; box-shadow: 0 0 0 2px var(--bg); }
+.rp-mem-text {
+  font-size: 12px; line-height: 1.4; color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden;
+}
+/* The word scales with its sphere, so a small one on a phone doesn't have to break it. */
+.rp-mem-term {
+  font-size: clamp(14px, calc(var(--r, 60px) * 0.42), 20px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; color: var(--text);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.rp-mem-term.long { font-size: clamp(12px, calc(var(--r, 60px) * 0.32), 15px); letter-spacing: -0.01em; }
+.rp-mem-big { font-size: clamp(15px, calc(var(--r, 60px) * 0.46), 22px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); }
+.rp-mem-was { font-size: clamp(11.5px, calc(var(--r, 60px) * 0.3), 15px); font-weight: 600; color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--text-3); }
+.rp-mem-foot { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.2; color: var(--text-3); white-space: nowrap; }
+/* Hovered or focused: what opening it shows, under the sphere and outside the dust. */
+.rp-mem-cap {
+  position: absolute; left: 50%; top: calc(50% + var(--r, 0px) + 10px); translate: -50% 4px; max-width: 260px;
+  font-size: 12px; line-height: 1.35; color: var(--text-2); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out), translate var(--dur-slow) var(--ease-out);
+}
+.rp-mem-cap:empty { display: none; }
+.rp-mem[data-peek] .rp-mem-cap { opacity: 1; translate: -50% 0; }
+.rp-mem[data-open] .rp-mem-cap { opacity: 0; }
+/* Remembering: what it found stays out of focus, so nothing is spoiled before the replay. */
+.rp-mem-blur .rp-mem-in, .rp-mem-blur[data-peek] .rp-mem-in { filter: blur(3.2px); opacity: 0.55; }
+.rp-mem-bar { width: 52%; height: 7px; border-radius: 4px; background: var(--text-2); opacity: 0.6; }
+.rp-mem-bar.wide { width: 78%; }
+
+/* An opened memory: its sphere comes to the middle, large, and this sits in it. */
+.rp-open {
+  position: fixed; left: 0; top: 0; z-index: 6; width: calc(var(--ro, 240px) * 2); height: calc(var(--ro, 240px) * 2);
+  display: grid; place-items: center; pointer-events: none; opacity: 0; visibility: hidden;
+}
+.rp-open::before {
+  content: ""; position: absolute; inset: 6%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 86%, transparent) 58%, transparent);
+}
+/* Back sits just outside the words' top-left corner, still inside the sphere. */
+.rp-back { position: absolute; left: calc(var(--ro, 240px) * 0.45 - 44px); top: calc(var(--ro, 240px) * 0.36 - 4px); width: 32px; height: 32px; pointer-events: auto; }
+.rp-open-in {
+  position: relative; width: calc(var(--ro, 240px) * 1.1); max-height: calc(var(--ro, 240px) * 1.28); overflow-y: auto; padding-bottom: 22px;
+  scrollbar-width: none; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), transparent); mask-image: linear-gradient(#000 calc(100% - 26px), transparent);
+}
+.rp-open-in::-webkit-scrollbar { display: none; }
+.rp-mo-head { max-width: calc(var(--ro, 240px) * 1.08 - 48px); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.35; color: var(--text-3); }
+.rp-mo-chat { align-self: stretch; display: grid; gap: 11px; text-align: left; }
+.rp-mo-msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.rp-mo-msg .rp-av { width: 24px; height: 24px; margin-top: 1px; }
+.rp-mo-msg b, .rp-qmsg b { display: flex; align-items: baseline; gap: 8px; font-weight: 600; color: var(--text-2); }
+.rp-mo-msg b { font-size: 12.5px; line-height: 1.4; }
+.rp-mo-msg b bdi, .rp-qmsg b bdi { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-mo-msg b time, .rp-qmsg b time { flex: none; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--text-3); }
+.rp-mo-msg.bot b, .rp-qmsg.bot b { color: var(--text); }
+.rp-mo-msg p { margin: 1px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); overflow-wrap: anywhere; }
+.rp-mo-msg.bot p { color: var(--text); }
+.rp-mo-gap { padding: 2px 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); text-align: center; }
+.rp-mo-term { font-size: 30px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; overflow-wrap: anywhere; }
+.rp-mo-answer { font-size: 22px; }
+.rp-mo-text { font-size: 13.5px; line-height: 1.55; color: var(--text); }
+.rp-mo-meta { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+.rp-mo-line { margin-top: 6px; }
+.rp-mo-link { font-size: 12.5px; font-weight: 550; }
+.rp-mo-av { width: 56px; height: 56px; }
+.rp-mo-name { font-size: 15px; font-weight: 600; }
+
+/* ── The replay ── */
+.rp-hud {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 22px 26px; pointer-events: none;
+}
+.rp-hud > * { pointer-events: auto; }
+.rp-hud-name { min-width: 0; max-width: min(460px, calc(var(--vw) * 0.36)); font-size: 13.5px; font-weight: 600; opacity: 0; transition: opacity 0.6s var(--ease-out); }
+.rp.rp-replay .rp-hud-name { opacity: 1; }
+.rp-hud-server { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-hud-actions { display: flex; gap: 4px; margin-left: auto; }
+.rp-hud-actions button { color: var(--text-2); }
+.rp-auto { display: none; }
+.rp.rp-replay .rp-auto { display: inline-flex; }
+
+.rp-narr {
+  position: fixed; z-index: 4; left: max(56px, calc(var(--vw) * 0.07)); top: 50%; translate: 0 -50%; width: min(440px, calc(var(--vw) * 0.34));
+  pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out);
+}
+.rp-narr.dim { opacity: 0; }
+/* Heights ease in and out: the whole column moves when one slot does, so it shouldn't lurch. */
+.rp-narr > div { display: grid; align-items: start; transition: height 0.6s var(--ease-narr); }
+.rp-narr > div > * { grid-area: 1 / 1; transition: opacity 0.5s var(--ease-out), translate 0.5s var(--ease-out); }
+.rp-narr .enter { opacity: 0; translate: 0 4px; }
+.rp-narr .leave { opacity: 0; translate: 0 -3px; transition-duration: 0.22s; }
+/* Spacing lives on the words, not the slots, so an emptied slot takes no room. */
+.rp-n-title { font-size: clamp(34px, calc(var(--vw) * 0.036), 52px); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; overflow-wrap: anywhere; }
+.rp-n-title .sub { display: block; margin-top: 6px; font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--text-3); }
+.rp-n-body { font-size: clamp(16px, calc(var(--vw) * 0.0135), 19px); line-height: 1.5; color: var(--text-2); text-wrap: pretty; overflow-wrap: anywhere; }
+.rp-n-body > * { padding-top: 18px; }
+.rp-n-body b { color: var(--text); font-weight: 550; }
+.rp-n-extra > *, .rp-n-foot > * { padding-top: 22px; }
+.rp-n-foot { font-size: 12.5px; color: var(--text-3); }
+.rp-narr .rp-live-ctl { pointer-events: auto; }
+
+/* A message as the replay quotes it, in Olisar's palette rather than Discord's: the replay is
+   Olisar speaking, not a picture of Discord. The full text is laid out from the start (hidden)
+   so the slot doesn't grow as it types. */
+.rp-quote { display: grid; gap: 12px; }
+.rp-qmsg { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 11px; align-items: start; transition: opacity 0.35s var(--ease-out); }
+.rp-qav { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.rp-qmsg b { font-size: 13px; }
+.rp-qmsg p { display: grid; margin: 1px 0 0; min-height: 1.45em; font-size: 15px; line-height: 1.45; color: var(--text); overflow-wrap: anywhere; }
+.rp-qmsg p > span { grid-area: 1 / 1; }
+.rp-qmsg p .ghost { visibility: hidden; }
+.rp-qmsg .caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 1px; vertical-align: -2px; background: var(--text-2); animation: rp-caret 1s steps(1) infinite; }
+@keyframes rp-caret { 50% { opacity: 0; } }
+.rp-qhead { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+
+/* Arrivals: the count, the scrubber through the years, and the milestones. */
+.rp-scrub { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; column-gap: 10px; }
+.rp-scrub button { color: var(--text-2); }
+.rp-track { position: relative; height: 28px; }
+.rp-track input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; opacity: 0; cursor: pointer; }
+.rp-track-line { position: absolute; left: 0; right: 0; top: 13px; height: 2px; border-radius: 2px; background: var(--border-strong); overflow: hidden; pointer-events: none; }
+.rp-track-fill { position: absolute; inset: 0; transform-origin: 0 0; background: var(--text-2); }
+.rp-track-knob {
+  position: absolute; top: 7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--text); pointer-events: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text) 8%, transparent);
+}
+.rp-track input:focus-visible ~ .rp-track-knob { box-shadow: var(--ring); }
+.rp-track-mark { position: absolute; top: 10px; width: 2px; height: 8px; margin-left: -1px; border-radius: 1px; background: var(--text-3); pointer-events: none; }
+.rp-ticks { position: relative; height: 16px; margin-left: 38px; }
+.rp-ticks span { position: absolute; top: 0; translate: -50% 0; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+.rp-miles { display: grid; gap: 10px; margin-top: 18px; }
+.rp-mile {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--text-2);
+  transition: opacity 0.45s var(--ease-out), translate 0.45s var(--ease-out);
+}
+.rp-mile time { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.75; color: var(--text-3); }
+.rp-mile b { color: var(--text); font-weight: 550; }
+.rp .rp-mile[hidden] { display: grid; visibility: hidden; opacity: 0; translate: 0 4px; }
+
+/* The pick spreading: labels set where its dust lands. */
+.rp-spread { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+.rp-spot {
+  position: absolute; translate: -50% -50%; display: grid; justify-items: center; gap: 2px; text-align: center; opacity: 0;
+  transition: opacity 0.6s var(--ease-out), translate 0.6s var(--ease-out);
+}
+.rp-spot.on { opacity: 1; translate: -50% -60%; }
+.rp-spot q { font-size: 13px; color: var(--text); quotes: "“" "”"; white-space: nowrap; }
+.rp-spot span { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); white-space: nowrap; }
+
+/* The names Olisar has had. */
+.rp-names { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.rp-names i { font-style: normal; color: var(--text-3); font-weight: 400; font-size: 18px; }
+.rp-names .was { color: var(--text-3); text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: var(--text-3); }
+.rp-names span { transition: opacity 0.5s var(--ease-out), color 0.5s var(--ease-out); }
+.rp .rp-names span[hidden], .rp .rp-names i[hidden] { display: inline; opacity: 0; }
+
+/* The end: Olisar's question, set inside the form like the final screen's name. */
+.rp-center {
+  position: fixed; z-index: 6; left: 0; top: 0; width: 250px; display: grid; justify-items: center; gap: 12px; text-align: center;
+  pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.6s var(--ease-out), visibility 0s linear 0.6s;
+}
+.rp-center.on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.rp-center.away { opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease-out), visibility 0s linear 0.25s; }
+.rp-center > * { pointer-events: auto; }
+.rp-center::before {
+  content: ""; position: absolute; inset: -40% -18%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--bg) 70%, transparent), transparent);
+}
+.rp-center-line { margin: 0; font-size: 18px; text-wrap: balance; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; }
+.rp-center-sub { margin: 0; font-size: 13px; color: var(--text-2); }
+.rp-center form { display: flex; gap: 6px; width: 244px; }
+.rp-center form input { flex: 1; min-width: 0; }
+.rp-center-acts { display: flex; justify-content: center; gap: 8px; margin-top: 2px; }
+.rp-face { position: fixed; left: 0; top: 0; z-index: 0; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--ease-out); }
+.rp-face.on { opacity: 1; }
+.rp-face img {
+  display: block; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; opacity: 0.22; filter: blur(1.5px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 60%, transparent 100%); mask-image: radial-gradient(closest-side, #000 60%, transparent 100%);
+}
+
+/* A grain of light: the glow at the form's middle while it's a single grain. */
+.rp-spark {
+  position: fixed; left: 0; top: 0; z-index: 0; border-radius: 50%; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--text) 95%, transparent),
+    color-mix(in srgb, var(--accent) 42%, transparent) 22%, color-mix(in srgb, var(--accent) 12%, transparent) 48%, transparent 100%);
+}
+
+/* The chapters, along the bottom. */
+.rp-timeline {
+  position: fixed; left: 26px; right: 26px; bottom: 20px; z-index: 8; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 6px; opacity: 0; visibility: hidden; transition: opacity 0.6s var(--ease-out), visibility 0s linear 0.6s; pointer-events: none;
+}
+.rp.rp-replay .rp-timeline { opacity: 1; visibility: visible; transition-delay: 0s; pointer-events: auto; }
+.rp-tl { display: grid; gap: 7px; height: auto; padding: 8px 0 0; border: 0; border-radius: 0; background: transparent; text-align: left; justify-content: stretch; align-items: start; color: var(--text-3); }
+.rp-tl:hover { background: transparent; color: var(--text-2); }
+.rp-tl:active:not(:disabled) { transform: none; }
+.rp-tl:focus-visible { box-shadow: none; }
+.rp-tl:focus-visible .rp-tl-line { box-shadow: var(--ring); }
+.rp-tl-line { position: relative; height: 2px; border-radius: 2px; background: var(--border-strong); overflow: hidden; }
+.rp-tl-fill { position: absolute; inset: 0; transform-origin: 0 0; transform: scaleX(0); background: var(--text-2); transition: transform 0.5s var(--ease-out); }
+.rp-tl-name { font-size: 11.5px; font-weight: 500; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-tl.now { color: var(--text); }
+.rp-tl.now .rp-tl-fill { background: var(--text); }
+
+.rp-hint {
+  position: fixed; left: 50%; bottom: 66px; z-index: 8; translate: -50% 0; width: max-content; max-width: calc(var(--vw) - 48px); margin: 0;
+  font-size: 12.5px; color: var(--text-3); pointer-events: none; opacity: 0; transition: opacity 0.6s var(--ease-out);
+}
+.rp-hint.on { opacity: 1; }
+.rp-hint kbd { margin: 0 2px; }
+
+/* Without WebGL2 there's no dust: the memories get hairline rings, and the form one ring. */
+.rp-orb-css { display: none; }
+.rp.no-form .rp-mem::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: calc(2 * var(--r)); height: calc(2 * var(--r));
+  translate: -50% -50%; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.rp.no-form .rp-orb-css {
+  display: block; position: fixed; left: 0; top: 0; z-index: 0; border-radius: 50%; pointer-events: none;
+  box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 0 60px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* A narrow window: the words go under the form instead of beside it. */
+.rp.narrow .rp-narr { left: 24px; right: 24px; top: auto; bottom: 104px; translate: 0 0; width: auto; }
+.rp.narrow .rp-hud-name { max-width: calc(var(--vw) - 140px); }
+.rp.narrow .rp-n-title { font-size: 32px; }
+.rp.narrow .rp-tl-name { display: none; }
+
+/* Reduced motion slows the form and the dust (replay-scene.ts) and keeps the fades, without
+   the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .rp-narr .enter, .rp-narr .leave, .rp .rp-mile[hidden], .rp-spot.on { translate: 0 0; }
+  .rp-steps li.now::before { animation-duration: 3.2s; }
+  .rp-qmsg .caret { animation-duration: 2s; }
+}
+/* Forced colors drop box-shadow, and with it the focus rings drawn with one. */
+@media (forced-colors: active) {
+  .rp-tl:focus-visible .rp-tl-line, .rp-track input:focus-visible ~ .rp-track-knob { outline: 2px solid CanvasText; outline-offset: 2px; }
+  .rp-mem-btn:focus-visible { outline: 2px solid CanvasText; outline-offset: -4px; border-radius: 50%; }
+}
