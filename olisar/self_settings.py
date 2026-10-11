@@ -181,6 +181,7 @@ _BEHAVIOR: dict[str, _Field] = {
     "default_model": _Field(GuildConfig, "default_model", "choice", choices=tuple(RANKED_NAMES)),
     "grounding_enabled": _Field(GuildConfig, "grounding_enabled", "bool"),
     "grounding_daily_cap": _Field(GuildConfig, "grounding_daily_cap", "int", 0),
+    "grounding_monthly_cap": _Field(GuildConfig, "grounding_monthly_cap", "int", 0),
     "presence_tools_enabled": _Field(GuildConfig, "presence_tools_enabled", "bool"),
     "silent_acks_enabled": _Field(GuildConfig, "silent_acks_enabled", "bool"),
     "context_message_limit": _Field(GuildConfig, "context_message_limit", "int", 3, 100),

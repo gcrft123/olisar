@@ -1,8 +1,9 @@
 """Gemini model ranking and the fallback chain.
 
-Free-tier *chat* models ranked best -> worst. Pro models are excluded (paid as
-of 2026) to honor the no-paid-API constraint; specialized models (computer-use,
-robotics, embeddings) aren't chat models and are excluded too.
+*Chat* models ranked best -> worst. Every one is on Google's free tier. Pro models are
+excluded: they aren't (as of 2026), and a key with billing on replies through the same
+chain. Specialized models (computer-use, robotics, embeddings) aren't chat models and are
+excluded too.
 
 When the preferred model is rate-limited, the client walks DOWN this list to the
 next available model (see GeminiClient._raw_generate). Edit the order here (or
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class ModelInfo:
     name: str
-    rpm: int  # our conservative per-minute throttle (free-tier ballpark)
+    rpm: int  # our conservative per-minute throttle on a free key (free-tier ballpark)
     label: str
     # Free-tier requests per day. Google's rate-limits page stopped listing these (AI Studio
     # shows a project its own), so these are the last published figures. They stand in until
@@ -25,6 +26,10 @@ class ModelInfo:
     # Usage page counts against that instead. Nothing here stops a request: Olisar only treats
     # a model as spent when Google says so.
     rpd: int = 0
+    # The per-minute throttle on a key with billing on: Google's Tier 1 ballpark. Google
+    # turns a billed key away far later than a free one, so the free figure there only
+    # pushed a busy server down the chain for no reason.
+    paid_rpm: int = 1000
 
 
 # Best -> worst. The chain starts at the guild's default_model and continues down.
@@ -45,24 +50,46 @@ class ModelInfo:
 # The 2.0 pair used to sit at positions 4 and 8 and are gone: generateContent answers
 # `404 ... is no longer available`. Note models.get still returns metadata for a retired
 # model, so "does this name resolve?" is not the question — only a real generation is.
-# The daily self-test (olisar/gemini/canary.py) still sweeps the ``-latest`` aliases.
+# The daily self-test (olisar/gemini/canary.py) sweeps every rung, aliases included.
+#
+# Matched to Google's deprecations page as of 2026-10-09. Gemini 3.5 Flash (requests now
+# routed to 3.6 Flash) and Gemini 3 Flash Preview (superseded by 3.6 Flash) are gone; see
+# RETIRED. Gemini 3.1 Flash-Lite is deprecated too but stays a lower rung until it shuts
+# down, no earlier than 2027-05-07: every model brings its own free daily allowance, and
+# dropping it early would cut a free key's day by about a quarter. Remove it then.
+#
+# The 2.5 pair isn't deprecated, but Google only serves it to projects that used it before.
+# A newer project gets refused there, which parks each for an hour like a retired model and
+# costs the chain nothing else.
 RANKED: list[ModelInfo] = [
-    ModelInfo("gemini-3.5-flash", 10, "Gemini 3.5 Flash", rpd=250),
+    ModelInfo("gemini-3.8-flash", 10, "Gemini 3.8 Flash", rpd=250),
     ModelInfo("gemini-flash-latest", 10, "newest Flash (auto-updates)", rpd=250),
-    ModelInfo("gemini-3-flash-preview", 10, "Gemini 3 Flash", rpd=250),
+    ModelInfo("gemini-3.6-flash", 10, "Gemini 3.6 Flash", rpd=250),
     ModelInfo("gemini-2.5-flash", 10, "Gemini 2.5 Flash", rpd=250),
-    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000),
-    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000),
-    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000),
+    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (auto-updates)", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite", rpd=1000, paid_rpm=4000),
+    ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite", rpd=1000, paid_rpm=4000),
 ]
 
 # The head of the chain, and the default for a fresh guild / an unset GEMINI_CHAT_MODEL.
 # Imported by olisar.config and olisar.db.models so the default lives in exactly one place.
-DEFAULT_CHAT_MODEL = "gemini-3.5-flash"
+DEFAULT_CHAT_MODEL = "gemini-3.8-flash"
 
 # The cheap model for off-reply-path synthesis (summaries, personas, glossary). Pinned for
 # the same reason, and to the concrete twin of the alias it used to name.
-DEFAULT_LITE_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_LITE_MODEL = "gemini-3.5-flash-lite"
+
+# Models that left the chain, and what takes their place. A server's stored default_model
+# moves to the replacement on startup (see migrate_model_default), and model_chain reads a
+# retired name as its replacement, so a GEMINI_CHAT_MODEL left in someone's .env (the old
+# .env.example set it to gemini-3.5-flash) doesn't pin the head of every reply to a model
+# Google is turning off. Gemini 3.5 Flash goes to the new default rather than 3.6 Flash,
+# where Google routes it: it was the seeded default, so almost nobody chose it.
+RETIRED: dict[str, str] = {
+    "gemini-3.5-flash": DEFAULT_CHAT_MODEL,
+    "gemini-3-flash-preview": "gemini-3.6-flash",
+}
 
 # What installs before this change defaulted to. Stored `guild_config.default_model` rows
 # still holding it are moved to DEFAULT_CHAT_MODEL on startup (see migrate_model_default):
@@ -73,11 +100,25 @@ LEGACY_DEFAULT_CHAT_MODEL = "gemini-flash-latest"
 RANKED_NAMES = [m.name for m in RANKED]
 _RPM = {m.name: m.rpm for m in RANKED}
 _RPM["gemini-embedding-001"] = 100  # embeddings (single model, no fallback)
+_PAID_RPM = {m.name: m.paid_rpm for m in RANKED}
+_PAID_RPM["gemini-embedding-001"] = 3000
 _RPD = {m.name: m.rpd for m in RANKED}
 _RPD["gemini-embedding-001"] = 1000
 
-# Google Search grounding has a daily allowance of its own, on top of the model's.
+# Google Search grounding has a daily allowance of its own, on top of the model's. On a free
+# key it's only the Gemini 2.5 models that have one, shared between the two below; every
+# Gemini 3 model answers a grounded request with a bare 429. So that's where a free key's
+# web search runs (see GeminiClient.search). Walking the chat chain instead spent three
+# refused requests per search and parked the top three chat models for two minutes each.
+# A project Google won't serve the 2.5 models to (one that never used them) has no free
+# web search at all.
 GROUNDING_RPD = 500
+SEARCH_FREE_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+# Text-to-image on a key with billing on (Nano Banana 2 Lite). Gemini's image models have a
+# free quota of 0, so a free key makes images on Cloudflare Workers AI instead, if at all
+# (see olisar/imaging.py).
+GEMINI_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
 
 
 # Vision (image-understanding) fallback chain, used for image recognition and the
@@ -93,6 +134,7 @@ GROUNDING_RPD = 500
 # model instead of the request (see client._MODEL_RETIRED), and the self-test still
 # sweeps this chain's head so the next retirement is a log line rather than a silent outage.
 IMAGE_RANKED: list[ModelInfo] = [
+    ModelInfo("gemini-3.5-flash-lite", 15, "Gemini 3.5 Flash-Lite (multimodal)"),
     ModelInfo("gemini-3.1-flash-lite", 15, "Gemini 3.1 Flash-Lite (multimodal)"),
     ModelInfo("gemini-2.5-flash-lite", 15, "Gemini 2.5 Flash-Lite (multimodal)"),
     ModelInfo("gemini-flash-lite-latest", 15, "newest Flash-Lite (multimodal)"),
@@ -102,12 +144,12 @@ IMAGE_RANKED_NAMES = [m.name for m in IMAGE_RANKED]
 # The vision chain's head, and the default for an unset GEMINI_VISION_MODEL.
 DEFAULT_VISION_MODEL = IMAGE_RANKED_NAMES[0]
 
-# Note: image *generation* (text -> image) does NOT run on Gemini — its image
-# models are paid-only (free request quota = 0). That lives in olisar/imaging.py
-# on Cloudflare Workers AI instead.
 
-
-def rpm_for(model: str) -> int:
+def rpm_for(model: str, paid: bool = False) -> int:
+    """Olisar's own per-minute throttle for ``model``: the free-tier figure, or Google's
+    Tier 1 ballpark when the key has billing on."""
+    if paid:
+        return _PAID_RPM.get(model, 1000)
     return _RPM.get(model, 10)
 
 
@@ -119,9 +161,11 @@ def rpd_for(model: str) -> int:
 def model_chain(preferred: str) -> list[str]:
     """Models to try, in order, starting from `preferred`.
 
-    If `preferred` is in the ranking, the chain is everything from it downward.
-    Otherwise the chain is `preferred` first, then the whole ranking as fallback.
+    If `preferred` is in the ranking, the chain is everything from it downward. A retired
+    model starts where its replacement does (see RETIRED). Otherwise the chain is
+    `preferred` first, then the whole ranking as fallback.
     """
+    preferred = RETIRED.get(preferred, preferred)
     if preferred in RANKED_NAMES:
         return RANKED_NAMES[RANKED_NAMES.index(preferred) :]
     return [preferred, *RANKED_NAMES]
@@ -132,6 +176,7 @@ def image_model_chain(preferred: str | None = None) -> list[str]:
     image-capable ranking; ``preferred=None`` runs the whole chain top-down."""
     if not preferred:
         return list(IMAGE_RANKED_NAMES)
+    preferred = RETIRED.get(preferred, preferred)
     if preferred in IMAGE_RANKED_NAMES:
         return IMAGE_RANKED_NAMES[IMAGE_RANKED_NAMES.index(preferred) :]
     return [preferred, *IMAGE_RANKED_NAMES]

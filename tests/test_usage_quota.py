@@ -232,11 +232,105 @@ class ClientTests(unittest.TestCase):
         spent.assert_not_awaited()
         limiter.penalize.assert_called_once()
 
-    def test_a_grounded_call_never_parks_the_model_for_the_day(self):
-        """Its daily refusal can be the search allowance's, not the model's."""
+    def test_a_grounded_call_never_parks_the_model(self):
+        """Its refusal can be the search allowance's, not the model's: every Gemini 3 model
+        on a free key refuses a grounded request and still takes ordinary ones. search()
+        keeps its own block, so chat isn't parked either for the day or for the minute."""
         limiter, spent = self._run(_quota_429(DAILY, "500"), grounding=1)
         spent.assert_not_awaited()
-        limiter.penalize.assert_called_once()
+        limiter.penalize.assert_not_called()
+
+
+def _server_error(code: int = 503):
+    return genai_errors.APIError(code, {"error": {
+        "code": code, "message": "The model is overloaded. Please try again later.",
+        "status": "UNAVAILABLE",
+    }})
+
+
+class ExhaustedChainTests(unittest.TestCase):
+    """What a chain that ran dry raises. The rate-limit reply hangs off RateLimitExceeded;
+    anything else becomes the blank fallback and a Report button. Raising the raw 429 here
+    is how the first real quota exhaustion of the day reached members as "my mind went
+    blank" with a button to report a bug that waiting would fix."""
+
+    CHAIN = ["first", "second", "third"]
+
+    def _exhaust(self, outcomes, *, states=None, grounding=0):
+        """Walk CHAIN, each model raising its scripted error. ``states`` overrides what
+        the limiter says about a model before it's tried (default "ok")."""
+        states = states or {}
+        client = GeminiClient()
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=outcomes)
+        client.aclient = AsyncMock(return_value=sdk)
+        limiter = MagicMock()
+        limiter.state.side_effect = lambda m: states.get(m, "ok")
+        limiter.claim_probe.return_value = False
+        with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), patch(
+            "olisar.gemini.client.record_usage", new=AsyncMock()
+        ), patch("olisar.gemini.client.mark_spent", new=AsyncMock()):
+            asyncio.run(client._raw_generate(
+                contents="hi", config=MagicMock(), model=self.CHAIN[0], chain=self.CHAIN,
+                grounding=grounding,
+            ))
+
+    def test_a_chain_out_for_the_day_is_a_rate_limit(self):
+        last = _quota_429(DAILY, "250")
+        with self.assertRaises(RateLimitExceeded) as caught:
+            self._exhaust([_quota_429(DAILY), _quota_429(DAILY), last])
+        self.assertIs(caught.exception.__cause__, last)  # the logs keep Google's words
+
+    def test_a_chain_full_for_the_minute_is_a_rate_limit(self):
+        with self.assertRaises(RateLimitExceeded):
+            self._exhaust([_quota_429(PER_MINUTE, "10", retry="20s")] * 3)
+
+    def test_the_last_model_out_after_the_rest_were_parked_is_a_rate_limit(self):
+        """The usual way it happens: everything ahead is already spent, and the one model
+        left is refused too."""
+        with self.assertRaises(RateLimitExceeded):
+            self._exhaust(
+                [_quota_429(DAILY)], states={"first": "spent", "second": "spent"},
+            )
+
+    def test_a_chain_of_server_errors_still_surfaces(self):
+        """Nothing here is quota. It stays the error it is, so the blank fallback and its
+        Report button still fire for a real malfunction."""
+        last = _server_error(503)
+        with self.assertRaises(genai_errors.APIError) as caught:
+            self._exhaust([_server_error(500), _server_error(503), last])
+        self.assertNotIsInstance(caught.exception, RateLimitExceeded)
+        self.assertIs(caught.exception, last)
+
+    def test_a_server_error_behind_spent_models_is_a_rate_limit(self):
+        """Mixed: quota is why the chain couldn't step past the 503."""
+        with self.assertRaises(RateLimitExceeded) as caught:
+            self._exhaust([_server_error(503)], states={"first": "spent", "second": "rpm_full"})
+        self.assertEqual(caught.exception.__cause__.code, 503)
+
+    def test_a_429_and_server_errors_together_are_a_rate_limit(self):
+        for outcomes in (
+            [_server_error(503), _server_error(502), _quota_429(DAILY)],
+            [_quota_429(DAILY), _server_error(503), _server_error(503)],
+        ):
+            with self.subTest(order=[e.code for e in outcomes]):
+                with self.assertRaises(RateLimitExceeded):
+                    self._exhaust(outcomes)
+
+    def test_a_cooldown_alone_is_not_counted_as_quota(self):
+        """A cooldown can follow a 5xx or a retirement as well as a 429, so it proves
+        nothing about quota; the 503s decide."""
+        with self.assertRaises(genai_errors.APIError) as caught:
+            self._exhaust(
+                [_server_error(503), _server_error(503)], states={"first": "cooldown"},
+            )
+        self.assertNotIsInstance(caught.exception, RateLimitExceeded)
+
+    def test_a_grounded_chain_keeps_the_raw_429(self):
+        """search() reads its retryDelay to decide how long to stop asking."""
+        with self.assertRaises(genai_errors.APIError) as caught:
+            self._exhaust([_quota_429(DAILY)] * 3, grounding=1)
+        self.assertEqual(caught.exception.code, 429)
 
 
 class _Db(unittest.IsolatedAsyncioTestCase):
@@ -259,6 +353,13 @@ class _Db(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 rl.runtime_keys, "gemini_api_key",
                 AsyncMock(side_effect=lambda: self.key["value"]),
+            ),
+            # Asking Google which tier the key is on would be a real request.
+            patch.object(usage_router, "_tier", AsyncMock(return_value=None)),
+            patch("olisar.gemini.tier.refresh_soon"),
+            patch.object(
+                usage_router.spend, "budget",
+                AsyncMock(return_value=usage_router.spend.Budget(0.0, "cheapest", True)),
             ),
         ]
         for p in self._patches:
@@ -466,8 +567,9 @@ class KeySwapTests(_Db):
             client_mod.runtime_keys, "gemini_api_key", AsyncMock(side_effect=lambda: self.key["value"]),
         ):
             client = GeminiClient()
-            with self.assertRaises(genai_errors.APIError):
+            with self.assertRaises(RateLimitExceeded) as caught:
                 await self._ask(client)
+            self.assertEqual(caught.exception.__cause__.code, 429)
             self.assertTrue(self.limiter.chain_spent())
             self.assertEqual(len(sent), len(RANKED_NAMES))
 
@@ -533,6 +635,31 @@ class EndpointTests(_Db):
         data = await self._live()
         self.assertEqual(data["memory_search"]["requests"], 12)
         self.assertEqual(data["web_search"]["requests"], 4)
+
+    async def test_a_billed_key_is_shown_in_money(self):
+        """No daily allowance to count down: the day's cost, the month's, and the free
+        searches left in the month."""
+        from olisar.gemini.pricing import tokens_cost
+
+        await self._seed(RANKED_NAMES[0], 10, input_tokens=1_000_000, output_tokens=100_000, grounding=3)
+        await self._seed(RANKED_NAMES[0], 5, day=quota_day().replace(day=1) - timedelta(days=1), grounding=50)
+        with patch.object(usage_router, "_tier", AsyncMock(return_value="paid")):
+            data = await self._live()
+        today = (await self.rows(GeminiUsage))[0]
+        self.assertEqual(data["tier"], "paid")
+        self.assertAlmostEqual(data["billing"]["today"], round(tokens_cost(today), 4))
+        self.assertEqual(data["chain"][0]["cost"], round(tokens_cost(today), 4))
+        self.assertEqual(
+            {k: data["web_search"][k] for k in ("requests", "limit", "period")},
+            {"requests": 3, "limit": 5000, "period": "month"},
+        )
+
+    async def test_a_free_key_counts_web_search_by_the_day(self):
+        await self._seed(RANKED_NAMES[3], 30, grounding=4)
+        data = await self._live()
+        self.assertEqual(data["web_search"]["period"], "day")
+        self.assertEqual(data["web_search"]["limit"], 500)
+        self.assertGreater(data["billing"]["today"], 0)  # what it would have cost
 
     async def test_summary_leaves_memory_search_out_of_the_chain(self):
         async with self.scope() as session:
