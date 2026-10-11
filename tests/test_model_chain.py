@@ -55,9 +55,14 @@ class PinnedDefaultTests(unittest.TestCase):
         self.assertNotIn("latest", settings.gemini_lite_model)
         self.assertNotIn("latest", GuildConfig.__table__.c.default_model.default.arg)
 
-    def test_the_column_default_and_the_constant_agree(self):
-        self.assertEqual(GuildConfig.__table__.c.default_model.default.arg, DEFAULT_CHAT_MODEL)
+    def test_the_column_default_replies_as_the_constant(self):
+        """A new server starts on Automatic, which replies exactly as DEFAULT_CHAT_MODEL
+        does while model routing is off: the same chain from the same head."""
+        from olisar.gemini.models import AUTO, model_chain
+
+        self.assertEqual(GuildConfig.__table__.c.default_model.default.arg, AUTO)
         self.assertEqual(settings.gemini_chat_model, DEFAULT_CHAT_MODEL)
+        self.assertEqual(model_chain(AUTO), model_chain(DEFAULT_CHAT_MODEL))
 
     def test_chain_starts_on_the_pinned_model(self):
         self.assertEqual(RANKED_NAMES[0], DEFAULT_CHAT_MODEL)

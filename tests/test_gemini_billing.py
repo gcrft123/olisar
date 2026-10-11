@@ -25,7 +25,7 @@ from olisar import runtime_config, runtime_keys
 from olisar.db import engine
 from olisar.db.engine import session_scope
 from olisar.db.models import GuildConfig
-from olisar.gemini import pricing, spend, tier
+from olisar.gemini import pricing, rate_limiter, spend, tier
 from olisar.gemini.client import GeminiClient, token_split
 from olisar.gemini.models import GEMINI_IMAGE_MODEL, rpm_for
 from olisar.gemini.rate_limiter import BudgetSpent, RateLimiter, key_id
@@ -196,6 +196,71 @@ class TierStateTests(unittest.TestCase):
         self.assertFalse(tier._stale(self.kid))
 
 
+class FreshCheckTests(unittest.IsolatedAsyncioTestCase):
+    """A key typed, saved or removed in the console is asked about afresh. The bot keeps
+    Google's answer for up to a day, so billing turned off showed as on until it lapsed."""
+
+    def setUp(self):
+        self.limiter = RateLimiter()
+        for target, attr, value in (
+            (tier, "get_rate_limiter", MagicMock(return_value=self.limiter)),
+            (rate_limiter, "get_rate_limiter", MagicMock(return_value=self.limiter)),
+            (tier, "_store", AsyncMock()),
+        ):
+            patcher = patch.object(target, attr, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(tier._known.clear)
+        self.addCleanup(tier._unknown_at.clear)
+        self.kid = key_id("AQ.key")
+        self.limiter.use_key(self.kid)
+
+    def asked(self, answer):
+        patcher = patch.object(tier, "probe", AsyncMock(return_value=answer))
+        mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        return mock
+
+    async def test_a_typed_key_is_asked_again_whatever_it_last_said(self):
+        tier._remember(self.kid, tier.PAID, datetime.now(timezone.utc) - timedelta(hours=1))
+        probe = self.asked(tier.FREE)
+        self.assertEqual(await tier.check("AQ.key"), tier.PAID)
+        probe.assert_not_awaited()
+        self.assertEqual(await tier.check("AQ.key", fresh=True), tier.FREE)
+        self.assertFalse(self.limiter.paid)
+
+    async def test_typing_then_saving_asks_google_once(self):
+        probe = self.asked(tier.PAID)
+        await tier.check("AQ.key", fresh=True)
+        await tier.check("AQ.key", fresh=True)
+        self.assertEqual(probe.await_count, 1)
+
+    async def test_an_answer_google_wont_give_keeps_the_last_one(self):
+        tier._remember(self.kid, tier.PAID, datetime.now(timezone.utc) - timedelta(hours=1))
+        self.asked(None)
+        self.assertEqual(await tier.check("AQ.key", fresh=True), tier.PAID)
+
+    async def test_removing_the_saved_key_asks_about_the_one_left(self):
+        from api.routers import admin
+        from scripts.init_db import create_schema
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        engine.pin_database(str(Path(tmp.name) / "bot.db"))
+        self.addCleanup(engine.pin_database, None)
+        await create_schema()
+        left = key_id("AQ.env")
+        tier._remember(left, tier.PAID, datetime.now(timezone.utc) - timedelta(hours=1))
+        self.asked(tier.FREE)
+        with patch.object(runtime_keys, "gemini_api_key", AsyncMock(return_value="AQ.env")):
+            await admin.clear_key("gemini_api_key", admin=SimpleNamespace(discord_user_id=1))
+        for path in list(engine._engines):
+            await engine.reset_engine(path)
+        self.assertEqual(self.limiter.key, left)
+        self.assertEqual(tier.known(), tier.FREE)
+        self.assertFalse(self.limiter.paid)
+
+
 class BudgetTests(unittest.TestCase):
     """What a request does once a billed key's month is past its budget."""
 
@@ -233,6 +298,41 @@ class BudgetTests(unittest.TestCase):
 
 
 GUILD = 1001
+
+
+class BudgetReplyTests(unittest.TestCase):
+    """A budget set to stop gets its own reply. It used to get the rate-limit one, which
+    tells members to try again in a minute about something that lasts until the 1st."""
+
+    def _sandbox(self, exc, custom=None):
+        from olisar import pipeline
+
+        session = MagicMock()
+        config = SimpleNamespace(default_model="gemini-3.8-flash", command_messages=custom or {})
+        session.get = AsyncMock(side_effect=lambda model, key: config if model is GuildConfig else None)
+        with patch.object(pipeline, "gather_enabled", new=AsyncMock(side_effect=RuntimeError)), \
+                patch.object(pipeline, "_run_tool_loop", new=AsyncMock(side_effect=exc)):
+            return asyncio.run(pipeline.generate_sandbox_reply(
+                session, guild_id=1, messages=[{"role": "user", "content": "hi"}],
+            ))
+
+    def test_a_spent_budget_says_so(self):
+        from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+        out = self._sandbox(BudgetSpent("gemini-3.8-flash"))
+        self.assertEqual(out, DEFAULT_COMMAND_MESSAGES["budget_spent"])
+        self.assertIn("1st", out)
+
+    def test_the_operator_can_reword_it(self):
+        out = self._sandbox(BudgetSpent("x"), {"budget_spent": "out of credits till next month"})
+        self.assertEqual(out, "out of credits till next month")
+
+    def test_a_rate_limit_still_gets_the_rate_limit_reply(self):
+        from olisar.gemini.rate_limiter import RateLimitExceeded
+        from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+        out = self._sandbox(RateLimitExceeded("gemini-3.8-flash", "daily"))
+        self.assertEqual(out, DEFAULT_COMMAND_MESSAGES["rate_limit"])
 
 
 class SearchCapTests(unittest.IsolatedAsyncioTestCase):

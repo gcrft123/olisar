@@ -1228,6 +1228,8 @@ In the test chat Olisar can look things up in the [knowledge base](#knowledge-ba
 
 Replies arrive as a single message in the test chat, even ones Olisar would split in Discord. **Report** on a reply opens Feedback with the exchange filled in (see [Console settings](#console-settings)).
 
+When model routing is on for the server, a line under each reply shows its tier and the model that wrote it, such as "Light · Gemini 3.5 Flash-Lite", or "Light, handed up" when the standard tier finished it (see [Models](#models)).
+
 #### How a reply arrives
 
 The persona decides what Olisar says. These parts of a reply happen on their own, and none of them are settings.
@@ -1355,7 +1357,7 @@ The last three are folded under **Tuning thresholds**. All four work on the conv
 
 ### Models
 
-Olisar writes with Google's Gemini models. For replies it uses a *fallback chain*: a ranked list of models it works down whenever the one it wants is busy or has run out of requests for the day. Every model in the chain is on the Gemini API's free tier, so a free key runs all of it. Gemini Pro models aren't in the chain, because the free tier doesn't include them, and a key with billing on uses the same chain.
+Olisar writes with Google's Gemini models. For replies it uses a *fallback chain*: a ranked list of models it works down whenever the one it wants is busy or has run out of requests for the day. Every model in the chain is on the Gemini API's free tier, so a free key runs all of it. Gemini Pro models aren't in the chain, because the free tier doesn't include them. With billing on, model routing sends hard questions to Gemini 3.1 Pro (see Model routing below).
 
 #### The reply chain
 
@@ -1363,32 +1365,64 @@ The chain, best model first:
 
 | Model | In the console | Per-minute cap, free key | Per-minute cap, billing on | Daily limit, free key |
 | --- | --- | --- | --- | --- |
-| `gemini-3.8-flash` | Gemini 3.8 Flash | 10 | 1,000 | 250 |
-| `gemini-flash-latest` | newest Flash (auto-updates) | 10 | 1,000 | 250 |
-| `gemini-3.6-flash` | Gemini 3.6 Flash | 10 | 1,000 | 250 |
-| `gemini-2.5-flash` | Gemini 2.5 Flash | 10 | 1,000 | 250 |
-| `gemini-3.5-flash-lite` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 1,000 |
-| `gemini-flash-lite-latest` | newest Flash-Lite (auto-updates) | 15 | 4,000 | 1,000 |
-| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 1,000 |
+| `gemini-3.8-flash` | Gemini 3.8 Flash | 10 | 1,000 | 20 |
+| `gemini-flash-latest` | newest Flash (auto-updates) | 10 | 1,000 | Shares 3.8 Flash's |
+| `gemini-3.6-flash` | Gemini 3.6 Flash | 10 | 1,000 | 20 |
+| `gemini-2.5-flash` | Gemini 2.5 Flash | 10 | 1,000 | 20 |
+| `gemini-3.5-flash-lite` | Gemini 3.5 Flash-Lite | 15 | 4,000 | 500 |
+| `gemini-flash-lite-latest` | newest Flash-Lite (auto-updates) | 15 | 4,000 | Shares 3.5 Flash-Lite's |
+| `gemini-3.1-flash-lite` | Gemini 3.1 Flash-Lite | 15 | 4,000 | 500 |
 | `gemini-2.5-flash-lite` | Gemini 2.5 Flash-Lite | 15 | 4,000 | 1,000 |
 
-The per-minute cap is Olisar's own, set to stay near Google's limits for the key: the free tier's, or Google's Tier 1 limits once billing is on. When a model reaches it, Olisar moves to the next model instead of waiting. Memory search's model has a cap of its own, 100 a minute on a free key and 3,000 with billing on.
+The per-minute cap is Olisar's own, set to stay near Google's limits for the key: the free tier's, or Google's Tier 1 limits once billing is on. When a model reaches it, Olisar moves to the next model instead of waiting. Memory search's model has a cap of its own, 100 a minute and 1,000 a day on a free key, and 3,000 a minute with billing on. Google counts every message or passage Olisar indexes as one request, so indexing 50 messages at once uses 50 of them.
 
-The daily limits are the last free-tier figures Google published; Google sets the real ones for each project, and once it turns a model away for the day, [Usage](#usage--rate-limits) shows Google's figure instead. With billing on, Google's daily limits are far higher than these.
+Google doesn't publish free-tier daily limits, so these are the ones it named when it turned a free key away in October 2026: 20 requests a day on each Flash model and 500 on each Flash-Lite model, and 15 a minute on Flash-Lite. The two Gemini 2.5 models couldn't be checked, because Google only serves them to projects that used them before; 2.5 Flash is listed at the current Flash models' 20, and 2.5 Flash-Lite at its last published figure. Google sets the real limits for each project, and once it turns a model away for the day, [Usage](#usage--rate-limits) shows Google's figure instead. With billing on, Google's daily limits are far higher than these.
 
-The two `-latest` models are names Google points at its newest release, so what they run can change without an Olisar update. That's why they sit below the fixed versions, where they keep replies going if Google retires one.
+The two `-latest` models are names Google points at its newest release, so what they run can change without an Olisar update. That's why they sit below the fixed versions, where they keep replies going if Google retires one. Google counts a `-latest` name against the daily limit of the model it points to (as of October 2026, `gemini-flash-latest` is `gemini-3.8-flash` and `gemini-flash-lite-latest` is `gemini-3.5-flash-lite`), so it adds no requests to the day: once that model is used up, so is its `-latest` name, and Olisar skips both. Olisar notices when Google moves a name.
 
-Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, a quarter of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does `GEMINI_CHAT_MODEL` if it names one.
+Google has deprecated Gemini 3.1 Flash-Lite and will turn it off no earlier than May 7, 2027. It stays in the chain until then because its daily limit is its own, about half of a free key's day. Google only serves the two Gemini 2.5 models to projects that used them before, so a key from a newer project skips them, and [Usage](#usage--rate-limits) shows them as **Not on this key**. Gemini 3.5 Flash and Gemini 3 Flash Preview have left the chain: a server whose **Primary model** was one of them moves to Gemini 3.8 Flash or Gemini 3.6 Flash, and so does `GEMINI_CHAT_MODEL` if it names one.
 
 #### Choose where the chain starts
 
-**Primary model** on the Behavior tab sets where this server's chain starts. Olisar only works down the chain from there, never up, so starting at `gemini-3.5-flash-lite` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy, and with billing on, for cheaper replies.
+**Primary model** on the Behavior tab sets where this server's chain starts. It starts on **Automatic**, which lets model routing pick a model for each message when routing is on, and starts on `gemini-3.8-flash` when it's off. Choosing a model pins every reply to the chain from that model down, with no routing. Olisar only works down the chain from there, never up, so starting at `gemini-3.5-flash-lite` means this server's replies never use the Flash models. Starting lower trades some reply quality for higher daily limits and models that are less often busy, and with billing on, for cheaper replies.
 
 1. Open Behavior.
-2. Under **Model & tools**, choose a **Primary model**. It starts on `gemini-3.8-flash`.
+2. Under **Model & tools**, choose a **Primary model**.
 3. Press **Save changes**.
 
 Each server picks its own starting point, but every server on the install draws on the same daily limits.
+
+#### Model routing
+
+Model routing picks a model for each reply by what the message needs, on servers whose **Primary model** is **Automatic**. It's on by default with billing on and off by default on a free key. Turn it on or off with **Model routing** on [API keys](#api-keys). Olisar keeps one switch for each tier, so turning billing on or off brings back what you chose for that tier.
+
+| Tier | For | Models | Thinking |
+| --- | --- | --- | --- |
+| Light | Thanks, greetings, banter, a quick reaction | `gemini-3.5-flash-lite` and the other Flash-Lite models, then the rest of the chain | Minimal |
+| Standard | Questions, lookups, actions, images, and anything else | The reply chain from `gemini-3.8-flash` down, the same as without routing | The same as without routing |
+| Deep | Code and error messages, math, plans, comparisons, long or many-part requests | With billing on, `gemini-3.1-pro-preview`, then the reply chain. Otherwise the same as standard | High on Pro, otherwise the same as standard |
+
+Olisar decides from the message's wording and how close it is to examples of each tier. The comparison uses the embedding memory search already made for the message, so routing costs no extra request. A few rules come first:
+
+- A message with an image, a lookup, an action such as a reminder or a DM, or what reads like an attempt to override Olisar's instructions never goes light.
+- A reply nobody asked for, a DM from someone who isn't in the main server, and an attempt to override Olisar's instructions never go deep.
+- Within 10 minutes of Olisar answering a member on the standard or deep tier, their next message doesn't go light unless it only acknowledges, such as "thanks" or "lol". A "yes", "sure" or "do it" may be agreeing to something Olisar offered, so it doesn't count.
+- After a deep reply, a short question or a message that carries on from it ("and on Windows?", "what about the other one") stays deep.
+
+A light reply answers in words or with a reaction and nothing else. If the light model reaches for any other tool, writes a tool call out as text, or comes back empty, the standard tier answers instead, and nothing the light model asked for runs.
+
+With billing on, deep replies go to Gemini 3.1 Pro first. In Olisar's tests Pro answered hard questions in 8 to 14 seconds, while `gemini-3.8-flash` set to think as hard often ran several web searches first and took up to two minutes, so a deep reply without Pro is sent as a standard one. **Use Gemini Pro for hard questions** on [API keys](#api-keys) turns Pro off. While it's on, Pro is held back:
+
+- At most 5% of the last 24 hours' replies go to Pro, and always at least 3 a day.
+- Each member gets at most 10 Pro replies a day.
+- Pro stops once the month reaches 80% of the budget. Past the budget, its **At the budget** setting decides what happens (see [API keys](#api-keys)).
+- A deep reply past one of these limits is sent as a standard reply.
+
+A Pro reply costs about four times what a Flash reply does and takes longer than a standard one. [Usage](#usage--rate-limits) shows replies per tier, and what routing saved or added against replying with `gemini-3.8-flash` throughout.
+
+On a free key routing saves no money. It sends easy messages to Flash-Lite so the Flash models' daily allowance, which can be as little as 20 requests a model, lasts for the questions that need it. When the day is on pace to run Flash out, more borderline messages go light.
+
+The [test chat](#persona) shows the tier and model under each reply.
 
 #### When a model is unavailable
 
@@ -1415,14 +1449,13 @@ With billing on:
 - Web search runs on the reply chain, with 5,000 searches a month included (see [Behavior](#behavior)).
 - [Usage](#usage--rate-limits) shows what the bot has spent instead of what's left, and you can set a monthly budget on [API keys](#api-keys).
 - Google stops using what Olisar sends to improve its products (see [Privacy & data](#privacy--data)).
-
-The chain itself doesn't change, so billing doesn't give you a Pro model.
+- Model routing is on by default, and sends hard questions to Gemini 3.1 Pro (see Model routing above).
 
 #### Models for other work
 
 | Work | Models |
 | --- | --- |
-| Replies and `/ask` | The reply chain, from the server's **Primary model** down |
+| Replies and `/ask` | The reply chain, from the server's **Primary model** down, or the tier model routing picks when it's **Automatic** |
 | Summaries, member impressions, the glossary, `/catchup`, deciding whether to join in or react, and checking whether a mention of Olisar's name is addressed to it | `gemini-3.5-flash-lite`, then `gemini-flash-lite-latest`, then `gemini-3.1-flash-lite`, then `gemini-2.5-flash-lite` |
 | Web search | With Google Search, whatever the server's **Primary model**. On a free key, `gemini-2.5-flash`, then `gemini-2.5-flash-lite`. With billing on, the reply chain from `gemini-3.8-flash` down |
 | Describing posted images for search | `gemini-3.5-flash-lite`, then `gemini-3.1-flash-lite`, then `gemini-2.5-flash-lite`, then `gemini-flash-lite-latest` |
@@ -1630,7 +1663,8 @@ A placeholder is a word in braces that Olisar fills in when it sends the reply. 
 | Reply | When Olisar sends it | Placeholders |
 | --- | --- | --- |
 | **/forget-me (opt-out line)** | After the `/forget-me` confirmation, when the member also chose `stop_remembering: true`. | None |
-| **When rate-limited** | Every model is out of requests, the month's budget is spent and set to stop (see [API keys](#api-keys)), or a member is sending messages faster than their reply allowance (see [Behavior](#behavior)). When the allowance runs out on `/ask` or `/catchup`, only the person who ran it sees the reply. | None |
+| **When rate-limited** | Every model is out of requests, or a member is sending messages faster than their reply allowance (see [Behavior](#behavior)). When the allowance runs out on `/ask` or `/catchup`, only the person who ran it sees the reply. | None |
+| **When the budget is spent** | A key with billing on has spent the month's budget, and **At the budget** is set to stop (see [API keys](#api-keys)). It lasts until the 1st, Pacific time. | None |
 | **When it draws a blank** | A reply came back empty or failed, which includes having no Gemini key. With remote access on, Olisar adds a **Report this** button that sends you the failure (see [Console settings](#console-settings)). | None |
 | **When access is denied** | Someone the [Access control](#access-control) rules shut out runs `/ask` or `/catchup`. Only they see it. In chat, they get no reply at all. | None |
 | **When a tool needs the PIN** | Olisar asks for the tool PIN before changing its own settings. The prompt never pings anyone, and it can't be reworded by asking Olisar in chat. If your text leaves out `{details}`, Olisar adds it on its own line, because whoever types the PIN needs to see what they're approving. | `{tool}`, `{details}`, `{seconds}` |
@@ -1666,11 +1700,17 @@ When the saved key has billing on, two settings appear under it:
 | Setting | What it does | Default |
 | --- | --- | --- |
 | **Monthly budget** | The most Olisar spends on Gemini in a calendar month, in US dollars. 0 is no budget. | 0 |
-| **At the budget** | **Keep replying on the cheapest model** answers with the cheapest models only (Gemini 2.5 Flash-Lite, then 3.1 and 3.5 Flash-Lite), with no web search and no Gemini images. **Stop until next month** stops replying: members get the **When rate-limited** reply, and background work waits for the new month. | Keep replying on the cheapest model |
+| **At the budget** | **Keep replying on the cheapest model** answers with the cheapest models only (Gemini 2.5 Flash-Lite, then 3.1 and 3.5 Flash-Lite), with no web search and no Gemini images. **Stop until next month** stops replying: members get the **When the budget is spent** reply, and background work waits for the new month. | Keep replying on the cheapest model |
 
-From 80% of the budget, the pace line on [Usage](#usage--rate-limits) warns and the sidebar shows how much is spent, such as **Budget at 85%**. Usage also warns when the month is on pace to go over. Once the budget is spent, the sidebar shows **Budget spent**. The month starts over on the 1st, Pacific time.
+From 80% of the budget, the pace line on [Usage](#usage--rate-limits) warns, the sidebar shows how much is spent, such as **Budget at 85%**, and model routing stops sending replies to Pro. Usage also warns when the month is on pace to go over. Once the budget is spent, the sidebar shows **Budget spent**. The month starts over on the 1st, Pacific time.
 
 The budget holds Olisar to its own estimate of what it spent (see [Usage & rate limits](#usage--rate-limits)). It doesn't limit anything else that uses the same Google Cloud project, and Google's bill is what you actually pay.
+
+#### Model routing
+
+**Model routing**, under the Gemini key, turns on picking a model for each message on servers set to **Automatic** (see [Models](#models)). It's on by default with billing on and off by default on a free key, and the switch shown is the one for the key's tier.
+
+With billing on and routing on, **Use Gemini Pro for hard questions** sends deep replies to Gemini 3.1 Pro first, within the limits on [Models](#models). It's on by default.
 
 #### Turn on image generation
 
@@ -1698,7 +1738,7 @@ Each field shows where its key comes from:
 
 Olisar checks each key with its service: the key you've typed, or the saved one when the field is empty. Under the field it shows **Works**, or what's wrong, such as "Google didn't accept that key." or "That token can't use this account." For a Gemini key that works, it adds whether the key is on the free tier or has billing on (see [Models](#models)). If the service can't be reached, it shows nothing rather than guess.
 
-**Save changes** stores the key fields you've typed in and any change to the budget or Gemini images, and leaves the other keys as they are. Olisar starts using a new key within a few seconds, with no restart.
+**Save changes** stores the key fields you've typed in and any change to the budget, Gemini images, model routing or Pro, and leaves the other keys as they are. Olisar starts using a new key within a few seconds, with no restart.
 
 To remove a saved key, press the trash icon beside it and confirm with **Remove key**. Olisar then uses the environment variable for that key if there is one; otherwise the feature it powers stops working.
 
@@ -3332,11 +3372,11 @@ The top panel says whether Olisar can keep replying until the reset.
 | **Replying with** | The first model in the chain that can take a request right now, or **No model left** |
 | Pace line | Whether today's rate of use lasts until the reset, or roughly when it runs out |
 | **Memory search** | What's left of the daily limit for looking things up by meaning, which has a model of its own |
-| **Web search** | What's left of Google's daily allowance for web searches. A server can stop sooner, at its **Web searches per day** setting |
+| **Web search** | What's left of Google's daily allowance for web searches. A server can stop sooner, at its **Web searches per day** setting. A free key searches on the Gemini 2.5 models only, so on a key from a newer project, which Google doesn't serve those to, there's no free web search and this reads **not on this key** |
 
 When memory search runs out, Olisar keeps replying but can't recall older messages, summaries, remembered facts or knowledge-base passages until the reset, and message search matches words only.
 
-A model Google has turned away for the day counts as zero, even if Olisar counted fewer requests than its limit. Google doesn't publish free-tier daily limits, so each limit starts as an estimate and switches to Google's own number the first time Google turns that model away.
+A model Google has turned away for the day counts as zero, even if Olisar counted fewer requests than its limit. Google doesn't publish free-tier daily limits, so each limit starts as an estimate and switches to Google's own number the first time Google turns that model away. A model Google doesn't serve to the key's project, such as the Gemini 2.5 models on a newer project, shows **Not on this key** and counts for nothing.
 
 #### With billing on
 
@@ -3356,10 +3396,15 @@ One row per model, in the order Olisar tries them, with what's left of each mode
 | **Standby** | Further down the chain, waiting its turn |
 | **Back in** 0:48 | Resting after a per-minute limit or a brief error from Google. It comes back on its own |
 | **Used up** | Out for the day, with the time it ran out. Olisar skips it until the reset |
+| **Not on this key** | Google doesn't serve the model to the key's project, as with the Gemini 2.5 models on a newer project. Olisar skips it and asks again the next day |
 
 A hatched stretch on a used-up model's meter is quota Google says is gone that this bot never used. The limits belong to the key's Google Cloud project, so another app or bot using a key from the same project draws on them too.
 
 With billing on, the last column is **Today**: what each model has cost today, and how many requests it took.
+
+#### Model routing
+
+Once model routing has handled a reply this month, a table shows how many replies each tier took today and this month, and what they cost (on a free key, what they would have cost). **Handed up** counts light replies the standard tier finished, and **kept off Pro** counts deep replies a Pro limit sent to Flash instead. Under the table, a key with billing on sees roughly how much less or more the month cost than replying with `gemini-3.8-flash` throughout, and a free key sees how many replies went to Flash-Lite instead. See [Models](#models).
 
 #### By feature
 

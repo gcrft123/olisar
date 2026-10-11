@@ -1,0 +1,34 @@
+{
+  "id": "billing-gemini-image",
+  "title": "A billed key makes an image with Gemini",
+  "lane": "live",
+  "tags": [
+    "billing"
+  ],
+  "channel": {
+    "name": "general",
+    "mode": "both"
+  },
+  "cast": [
+    "dtrain"
+  ],
+  "beats": [
+    {
+      "speaker": "dtrain",
+      "text": "olisar can you make an image of a red panda in a little astronaut suit",
+      "expect_reply": true,
+      "timeout": 120
+    }
+  ],
+  "checks": {
+    "must_reply": true,
+    "must_not_contain": [
+      "can't make images",
+      "cannot make images"
+    ]
+  },
+  "rubric": [
+    "helpfulness"
+  ],
+  "notes": "Billing only: on a key with billing on and Make images with Gemini on, generate_image should use gemini-3.1-flash-lite-image (about $0.034) and post the image. On a free key it needs Cloudflare. Check the instance log for the image model and the attachment on Olisar's message."
+}

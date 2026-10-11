@@ -355,16 +355,36 @@ class LiveRunner:
         and the transcript recorded "FAIL must_reply" — a harness fault wearing the costume
         of a finding, which is the worst thing this harness can produce.
 
-        The mode always works: it writes ``ChannelAllowlist``, keyed by raw channel id.
-        Indexing does not, immediately — it needs a ``GuildChannelInfo`` row, and that
-        roster is synced by the bot on a 90-second loop (bot/cogs/context_channels.py), so
-        a channel the steward created seconds ago is genuinely unknown to it. Hence the
-        wait rather than a retry-once.
+        Neither lands at once on a channel the steward has just created. Both need the
+        channel in the bot's roster (``GuildChannelInfo``), which the bot syncs on a
+        90-second loop (bot/cogs/context_channels.py): ``PUT /api/channels`` refuses a
+        channel it doesn't know as another server's, so a mode set on a brand-new channel
+        comes back 404 until the sync. Hence the wait rather than a retry-once.
         """
-        async with Dashboard(self._cfg) as dash:
-            await dash.set_channels({"channel_id": channel_id, "mode": mode})
+        await self._put_channel(channel_id, {"mode": mode}, f"mode={mode}")
         if indexed is not None:
             await self._set_channel_indexed(channel_id, indexed)
+
+    async def _put_channel(self, channel_id: int, fields: dict, what: str) -> None:
+        """``PUT /api/channels`` for this channel, waiting out the bot's roster sync on a
+        404. Fatal if it never lands."""
+        deadline = time.monotonic() + _ROSTER_SYNC_TIMEOUT
+        attempt = 0
+        while True:
+            try:
+                async with Dashboard(self._cfg) as dash:
+                    await dash.set_channels({"channel_id": channel_id, **fields})
+                return
+            except DashboardError as exc:
+                if exc.status != 404 or time.monotonic() > deadline:
+                    raise RunAborted(f"couldn't set {what} on the channel: {exc}") from exc
+                attempt += 1
+                if attempt == 1:
+                    log.info(
+                        "channel not in the bot's roster yet — waiting up to %.0fs for its "
+                        "sync before setting %s", _ROSTER_SYNC_TIMEOUT, what,
+                    )
+                await asyncio.sleep(5.0)
 
     async def _set_channel_indexed(self, channel_id: int, indexed: bool) -> None:
         """Set the channel's search-index flag, waiting for the bot's roster sync.
@@ -375,25 +395,7 @@ class LiveRunner:
         depends on this to close the other door. Proceeding without it would quietly test
         something else.
         """
-        deadline = time.monotonic() + _ROSTER_SYNC_TIMEOUT
-        attempt = 0
-        while True:
-            try:
-                async with Dashboard(self._cfg) as dash:
-                    await dash.set_channels({"channel_id": channel_id, "indexed": indexed})
-                return
-            except DashboardError as exc:
-                if exc.status != 404 or time.monotonic() > deadline:
-                    raise RunAborted(
-                        f"couldn't set indexed={indexed} on the channel: {exc}"
-                    ) from exc
-                attempt += 1
-                if attempt == 1:
-                    log.info(
-                        "channel not in the bot's roster yet — waiting up to %.0fs for its "
-                        "sync before setting indexed=%s", _ROSTER_SYNC_TIMEOUT, indexed,
-                    )
-                await asyncio.sleep(5.0)
+        await self._put_channel(channel_id, {"indexed": indexed}, f"indexed={indexed}")
 
     # ── the beat loop ─────────────────────────────────────────────────────
 

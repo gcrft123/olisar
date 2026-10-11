@@ -5,12 +5,17 @@ Two things worth knowing:
   reduced dims the model does NOT return unit vectors, so we L2-normalize here —
   important because sqlite-vec ranks by L2 distance, which only matches cosine
   similarity for normalized vectors.
-* A single request embeds a whole batch, so batching is one rate-limited call.
+* A single request embeds a whole batch, but Google counts every text in it against the
+  per-minute and daily limits (100 a minute and 1,000 a day on a free key, as Google named
+  them in refusals on 2026-10-10). So a batch takes one rate-limiter slot per text and is
+  recorded as that many requests; it used to count as one, which let indexing run past the
+  per-minute limit and showed memory search a fiftieth of its real use.
 """
 
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -48,7 +53,7 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
     out: list[list[float]] = []
     for start in range(0, len(texts), BATCH_SIZE):
         batch = texts[start : start + BATCH_SIZE]
-        await get_rate_limiter().acquire(model)
+        await get_rate_limiter().acquire(model, n=len(batch))
         try:
             resp = await client.aio.models.embed_content(
                 model=model,
@@ -75,7 +80,8 @@ async def _embed(texts: list[str], task_type: str) -> list[list[float]]:
         # Embeddings don't report token counts. About four characters a token is close
         # enough to price them, and they're the cheapest thing Olisar sends.
         await record_usage(
-            model, 0, source="embed", input_tokens=sum(len(t) for t in batch) // 4
+            model, 0, source="embed", input_tokens=sum(len(t) for t in batch) // 4,
+            requests=len(batch),
         )
         out.extend(_normalize(e.values) for e in resp.embeddings)
     return out
@@ -86,7 +92,25 @@ async def embed_documents(texts: list[str]) -> list[list[float]]:
     return await _embed(texts, "RETRIEVAL_DOCUMENT")
 
 
+# The last few query vectors, by text. Recall embeds every incoming message, and model
+# routing (olisar.routing) reads the same vector afterwards rather than paying a second
+# request for it.
+_QUERY_CACHE: OrderedDict[str, list[float]] = OrderedDict()
+_QUERY_CACHE_SIZE = 64
+
+
 async def embed_query(text: str) -> list[float]:
     """Embed a single query string; returns one normalized vector."""
     result = await _embed([text], "RETRIEVAL_QUERY")
-    return result[0] if result else []
+    vector = result[0] if result else []
+    if vector:
+        _QUERY_CACHE[text] = vector
+        _QUERY_CACHE.move_to_end(text)
+        while len(_QUERY_CACHE) > _QUERY_CACHE_SIZE:
+            _QUERY_CACHE.popitem(last=False)
+    return vector
+
+
+def cached_query_vector(text: str) -> list[float] | None:
+    """The vector ``embed_query`` made for ``text`` recently, or None. Never asks Google."""
+    return _QUERY_CACHE.get(text)

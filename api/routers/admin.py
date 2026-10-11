@@ -53,8 +53,11 @@ from olisar.db.models import (
 )
 from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
-from olisar.gemini.models import RANKED
+from olisar.routing import enabled as routing_enabled
+from olisar.routing import state as routing_state
+from olisar.gemini.models import AUTO, RANKED, RANKED_NAMES, is_alias
 from olisar.gemini.quota import quota_day
+from olisar.gemini.rate_limiter import current_key
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
 
@@ -167,8 +170,9 @@ async def invite(admin: AdminUser = Depends(require_admin)):
 
 @router.get("/models")
 async def models(admin: AdminUser = Depends(require_admin)):
-    """The ranked Gemini model fallback chain (best -> worst)."""
-    return [{"name": m.name, "label": m.label} for m in RANKED]
+    """The ranked Gemini model fallback chain (best -> worst), without the -latest aliases:
+    each is another name for a model already in the list."""
+    return [{"name": m.name, "label": m.label} for m in RANKED if not is_alias(m.name)]
 
 
 def _bot_avatar_url(request: Request) -> str:
@@ -261,9 +265,14 @@ async def sandbox_chat(body: SandboxChatIn, gctx: GuildContext = Depends(require
         raise HTTPException(status_code=400, detail="no messages")
     # Bound the transcript so an admin can't push an unbounded context at the model.
     msgs = msgs[-40:]
+    route: dict = {}
     async with session_scope() as session:
-        reply = await generate_sandbox_reply(session, guild_id=gctx.guild_id, messages=msgs)
-    return {"reply": reply}
+        reply = await generate_sandbox_reply(
+            session, guild_id=gctx.guild_id, messages=msgs, route_report=route
+        )
+    # Where model routing sent the reply (tier, model, why, cost), or null when the server
+    # isn't routed. The test chat shows it under the reply.
+    return {"reply": reply, "route": route or None}
 
 
 @router.get("/config")
@@ -281,6 +290,10 @@ async def get_config(gctx: GuildContext = Depends(require_guild_admin)):
             "grounding_monthly_cap": c.grounding_monthly_cap,
             # Not a setting: which of the two caps above applies, by the key's tier.
             "gemini_tier": await _tier_or_none(),
+            # Not settings either: whether Automatic routes on this install right now, and
+            # the model it starts on when it doesn't.
+            "routing": await routing_enabled(AUTO),
+            "routing_head": settings.gemini_chat_model,
             "summary_token_threshold": c.summary_token_threshold,
             "glossary_mine_token_threshold": c.glossary_mine_token_threshold,
             "user_persona_msg_threshold": c.user_persona_msg_threshold,
@@ -312,6 +325,12 @@ def _same(old, new) -> bool:
 @router.put("/config")
 async def put_config(body: ConfigIn, gctx: GuildContext = Depends(require_guild_admin)):
     data = body.model_dump(exclude_unset=True)
+    # Automatic or a model in the chain, as the console and the chat settings tools offer.
+    # Anything else (Pro, say) would put every reply past model routing's Pro switch, caps
+    # and budget cutoff, and a server admin isn't the one paying.
+    model = data.get("default_model")
+    if model is not None and model not in (AUTO, *RANKED_NAMES):
+        raise HTTPException(status_code=400, detail=f"unknown model {model!r}")
     pin_actions = data.pop("pin_actions", None)
     if pin_actions is not None:
         unknown = sorted(set(pin_actions) - set(toolpin.ACTIONS))
@@ -434,7 +453,19 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_operator)
                 after={k: "***" for k in updates},  # never log the secret values
             )
         runtime_keys.invalidate()
+        if "gemini_api_key" in updates:
+            await _recheck_gemini()
     return {"ok": True}
+
+
+async def _recheck_gemini() -> None:
+    """After the Gemini key changes: make the new one the limiter's and ask Google which
+    tier it's on, so the pages and the per-minute cap go on its answer, not the old key's."""
+    try:
+        await current_key()
+        await gemini_tier.current(fresh=True)
+    except Exception:  # noqa: BLE001 — the key is saved either way
+        log.exception("couldn't learn the new Gemini key's tier")
 
 
 @router.post("/keys/check/gemini")
@@ -450,7 +481,8 @@ async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(requi
         ok = await key_checks.gemini(key)
     except key_checks.Unreachable:
         return {"set": True, "ok": None, "tier": None}
-    return {"set": True, "ok": ok, "tier": await gemini_tier.check(key) if ok else None}
+    # Asked afresh: whoever typed or opened the key may have just turned billing on or off.
+    return {"set": True, "ok": ok, "tier": await gemini_tier.check(key, fresh=True) if ok else None}
 
 
 async def _tier_or_none() -> str | None:
@@ -465,12 +497,16 @@ async def _billing() -> dict:
     budget = await spend.budget()
     tier = await _tier_or_none()
     at = gemini_tier.checked_at()
+    switches = await routing_state.switches()
     return {
         "tier": tier,
         "checked_at": at.isoformat() if at else None,
         "monthly_budget_usd": budget.usd,
         "budget_action": budget.action,
         "gemini_images": budget.gemini_images,
+        "routing_free": switches.free,
+        "routing_paid": switches.paid,
+        "routing_pro": switches.pro,
     }
 
 
@@ -498,6 +534,7 @@ async def put_billing(body: BillingIn, admin: AdminUser = Depends(require_operat
                 target_type="app_config", target_id=1, before=before, after=data,
             )
         spend.invalidate()
+        routing_state.invalidate()
     return await _billing()
 
 
@@ -533,6 +570,8 @@ async def clear_key(field: str, admin: AdminUser = Depends(require_operator)):
                 target_type="app_secret", target_id=1, after={field: ""},
             )
     runtime_keys.invalidate()
+    if field == "gemini_api_key":
+        await _recheck_gemini()
     return {"ok": True}
 
 

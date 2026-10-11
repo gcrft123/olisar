@@ -8,7 +8,15 @@ Google deprecated Gemini 3.5 Flash, the head of the reply chain, and Gemini 3.1 
 
 The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
 
+Every reply went to the same model, so a "thanks" and a stack trace got the same treatment, and a key with billing on had no way to reach Gemini Pro. Model routing now picks a tier for each reply on servers set to Automatic: Flash-Lite for acknowledgements and banter, the usual chain for ordinary questions, and Gemini 3.1 Pro for code, math and long requests, held to a small share of replies. It's on by default with billing on and off on a free key, where it saves the Flash allowance for the questions that need it. Pro stays the deep model because, tested on a billed key, Gemini 3.8 Flash thinking as hard kept running web searches first and took up to two minutes on a debugging question, where Pro answered in 8 to 14 seconds.
+
+That testing also showed how little a free key really gets. Google grants 20 requests a day on each Flash model and 500 on Flash-Lite, not the 250 and 1,000 Olisar assumed, counts each -latest alias against the model it points to, and doesn't serve the Gemini 2.5 models to newer projects at all, so the Usage page was promising several times the requests that exist. It now counts the day the way Google does, and counts each embedded text as a request, as Google does. A budget set to stop used to tell members to try again in a minute; it has its own reply now. And re-embedding a memory whose text had changed failed every time, paying for the same embeddings every 20 seconds.
+
+Measuring the router against the tier each message actually needs turned up Google's real limits on Gemini Pro for a Tier 1 key: 25 requests a minute, not the 50 Olisar allowed, and 250 a day. Past either, Pro was parked and deep replies fell through to Flash thinking hard, the slow path the deep tier exists to avoid. They're sent as ordinary replies now. The measurements are in `design/model-routing/EVALUATION.md`.
+
 A server's history had nowhere to be seen whole. The memory replay is a fullscreen walk through it, played in Olisar's form: when the server started, its first messages and members, everyone who arrived, its busiest day, the one thing that most belongs to it, Olisar's own arrival, and a closing question whose answer is kept for next year. An admin or co-admin starts one from the Knowledge page. It's built on the bot, not in the console, because a big server takes minutes and the console may close. It reads only what the search index holds, never every message through a model: code counts and picks what's worth reading, and about fifty requests do the rest. Nobody reviews a replay before it plays, so the last check of every quote is strict and drops anything it doesn't clearly pass.
+
+The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply. And no pick was chosen, because the judge was shown screenshot filenames and Star Citizen's own vocabulary, and turned all of it down.
 
 ### New
 
@@ -66,6 +74,40 @@ A server's history had nowhere to be seen whole. The memory replay is a fullscre
 
 [ca0b56e] — The setup wizard says, for a free key, that Google may use what members send to improve its products, and that billing stops that.
 
+[373e4cd] — Model routing picks a tier for each reply on servers set to Automatic: Flash-Lite for acknowledgements and banter, the usual chain for ordinary questions, and Gemini 3.1 Pro for code, math and long or many-part requests.
+
+[373e4cd] — Routing is on by default with billing on and off on a free key, with a setting kept for each tier, so turning billing on or off brings back the choice made for it.
+
+[373e4cd] — Pro is held to 5% of the last day's replies (at least 3 a day), 10 replies a member a day, and none past 80% of the monthly budget. A deep reply without Pro is sent as an ordinary one.
+
+[373e4cd] — A light reply that reaches for a tool, types a tool call out or comes back empty is answered on the standard tier instead, and nothing the light model asked for runs.
+
+[373e4cd] — Servers still on the seeded default model move to Automatic once; a server set to another model keeps it.
+
+[f337dfb] — **Model routing** and **Use Gemini Pro for hard questions** under API keys, and an **Automatic** option for **Primary model** on Behavior.
+
+[f337dfb] — The Usage page shows replies per routing tier and roughly what routing saved or added against replying with Gemini 3.8 Flash throughout.
+
+[f337dfb] — The test chat shows each reply's tier and the model that wrote it.
+
+[59703e8] — A **When the budget is spent** command reply, for when the monthly budget stops Olisar.
+
+[bfd920e] — `design/model-routing/README.md` records the routing design, what changed while building it, and the tests on a billed key.
+
+[c901860] — Arena tools for routing and billing: a routing probe through the test chat, a Pro-against-Flash comparison, a helper for running the arena on a billed key, routing A/B variants and a Gemini image scenario.
+
+[a754c34] — A 249-message routing evaluation set with a synthetic server handbook, and the criteria it was held to, written before any answer existed.
+
+[75a249d] — `arena/experiments/route_eval.py` answers each message on every routing tier, has Gemini Pro judge the answers, and scores the router against the cheapest tier that was as good.
+
+[75a249d] — `arena/experiments/routing_checks.py` measures Pro's per-minute limit, web search at two thinking levels, and Pro's caps under concurrent requests.
+
+[75a249d] — Four live arena scenarios check routing on the live path: a deep follow-up, a yes to an offer, a run of banter, and an unrelated question after a deep answer.
+
+[bbaed60] — `design/model-routing/EVALUATION.md` records the routing evaluation: what each message needed, Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and the live lane.
+
+[bbaed60] — `arena/experiments/routing_eval/labels.jsonl` holds every answer the evaluation judged, with its cost, time, models and verdicts.
+
 [2a9e5a3] — `host.generate({ split: true })` resolves to the messages Olisar would send the text as, one to three, instead of one string.
 
 [2a9e5a3] — `host.discord.send` takes an array of strings and posts each as its own message, with a typing indicator before each from an event handler, and counts the array as one post toward the rate limit.
@@ -98,7 +140,47 @@ A server's history had nowhere to be seen whole. The memory replay is a fullscre
 
 [96e6c2b] — The docs describe slash-command wording, the Activity log, indexing in servers waiting for approval and editing an installed extension as they work after this release's fixes.
 
+[68c2cec] — The Gemini client can ask each model for a thinking level, and records which models answered a reply and what it cost.
+
+[45c29a2] — Each text in an embedding batch counts as one request against the per-minute and daily limits, as Google counts it.
+
+[d440f9d] — A -latest model counts against the daily limit of the model it points to. Once that model is used up the chain skips both, and Usage counts the limit once.
+
+[ff5ec58] — The console doesn't show the -latest aliases: their requests count in the model they point to, and the Primary model picker doesn't offer them.
+
+[45e767a] — Daily limits are the ones Google grants a free key: 20 on each Flash model and 500 on Flash-Lite.
+
+[45e767a] — A model Google doesn't serve to the key's project is left out of the chain and the day's allowance, and Usage shows it as **Not on this key**, as it does free web search when neither Gemini 2.5 model is served.
+
+[373e4cd] — A server's **Primary model** can only be Automatic or a model in the chain, so it can't send every reply to Pro.
+
+[f6bfebc] — The docs and product brief cover model routing, shared -latest limits, the budget reply and how embeddings are counted.
+
+[eae3086] — With billing on, Olisar sends Gemini 3.1 Pro at most 20 requests a minute, under the 25 Google allows a Tier 1 key.
+
 ### Fixed
+
+[bc8bc14] — The messages a replay quotes keep their GIFs, uploads and stickers, instead of showing links and markers like `[sticker: Wave]`.
+
+[7105746] — The replay shows those GIFs, images and stickers under each message.
+
+[7105746] — The replay says "1 person", not "1 people", wherever it counts people.
+
+[bc8bc14] — Opening the busiest day's memory shows that day's messages that pass the last check, topped up from others that day, instead of only how many there were.
+
+[bc8bc14] — The last check passes a message that's only a GIF, image or sticker, unless what it shows isn't fine.
+
+[bc8bc14] — Olisar's first reply shows with the message it answered when the reply wasn't sent as a Discord reply.
+
+[ce47625] — Olisar's pick counts only what members wrote, so a screenshot's filename or a link can't make "star" or "png" a candidate.
+
+[ce47625] — Olisar's pick leaves out the public vocabulary of the game or topic a server is about, which every server about it shares.
+
+[ce47625] — A thread named for an event that comes round again can be Olisar's pick, where before its name ruled it out like a channel's.
+
+[b296278] — An event with its own threads, or a weekly ritual, can be Olisar's pick when its host posts up to 60% of what's said about it. The cap was 35%, as for a word, and most events have a host who posts more than that.
+
+[091c1a2] — The API keys page asks Google about billing each time the Gemini key is typed, saved or removed, instead of showing an answer up to a day old. Turning billing off used to go on showing "Works · billing on".
 
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
 
@@ -129,6 +211,20 @@ A server's history had nowhere to be seen whole. The memory replay is a fullscre
 [615f883] — Links in DOCUMENTATION.md to a section whose title has "&" in it go to that section.
 
 [615f883] — A Setup page on the docs site can be retitled without breaking the build, and its headings are the same size as every other page's.
+
+[32b8b80] — Re-embedding a memory whose text changed works. It failed every time, and the background pass paid for the same embeddings every 20 seconds.
+
+[d5b2ac9] — The daily self-test calls a model Google doesn't serve to newer projects untested rather than failed, ending a false alarm in the log every day.
+
+[40a8964] — Arena live-lane runs set up their channel again, waiting for the bot to see a new channel before setting its mode.
+
+[59703e8] — A spent budget set to stop sends its own reply instead of the rate-limit one, which told members to try again in a minute.
+
+[c4b2bc6] — While Google has Pro parked for the day or the minute, a deep reply is sent as an ordinary one instead of coming from Gemini 3.8 Flash thinking hard.
+
+[1065faa] — The arena's A/B report reads each dimension against the noise of the runs that scored it, so a delta from 6 runs no longer reads as sure as one from 36.
+
+[3e08eef] — A quota test no longer fails for the two hours after Google's daily reset.
 
 [2a9e5a3] — A welcome message Olisar writes in two or three beats arrives as that many messages, not one message with line breaks in it.
 
