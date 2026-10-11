@@ -18,6 +18,8 @@ A server's history had nowhere to be seen whole. The memory replay is a fullscre
 
 The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply. And no pick was chosen, because the judge was shown screenshot filenames and Star Citizen's own vocabulary, and turned all of it down.
 
+Animated avatars played nonstop in the memories around the form, so a ring with a few of them in it never sat still.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -157,6 +159,8 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 [f6bfebc] — The docs and product brief cover model routing, shared -latest limits, the budget reply and how embeddings are counted.
 
 [eae3086] — With billing on, Olisar sends Gemini 3.1 Pro at most 20 requests a minute, under the 25 Google allows a Tier 1 key.
+
+[b028fad] — An animated avatar in a memory, on the final server screen or in a replay, shows its first frame and plays only while the memory is hovered.
 
 ### Fixed
 
