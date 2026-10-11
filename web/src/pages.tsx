@@ -1576,7 +1576,7 @@ export function Knowledge({ serverName, operator }: { serverName?: string; opera
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
       <SearchIndexCard />
-      <ReplaySection serverName={serverName} />
+      <ReplaySection />
       <Section title="Knowledge base" hint={`A webpage or a crawled site ${botName()} can reference. Upload documents via /olisar learn-doc in Discord.`}>
         {/* A compose form, not a list of settings: type and URL are one entry, so they keep
             their labels above and sit side by side. */}

@@ -197,7 +197,7 @@ function ReplayOverlay({ fresh, onClose }: { fresh: boolean; onClose: () => void
   const retry = async () => {
     setBusy(true)
     try { const r: { run: Run } = await api.retryReplay(); setRun(r.run) }
-    catch (e: any) { toast(e?.message || 'Couldn’t carry on', 'danger') }
+    catch (e: any) { toast(e?.message || 'Couldn’t resume the replay', 'danger') }
     finally { setBusy(false) }
   }
   const close = () => (stage === 'replay' ? setStage('play') : onClose())
@@ -296,7 +296,7 @@ function StartSheet({ on, state, run, busy, start, watch }: {
   )
 }
 
-const READS = 'It reads the channels indexed on the Channels tab, and leaves out anyone who opted out of search.'
+const READS = 'Channels that aren’t indexed on the Channels tab, and anyone who opted out of search, are left out.'
 
 function sheetCopy(p: Preflight, others: Run | null): { meta: React.ReactNode; go: string; off: boolean; notes: string[] } {
   const reads = <><span className="num">{fmt(p.messages)}</span> messages in <span className="num">{fmt(p.channels)}</span> indexed {p.channels === 1 ? 'channel' : 'channels'}</>
@@ -421,12 +421,11 @@ function PlaySheet({ on, report, summary, play }: {
 // ── On the Knowledge page ──
 // Where the replay opens from: it reads the search index, which is the section above it.
 // A run going on (anyone's) shows here too, since it goes on with the console closed.
-export function ReplaySection({ serverName }: { serverName?: string }) {
+export function ReplaySection() {
   const [data, setData] = useState<{ run: Run | null; latest: Latest | null } | null>(null)
   const working = !!data?.run && !HALTED.has(data.run.status)
   const poll = usePoll(() => api.replayStatus().then(setData), working ? 5000 : 60000)
   const run = data?.run, latest = data?.latest
-  const name = serverName || 'this server'
   let status: React.ReactNode
   if (!data) status = poll.stale ? <span className="rx-dim">Can’t reach the bot.</span> : <span className="rx-dim">Checking…</span>
   else if (run) {
@@ -438,7 +437,7 @@ export function ReplaySection({ serverName }: { serverName?: string }) {
       <span className="rx-dim"> · {plural(latest.chapters, 'chapter')}</span></>
   } else status = <span className="rx-dim">Not made yet</span>
   return (
-    <Section title="Replay" hint={`A walk through ${name}’s history, told by ${botName()}.`}>
+    <Section title="Replay" hint={`A walk through this server’s history, told by ${botName()}.`}>
       <div className="reindex-top">
         <div className="reindex-stat">{status}</div>
         <div className="reindex-actions">
