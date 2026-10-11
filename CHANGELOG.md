@@ -10,7 +10,7 @@ The docs had drifted from the code they describe. They called the search index a
 
 A server's history had nowhere to be seen whole. The memory replay is a fullscreen walk through it, played in Olisar's form: when the server started, its first messages and members, everyone who arrived, its busiest day, the one thing that most belongs to it, Olisar's own arrival, and a closing question whose answer is kept for next year. An admin or co-admin starts one from the Knowledge page. It's built on the bot, not in the console, because a big server takes minutes and the console may close. It reads only what the search index holds, never every message through a model: code counts and picks what's worth reading, and about fifty requests do the rest. Nobody reviews a replay before it plays, so the last check of every quote is strict and drops anything it doesn't clearly pass.
 
-The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply.
+The first replay of a real server showed what a seeded one hadn't. Much of a server's history is GIFs, uploads and stickers, and the replay showed them as links and markers. A busy day whose picked messages all failed that strict last check opened onto a count and nothing else. And Olisar's first reply showed without the question it answered, because it hadn't been sent as a Discord reply. And no pick was chosen, because the judge was shown screenshot filenames and Star Citizen's own vocabulary, and turned all of it down.
 
 ### New
 
@@ -109,6 +109,12 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 [bc8bc14] — The last check passes a message that's only a GIF, image or sticker, unless what it shows isn't fine.
 
 [bc8bc14] — Olisar's first reply shows with the message it answered when the reply wasn't sent as a Discord reply.
+
+[ce47625] — Olisar's pick counts only what members wrote, so a screenshot's filename or a link can't make "star" or "png" a candidate.
+
+[ce47625] — Olisar's pick leaves out the public vocabulary of the game or topic a server is about, which every server about it shares.
+
+[ce47625] — A thread named for an event that comes round again can be Olisar's pick, where before its name ruled it out like a channel's.
 
 [ffcf79d] — Web search on a free key runs on Gemini 2.5 Flash and Flash-Lite, the only models Google lets a free key search with. Each search used to be refused by the Gemini 3 models first, which benched them for two minutes and left the next reply to a weaker model.
 
