@@ -3672,9 +3672,7 @@ export function ApiKeys() {
         {b && (
           <Field
             label="Model routing"
-            desc={paid
-              ? 'Automatically routes to the best model for each request.'
-              : 'Easy messages go to Flash-Lite, saving Flash for the rest of the day.'}
+            desc="Automatically routes to the best model for each request."
           >
             <Toggle value={!!bval(routingKey)} onChange={(v) => setB(routingKey, v)} />
           </Field>
