@@ -55,6 +55,7 @@ from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.gemini.models import RANKED
 from olisar.gemini.quota import quota_day
+from olisar.gemini.rate_limiter import current_key
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
 
@@ -434,7 +435,19 @@ async def put_keys(body: ApiKeysIn, admin: AdminUser = Depends(require_operator)
                 after={k: "***" for k in updates},  # never log the secret values
             )
         runtime_keys.invalidate()
+        if "gemini_api_key" in updates:
+            await _recheck_gemini()
     return {"ok": True}
+
+
+async def _recheck_gemini() -> None:
+    """After the Gemini key changes: make the new one the limiter's and ask Google which
+    tier it's on, so the pages and the per-minute cap go on its answer, not the old key's."""
+    try:
+        await current_key()
+        await gemini_tier.current(fresh=True)
+    except Exception:  # noqa: BLE001 — the key is saved either way
+        log.exception("couldn't learn the new Gemini key's tier")
 
 
 @router.post("/keys/check/gemini")
@@ -450,7 +463,8 @@ async def check_gemini_key(body: GeminiCheckIn, admin: AdminUser = Depends(requi
         ok = await key_checks.gemini(key)
     except key_checks.Unreachable:
         return {"set": True, "ok": None, "tier": None}
-    return {"set": True, "ok": ok, "tier": await gemini_tier.check(key) if ok else None}
+    # Asked afresh: whoever typed or opened the key may have just turned billing on or off.
+    return {"set": True, "ok": ok, "tier": await gemini_tier.check(key, fresh=True) if ok else None}
 
 
 async def _tier_or_none() -> str | None:
@@ -533,6 +547,8 @@ async def clear_key(field: str, admin: AdminUser = Depends(require_operator)):
                 target_type="app_secret", target_id=1, after={field: ""},
             )
     runtime_keys.invalidate()
+    if field == "gemini_api_key":
+        await _recheck_gemini()
     return {"ok": True}
 
 
