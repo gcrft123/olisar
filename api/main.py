@@ -29,6 +29,7 @@ from api.routers.server import router as server_router
 from api.routers.settings import router as settings_router
 from api.routers.setup import router as setup_router
 from api.routers.tunnel import router as tunnel_router
+from api.routers.replay import router as replay_router
 from api.routers.usage import router as usage_router
 from api.trust import ConsoleGuard, loopback_origin_regex
 from olisar import runtime_config
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(usage_router)
     app.include_router(audit_router)
+    app.include_router(replay_router)
     # The only router gated on a member session rather than an admin one — see
     # api/routers/member.py for why its authorization is a separate ladder.
     app.include_router(member_router)

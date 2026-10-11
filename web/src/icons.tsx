@@ -73,6 +73,10 @@ import {
   TextCircle,
   BookmarkCircle,
   VerifiedCheck,
+  Play,
+  Pause,
+  Restart,
+  Stars,
 } from '@solar-icons/react'
 
 export const Icon = {
@@ -121,6 +125,10 @@ export const Icon = {
   dots: MenuDots,
   eye: Eye,
   eyeOff: EyeClosed,
+  play: Play,
+  pause: Pause,
+  restart: Restart,
+  replay: Stars,
 } as const
 
 export type IconName = keyof typeof Icon

@@ -1,0 +1,408 @@
+/* Tokens: web/src/index.css :root, unchanged except for the interface-size zoom, which this
+   page leaves out so its fullscreen layers measure in CSS px. */
+:root {
+  color-scheme: dark;
+  --bg: #020203; --bg-sidebar: #040405; --panel: #08080a; --bg-inset: #0f0f12; --input-bg: #0f0f12;
+  --border: #26262a; --border-strong: #323237;
+  --text: #ededee; --text-2: #9d9da7; --text-3: #7f7f8a;
+  --accent: #5b9cf6; --accent-soft: rgba(91, 156, 246, 0.16);
+  --primary-bg: #ededee; --primary-fg: #18181b; --primary-hover: #ffffff;
+  --ok: #43cf8e; --danger: #ff6369; --warn: #e3a13a; --info: #5fc4f2;
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius: 16px; --radius-sm: 12px; --radius-xs: 8px; --radius-pill: 999px;
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+  --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  --ease-icon: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 0.12s; --dur-mid: 0.16s; --dur-slow: 0.3s;
+  --img-edge: oklch(1 0 0 / 0.1);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; background: var(--bg); color: var(--text);
+  font-family: var(--font-sans); font-size: 13.5px; line-height: 1.55;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-wrap: break-word;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { font-weight: 600; letter-spacing: -0.014em; }
+::selection { background: var(--accent-soft); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--font-mono); }
+
+/* ── Controls (index.css) ─────────────────────────────────────────────────── */
+button {
+  height: 34px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  font: inherit; font-weight: 550; font-size: 13px; white-space: nowrap; cursor: pointer;
+  border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--panel); color: var(--text);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out), transform 0.08s var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+button:hover { background: var(--bg-inset); }
+button:active:not(:disabled) { transform: scale(0.97); }
+button:focus-visible { outline: none; box-shadow: var(--ring); }
+button.primary { background: var(--primary-bg); border-color: var(--primary-bg); color: var(--primary-fg); }
+button.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+button.primary:disabled:hover { background: var(--primary-bg); border-color: var(--primary-bg); }
+button.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+button.ghost:hover { background: var(--bg-inset); color: var(--text); }
+button.sm { height: 28px; padding: 0 11px; font-size: 12.5px; }
+button.icon { width: 34px; padding: 0; }
+button.icon.sm { width: 28px; }
+button svg { flex: none; }
+input[type="text"] {
+  height: 34px; width: 100%; padding: 0 12px; font: inherit; font-size: 13.5px; color: var(--text);
+  background: var(--input-bg); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+input[type="text"]::placeholder { color: var(--text-3); }
+input[type="text"]:focus-visible { box-shadow: var(--ring); }
+
+/* Tooltips, for the icon-only buttons only (DESIGN.md: Button & IconButton). */
+[data-tip] { position: relative; }
+[data-tip]::after {
+  content: attr(data-tip); position: absolute; left: 50%; top: calc(100% + 8px); translate: -50% 0; z-index: 40;
+  padding: 5px 9px; border-radius: var(--radius-xs); border: 1px solid var(--border-strong); background: var(--panel);
+  color: var(--text); font-size: 11.5px; font-weight: 500; line-height: 1.3; white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) var(--ease-out);
+}
+[data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; transition-delay: 0.4s; }
+[data-tip]:focus-visible::after { transition-delay: 0s; }
+[data-tip-side="up"]::after { top: auto; bottom: calc(100% + 8px); }
+
+/* Segmented picker (Choice groups). */
+
+/* Toggle (pill switch). */
+
+.tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border: 1px solid var(--border); border-radius: var(--radius-xs); background: var(--bg-inset); color: var(--text-2); font-size: 11.5px; font-weight: 500; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+
+/* ── Layers ───────────────────────────────────────────────────────────────── */
+#form, #fx { position: fixed; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+#form { z-index: 0; }
+#fx { z-index: 1; }
+.catch { position: fixed; inset: 0; z-index: 2; display: none; cursor: pointer; }
+.rp-replay .catch { display: block; }
+
+.note { margin-top: 20px; color: var(--text-2); font-size: 12.5px; line-height: 1.6; }
+.note + .note { margin-top: 6px; }
+.actions { display: flex; gap: 8px; margin-top: 28px; }
+
+/* ── Under the form: the start sheet, remembering and Play ───────────────── */
+.under {
+  position: fixed; left: 50%; top: var(--under-top, 62vh); z-index: 4; width: min(560px, 90vw); translate: -50% 0; text-align: center;
+  opacity: 0; visibility: hidden; transition: opacity var(--dur-slow) var(--ease-out), visibility 0s linear var(--dur-slow);
+}
+.under.on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.under h2 { font-size: 20px; letter-spacing: -0.015em; text-wrap: balance; }
+.under .meta { margin-top: 8px; color: var(--text-2); font-size: 13.5px; }
+.under .actions { justify-content: center; margin-top: 22px; }
+.under .actions button { height: 38px; padding: 0 18px; }
+.under [hidden] { display: none; }
+.under .note { color: var(--text-3); }
+.steps { display: flex; justify-content: center; gap: 22px; margin-top: 18px; list-style: none; padding: 0; }
+.steps li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-3); transition: color var(--dur-slow) var(--ease-out); }
+.steps li::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  transition: background var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
+}
+.steps li.now { color: var(--text); }
+.steps li.now::before { box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 4px var(--accent-soft); animation: breathe 1.6s var(--ease-out) infinite; }
+.steps li.done { color: var(--text-2); }
+.steps li.done::before { background: var(--text-2); box-shadow: none; }
+.steps li.now.halt::before { animation: none; box-shadow: inset 0 0 0 1.5px var(--text-3); }
+.steps li.now.halt { color: var(--text-2); }
+.remember .rem-note { max-width: 420px; margin: 14px auto 0; }
+@keyframes breathe { 50% { box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 7px rgb(91 156 246 / 0); } }
+.live { margin-top: 22px; min-height: 26px; font-size: 16px; color: var(--text); }
+.live .where { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); margin-left: 10px; }
+
+/* ── Memories (the prototype's, web/src/brain.ts) ────────────────────────── */
+.mems { position: fixed; inset: 0; z-index: 5; margin: 0; padding: 0; list-style: none; pointer-events: none; }
+.mem { position: absolute; left: 0; top: 0; pointer-events: none; visibility: hidden; will-change: transform; --d: 160px; }
+.mem-btn {
+  position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent;
+  pointer-events: auto; cursor: pointer; outline: none; clip-path: circle(var(--r, 0px) at 50% 50%);
+}
+.mem-btn:hover { background: transparent; }
+.mem-btn:focus-visible { box-shadow: none; }
+.mem-btn:active:not(:disabled) { transform: none; }
+.mem.inert .mem-btn { cursor: default; }
+.mem[data-open] .mem-btn { pointer-events: none; }
+.mem-mask {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none;
+  -webkit-mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+  mask-image: radial-gradient(circle var(--r, 0px) at 50% 50%, #000 62%, transparent 86%);
+}
+.mem-in {
+  position: relative; width: calc(var(--d) * 0.62); display: flex; flex-direction: column; align-items: center;
+  gap: 5px; text-align: center; transform: scale(var(--sv, 1));
+  filter: blur(0.55px); opacity: 0.66;
+  transition: filter var(--dur-slow) var(--ease-out), opacity var(--dur-slow) var(--ease-out);
+}
+.mem[data-peek] .mem-in { filter: none; opacity: 1; }
+.mem-in::before {
+  content: ""; position: absolute; inset: -24% -20%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.72), rgb(2 2 3 / 0));
+}
+.mem-who { display: flex; align-items: center; justify-content: center; gap: 6px; max-width: 100%; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
+.mem-who span, .mem-who bdi { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mem-member .mem-who { flex-direction: column; gap: 7px; font-size: 12.5px; color: var(--text); }
+.mem-av { flex: none; border-radius: 50%; object-fit: cover; display: block; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.mem-faces { display: flex; justify-content: center; }
+.mem-faces .mem-av + .mem-av { margin-left: -7px; box-shadow: 0 0 0 2px var(--bg); }
+.mem-text { font-size: 12px; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+/* The word scales with its sphere, so a small one on a phone doesn't have to break it. */
+.mem-term { font-size: clamp(14px, calc(var(--r, 60px) * 0.42), 20px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.mem-term.long { font-size: clamp(12px, calc(var(--r, 60px) * 0.32), 15px); letter-spacing: -0.01em; }
+.mem-big { font-size: clamp(15px, calc(var(--r, 60px) * 0.46), 22px); font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; color: var(--text); }
+.mem-was { font-size: clamp(11.5px, calc(var(--r, 60px) * 0.3), 15px); font-weight: 600; color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--text-3); }
+.mem-left .mem-who, .mem-member .mem-who { flex-direction: column; gap: 7px; font-size: 12.5px; }
+.mem-left .mem-who { color: var(--text-2); }
+.mem-foot { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.2; color: var(--text-3); white-space: nowrap; }
+/* Hovered or focused: a caption under the sphere, outside the dust (what opening it shows). */
+.mem-cap {
+  position: absolute; left: 50%; top: calc(50% + var(--r, 0px) + 10px); translate: -50% 4px; max-width: 260px;
+  font-size: 12px; line-height: 1.35; color: var(--text-2); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out), translate var(--dur-slow) var(--ease-out);
+}
+.mem-cap:empty { display: none; }
+.mem[data-peek] .mem-cap { opacity: 1; translate: -50% 0; }
+.mem[data-open] .mem-cap { opacity: 0; }
+/* Remembering: what it found stays out of focus, so nothing is spoiled before the replay. */
+.mem-blur .mem-in, .mem-blur[data-peek] .mem-in { filter: blur(3.2px); opacity: 0.55; }
+.mem-bar { height: 7px; border-radius: 4px; background: var(--text-2); opacity: 0.6; }
+
+/* An opened memory: its sphere comes to the middle, large, and this sits in it. */
+.mem-open {
+  position: fixed; left: 0; top: 0; z-index: 6; width: calc(var(--ro, 240px) * 2); height: calc(var(--ro, 240px) * 2);
+  display: grid; place-items: center; pointer-events: none; opacity: 0; visibility: hidden;
+}
+.mem-open::before {
+  content: ""; position: absolute; inset: 6%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.86) 58%, rgb(2 2 3 / 0));
+}
+/* Back sits just outside the words' top-left corner, still inside the sphere. */
+.mem-back { position: absolute; left: calc(var(--ro, 240px) * 0.45 - 44px); top: calc(var(--ro, 240px) * 0.36 - 4px); width: 32px; height: 32px; padding: 0; pointer-events: auto; }
+.mo-in {
+  position: relative; width: calc(var(--ro, 240px) * 1.1); max-height: calc(var(--ro, 240px) * 1.28); overflow-y: auto; padding-bottom: 22px;
+  scrollbar-width: none; pointer-events: auto; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 26px), transparent); mask-image: linear-gradient(#000 calc(100% - 26px), transparent);
+}
+.mo-in::-webkit-scrollbar { display: none; }
+.mo-head { max-width: calc(var(--ro, 240px) * 1.08 - 48px); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.35; color: var(--text-3); }
+.mo-chat { align-self: stretch; display: grid; gap: 11px; text-align: left; }
+.mo-msg { display: grid; grid-template-columns: 24px minmax(0, 1fr); column-gap: 10px; align-items: start; }
+.mo-msg .mem-av { width: 24px; height: 24px; margin-top: 1px; }
+.mo-msg b { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; font-weight: 600; line-height: 1.4; color: var(--text-2); }
+.mo-msg b bdi, .qmsg b bdi { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mo-msg b time, .qmsg b time { flex: none; }
+.mo-msg b time { font-family: var(--font-mono); font-size: 11px; font-weight: 400; color: var(--text-3); }
+.mo-msg.bot b { color: var(--text); }
+.mo-msg p { margin: 1px 0 0; font-size: 13px; line-height: 1.5; color: var(--text-2); }
+.mo-msg.bot p { color: var(--text); }
+.mo-gap { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); text-align: center; padding: 2px 0; }
+.mo-term { font-size: 30px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.1; }
+.mo-text { font-size: 13.5px; line-height: 1.55; color: var(--text); }
+.mo-meta { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+.mo-link { font-size: 12.5px; font-weight: 550; }
+.mo-av { width: 56px; height: 56px; }
+.mo-name { font-size: 15px; font-weight: 600; }
+
+/* ── The replay ───────────────────────────────────────────────────────────── */
+.hud {
+  position: fixed; left: 0; right: 0; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between;
+  padding: 22px 26px; pointer-events: none; opacity: 0; visibility: hidden;
+  transition: opacity 0.6s var(--ease-out), visibility 0s linear 0.6s;
+}
+.rp-replay .hud { opacity: 1; visibility: visible; transition-delay: 0s; }
+.hud > * { pointer-events: auto; }
+.hud-name { display: flex; align-items: center; gap: 10px; min-width: 0; max-width: min(36vw, 460px); font-size: 13.5px; font-weight: 600; }
+.hud-server { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-name .tag { flex: none; }
+.hud-actions { display: flex; gap: 4px; }
+.hud-actions button { color: var(--text-2); }
+
+.narr {
+  position: fixed; z-index: 4; left: max(56px, 7vw); top: 50%; translate: 0 -50%; width: min(440px, 34vw);
+  pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out);
+}
+.narr.dim { opacity: 0; }
+/* Heights ease in and out: the whole column moves when one slot does, so it shouldn't lurch. */
+.narr > div { display: grid; align-items: start; transition: height 0.6s cubic-bezier(0.45, 0, 0.25, 1); }
+.narr > div > * { grid-area: 1 / 1; transition: opacity 0.5s var(--ease-out), translate 0.5s var(--ease-out); }
+.narr .enter { opacity: 0; translate: 0 4px; }
+.narr .leave { opacity: 0; translate: 0 -3px; transition-duration: 0.22s; }
+/* Spacing lives on the words, not the slots, so an emptied slot takes no room. */
+.n-title { font-size: clamp(34px, 3.6vw, 52px); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+.n-title .sub { display: block; margin-top: 6px; font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--text-3); }
+.n-body > * { padding-top: 18px; }
+.n-body { font-size: clamp(16px, 1.35vw, 19px); line-height: 1.5; color: var(--text-2); text-wrap: pretty; }
+.n-body b { color: var(--text); font-weight: 550; }
+.n-extra > * { padding-top: 22px; }
+.n-foot > * { padding-top: 22px; }
+.n-foot { font-size: 12.5px; color: var(--text-3); }
+.n-foot .mono { font-size: 11.5px; }
+.narr .live-ctl { pointer-events: auto; }
+
+/* A message as the replay quotes it. Olisar's palette, not Discord's: the replay is Olisar
+   speaking, not a picture of Discord. */
+.quote { display: grid; gap: 12px; }
+.qmsg { display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 11px; align-items: start; }
+.qmsg img { width: 28px; height: 28px; border-radius: 50%; outline: 1px solid var(--img-edge); outline-offset: -1px; }
+.qmsg b { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-2); }
+.qmsg b time { font-family: var(--font-mono); font-size: 11px; font-weight: 400; color: var(--text-3); }
+.qmsg p { display: grid; margin-top: 1px; font-size: 15px; line-height: 1.45; color: var(--text); min-height: 1.45em; }
+.qmsg p > span { grid-area: 1 / 1; }
+.qmsg p .ghost { visibility: hidden; }
+.qmsg p, .mo-msg p, .mo-term { overflow-wrap: anywhere; }
+.qmsg.bot b { color: var(--text); }
+.qmsg .caret { display: inline-block; width: 7px; height: 1.05em; margin-left: 1px; vertical-align: -2px; background: var(--text-2); animation: caret 1s steps(1) infinite; }
+@keyframes caret { 50% { opacity: 0; } }
+.qhead { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); }
+
+/* Arrivals: the count, the scrubber and the milestones. */
+.scrub { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; column-gap: 10px; }
+.scrub button { width: 28px; height: 28px; padding: 0; color: var(--text-2); }
+.track { position: relative; height: 28px; }
+.track input { position: absolute; inset: 0; width: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.track-line { position: absolute; left: 0; right: 0; top: 13px; height: 2px; border-radius: 2px; background: var(--border-strong); overflow: hidden; pointer-events: none; }
+.track-fill { position: absolute; inset: 0; transform-origin: 0 0; background: var(--text-2); }
+.track-knob {
+  position: absolute; top: 7px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: var(--text); pointer-events: none;
+  box-shadow: 0 0 0 4px rgb(237 237 238 / 0.08);
+}
+.track input:focus-visible ~ .track-knob { box-shadow: var(--ring); }
+.track-mark { position: absolute; top: 10px; width: 2px; height: 8px; margin-left: -1px; border-radius: 1px; background: var(--text-3); pointer-events: none; }
+.ticks { position: relative; height: 16px; margin-left: 38px; }
+.ticks span { position: absolute; top: 0; translate: -50% 0; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+.miles { display: grid; gap: 10px; margin-top: 18px; }
+.mile { display: grid; grid-template-columns: 92px minmax(0, 1fr); column-gap: 10px; font-size: 13.5px; line-height: 1.45; color: var(--text-2);
+  transition: opacity 0.45s var(--ease-out), translate 0.45s var(--ease-out); }
+.mile time { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.75; color: var(--text-3); }
+.mile b { color: var(--text); font-weight: 550; }
+.mile[hidden] { display: grid; visibility: hidden; opacity: 0; translate: 0 4px; }
+
+/* Goose: where it went. Labels set where its dust lands. */
+.spread { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+.spot { position: absolute; translate: -50% -50%; display: grid; justify-items: center; gap: 2px; text-align: center; opacity: 0;
+  transition: opacity 0.6s var(--ease-out), translate 0.6s var(--ease-out); }
+.spot.on { opacity: 1; translate: -50% -60%; }
+.spot q { font-size: 13px; color: var(--text); quotes: "“" "”"; white-space: nowrap; }
+.spot span { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); white-space: nowrap; }
+
+/* Pinecone: the names it has had. */
+.names { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
+.names i { font-style: normal; color: var(--text-3); font-weight: 400; font-size: 18px; }
+.names .was { color: var(--text-3); text-decoration: line-through; text-decoration-thickness: 2px; text-decoration-color: var(--text-3); }
+.names span { transition: opacity 0.5s var(--ease-out), color 0.5s var(--ease-out); }
+.names span[hidden], .names i[hidden] { display: inline; opacity: 0; }
+
+/* The end: Olisar's question, set inside the form like the final screen's name. */
+.center {
+  position: fixed; z-index: 6; left: 0; top: 0; width: 250px; translate: -50% -50%; display: grid; justify-items: center; gap: 12px; text-align: center;
+  pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.6s var(--ease-out), visibility 0s linear 0.6s;
+}
+.center.on { opacity: 1; visibility: visible; transition-delay: 0s; }
+.center.away { opacity: 0; visibility: hidden; transition: opacity 0.25s var(--ease-out), visibility 0s linear 0.25s; }
+.center > * { pointer-events: auto; }
+.center::before {
+  content: ""; position: absolute; inset: -40% -18%; z-index: -1; border-radius: 50%;
+  background: radial-gradient(closest-side, rgb(2 2 3 / 0.7), rgb(2 2 3 / 0));
+}
+.center-line { font-size: 18px; text-wrap: balance; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; }
+.center-sub { font-size: 13px; color: var(--text-2); }
+.center form { display: flex; gap: 6px; width: 244px; }
+.center form input { flex: 1; min-width: 0; }
+.center .actions { margin-top: 2px; justify-content: center; }
+.center [hidden] { display: none; }
+.orb-face { position: fixed; left: 0; top: 0; z-index: 0; pointer-events: none; opacity: 0; transition: opacity 1.2s var(--ease-out); }
+.orb-face.on { opacity: 1; }
+.orb-face img {
+  display: block; width: 100%; height: 100%; border-radius: 50%; opacity: 0.22; filter: blur(1.5px);
+  -webkit-mask-image: radial-gradient(closest-side, #000 60%, transparent 100%); mask-image: radial-gradient(closest-side, #000 60%, transparent 100%);
+}
+
+/* A grain of light: the glow at the form's middle while it's a single grain. */
+.spark {
+  position: fixed; left: 0; top: 0; z-index: 0; border-radius: 50%; pointer-events: none; opacity: 0; mix-blend-mode: screen;
+  background: radial-gradient(closest-side, rgb(237 237 238 / 0.95), rgb(170 196 246 / 0.42) 22%, rgb(91 156 246 / 0.12) 48%, rgb(91 156 246 / 0) 100%);
+}
+
+/* The chapters, along the bottom. */
+.timeline {
+  position: fixed; left: 26px; right: 26px; bottom: 20px; z-index: 8; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 6px; opacity: 0; visibility: hidden; transition: opacity 0.6s var(--ease-out), visibility 0s linear 0.6s; pointer-events: none;
+}
+.rp-replay .timeline { opacity: 1; visibility: visible; transition-delay: 0s; pointer-events: auto; }
+.tl { display: grid; gap: 7px; height: auto; padding: 8px 0 0; border: 0; border-radius: 0; background: transparent; text-align: left; justify-content: stretch; align-items: start; color: var(--text-3); }
+.tl:hover { background: transparent; color: var(--text-2); }
+.tl:active:not(:disabled) { transform: none; }
+.tl:focus-visible { box-shadow: none; }
+.tl:focus-visible .tl-line { box-shadow: var(--ring); }
+.tl-line { position: relative; height: 2px; border-radius: 2px; background: var(--border-strong); overflow: hidden; }
+.tl-fill { position: absolute; inset: 0; transform-origin: 0 0; transform: scaleX(0); background: var(--text-2); transition: transform 0.5s var(--ease-out); }
+.tl-name { font-size: 11.5px; font-weight: 500; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl.now { color: var(--text); }
+.tl.now .tl-fill { background: var(--text); }
+
+.hint {
+  position: fixed; left: 50%; bottom: 66px; z-index: 8; translate: -50% 0; width: max-content; max-width: calc(100vw - 48px); font-size: 12.5px; color: var(--text-3);
+  pointer-events: none; opacity: 0; transition: opacity 0.6s var(--ease-out);
+}
+.hint.on { opacity: 1; }
+.hint kbd { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; margin: 0 2px; border: 1px solid var(--border-strong); border-radius: 5px; font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
+
+/* Prototype only: restart, and skip a stage. */
+.demo {
+  position: fixed; left: 50%; top: 14px; z-index: 30; translate: -50% 0; display: flex; align-items: center; gap: 2px; padding: 3px 3px 3px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-pill); background: rgb(8 8 10 / 0.8); backdrop-filter: blur(8px);
+  opacity: 0.55; transition: opacity var(--dur-mid) var(--ease-out);
+}
+.demo:hover, .demo:focus-within { opacity: 1; }
+.demo .eyebrow { margin-right: 6px; }
+.demo button { height: 26px; padding: 0 10px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--text-2); font-size: 12px; }
+.demo button:hover { background: var(--bg-inset); color: var(--text); }
+
+.toast {
+  position: fixed; right: 22px; top: 70px; z-index: 40; max-width: 320px; padding: 10px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--panel); box-shadow: var(--shadow-pop); font-size: 13px; color: var(--text);
+  opacity: 0; translate: 0 -6px; pointer-events: none; transition: opacity var(--dur-slow) var(--ease-out), translate var(--dur-slow) var(--ease-out);
+}
+.toast.on { opacity: 1; translate: 0 0; }
+
+/* Without WebGL2 there's no dust: the memories get hairline rings, and the form one ring. */
+.orb-css { display: none; }
+.no-form .mem::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: calc(2 * var(--r)); height: calc(2 * var(--r));
+  translate: -50% -50%; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.no-form .orb-css { display: block; position: fixed; left: 0; top: 0; z-index: 0; border-radius: 50%; pointer-events: none; translate: -50% -50%; box-shadow: inset 0 0 0 1px var(--border-strong), inset 0 0 60px rgb(91 156 246 / 0.08); }
+
+/* A narrow window: the words go under the form instead of beside it. */
+@media (max-width: 900px) {
+  .narr { left: 24px; right: 24px; top: auto; bottom: 104px; translate: 0 0; width: auto; }
+  .rp-replay .demo { top: 62px; }
+  .hud-name { max-width: calc(100vw - 140px); }
+  .n-title { font-size: 32px; }
+  .tl-name { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .narr .enter, .narr .leave, .mile[hidden], .spot.on { translate: 0 0; }
+  .steps li.now::before { animation-duration: 3.2s; }
+}
+
+/* Forced colors drop box-shadow, and with it every focus ring; an outline comes back instead. */
+@media (forced-colors: active) {
+  button:focus-visible, input:focus-visible, .tl:focus-visible .tl-line, .track input:focus-visible ~ .track-knob { outline: 2px solid CanvasText; outline-offset: 2px; }
+  .mem-btn:focus-visible { outline: 2px solid CanvasText; outline-offset: -4px; border-radius: 50%; }
+}
+
+.noscript { position: fixed; inset: 0; display: grid; place-items: center; margin: 0; color: var(--text-2); }

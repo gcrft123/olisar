@@ -7,6 +7,7 @@ import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
 import { Modal, confirmDialog, fromToasts, promptDialog, restoreFocus, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
+import { ReplaySection } from './replay'
 import { Area, Badge, Disclosure, Field, Markdown, Num, SaveBar, SaveDock, ScrollFade, Section, Segmented, Select, Spinner, Stack, Text, Toggle, hasUnsavedChanges, serverDate, useAsync, useDirtyGuard, useDraft, useEditable, useFieldIds, usePoll, useSaver, type BadgeGlyph, type BadgeTone } from './ui'
 
 export function PageHead(props: { icon: IconName; title: string; sub?: string; doc?: string }) {
@@ -1575,6 +1576,7 @@ export function Knowledge({ serverName, operator }: { serverName?: string; opera
           of the two editors below it, and as a lone card in a column it left ~900px of
           empty track beside them. */}
       <SearchIndexCard />
+      <ReplaySection />
       <Section title="Knowledge base" hint={`A webpage or a crawled site ${botName()} can reference. Upload documents via /olisar learn-doc in Discord.`}>
         {/* A compose form, not a list of settings: type and URL are one entry, so they keep
             their labels above and sit side by side. */}

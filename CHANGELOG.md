@@ -8,7 +8,39 @@ Google deprecated Gemini 3.5 Flash, the head of the reply chain, and Gemini 3.1 
 
 The docs had drifted from the code they describe. They called the search index an admin's choice when it's on for every channel, said `/forget-me` erased everything when summaries and the glossary stay, said nothing went to an Olisar server, and listed three built-in extensions that don't ship. Every page is rewritten from the code, to a style guide written down for the purpose, and a paid Gemini key is documented next to the free tier.
 
+A server's history had nowhere to be seen whole. The memory replay is a fullscreen walk through it, played in Olisar's form: when the server started, its first messages and members, everyone who arrived, its busiest day, the one thing that most belongs to it, Olisar's own arrival, and a closing question whose answer is kept for next year. An admin or co-admin starts one from the Knowledge page. It's built on the bot, not in the console, because a big server takes minutes and the console may close. It reads only what the search index holds, never every message through a model: code counts and picks what's worth reading, and about fifty requests do the rest. Nobody reviews a replay before it plays, so the last check of every quote is strict and drops anything it doesn't clearly pass.
+
 ### New
+
+[17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
+
+[17b8395] — A replay pauses when the day's Gemini allowance or the month's budget runs out and carries on by itself afterwards, and Try again picks up a stopped one where it left off.
+
+[17b8395] — The start sheet says what a replay reads and what it costs before anything runs: about how long, and a share of today's allowance on a free key or dollars on a key with billing on.
+
+[17b8395] — A replay reads only the channels indexed on the Channels tab and never a DM or a bot, leaves out anyone who opted out of search or memory, and shows anyone who has left as Someone.
+
+[17b8395] — `/forget-me` takes a member out of every replay, and a replay is redacted again each time it's opened.
+
+[7f944d6] — The Knowledge page has a Replay section that opens the replay fullscreen: the start sheet, remembering, Play, and the chapters played in the form.
+
+[7f944d6] — The Usage page counts a replay's requests as Replays.
+
+[bb5cbab] — The replay says how many of the server's first five members are still here.
+
+[48fc558] — The busiest-day chapter says what the day was about, from a model's read of the messages around it, and moves to the next busiest day when that one isn't safe to show.
+
+[48fc558] — When a crowd arrived on one day, the replay says why if the messages say.
+
+[6b27bec] — Olisar picks the one thing that most belongs to the server, such as a word, a ritual or something members made, and shows how it started and spread.
+
+[ef23dbf] — Every quote a replay will show is checked once more before it can play, and anything that doesn't clearly pass is left out.
+
+[ef23dbf] — The replay's lines about what happened are said in the persona's voice.
+
+[2f51d95] — The form has a remembering shape, and can shrink to a single grain of light.
+
+[8b6bb62] — Background work can ask Gemini for JSON and see what each request cost.
 
 [615f883] — `web/DOCS_STYLE.md` sets how the docs are written: voice, page shape, tables, callouts, terms and what to leave out.
 

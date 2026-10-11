@@ -1183,3 +1183,45 @@ class UsageMinutePeak(Base):
 
     day: Mapped[datetime] = mapped_column(Date, primary_key=True)
     peak_tpm: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ReplayRun(Base):
+    """One memory replay of a server: a walk through its history, built by the bot from the
+    search index and played fullscreen in the console (olisar/replay/).
+
+    A run is advanced a step at a time by the bot (bot/cogs/replay.py) and keeps what each
+    step found in ``state``, so a restart, a spent daily allowance or a failed request
+    carries on from where it stopped rather than starting over. One runs at a time per
+    server. ``report`` is the finished replay; it quotes members, so it's scrubbed when one
+    of them is forgotten and redacted again each time it's served (olisar/replay/store.py).
+    """
+
+    __tablename__ = "replay_run"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    guild_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    # queued | running | paused | failed | done
+    status: Mapped[str] = mapped_column(String(16), default="queued", index=True)
+    # The step it's on or will carry on from (olisar/replay/runner.py STEPS).
+    step: Mapped[str] = mapped_column(String(16), default="gather")
+    started_by: Mapped[int] = mapped_column(BigInteger, default=0)  # the admin's Discord id
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # The bot touches this while it works, so a run nobody is advancing shows as stopped.
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Paused runs carry on by themselves once this passes: midnight Pacific for a spent
+    # daily allowance ("quota"), the first of the month for a spent budget ("budget").
+    paused_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pause_reason: Mapped[str] = mapped_column(String(16), default="")
+    error: Mapped[str] = mapped_column(Text, default="")
+    state: Mapped[dict] = mapped_column(JSON, default=dict)
+    progress: Mapped[dict] = mapped_column(JSON, default=dict)
+    report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    # The answer to the replay's last question, kept for next year's.
+    answer: Mapped[str] = mapped_column(String(240), default="")
+    answer_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
