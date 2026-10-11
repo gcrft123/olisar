@@ -143,6 +143,29 @@ float shSweep(vec3 p) {
   return smax(sdSphere(p, 0.74), -gap, 0.06);
 }
 
+// Remembering (the memory replay): a body drawing streams in from far off. Each stream is a
+// string of beads on a spiral that walk inward, swell as they come, and fold into the body;
+// a new one starts at the far end as each arrives. v.x is how thick the streams run.
+float shGather(vec3 p, float amt) {
+  float d = sdSphere(p, 0.5);
+  vec3 q = p; q.yz *= rot(0.3); q.xy *= rot(-0.16);
+  for (int i = 0; i < 6; i++) {
+    float fi = float(i);
+    float base = fi * TAU / 6.0 + 0.4 * hash11(fi + 3.0);
+    float lift = (hash11(fi * 4.1 + 1.0) - 0.5) * 0.7;
+    float speed = 0.07 + 0.03 * hash11(fi * 2.3 + 0.7);
+    for (int j = 0; j < 6; j++) {
+      float u = fract(float(j) / 6.0 + uTime * speed + hash11(fi * 9.7));
+      float R = mix(1.9, 0.42, u);
+      float a = base + (1.0 - u) * 2.3;
+      vec3 c = vec3(cos(a) * R, lift * (1.0 - u) * R * 0.45, sin(a) * R);
+      float rb = mix(0.014, 0.065, u * u) * (0.55 + 0.45 * amt);
+      d = smin(d, sdSphere(q - c, rb), 0.015 + 0.2 * u * u);
+    }
+  }
+  return d;
+}
+
 float shape(int id, vec3 p, vec4 v) {
   if (id == 0) return shSeed(p, v.x);
   if (id == 1) return shCore(p);
@@ -153,6 +176,7 @@ float shape(int id, vec3 p, vec4 v) {
   if (id == 6) return shKnot(p);
   if (id == 7) return shMerge(p, v.x);
   if (id == 8) return shWhole(p, v.x);
+  if (id == 10) return shGather(p, v.x);
   return shSweep(p);
 }
 
@@ -212,12 +236,19 @@ void main() { o = vec4(0.0); }`
 
 // Where dust may show, in canvas px: a fade in from the left (x to y), keeping it off the
 // wizard's half, and a fade at the top and bottom (z). The far edges are 1 - smoothstep, so
-// no pair of edges is ever equal (smoothstep with equal edges is undefined).
+// no pair of edges is ever equal (smoothstep with equal edges is undefined). An optional floor
+// (w, canvas px from the bottom) fades it out above words set under the form, as the memory
+// replay's remembering steps are.
 const MASK = /* glsl */ `
 float pmask(vec2 px) {
-  return smoothstep(uMask.x, uMask.y, px.x)
+  float floorFade = uMask.w > 0.5 ? smoothstep(uMask.w, uMask.w + 0.07 * uRes.y, px.y) : 1.0;
+  return smoothstep(uMask.x, uMask.y, px.x) * floorFade
        * smoothstep(0.0, uMask.z, px.y) * (1.0 - smoothstep(uRes.y - uMask.z, uRes.y, px.y));
 }`
+
+// Room for this many memories at once: the final server screen uses twelve, the replay's
+// last ring up to fourteen.
+export const NSAT = 14
 
 // Memories: small spheres of dust around the form, one per memory the page shows. They aren't
 // simulated: each grain has a place on its sphere (a Fibonacci point, carried round an axis of
@@ -233,8 +264,8 @@ uniform vec3 uInk, uAccent;
 uniform vec4 uMask;
 uniform int uSlot, uCount, uStride;
 uniform float uWob;
-uniform vec4 uSatA[12];   // centre x, y (world units, y up), radius (world units), seed
-uniform vec4 uSatB[12];   // activation, brightness, peek, ripple
+uniform vec4 uSatA[${NSAT}];   // centre x, y (world units, y up), radius (world units), seed
+uniform vec4 uSatB[${NSAT}];   // activation, brightness, peek, ripple
 out vec3 vCol;
 out float vA;
 
@@ -437,9 +468,9 @@ export function layoutRect(el: Element): { x: number; y: number; w: number; h: n
 }
 
 /** Where the form sits, in layout px: its centre (cx, cy), the px one world unit spans at the
- *  centre's depth (r), a fade in from the left edge between x0 and x1, and a fade at the top
- *  and bottom over fy. */
-export type Framing = { cx: number; cy: number; r: number; x0: number; x1: number; fy: number }
+ *  centre's depth (r), a fade in from the left edge between x0 and x1, a fade at the top and
+ *  bottom over fy, and optionally a floor (yb, from the top) the dust fades out above. */
+export type Framing = { cx: number; cy: number; r: number; x0: number; x1: number; fy: number; yb?: number }
 export type View = { x: number; y: number; w: number; h: number }
 /** A memory's sphere, in layout px. */
 export type Satellite = { x: number; y: number; r: number; act: number; bright?: number; peek?: number; ripple?: number; seed?: number }
@@ -448,6 +479,7 @@ export type Mood = { dim?: number; loose?: number; tremor?: number }
 /** Each form, by what it's for. The numbers are the shader's `shape()` ids. */
 export const SHAPE = {
   where: 0, bot: 1, remote: 2, signin: 3, server: 4, keys: 5, deploy: 6, connect: 7, whole: 8, updating: 9,
+  remember: 10,
 } as const
 
 export type Form = {
@@ -459,6 +491,12 @@ export type Form = {
   reject(): void
   mood(m?: Mood): void
   regather(from?: number): void
+  /** How fast dust respawns in the loose cloud round the form (0.0022 by default), so the
+   *  remembering streams stay fed. */
+  feed(rate?: number): void
+  /** How much of the dust is drawn (0 to 1), so the form can shrink to a single grain without
+   *  summing to a white blot. */
+  density(x?: number): void
   framing(fn: (v: View) => Framing): void
   satellites(list: (Satellite | null)[]): void
   onFrame(fn: (dt: number, now: number) => void): () => void
@@ -484,6 +522,8 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     // A mood, eased toward its targets: how bright the dust is, how hard it's held to the
     // surface, and a tremor it keeps rather than one that decays.
     dim: 1, dimT: 1, loose: 1, looseT: 1, tremor: 0, tremorT: 0,
+    // The replay's: how fast dust respawns, and how much of it is drawn.
+    respawn: 0.0022, respawnT: 0.0022, share: 1, shareT: 1,
     dpr: Math.min(window.devicePixelRatio || 1, 2),
     scale: 1,
     drawShare: 1,
@@ -561,7 +601,7 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
 
   // Memories. Each gets grains in proportion to its size, so a large one's rim is as fine as
   // a small one's.
-  const M = 7000, NSAT = 12
+  const M = 7000
   const grainsFor = (r: number) => Math.round(clamp(3000 * Math.pow(r / 90, 0.9), 2200, M))
   const wobFor = (r: number) => 0.045 * clamp(90 / Math.max(1, r), 0.2, 1)
   let sats: (Satellite | null)[] = []
@@ -584,7 +624,7 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     g.useProgram(sim.p)
     common(sim)
     g.uniform1f(sim.u.uDt, dt)
-    g.uniform1f(sim.u.uRespawn, 0.0022)
+    g.uniform1f(sim.u.uRespawn, state.respawn)
     // A slower pull at first, so the opening gather reads as a gather and not a cut.
     const gg = Math.min(1, state.gather)
     g.uniform1f(sim.u.uAttract, (0.018 + 0.112 * gg * gg * (3 - 2 * gg)) * state.loose)
@@ -623,6 +663,8 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     state.dim += (state.dimT - state.dim) * ease
     state.loose += (state.looseT - state.loose) * ease
     state.tremor += (state.tremorT - state.tremor) * ease
+    state.respawn += (state.respawnT - state.respawn) * ease
+    state.share += (state.shareT - state.share) * (1 - Math.exp(-dt * 1.1))
     state.flow += (state.flowTarget - state.flow) * (1 - Math.exp(-dt * 0.9))
     weights = morph.step(dt, reduce.matches ? 2.0 : 3.2, reduce.matches ? 1.4 : 2.4)
   }
@@ -639,6 +681,10 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     // A smaller form keeps the same grain per area of screen: finer and fainter dust.
     const rr = Math.max(0.2, Math.min(1.2, F.r / (0.45 * Math.max(1, view.h))))
     const x0 = F.x0 * k, x1 = Math.max(F.x1 * k, x0 + 1), fy = Math.max(F.fy * k, 1)
+    const floor = F.yb ? Math.max(1, H - F.yb * k) : 0
+    // Drawing only part of the dust keeps a tiny form from summing to a white blot; what is
+    // drawn brightens a little to make up for it.
+    const share = clamp(state.share, 0.002, 1)
     // A slow sway rather than a spin, so every form keeps the angle it was drawn for.
     const rot = rotMat(0.2 + 0.42 * Math.sin(state.spin * 1.1), 0.2 + 0.07 * Math.sin(state.spin * 0.8 + 1.3), -0.08)
     const u = pts.u, camD = 4.2
@@ -649,17 +695,17 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     g.uniform1f(u.uFocal, F.r * k * camD)
     g.uniform1f(u.uCamD, camD)
     g.uniformMatrix3fv(u.uRot, false, rot)
-    g.uniform1f(u.uAlpha, 0.95 * state.intro * state.dim * rr)
+    g.uniform1f(u.uAlpha, 0.95 * state.intro * state.dim * rr * (1 + 0.6 * (1 - share)))
     g.uniform3fv(u.uInk, ink)
     g.uniform3fv(u.uAccent, accent)
-    g.uniform4f(u.uMask, x0, x1, fy, 0)
+    g.uniform4f(u.uMask, x0, x1, fy, floor)
     g.uniform1f(u.uDpr, state.dpr * state.scale)
     g.uniform1f(u.uSize, 1.6 * Math.sqrt(rr))
     g.uniform1f(u.uTwinkle, reduce.matches ? 0 : 1)
     g.enable(g.BLEND)
     g.blendFunc(g.ONE, g.ONE)
     g.bindVertexArray(Q.drawVao[Q.cur])
-    g.drawArrays(g.POINTS, 0, Math.round(Q.n * state.drawShare))
+    g.drawArrays(g.POINTS, 0, Math.max(1, Math.round(Q.n * state.drawShare * share)))
 
     // The memories: world units from layout px, y up, at the form's depth.
     const live: [number, number][] = []
@@ -681,7 +727,7 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
       g.uniform1f(v.uTime, state.time)
       g.uniform3fv(v.uInk, ink)
       g.uniform3fv(v.uAccent, accent)
-      g.uniform4f(v.uMask, x0, x1, fy, 0)
+      g.uniform4f(v.uMask, x0, x1, fy, floor)
       g.uniform1f(v.uDpr, state.dpr * state.scale)
       g.uniform1f(v.uSize, 1.4)
       g.uniform1f(v.uTwinkle, reduce.matches ? 0 : 1)
@@ -763,6 +809,8 @@ export function createForm(canvas: HTMLCanvasElement, opts: { particles?: number
     },
     // Let the dust go slack and pull it back in, the way it gathers on first load.
     regather(from = 0.25) { state.gather = Math.min(state.gather, from) },
+    feed(rate = 0.0022) { state.respawnT = rate },
+    density(x = 1) { state.shareT = clamp(x, 0.002, 1) },
     framing(fn) { framingFn = fn },
     satellites(list) { sats = list },
     onFrame(fn) { hooks.push(fn); return () => { const i = hooks.indexOf(fn); if (i >= 0) hooks.splice(i, 1) } },

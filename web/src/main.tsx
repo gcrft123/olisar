@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { SolarProvider } from '@solar-icons/react'
 import App from './App'
 import { Overlays } from './overlays'
+import { ReplayHost } from './replay'
 import { UpdateScreen } from './updating'
 import { WhatsNew } from './whatsnew'
 import { applyScale, watchPixelRatio } from './theme'
@@ -25,6 +26,7 @@ Promise.all([ready, bridge]).then(() => createRoot(document.getElementById('root
     <SolarProvider value={{ weight: 'Linear', size: 19 }}>
       <App />
       <Overlays />
+      <ReplayHost />
       <UpdateScreen />
       <WhatsNew />
     </SolarProvider>

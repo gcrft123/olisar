@@ -201,6 +201,9 @@ Paste into your global stylesheet. Dark-only (`color-scheme: dark`).
   /* The rail's foot sheet only (see "Foot sheet"). iOS's sheet curve: fast off the mark,
      long settle, so a sheet let go mid-drag looks thrown rather than played. */
   --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  /* The memory replay's narration only (see "The memory replay"): a slot easing to the
+     height of its new words, in and out alike, so the column under it never lurches. */
+  --ease-narr: cubic-bezier(0.45, 0, 0.25, 1);
   --dur-fast: .12s;  --dur-mid: .16s;  --dur-slow: .3s;
 
   /* Raster images only. User art on a near-black ground has no edge of its own: a dark
@@ -699,6 +702,65 @@ downloads and unpacks, quieter while it shuts down, the stopped form as it resta
 unhealthy tremor (and a `reject()`) when it fails. After the restart the console toasts
 "Updated to v…" once, unless the new version is a stable release with a **What's new** card,
 which says it instead.
+
+### The memory replay
+
+A fullscreen walk through a server's history, featuring the form (`replay.tsx` for the overlay and
+its three sheets, `replay-scene.ts` for everything that moves). It opens from the **Replay**
+section on the Knowledge page, under the search index it reads, and it's the second place the
+console draws moving decoration: like the first-run screens, nothing on it is a setting.
+`design/memory-replay/` is the prototype it was built from, and the behavioral spec.
+
+```
++--------------------------------------------------------------+
+| Hollow Pines                                     [>]  [x]     |   HUD: name (replay only), autoplay, close
+|                                                              |
+|   March 14, 2021                        .-''-.     ( o )     |   narration beside the form; memories
+|   Hollow Pines started on a                                  |   bud off the form as spheres
+|   Sunday night.                       '-..-'                 |
+|                                                              |
+| ---------  ---------  ---------  ---------  ---------  ----- |   chapters along the bottom
++--------------------------------------------------------------+
+```
+
+**The overlay** is a portal at z-index 160: above dialogs (140), under toasts (200) and tooltips
+(400). Like the update screen, every other child of `<body>` goes `inert` while it's open (the
+toast viewport excepted, so a failure can still be dismissed), keydown is held at `window` in the
+capture phase, and Tab wraps inside. Escape closes it from the sheets; in the replay it goes back
+to Play, or closes an opened memory first. Focus returns to whatever opened it.
+
+**Four stages, one form.** The start sheet, remembering and Play sit under the form (`.rp-under`,
+hung from `--under-top`, which the scene sets), so the form doesn't move until the replay starts.
+Each sheet has one primary button, at the first-run screens' 38px. The start sheet has no
+settings: it says what's read and what it costs, and Start says what it would do when it can't
+start cleanly (Start anyway, Watch it, or off with the reason in a note under it). Remembering is
+four steps (`.rp-steps`, the breathing accent dot on the current one, a hollow grey one when it
+stops) over a live line whose numbers climb rather than jump. The form never sits behind text:
+the dust fades out above the sheets (`Framing.yb`, the mask's floor).
+
+**The replay** is beats in chapters. Narration (`.rp-narr`) has four slots, title, body, extra and
+foot; a slot whose words don't change between beats stays put, one that does fades out as the new
+words fade in, and each slot eases its height on `--ease-narr`. A quote's full text is laid out
+(hidden) before it types in, so the slot doesn't grow under it. Memories (`.rp-mem`) are spheres
+of the form's dust with their words laid over them, out of focus until hovered or focused, with a
+caption under the sphere for what opening it shows; opened, a memory comes to the middle, large,
+and the rest step out to the edges, as on the final server screen. Dust thrown across the window
+(people arriving, the pick spreading) never crosses the narration, the HUD or the chapters. The
+last beat puts every memory the replay showed on one ring, with the question set inside the form.
+
+**User-written text is text.** Messages, names, server names and model-written lines are set as
+text or escaped; names sit in `<bdi>`, messages take `dir="auto"`, and a quote over 220 characters
+is cut at a word. A typing quote is heard once, whole (a visually-hidden copy, the typing itself
+`aria-hidden`), and the arrivals scrubber's `aria-valuetext` changes by the month, not the frame.
+Someone who has left, or can't be named, is "Someone" with a blank face.
+
+**Units and widths.** Everything the scene positions is in layout px (window size ÷ `zoomOf()`),
+and the narrow layout (words under the form, chapters without names) is a `.narrow` class the
+scene sets below 900 layout px, not a media query, which would fire at the unzoomed width.
+
+**Reduced motion slows, it doesn't stop:** the form runs at a third of the speed, thrown dust at
+about 40%, quotes appear whole, and the words only fade. Without WebGL2 the memories get hairline
+rings and the form one ring (`.no-form`).
 
 ### Skip link
 

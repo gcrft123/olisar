@@ -6,6 +6,8 @@
 // Both hand `handle` a Node-style request: `method`, `headers`, and `on('data' | 'end')` for
 // the body.
 
+import { configureReplayMock, replayMock } from './replay'
+
 export type MockEnv = {
   /** SETUP_MOCK: '' | '1' | 'second' | 'intents' — open on the setup wizard; 'server' — on the
    *  server panel of a server that has been up a few hours, which goes to the final screen.
@@ -25,6 +27,8 @@ export type MockEnv = {
    *  billing on, within its $50 budget, past 80% of it, or past it (replying on the cheapest
    *  model, or stopped). The free tier by default. */
   tier?: string
+  /** REPLAY_MOCK: where the memory replay starts (see mock/replay.ts). No replay yet by default. */
+  replay?: string
 }
 
 export function configureMock(env: MockEnv): void {
@@ -34,6 +38,7 @@ export function configureMock(env: MockEnv): void {
   BOT = env.bot || ''
   USAGE = env.usage || ''
   TIER = env.tier || ''
+  configureReplayMock(env.replay)
   // A fresh install starts with every channel off and no keys saved.
   channels = MOCK_CHANNELS.map((c) => ({ ...c, mode: FRESH ? 'off' : c.mode }))
   keys = Object.fromEntries(Object.entries(MOCK_KEYS).map(([k, v]) => [k, { ...v, dashboard: FRESH ? false : v.dashboard }]))
@@ -858,6 +863,7 @@ function setupMock(req: any, url: string, send: (obj: unknown, status?: number) 
 /** Answer one request from the fixture, or call `next` for anything it doesn't cover. */
 export function handle(req: any, url: string, send: MockSend, next: () => void): void {
   if (SETUP && setupMock(req, url, send)) return
+  if (replayMock(req, url, send)) return
   if (url.startsWith('/api/setup/status')) return send({ configured: true })
   // Exact-match: `/api/me` as a prefix also swallows `/api/messages`.
   // `MOCK_ROLE=admin` signs in as a Manage Server admin rather than the operator, who

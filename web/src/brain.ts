@@ -107,7 +107,7 @@ export function createBrain({ root, activity, open: startOpen }: { root: HTMLEle
     if (reduce.matches) return p < 0.5 ? Fs : Fb
     const e = inOut(seg(p, 0.1, 0.85))
     const F = {} as Framing
-    for (const k of Object.keys(Fb) as (keyof Framing)[]) F[k] = lerp(Fs[k], Fb[k], e)
+    for (const k of Object.keys(Fb) as (keyof Framing)[]) F[k] = lerp(Fs[k] ?? 0, Fb[k] ?? 0, e)
     return F
   }
   const orbFrame = () => framingFor({ x: 0, y: 0, w: view.w, h: view.h })
