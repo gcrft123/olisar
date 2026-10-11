@@ -150,6 +150,14 @@ class CanaryTests(unittest.TestCase):
         result, _ = _run([_Api(404, "This model is no longer available.")])
         self.assertEqual(result.status, "failed")
 
+    def test_a_model_withheld_from_this_project_is_inconclusive(self):
+        """Google serves the Gemini 2.5 pair only to projects that used it before. Nothing in
+        the chain needs editing, so a newer project mustn't get a daily false alarm."""
+        result, _ = _run([_Api(
+            404, "This model models/gemini-2.5-flash is no longer available to new users.",
+        )])
+        self.assertEqual(result.status, "inconclusive")
+
     def test_a_rejected_shape_is_still_a_failure(self):
         result, _ = _run([_resp_with_call(), _Api(400, "Role 'tool' is not supported")])
         self.assertEqual(result.status, "failed")

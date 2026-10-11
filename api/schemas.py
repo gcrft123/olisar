@@ -150,6 +150,11 @@ class BillingIn(BaseModel):
     monthly_budget_usd: float | None = Field(None, ge=0, le=1_000_000)
     budget_action: Literal["stop", "cheapest"] | None = None
     gemini_images: bool | None = None
+    # Model routing's switch for each tier (olisar/routing). The console shows the one for
+    # the key's current tier.
+    routing_free: bool | None = None
+    routing_paid: bool | None = None
+    routing_pro: bool | None = None  # the deep tier asks Gemini Pro first (billing on)
 
 
 class CloudflareCheckIn(BaseModel):

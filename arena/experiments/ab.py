@@ -168,18 +168,34 @@ def _spread(arm: Arm) -> dict[str, float]:
     return out
 
 
+def _counts(arm: Arm) -> dict[str, int]:
+    """How many graded runs scored each dimension. A dimension is only scored on the
+    scenarios whose rubric names it, so most have far fewer runs than the arm does."""
+    out: dict[str, int] = {}
+    for score in arm.graded():
+        for key in score.dimensions:
+            out[key] = out.get(key, 0) + 1
+    return out
+
+
 def _verdict(deltas: dict[str, float], a_sd: dict[str, float], b_sd: dict[str, float],
-             n: int) -> dict[str, str]:
+             a_n: dict[str, int], b_n: dict[str, int]) -> dict[str, str]:
     """Read each delta against the noise, not against zero.
 
-    The bar is one standard error of the difference. It is a smell test, not statistics —
+    The bar is the standard error of the difference of the two means, from each
+    dimension's own spread and its own count of runs. It is a smell test, not statistics —
     at these sample sizes nothing here is significant in any formal sense, and the point is
     to stop a number that looks like an effect from being reported as one.
+
+    It used to divide by the arm's whole run count for every dimension: accuracy, scored
+    in 2 of 12 scenarios, had its noise measured as if all 36 runs had scored it, and a
+    +1.17 between two arms that ran the same model on those scenarios read "clears 2 SE".
     """
     out = {}
     for key, delta in deltas.items():
-        pooled = ((a_sd.get(key, 0.0) ** 2 + b_sd.get(key, 0.0) ** 2) / 2) ** 0.5
-        se = pooled / max(n, 1) ** 0.5 if pooled else 0.0
+        na, nb = a_n.get(key, 0), b_n.get(key, 0)
+        sa, sb = a_sd.get(key, 0.0), b_sd.get(key, 0.0)
+        se = (sa ** 2 / na + sb ** 2 / nb) ** 0.5 if na and nb and (sa or sb) else 0.0
         if not se:
             out[key] = "no spread measured"
         elif abs(delta) < se:
@@ -244,7 +260,8 @@ def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
         key: round(b_means.get(key, 0.0) - value, 2)
         for key, value in sorted(a_means.items())
     }
-    read = _verdict(deltas, a_sd, b_sd, min(len(a.graded()), len(b.graded())))
+    a_n, b_n = _counts(a), _counts(b)
+    read = _verdict(deltas, a_sd, b_sd, a_n, b_n)
     a_mix, b_mix = _model_mix(a), _model_mix(b)
     warning = _mix_warning(a_mix, b_mix)
     if warning:
@@ -268,12 +285,14 @@ def _report(a: Arm, b: Arm, scenarios: list[Scenario]) -> dict:
             "variant": a.variant, "graded": len(a.graded()),
             "inconclusive": a.inconclusive, "means": {k: round(v, 2) for k, v in a_means.items()},
             "sd": {k: round(v, 2) for k, v in a_sd.items()},
+            "n": a_n,
             "model_mix": a_mix,
         },
         "b": {
             "variant": b.variant, "graded": len(b.graded()),
             "inconclusive": b.inconclusive, "means": {k: round(v, 2) for k, v in b_means.items()},
             "sd": {k: round(v, 2) for k, v in b_sd.items()},
+            "n": b_n,
             "model_mix": b_mix,
         },
         "delta_b_minus_a": deltas,

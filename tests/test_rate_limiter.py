@@ -54,3 +54,37 @@ class UnionChainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmbeddingBatchTests(unittest.TestCase):
+    """Google counts every text in an embedding batch as a request, so a batch takes one
+    per-minute slot per text. It used to take one, which let indexing blow through a free
+    key's 100 a minute."""
+
+    def test_a_batch_takes_a_slot_per_text(self):
+        import asyncio
+
+        limiter = RateLimiter()
+        asyncio.run(limiter.acquire("gemini-embedding-001", n=50))
+        self.assertEqual(limiter.current("gemini-embedding-001"), 50)
+
+    def test_a_batch_that_wont_fit_waits(self):
+        import asyncio
+
+        limiter = RateLimiter()
+        asyncio.run(limiter.acquire("gemini-embedding-001", n=60))  # a free key allows 100
+        with self.assertRaises(asyncio.TimeoutError):
+            asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001", n=50), 0.5))
+        asyncio.run(asyncio.wait_for(limiter.acquire("gemini-embedding-001", n=40), 0.5))
+
+    def test_the_rollup_counts_each_text(self):
+        from datetime import date, datetime, timezone
+
+        from olisar.gemini.rate_limiter import _UsageBuffer
+
+        buf = _UsageBuffer()
+        buf.add(day=date(2026, 10, 10), hour=3, model="gemini-embedding-001", tokens=0,
+                grounding=0, source="embed", rpm=50, rpm_at=datetime.now(timezone.utc),
+                tpm=0, key="k", requests=50)
+        self.assertEqual(buf.models[(date(2026, 10, 10), "gemini-embedding-001")]["requests"], 50)
+        self.assertEqual(buf.sources[(date(2026, 10, 10), "embed")], 50)

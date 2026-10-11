@@ -29,11 +29,25 @@ from sqlalchemy import func, select
 from api.auth.deps import require_admin
 from olisar.config import settings
 from olisar.db.engine import session_scope
-from olisar.db.models import AdminUser, GeminiUsage, UsageDay, UsageHour, UsageSource
+from olisar.db.models import (
+    AdminUser,
+    GeminiUsage,
+    UsageDay,
+    UsageHour,
+    UsageRoute,
+    UsageSource,
+)
 from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.gemini.client import get_gemini
-from olisar.gemini.models import GEMINI_IMAGE_MODEL, GROUNDING_RPD, rpd_for, rpm_for
+from olisar.gemini.models import (
+    GEMINI_IMAGE_MODEL,
+    GROUNDING_RPD,
+    SEARCH_FREE_CHAIN,
+    quota_model,
+    rpd_for,
+    rpm_for,
+)
 from olisar.gemini.pricing import SEARCH_FREE_PER_MONTH, daily_costs, tokens_cost
 from olisar.gemini.quota import aware, day_start, next_reset, quota_day, quota_hour
 from olisar.gemini.rate_limiter import (
@@ -114,7 +128,10 @@ async def live(
     A model is ``spent`` once Google has refused it for the day, whatever Olisar counted:
     the quota is per Google Cloud project, so something else on the project can use it up.
     ``limit`` is the daily limit Google last named in a refusal, else the assumed figure in
-    olisar/gemini/models.py.
+    olisar/gemini/models.py. ``shares`` names the model whose allowance a -latest alias draws
+    on, when that model is in the chain too; the alias's ``limit`` is then that model's, and
+    the two rows are one allowance between them. A model Google doesn't serve to the key's
+    project (the Gemini 2.5 pair on a newer one) is ``unavailable`` with a limit of 0.
 
     ``exhausted`` is bot-wide, for the sidebar: true only when no active server can be
     answered, every model in every server's chain parked or at its RPM cap. A single model
@@ -156,23 +173,40 @@ async def live(
     for model, limit in named:
         google_limit.setdefault(model, int(limit))
 
-    def spent_at(model: str) -> datetime | None:
+    def stored_spent(model: str) -> datetime | None:
         row = today.get(model)
-        stored = row.exhausted_at if row and row.exhausted_key == kid else None
-        return limiter.spent_at(model) or aware(stored)
+        return aware(row.exhausted_at) if row and row.exhausted_key == kid else None
+
+    def spent_at(model: str) -> datetime | None:
+        twin = quota_model(model)
+        return (
+            limiter.spent_at(model) or stored_spent(model)
+            or (stored_spent(twin) if twin != model else None)
+        )
 
     chain = []
     for name in shown:
         row = today.get(name)
         out = spent_at(name)
+        # Google doesn't serve it to this key's project: no allowance to count.
+        unavailable = limiter.withheld(name)
         resting = out is None and limiter.state(name) in ("cooldown", "rpm_full")
+        # A -latest alias draws on the allowance of the model it points to. Shown with that
+        # model's limit and marked as sharing it, so the page counts the allowance once.
+        twin = quota_model(name)
+        shares = twin if twin != name and twin in shown else None
+        bucket = shares or name
         chain.append({
             "model": name,
+            "shares": shares,
             "requests": row.request_count if row else 0,
             "tokens": row.token_count if row else 0,
-            "limit": google_limit.get(name) or rpd_for(name),
-            "limit_from_google": name in google_limit,
-            "state": "spent" if out else "resting" if resting else "ok",
+            "limit": 0 if unavailable else google_limit.get(bucket) or rpd_for(bucket),
+            "limit_from_google": bucket in google_limit,
+            "state": (
+                "unavailable" if unavailable else "spent" if out
+                else "resting" if resting else "ok"
+            ),
             "back_in": math.ceil(limiter.back_in(name)) if resting else None,
             "spent_at": _iso(out),
             "cost": round(tokens_cost(row), 4) if row else 0.0,
@@ -212,6 +246,9 @@ async def live(
             # shorter block is a per-minute throttle. A billed key can go past its free
             # searches, at a price, so it isn't spent then.
             "spent": blocked is not None and blocked >= reset - timedelta(minutes=1),
+            # A free key searches on the Gemini 2.5 models alone, and Google doesn't serve
+            # those to a newer project: then there's no free web search at all.
+            "unavailable": not paid and all(limiter.withheld(m) for m in SEARCH_FREE_CHAIN),
         },
         "billing": {
             "today": round(costs.get(day, 0.0), 4),
@@ -235,7 +272,10 @@ async def summary(_: AdminUser = Depends(require_admin)):
     * ``busiest_minute`` — today's chat model that came closest to its per-minute limit.
     * ``last_ran_out`` — the last time every model in the chain was out for the day.
     * ``days`` — chat requests per day for the last ``DAYS_SHOWN`` days, today last, with
-      when the chain ran out on any day it did."""
+      when the chain ran out on any day it did.
+    * ``routing`` — replies per model-routing tier today and this month (olisar/routing):
+      how many, how many a light route handed up, how many deep replies a cap kept off Pro,
+      what they cost, and what the same tokens would have cost on the standard tier."""
     now = datetime.now(timezone.utc)
     today = quota_day(now)
     first = today - timedelta(days=29)
@@ -259,6 +299,11 @@ async def summary(_: AdminUser = Depends(require_admin)):
             await session.scalars(select(UsageDay).where(UsageDay.day >= first_shown))
         ).all()
         last_ran_out = await session.scalar(select(func.max(UsageDay.chain_out_at)))
+        routes = (
+            await session.scalars(
+                select(UsageRoute).where(UsageRoute.day >= spend.month_start(today))
+            )
+        ).all()
 
     def by_source(since) -> dict[str, int]:
         out: dict[str, int] = {}
@@ -295,6 +340,24 @@ async def summary(_: AdminUser = Depends(require_admin)):
             per_day[u.day] += u.request_count
     out_at = {d.day: d.chain_out_at for d in ran_out}
 
+    def by_tier(since) -> dict[str, dict]:
+        out: dict[str, dict] = {}
+        for r in routes:
+            if r.day < since:
+                continue
+            t = out.setdefault(r.tier, {
+                "replies": 0, "escalated": 0, "capped": 0, "cost": 0.0, "standard_cost": 0.0,
+            })
+            t["replies"] += r.replies
+            t["escalated"] += r.escalated
+            t["capped"] += r.capped
+            t["cost"] += r.cost_usd or 0.0
+            t["standard_cost"] += r.standard_usd or 0.0
+        for t in out.values():
+            t["cost"] = round(t["cost"], 4)
+            t["standard_cost"] = round(t["standard_cost"], 4)
+        return out
+
     return {
         "day": today.isoformat(),
         "features": {
@@ -308,7 +371,7 @@ async def summary(_: AdminUser = Depends(require_admin)):
         ),
         "busiest_minute": (
             {
-                "model": busiest.model,
+                "model": quota_model(busiest.model),
                 "requests": busiest.peak_rpm,
                 "limit": rpm_for(busiest.model, paid),
                 "at": _iso(busiest.peak_rpm_at),
@@ -316,6 +379,12 @@ async def summary(_: AdminUser = Depends(require_admin)):
             if busiest else None
         ),
         "last_ran_out": _iso(last_ran_out),
+        "routing": {
+            "today": by_tier(today),
+            "month": by_tier(spend.month_start(today)),
+            # What the cost is compared with: every reply on the standard tier's head model.
+            "standard_model": settings.gemini_chat_model,
+        },
         "days": [
             {
                 "day": d.isoformat(), "requests": n, "ran_out_at": _iso(out_at.get(d)),

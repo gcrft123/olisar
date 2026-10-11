@@ -88,6 +88,8 @@ hiddenimports += collect_submodules("asyncssh")
 datas += _datafiles("olisar/sandbox", ["*.js", "*.d.ts"], "olisar/sandbox")
 datas += _datafiles("olisar/sandbox/vendor", ["*.js"], "olisar/sandbox/vendor")
 datas += _datafiles("olisar/extensions/sdk_builtins", ["*.js"], "olisar/extensions/sdk_builtins")
+# Model routing's fitted classifier (weights and example centroids), read at startup.
+datas += _datafiles("olisar/routing", ["*.json"], "olisar/routing")
 
 # discord.py loads cogs via importlib (bot.load_extension), invisible to static
 # analysis — so every cog must be a hidden import. Derive the list from the files on

@@ -35,7 +35,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
-from olisar.gemini.models import DEFAULT_CHAT_MODEL
+from olisar.gemini.models import AUTO
 from olisar.persona import DEFAULT_SLANG_DENSITY
 
 
@@ -159,7 +159,10 @@ class GuildConfig(Base):
     # always denies. Server admins (Manage Server) bypass both. See olisar/access.py.
     allowed_role_ids: Mapped[list] = mapped_column(JSON, default=list)
     blocked_role_ids: Mapped[list] = mapped_column(JSON, default=list)
-    default_model: Mapped[str] = mapped_column(String(64), default=DEFAULT_CHAT_MODEL)
+    # A model to pin every reply to, or AUTO ("auto") to let model routing pick per message
+    # when the install has routing on (olisar/routing), and reply as GEMINI_CHAT_MODEL when
+    # it doesn't.
+    default_model: Mapped[str] = mapped_column(String(64), default=AUTO)
     grounding_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # The most web searches this server may run: a day's worth on a free key, whose search
     # allowance is daily, and a month's on a billed one, whose free searches are monthly.
@@ -794,6 +797,20 @@ class AppConfig(Base):
     budget_action: Mapped[str] = mapped_column(Text, default="cheapest")
     # Whether a billed key makes images on Gemini rather than Cloudflare (olisar/imaging.py).
     gemini_images: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Model routing (olisar/routing): pick a model for each reply on the servers set to
+    # Automatic. One switch per tier, since the tier belongs to the key and can change under
+    # the install: off by default on a free key, where it saves no money, and on by default
+    # with billing on. Turning billing on or off brings back the operator's choice for that
+    # tier rather than carrying the other one's over.
+    routing_free: Mapped[bool] = mapped_column(Boolean, default=False)
+    routing_paid: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Whether routing's deep tier asks Gemini 3.1 Pro first on a billed key. On by default:
+    # in the reply path Pro answered hard questions in 8 to 14 seconds, where 3.8 Flash
+    # thinking hard often ran web search two or three times first (2026-10-10).
+    routing_pro: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Whether servers still on the seeded default model have been moved to Automatic, once
+    # (scripts/init_db.migrate_to_auto). Not a setting.
+    routing_migrated: Mapped[bool] = mapped_column(Boolean, default=False)
     # 'local' (bot runs here) or 'server' (bot runs on the operator's cloud VM; this
     # install is just the deploy + control tool — no local bot is started, no Discord
     # creds stored locally; they live in the VM's .env).
@@ -1172,6 +1189,26 @@ class UsageSource(Base):
     day: Mapped[datetime] = mapped_column(Date, index=True)
     source: Mapped[str] = mapped_column(String(32))
     request_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class UsageRoute(Base):
+    """Replies per day per model-routing tier (olisar/routing): how many, how many a light
+    route handed up to standard mid-reply, how many asked for deep and got standard because
+    a cap or the budget said no, and what they cost. ``standard_usd`` prices the same tokens
+    on the standard tier's head model, which is what the Usage page compares the cost with.
+    Never message text."""
+
+    __tablename__ = "usage_route"
+    __table_args__ = (UniqueConstraint("day", "tier", name="uq_usage_route_day_tier"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    day: Mapped[datetime] = mapped_column(Date, index=True)
+    tier: Mapped[str] = mapped_column(String(16))  # "light" | "standard" | "deep"
+    replies: Mapped[int] = mapped_column(Integer, default=0)
+    escalated: Mapped[int] = mapped_column(Integer, default=0)
+    capped: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    standard_usd: Mapped[float] = mapped_column(Float, default=0.0)
 
 
 class UsageMinutePeak(Base):
