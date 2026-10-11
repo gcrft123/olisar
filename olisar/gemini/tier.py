@@ -45,6 +45,9 @@ _PROBE_BODY = {
 _FRESH = {FREE: timedelta(hours=6), PAID: timedelta(hours=24)}
 # After a probe that couldn't tell (an outage, a bad key), when to try again.
 _RETRY_UNKNOWN = timedelta(minutes=15)
+# A key typed, saved or removed in the console is asked about again, unless Google answered
+# for it this recently: typing, saving and the page reloading would otherwise ask three times.
+_JUST_ASKED = timedelta(seconds=30)
 
 _known: dict[str, tuple[str, datetime]] = {}  # key fingerprint -> (tier, when Google said)
 _unknown_at: dict[str, datetime] = {}  # key fingerprint -> when a probe last couldn't tell
@@ -139,16 +142,25 @@ async def _store(kid: str, tier: str, at: datetime) -> None:
         log.exception("couldn't save the Gemini key's tier")
 
 
-async def check(key: str) -> str | None:
+def _due(kid: str, fresh: bool) -> bool:
+    if not fresh:
+        return _stale(kid)
+    entry = _known.get(kid)
+    return entry is None or _now() - entry[1] >= _JUST_ASKED
+
+
+async def check(key: str, *, fresh: bool = False) -> str | None:
     """The tier of ``key``: Google's last answer while it's fresh, else a new one. For the
-    key in use and for a key typed into the console alike."""
+    key in use and for a key typed into the console alike. ``fresh`` asks Google again
+    whatever it last said, for when someone has just typed or changed the key: billing may
+    have been turned on or off since."""
     kid = key_id(key)
     if kid is None:
         return None
-    if not _stale(kid):
+    if not _due(kid, fresh):
         return known(kid)
     async with _the_lock():
-        if not _stale(kid):
+        if not _due(kid, fresh):
             return known(kid)
         tier = await probe(key)
         now = _now()
@@ -165,10 +177,11 @@ async def check(key: str) -> str | None:
     return tier
 
 
-async def current() -> str | None:
-    """The tier of the key in use, asking Google when the last answer has gone stale."""
+async def current(*, fresh: bool = False) -> str | None:
+    """The tier of the key in use, asking Google when the last answer has gone stale (or
+    whatever it said, with ``fresh``)."""
     key = await runtime_keys.gemini_api_key()
-    return await check(key) if key else None
+    return await check(key, fresh=fresh) if key else None
 
 
 def refresh_soon() -> None:
