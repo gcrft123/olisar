@@ -241,7 +241,8 @@ class StatsRunTests(_Case):
         self.assertEqual(r["first"]["channel"], "general")
         # The first five: wren keeps a place as Someone, with no words.
         founders = r["founders"]
-        self.assertEqual(founders[0], {"who": None, "at": founders[0]["at"], "count": None, "msg": None})
+        self.assertEqual(founders[0], {"who": None, "at": founders[0]["at"], "count": None, "msg": None, "gone": True})
+        self.assertFalse(founders[1]["gone"])
         self.assertEqual([r["people"][f["who"]]["name"] for f in founders[1:]], ["juniper", "okapi", "bram", "tess"])
         # The busiest day is the night of February 3, in #general, at night there.
         night = r["night"]
