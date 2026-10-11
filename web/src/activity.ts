@@ -160,3 +160,17 @@ export function defaultAvatar(name: string): string {
 }
 
 export const avatarOf = (p: Person | null | undefined) => (p?.avatar ? p.avatar : defaultAvatar(p?.name || ''))
+
+// An animated avatar is a GIF on Discord's CDN, and the same address as a PNG is its first
+// frame. Memories show the still and play the GIF only while they're hovered. Both come at
+// 128px, enough for the largest a memory draws one (56px), so the GIF arrives quickly.
+// Anything else is null, and draws as it is.
+export function animatedAvatar(url: string): { still: string; moving: string } | null {
+  let u: URL
+  try { u = new URL(url) } catch { return null }
+  if (u.hostname !== 'cdn.discordapp.com' || !u.pathname.endsWith('.gif')) return null
+  u.searchParams.set('size', '128')
+  const moving = u.toString()
+  u.pathname = u.pathname.slice(0, -'.gif'.length) + '.png'
+  return { still: u.toString(), moving }
+}

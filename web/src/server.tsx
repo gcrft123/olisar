@@ -1,7 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from './api'
-import { avatarOf, createActivity, type ActivityItem, type Person } from './activity'
+import { animatedAvatar, avatarOf, createActivity, type ActivityItem, type Person } from './activity'
 import { BotMenu, intentList, sharedServers, useBots } from './bots'
 import { createBrain, type Brain } from './brain'
 import { SHAPE, type Mood } from './form'
@@ -821,8 +821,15 @@ function kindOf<K extends ActivityItem['kind']>(m: Extract<ActivityItem, { kind:
 // The first sentence of an impression, for the ring; the whole of it opens.
 const firstSentence = (t: string) => { const m = /^(.+?[.!?])(\s|$)/.exec(t); return m ? m[1] : t }
 
+// Whether the memory an avatar sits in is hovered (or keyboard-focused, on the ring), which is
+// when an animated one plays. Otherwise it holds its first frame.
+const Playing = createContext(false)
+
 function Av({ who, size = 20 }: { who: Person; size?: number }) {
-  return <img className="mem-av" src={avatarOf(who)} alt="" width={size} height={size} />
+  const playing = useContext(Playing)
+  const url = avatarOf(who)
+  const anim = animatedAvatar(url)
+  return <img className="mem-av" src={anim ? (playing ? anim.moving : anim.still) : url} alt="" width={size} height={size} />
 }
 
 // An address that doesn't fit starts at the left and trails off to the right, well inside the
@@ -860,6 +867,8 @@ function Memory({ m, now, brain }: { m: ActivityItem; now: number; brain: Brain 
   // leaves the age off.
   const foot = m.kind === 'health' ? `Checked ${secsAgo(m.at, now)}s ago` : m.at ? `${k.tag(m)} · ${agoShort(m.at, now)}` : k.tag(m)
   const more = k.more?.(m)
+  const [playing, setPlaying] = useState(false)
+  const peek = (on: boolean) => { brain.peek(m.id, on); setPlaying(on) }
   return (
     <li className={'mem mem-' + m.kind} data-mem={m.id}>
       <div
@@ -867,16 +876,16 @@ function Memory({ m, now, brain }: { m: ActivityItem; now: number; brain: Brain 
         role="button"
         tabIndex={0}
         aria-label={k.say(m, m.at ? agoLong(m.at, now) : 'earlier')}
-        onPointerEnter={() => brain.peek(m.id, true)}
-        onPointerLeave={() => brain.peek(m.id, false)}
-        onBlur={() => brain.peek(m.id, false)}
-        onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) brain.peek(m.id, true) }}
+        onPointerEnter={() => peek(true)}
+        onPointerLeave={() => peek(false)}
+        onBlur={() => peek(false)}
+        onFocus={(e) => { if (e.currentTarget.matches(':focus-visible')) peek(true) }}
         onClick={openIt}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIt() } }}
       >
         <div className="mem-mask" aria-hidden="true">
           <div className="mem-in">
-            <MemoryBody m={m} />
+            <Playing.Provider value={playing}><MemoryBody m={m} /></Playing.Provider>
             <div className="mem-foot">{foot}</div>
             {more && <div className="mem-more">{more}</div>}
           </div>
@@ -939,6 +948,7 @@ function MemoryOpen({ m, isOpen, arrived, now, brain, bot }: {
 }) {
   const el = useRef<HTMLElement>(null)
   const back = useRef<HTMLButtonElement>(null)
+  const [playing, setPlaying] = useState(false)
   useInert(el, !isOpen)
   // Once it's in the middle, so Back's tooltip isn't left where the sphere was on its way.
   useEffect(() => { if (isOpen && arrived) back.current?.focus({ preventScroll: true }) }, [m.id, isOpen, arrived])
@@ -947,13 +957,16 @@ function MemoryOpen({ m, isOpen, arrived, now, brain, bot }: {
   const more = 'where' in m ? m.where : ''
   const head = m.kind === 'health' ? 'Health check' : [k.tag(m), more, when].filter(Boolean).join(' · ')
   return (
-    <section ref={el} className={'mem-open mem-open-' + m.kind} aria-label={k.say(m, when || 'earlier')}>
+    <section
+      ref={el} className={'mem-open mem-open-' + m.kind} aria-label={k.say(m, when || 'earlier')}
+      onPointerEnter={() => setPlaying(true)} onPointerLeave={() => setPlaying(false)}
+    >
       <button className="ghost icon-btn mem-back" ref={back} aria-label="Back" data-tip="Back" onClick={() => brain.close()}>
         <Icon.arrowLeft size={18} />
       </button>
       <div className="mo-in">
         <div className="mo-head">{head}</div>
-        <div className="mo-body"><OpenBody m={m} now={now} bot={bot} /></div>
+        <div className="mo-body"><Playing.Provider value={playing}><OpenBody m={m} now={now} bot={bot} /></Playing.Provider></div>
       </div>
     </section>
   )

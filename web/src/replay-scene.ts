@@ -14,6 +14,7 @@
 // What a member, Discord or a model wrote is set as text, never as markup. Where a line has
 // to be markup (bold, mono), what goes into it is escaped, and names sit in <bdi>.
 
+import { animatedAvatar } from './activity'
 import { apiUrl } from './api'
 import { NSAT, SHAPE, layoutRect, zoomOf, type Form, type Satellite } from './form'
 import {
@@ -120,8 +121,19 @@ export function createScene(o: SceneOpts) {
   const whoHtml = (who: string | null | undefined) => bdi(nm(who))
   const img = (src: string, size: number, cls = 'rp-av') => {
     const el = h('img', { class: cls, src, alt: '', width: size, height: size, style: { width: size + 'px', height: size + 'px' } }) as HTMLImageElement
-    el.addEventListener('error', () => { if (el.src !== blank) el.src = blank }, { once: true })
+    el.addEventListener('error', () => { delete el.dataset.moving; if (el.src !== blank) el.src = blank }, { once: true })
     return el
+  }
+  // A face in a memory: an animated avatar holds its first frame there until play() runs it,
+  // while the memory is hovered.
+  const face = (src: string, size: number, cls = 'rp-av') => {
+    const anim = animatedAvatar(src)
+    const el = img(anim ? anim.still : src, size, cls)
+    if (anim) { el.dataset.still = anim.still; el.dataset.moving = anim.moving }
+    return el
+  }
+  const play = (root: Element, on: boolean) => {
+    for (const el of root.querySelectorAll<HTMLImageElement>('img[data-moving]')) el.src = (on ? el.dataset.moving : el.dataset.still)!
   }
   const SRV = () => bdi(report?.guild.name || '')
   const names = () => Object.values(report?.people || {}).map((p) => p.name).concat(report?.bot.name || [])
@@ -215,15 +227,15 @@ export function createScene(o: SceneOpts) {
   function sphereWords(s: Spec): (Node | null)[] {
     const foot = h('div', { class: 'rp-mem-foot' }, s.foot || '')
     switch (s.kind) {
-      case 'member': return [h('div', { class: 'rp-mem-who' }, img(av(s.who), 34), h('bdi', {}, nm(s.who))), foot]
+      case 'member': return [h('div', { class: 'rp-mem-who' }, face(av(s.who), 34), h('bdi', {}, nm(s.who))), foot]
       case 'left': return [h('div', { class: 'rp-mem-who' }, img(blank, 34), h('span', {}, 'Someone')), foot]
-      case 'faces': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((n) => img(av(n), 22))), h('div', { class: 'rp-mem-text' }, s.text || ''), foot]
-      case 'quote': return [h('div', { class: 'rp-mem-who' }, img(av(s.who), 18), h('bdi', {}, nm(s.who))), h('div', { class: 'rp-mem-text', dir: 'auto' }, s.text || ''), foot]
+      case 'faces': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((n) => face(av(n), 22))), h('div', { class: 'rp-mem-text' }, s.text || ''), foot]
+      case 'quote': return [h('div', { class: 'rp-mem-who' }, face(av(s.who), 18), h('bdi', {}, nm(s.who))), h('div', { class: 'rp-mem-text', dir: 'auto' }, s.text || ''), foot]
       case 'term': return [h('div', { class: 'rp-mem-term' + (s.long ? ' long' : ''), dir: 'auto' }, s.term || ''), s.text ? h('div', { class: 'rp-mem-text' }, s.text) : null, foot]
-      case 'count': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((n) => img(av(n), 20))), h('div', { class: 'rp-mem-big num' }, s.big || ''), foot]
+      case 'count': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((n) => face(av(n), 20))), h('div', { class: 'rp-mem-big num' }, s.big || ''), foot]
       case 'name': return [h('div', { class: 'rp-mem-was', dir: 'auto' }, s.text || ''), foot]
       case 'answer': return [h('div', { class: 'rp-mem-text', dir: 'auto' }, `“${s.text}”`), foot]
-      case 'blur': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((src) => img(src || blank, 18))), h('div', { class: 'rp-mem-bar wide' }), h('div', { class: 'rp-mem-bar' }), foot]
+      case 'blur': return [h('div', { class: 'rp-mem-faces' }, (s.faces || []).map((src) => face(src || blank, 18))), h('div', { class: 'rp-mem-bar wide' }), h('div', { class: 'rp-mem-bar' }), foot]
     }
   }
   const live = (s: Spec) => !!(s.open || s.onClick)
@@ -242,6 +254,7 @@ export function createScene(o: SceneOpts) {
       act: 0, tact: 1, bright: 1, tbright: 1, peek: 0, peekT: 0, ripple: 0, at: 0, placed: false, box: 140,
     }
     const peek = (on: boolean) => {
+      play(inner, on)
       const can = live(S.spec)
       if (can) S.peekT = on ? 1 : 0
       node.toggleAttribute('data-peek', on && can)
@@ -266,6 +279,7 @@ export function createScene(o: SceneOpts) {
     if (k === S.key) return
     S.key = k
     S.inner.replaceChildren(...(sphereWords(spec).filter(Boolean) as Node[]))
+    play(S.inner, S.btn.matches(':hover, :focus'))
     S.cap.textContent = spec.more || ''
     S.node.className = `rp-mem rp-mem-${spec.kind}${live(spec) ? '' : ' inert'}`
     S.btn.tabIndex = live(spec) ? 0 : -1
@@ -350,7 +364,9 @@ export function createScene(o: SceneOpts) {
   const openEl = $('.rp-open')
   const openIn = $('.rp-open-in')
   const openBack = $<HTMLButtonElement>('.rp-back')
-  let openReturn: HTMLElement | null = null, openShown = 0
+  let openReturn: HTMLElement | null = null, openShown = 0, openHover = false
+  openIn.addEventListener('pointerenter', () => { openHover = true; play(openIn, true) }, { signal })
+  openIn.addEventListener('pointerleave', () => { openHover = false; play(openIn, false) }, { signal })
   const openSpot = () => wide()
     ? { x: W * 0.5, y: H * 0.47, r: Math.min(H * 0.37, W * 0.27, 330) }
     : { x: W * 0.5, y: H * 0.45, r: Math.min(W * 0.46, H * 0.36) }
@@ -361,6 +377,7 @@ export function createScene(o: SceneOpts) {
     openReturn = S.btn
     S.node.setAttribute('data-open', '')
     openIn.replaceChildren(...S.spec.open())
+    play(openIn, openHover)
     openIn.scrollTop = 0
     openEl.style.visibility = 'visible'
     openShown = 0
@@ -578,7 +595,7 @@ export function createScene(o: SceneOpts) {
   }
   const msgRows = (msgs: (Msg | Gap)[]) => h('div', { class: 'rp-mo-chat' }, msgs.map((m) => isGap(m)
     ? h('div', { class: 'rp-mo-gap' }, m.gap)
-    : h('div', { class: 'rp-mo-msg' + (m.who === 'bot' ? ' bot' : '') }, img(av(m.who), 24),
+    : h('div', { class: 'rp-mo-msg' + (m.who === 'bot' ? ' bot' : '') }, face(av(m.who), 24),
         h('div', {}, h('b', {}, h('bdi', {}, nm(m.who)), h('time', {}, timeLabel(m))), m.text ? h('p', { dir: 'auto' }, m.text) : null, pictures(m)))))
   const link = (m: Msg | undefined) => m && report
     ? h('a', { class: 'rp-mo-link', href: discordLink(report.guild.id, m), target: '_blank', rel: 'noopener noreferrer', onclick: (e: Event) => e.stopPropagation() }, 'Open in Discord')
@@ -595,7 +612,7 @@ export function createScene(o: SceneOpts) {
       kind: 'member', who: f.who, foot: day, more: said ? `“${clip(said.text).slice(0, 60)}”` : '', label: `${nm(f.who)}, ${day}`,
       open: () => [
         head(said ? `#${said.chn} · ${longDate(said.at, tz)}` : longDate(f.at, tz)),
-        img(av(f.who), 56, 'rp-av rp-mo-av'),
+        face(av(f.who), 56, 'rp-av rp-mo-av'),
         h('div', { class: 'rp-mo-name' }, h('bdi', {}, nm(f.who))),
         said ? msgRows([said]) : null,
         f.count ? meta(`First words. Still here, ${plural(f.count, 'message')} later.`) : null,

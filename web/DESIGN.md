@@ -651,8 +651,9 @@ stretch that would overlap the corner. Clicking one brings it to the middle with
 back button at the sphere's upper left, or Escape, sends it home and returns focus to it. A long
 memory never runs over that button: its heading sits beside it, only what's under the heading
 scrolls, and at its tallest the text starts level with the button's top. The activity comes from the VM (`/api/server/activity`, activity.ts), never includes a DM, and falls
-back to Discord's default avatar for anyone without one. Without WebGL2 the memories get hairline
-rings.
+back to Discord's default avatar for anyone without one. An animated avatar shows its first frame
+and plays only while its memory is hovered or focused, or, opened, while the pointer is over it
+(`animatedAvatar` in activity.ts). Without WebGL2 the memories get hairline rings.
 
 Memory text follows the type floor: the mono footer ("/ask · 5m") is 11.5px `--text-3`, the
 ActivityLedger's timestamp treatment, not a smaller size of its own.
@@ -744,7 +745,8 @@ words fade in, and each slot eases its height on `--ease-narr`. A quote's full t
 (hidden) before it types in, so the slot doesn't grow under it. Memories (`.rp-mem`) are spheres
 of the form's dust with their words laid over them, out of focus until hovered or focused, with a
 caption under the sphere for what opening it shows; opened, a memory comes to the middle, large,
-and the rest step out to the edges, as on the final server screen. Dust thrown across the window
+and the rest step out to the edges, as on the final server screen. Their animated avatars hold
+still until hovered the same way; the narration's quotes play theirs. Dust thrown across the window
 (people arriving, the pick spreading) never crosses the narration, the HUD or the chapters. The
 last beat puts every memory the replay showed on one ring, with the question set inside the form.
 
