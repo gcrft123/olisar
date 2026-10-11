@@ -55,7 +55,7 @@ from olisar.gemini import spend
 from olisar.gemini import tier as gemini_tier
 from olisar.routing import enabled as routing_enabled
 from olisar.routing import state as routing_state
-from olisar.gemini.models import AUTO, RANKED, RANKED_NAMES
+from olisar.gemini.models import AUTO, RANKED, RANKED_NAMES, is_alias
 from olisar.gemini.quota import quota_day
 from olisar.messages import DEFAULT_COMMAND_MESSAGES, PLACEHOLDERS
 from olisar.persona import SERVER_TYPES
@@ -169,8 +169,9 @@ async def invite(admin: AdminUser = Depends(require_admin)):
 
 @router.get("/models")
 async def models(admin: AdminUser = Depends(require_admin)):
-    """The ranked Gemini model fallback chain (best -> worst)."""
-    return [{"name": m.name, "label": m.label} for m in RANKED]
+    """The ranked Gemini model fallback chain (best -> worst), without the -latest aliases:
+    each is another name for a model already in the list."""
+    return [{"name": m.name, "label": m.label} for m in RANKED if not is_alias(m.name)]
 
 
 def _bot_avatar_url(request: Request) -> str:

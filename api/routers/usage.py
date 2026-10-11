@@ -371,7 +371,7 @@ async def summary(_: AdminUser = Depends(require_admin)):
         ),
         "busiest_minute": (
             {
-                "model": busiest.model,
+                "model": quota_model(busiest.model),
                 "requests": busiest.peak_rpm,
                 "limit": rpm_for(busiest.model, paid),
                 "at": _iso(busiest.peak_rpm_at),

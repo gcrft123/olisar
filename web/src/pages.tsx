@@ -405,6 +405,10 @@ export function Behavior() {
     { value: 'auto', label: 'Automatic' },
     ...(models ?? []).map((m) => ({ value: m.name, label: `${m.name} — ${m.label}` })),
   ]
+  // A server already pinned to a model the list leaves out (a -latest alias) keeps it shown.
+  if (data.default_model && !modelOpts.some((o) => o.value === data.default_model)) {
+    modelOpts.push({ value: data.default_model, label: data.default_model })
+  }
   const headLabel = (models ?? []).find((m) => m.name === data.routing_head)?.label ?? data.routing_head
   const qh = pro.quiet_hours || {}
   const quietOn = 'start' in qh
