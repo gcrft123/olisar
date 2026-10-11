@@ -4,11 +4,26 @@
 // (olisar/replay/); times in it are UTC, and `tz` is the server's own hour offset, so a
 // night there reads as a night here whatever the viewer's clock says.
 
+/** A picture a quoted message holds (olisar/replay/media.py). A GIF or sticker carries its
+ *  own address; an upload's expires, so it's fetched through the API by its place `i`. */
+export type Media = {
+  kind: 'image' | 'video' | 'gif' | 'sticker'
+  src?: string; poster?: string | null; i?: number; name?: string
+  w?: number | null; h?: number | null
+}
+
 export type Msg = {
   id: string; ch: string; chn: string; at: string
   who: string | null          // a key into `people`, "bot" for Olisar, null for Someone
   text: string
   trigger?: string
+  media?: Media[]
+}
+
+/** What a message is, said in a word, for a memory too small to show the picture. */
+export const mediaWord = (m: Msg) => {
+  const k = m.media?.[0]?.kind
+  return k === 'gif' ? 'A GIF' : k === 'sticker' ? `A sticker${m.media![0].name ? `: ${m.media![0].name}` : ''}` : k === 'video' ? 'A video' : k ? 'An image' : ''
 }
 export type Gap = { gap: string }
 export type PersonRef = { name: string; avatar: string | null }
