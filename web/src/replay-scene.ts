@@ -940,9 +940,11 @@ export function createScene(o: SceneOpts) {
     if (R.night) {
       const N = R.night
       const most = N.in_channel >= 0.8 * N.count
+      // The busiest day, or one of them when the busiest wasn't safe to show.
+      const which = N.rank ? `one of the busiest days ${SRV()} has had` : `the most ${SRV()} has sent in one day`
       const body = most
-        ? `<b>${plural(N.count, 'message')}</b> in <span class="mono">#${esc(N.channel)}</span>, the most ${SRV()} has sent in one day.`
-        : `<b>${plural(N.count, 'message')}</b>, the most ${SRV()} has sent in one day. Most of them were in <span class="mono">#${esc(N.channel)}</span>.`
+        ? `<b>${plural(N.count, 'message')}</b> in <span class="mono">#${esc(N.channel)}</span>, ${which}.`
+        : `<b>${plural(N.count, 'message')}</b>, ${which}. Most of them were in <span class="mono">#${esc(N.channel)}</span>.`
       out.push({
         id: 'night', ch: ch(nightTitle()), auto: 9, cam: () => CAM.corner(),
         form: { shape: SHAPE.whole, v: 1, energy: 0.35, mood: { dim: 0.85 } },

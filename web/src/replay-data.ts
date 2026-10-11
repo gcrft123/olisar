@@ -19,6 +19,7 @@ export type Milestone =
 
 export type Night = {
   day: string; channel: string; channel_id: string; count: number; in_channel: number; night: boolean
+  rank?: number               // 0 for the busiest day; more when that one wasn't safe to show
   from: string; to: string; faces: string[]
   line: string | null; sphere: string | null; excerpt: (Msg | Gap)[]
 }
