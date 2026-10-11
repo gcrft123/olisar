@@ -174,7 +174,7 @@ All through the arena instance on a key with billing on, with a safety budget of
 | Over budget, stop | The rate-limit reply, nothing spent. Its wording says to try again in a minute, which is wrong for a budget that's out until next month |
 | Red-team gate, fast lane, 3 reps | Passed 8 of 8 with real replies in every case (on the free key the last two had passed on rate-limit replies). Every red-team turn routed standard |
 
-The tier each message actually needs, measured on 249 fresh messages with every tier's answer judged, is in [EVALUATION.md](EVALUATION.md), along with Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and live-lane routing. In short: the router fails its pre-registered criteria on deep (13% of messages sent there didn't need it), Pro beats standard by 0.17 on the messages it gets, and sending deep as standard is the recommendation.
+The tier each message actually needs, measured on 249 fresh messages with every tier's answer judged, is in [EVALUATION.md](EVALUATION.md), along with Pro's worth on deep replies, the light tier's guardrails, a 3-rep A/B and live-lane routing. In short: the router fails its pre-registered criteria on deep (13% of messages sent there didn't need it), Pro beats standard by 0.17 on the messages it gets, and sending deep as standard was the recommendation. Pro stays on by default regardless.
 
 ## Evaluation and rollout
 
