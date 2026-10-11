@@ -301,6 +301,12 @@ interface GenerateOpts {
    * off can open, and it can't be used in a DM.
    */
   channelId?: string;
+  /**
+   * Resolve to the messages the bot would send this as in chat (one to three), for
+   * `host.discord.send(channel, messages)`. Without it the model's message breaks come
+   * back as line breaks in one string, which suits an embed or a label.
+   */
+  split?: boolean;
 }
 
 interface FetchResponse {
@@ -345,8 +351,10 @@ declare const host: {
   /**
    * Generate text in the server's persona voice. The guild persona is applied as the
    * system prompt automatically, so output stays in character. Resolves to the generated
-   * string. Needs `model.generate`; uses the operator's own model quota.
+   * string, or with `split: true` to the messages to post it as. Needs `model.generate`;
+   * uses the operator's own model quota.
    */
+  generate(opts: GenerateOpts & { split: true }): Promise<string[]>;
   generate(opts: GenerateOpts): Promise<string>;
   /**
    * File helpers. Attachment methods only work inside a slash-command handler.
@@ -365,13 +373,17 @@ declare const host: {
      * Post a message to a channel — for event handlers and tools, which have no interaction
      * to reply to. `channel` is a channel id, `<#id>` mention, or name (resolved in the
      * server). The payload may carry interactive `components` (persistent buttons/selects
-     * keep working) and optional `files` (text / contentB64 / blobId). Needs `discord.send`;
-     * rate-limited, and a third-party extension's post can't @mention anyone.
+     * keep working) and optional `files` (text / contentB64 / blobId). An array of strings
+     * posts each as its own message, the way the bot sends a reply (up to three; the rest
+     * join the third), with a typing indicator before each from an event handler. Needs
+     * `discord.send`; rate-limited (an array counts once), and a third-party extension's
+     * post can't @mention anyone.
      */
     send(
       channel: string,
       payload:
         | string
+        | string[]
         | { content?: string; embed?: any; components?: Component[]; files?: FileOut[] },
     ): Promise<string>;
   };

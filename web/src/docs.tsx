@@ -2115,12 +2115,15 @@ defineExtension({
     async memberJoin(ctx) {
       const channelId = await host.settings.get("channel_id");
       if (!channelId || !ctx.member) return;
-      const text = await host.generate({
+      const messages = await host.generate({
         task: "Welcome " + ctx.member.displayName + " to the server in one or two warm sentences.",
         channelId: channelId,
         maxTokens: 200,
+        split: true,
       });
-      await host.discord.send(channelId, ctx.member.mention + " " + text);
+      if (!messages.length) return;
+      messages[0] = ctx.member.mention + " " + messages[0];
+      await host.discord.send(channelId, messages);
     },
   },
 });
@@ -2223,6 +2226,7 @@ It resolves to \`null\` when the key isn't set, and throws for any other \`ref\`
 
 \`\`\`ts
 host.generate(opts: GenerateOpts): Promise<string>
+host.generate(opts: GenerateOpts & { split: true }): Promise<string[]>
 \`\`\`
 
 Writes text with Olisar's model in the server's persona and resolves to it. Needs \`model.generate\`, and each call uses the operator's Gemini quota (see [Usage & rate limits](#usage)).
@@ -2233,6 +2237,9 @@ Writes text with Olisar's model in the server's persona and resolves to it. Need
 | \`maxTokens\` | \`number\` | The longest output. Defaults to 600; the host caps it at 1200. |
 | \`systemNote\` | \`string\` | An extra instruction added to the system prompt for this call |
 | \`channelId\` | \`string\` | Write as if Olisar had been called in this channel: a channel id or \`<#id>\` mention |
+| \`split\` | \`boolean\` | Resolve to an array of one to three messages instead of one string |
+
+Olisar writes chat the way people type it, a thought and then an aside, and sends each as its own message. By default those come back joined by line breaks in one string, which suits an embed, a label or a field. With \`split: true\` they come back as the messages Olisar would send, ready to pass to \`host.discord.send\`.
 
 With \`channelId\`, the model sees what a reply in that channel would: the channel's name and topic, its recent conversation, and the server's glossary. That option has extra rules, and the call throws when one isn't met:
 
@@ -2246,7 +2253,7 @@ With \`channelId\`, the model sees what a reply in that channel would: the chann
 \`\`\`ts
 host.discord.send(
   channel: string,
-  payload: string | { content?: string; embed?: any; components?: Component[]; files?: FileOut[] },
+  payload: string | string[] | { content?: string; embed?: any; components?: Component[]; files?: FileOut[] },
 ): Promise<string>
 \`\`\`
 
@@ -2257,7 +2264,9 @@ Posts a message to a channel without an interaction to answer. Needs \`discord.s
 | A tool | A channel id, a \`<#id>\` mention or a channel name, in the same server. The current channel's id posts where the conversation is. | A short status such as \`Posted in #general.\`, or why it couldn't post |
 | An event handler | A channel id | \`null\` |
 
-From a tool, \`content\` is cut at 2,000 characters; from an event handler, longer text is split into several messages. \`components\` can hold persistent buttons and menus, which keep working. An extension can post at most 5 messages a minute in a server; past that, nothing is posted and the promise resolves to a message saying the post was rate-limited.
+From a tool, \`content\` is cut at 2,000 characters; from an event handler, longer text is split into several messages. \`components\` can hold persistent buttons and menus, which keep working. An extension can post at most 5 times a minute in a server; past that, nothing is posted and the promise resolves to a message saying the post was rate-limited.
+
+An array of strings posts each one as its own message, the way Olisar sends a reply. From an event handler, a typing indicator shows before each; from a tool they go out back to back. An array holds up to 3 messages, and anything past the third is added to it. It counts as one post toward the limit.
 
 Mentions depend on where the extension came from. A built-in's or your own extension's post can ping the members it mentions. An imported or marketplace extension's post pings nobody. No extension can ping \`@everyone\`, \`@here\` or a role.
 
@@ -2937,7 +2946,7 @@ An extension lists the capabilities it wants. For one you install, that list is 
 | Reply in Discord | \`discord.reply\` | It can answer its own commands and buttons |
 | Show pop-up forms (modals) | \`discord.modal\` | It can ask the member who ran its command to fill in a form |
 | Use buttons and select menus | \`discord.components\` | It can wait for clicks on its buttons and menus and edit the message they're on |
-| Post messages to your channels (no @mentions) | \`discord.send\` | When Olisar uses one of its tools, it can post in any channel of that server the bot can post in, up to 5 messages a minute |
+| Post messages to your channels (no @mentions) | \`discord.send\` | When Olisar uses one of its tools, it can post in any channel of that server the bot can post in, up to 5 times a minute |
 | Generate text with your AI model (uses your quota) | \`model.generate\` | It spends your Gemini quota |
 | Use the "…" secret key | \`secret:\` | Reads one of the install's API keys. Never available to an installed extension, so the install screen shows it unticked and locked. |
 

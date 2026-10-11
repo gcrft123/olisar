@@ -114,10 +114,22 @@ class _ToolBridge:
         self.blobs: dict = {}
 
     async def send(self, channel_id: str, payload: Any) -> Any:
-        p = {"content": payload} if isinstance(payload, str) else (payload or {})
         ch = channel_id
         if not ch or str(ch) == str(self._ctx.channel_id):
             ch = None  # the current channel — post_components uses its live channel object
+        if isinstance(payload, list):
+            # Back to back, without the typing an event handler's array gets: a tool has
+            # engine.TOOL_WALL_SECONDS for everything, and three typed messages can take longer.
+            result = "nothing to post"
+            for piece in payload:
+                result = await self._ctx.actions.post_components(
+                    channel=ch, content=piece, ext_key=self._ext_key,
+                    home_guild_id=self._ctx.cfg_guild, trusted=self._trusted,
+                )
+                if not result.startswith("Posted"):
+                    break  # the channel's missing or closed to us; the rest would fail too
+            return result
+        p = {"content": payload} if isinstance(payload, str) else (payload or {})
         return await self._ctx.actions.post_components(
             channel=ch, content=p.get("content"), embed=p.get("embed"),
             components=p.get("components"), files=p.get("files"),

@@ -37,6 +37,7 @@ from olisar.db.models import (
     utcnow,
 )
 from olisar.extensions import sdk_builtins
+from olisar.persona import SPLIT_MARKER
 from olisar.sandbox.capabilities import Invocation, PermissionError_, dispatch
 
 GUILD, OTHER_GUILD = 1, 2
@@ -49,10 +50,11 @@ class _Gemini:
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.reply = BOT_REPLY
 
     async def generate(self, **kw):
         self.calls.append(kw)
-        return SimpleNamespace(text=BOT_REPLY)
+        return SimpleNamespace(text=self.reply)
 
     @property
     def system(self) -> str:
@@ -87,6 +89,9 @@ class _Case(unittest.IsolatedAsyncioTestCase):
         self._patches = [
             patch.object(sdk_events, "session_scope", scope),
             patch("olisar.gemini.client.get_gemini", return_value=self.gemini),
+            # Welcome's messages wait behind a typing indicator, a few real seconds each.
+            patch.object(sdk_events, "_pace", AsyncMock()),
+            patch.object(sdk_events, "BREAK_PAUSE", (0, 0)),
         ]
         for p in self._patches:
             p.start()
@@ -142,7 +147,8 @@ class _Case(unittest.IsolatedAsyncioTestCase):
 class WelcomeUsesTheChannelTest(_Case):
     """The real welcome.js, seeded the way the app seeds it, fired by a member join."""
 
-    async def test_the_greeting_is_written_from_the_welcome_channel(self) -> None:
+    async def _join(self) -> SimpleNamespace:
+        """Welcome on and pointed at #welcome; rook joins. The channel posts landed in."""
         async with self.scope() as s:
             await sdk_builtins.seed(s)
             s.add(ExtensionState(
@@ -153,7 +159,6 @@ class WelcomeUsesTheChannelTest(_Case):
         guild = SimpleNamespace(
             id=GUILD, get_channel=lambda cid: channel if cid == WELCOME else None,
         )
-
         await sdk_events._dispatch(guild, "memberJoin", {
             "event": "memberJoin", "guildId": str(GUILD),
             "member": {
@@ -161,6 +166,10 @@ class WelcomeUsesTheChannelTest(_Case):
                 "mention": "<@900>", "bot": False,
             },
         })
+        return channel
+
+    async def test_the_greeting_is_written_from_the_welcome_channel(self) -> None:
+        channel = await self._join()
 
         self.assertEqual(len(self.gemini.calls), 1)
         system, lines = self.gemini.system, self.gemini.lines
@@ -176,6 +185,23 @@ class WelcomeUsesTheChannelTest(_Case):
         self.assertTrue(task.startswith(TASK_HEADING + "\n"))
         self.assertIn("warmly welcome rook", task)
         channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
+
+    async def test_each_beat_the_model_wrote_is_its_own_message(self) -> None:
+        """Reported from a live server: the greeting's two beats arrived as one message
+        with a line break between them, where a reply would have sent two."""
+        self.gemini.reply = f"welcome in!{SPLIT_MARKER}have a look at the rules when you get a sec"
+        channel = await self._join()
+        self.assertEqual(
+            [c.kwargs["content"] for c in channel.send.await_args_list],
+            ["<@900> welcome in!", "have a look at the rules when you get a sec"],
+        )
+        self.assertEqual(sdk_events._pace.await_count, 2)  # typing before each, like a reply
+
+    async def test_a_line_break_is_a_beat_too(self) -> None:
+        """What the model writes most often, and what a reply already sends as two."""
+        self.gemini.reply = "welcome in!\nhave a look at the rules when you get a sec"
+        channel = await self._join()
+        self.assertEqual(channel.send.await_count, 2)
 
     async def test_a_channel_the_roster_hasnt_caught_yet_still_gets_a_greeting(self) -> None:
         """Made a minute ago, or the roster sync is failing: no channel context, but the
