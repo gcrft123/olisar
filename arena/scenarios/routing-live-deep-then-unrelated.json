@@ -1,0 +1,15 @@
+{
+  "id": "routing-live-deep-then-unrelated",
+  "title": "Model routing: after a deep answer, an unrelated short question",
+  "lane": "live",
+  "tags": ["routing"],
+  "channel": {"name": "general", "mode": "both"},
+  "cast": ["dtrain"],
+  "beats": [
+    {"speaker": "dtrain", "address": "name", "expect_reply": true, "timeout": 120, "text": "compare postgres, mysql and sqlite for a discord bot with about 50k users. i care about hosting cost, concurrent writes and backups"},
+    {"speaker": "dtrain", "address": "name", "expect_reply": true, "timeout": 120, "text": "unrelated but what's a good co-op game for 4 people?"}
+  ],
+  "checks": {"must_reply": true},
+  "rubric": ["helpfulness", "brevity"],
+  "notes": "Routing, read from the instance log. The comparison routes deep. The second message is a short question, so the follow-up rule keeps it deep for 10 minutes even though it has nothing to do with the deep answer: this records what that rule costs, against the standard tier it would get on its own."
+}
