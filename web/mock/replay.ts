@@ -64,6 +64,9 @@ function report(stress: boolean) {
       : 'me. what is it'),
     msg('101', at(2021, 3, 14, 21, 14), 'no idea yet'),
   ]
+  // A sticker and a GIF, as the bot keeps them (olisar/replay/media.py). The pictures are
+  // the console's logo, so the fixture needs no network.
+  first.splice(2, 0, { ...msg('104', at(2021, 3, 14, 21, 14), ''), media: [{ kind: 'sticker', src: '/logo.png', name: 'Wave', w: 160, h: 160 }] } as any)
   // Everyone still here by the day they joined: slow, a crowd on July 9, 2022, the 1,000th
   // two weeks before Olisar, 1,143 now.
   const start = Date.parse(created), DAY = 86400_000
@@ -84,6 +87,7 @@ function report(stress: boolean) {
     msg('104', at(2023, 2, 3, 23, 43), stress ? 'هل لديك شموع؟' : 'do you have candles'),
     msg('103', at(2023, 2, 3, 23, 45), stress ? '我只有一根蜡烛，闻起来像“海洋微风”' : 'i have one candle and it smells like “ocean breeze”'),
     msg('102', at(2023, 2, 3, 23, 45), 'that’s a crime but it counts'),
+    { ...msg('106', at(2023, 2, 3, 23, 46), ''), media: [{ kind: 'gif', src: '/logo.png', poster: '/logo.png', w: 220, h: 220 }] },
     { gap: '2 hours and 611 messages later' },
     msg('106', at(2023, 2, 4, 2, 10), 'still up?'),
     msg('103', at(2023, 2, 4, 2, 11), '8%. the candle is winning'),

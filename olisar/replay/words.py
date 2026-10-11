@@ -50,9 +50,28 @@ looking need help work home friend friends love fun funny man dude bro best firs
 
 _WORD = re.compile(r"[^\W\d_][\w'’]*", re.UNICODE)
 
+# What the index keeps alongside a message's words: an upload's filename, an image's
+# caption, a sticker or embed, a link, a custom emoji, a mention. None of it is what anyone
+# said, so none of it counts toward a server's words ("star" from Star_Citizen_Screenshot.png).
+_MARKUP = re.compile(
+    r"\[(?:image description|image|file|sticker|embed): [^\]]*\]|https?://\S+|<a?:\w+:\d+>|<[@#][!&]?\d+>|<t:\d+(?::\w)?>",
+    re.IGNORECASE,
+)
+
+
+def strip_markup(text: str) -> str:
+    return _MARKUP.sub(" ", text or "")
+
 
 def tokens(text: str) -> list[str]:
     return [w.lower().replace("’", "'") for w in _WORD.findall(text or "")]
+
+
+def says(text: str, phrase_tokens: list[str]) -> bool:
+    """Whether a message's own words, markup aside, include the phrase."""
+    words = tokens(strip_markup(text))
+    n = len(phrase_tokens)
+    return n > 0 and any(words[i:i + n] == phrase_tokens for i in range(len(words) - n + 1))
 
 
 def is_filler(phrase: str) -> bool:
