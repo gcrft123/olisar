@@ -73,7 +73,9 @@ class Route:
     reason: str  # why, for the log and the test chat
     light: float | None = None  # the classifier's scores, None without a model
     deep: float | None = None
-    capped: str = ""  # the cap that kept a deep reply off Pro: "share", "member" or "budget"
+    # What kept a deep reply off Pro: "share", "member", "budget", or "unavailable" when Google
+    # or the throttle has Pro parked.
+    capped: str = ""
 
     def model_args(self) -> dict:
         """What GeminiClient.generate / generate_with_tools take for this route."""
@@ -259,6 +261,11 @@ async def _choose(
         allowed, capped = state.pro_allowed(user_id)
         if allowed and await spend.state() in ("warn", "over"):
             allowed, capped = False, "budget"
+        if allowed and get_rate_limiter().state(PRO_MODEL) != "ok":
+            # Google refused Pro for the day (a Tier 1 key gets 250 requests), or parked it
+            # after a refusal, or Olisar's own throttle is full. The chain would skip Pro and
+            # answer from Flash at high thinking, the slow path deep exists to avoid.
+            allowed, capped = False, "unavailable"
         pro = allowed
         if pro:
             state.reserve_pro(user_id)  # released in finish(), however the reply ends
