@@ -313,6 +313,25 @@ class CandidateTests(_Pick):
         judged = next(p for k, p in g.calls if k.startswith("You're choosing"))
         self.assertIn('from threads · "Friday Night Salvage', judged)
 
+    async def test_an_event_its_host_posts_most_about_is_still_a_candidate(self) -> None:
+        from olisar.db.models import GuildChannelInfo
+        from tests.test_replay import sf
+        meetups = [sf(T0 + timedelta(days=100 + k * 30), 950 + k) for k in range(4)]
+        async with session_scope() as s:
+            for k, tid in enumerate(meetups):
+                s.add(GuildChannelInfo(channel_id=tid, guild_id=self.home, name=f"Lantern Meetup {k + 1}",
+                                       kind="thread", parent_id=GENERAL, backfill_done=True))
+                # The host posts half of each thread: the times, the call-outs, the wrap-up.
+                for j in range(6):
+                    s.add(msg(tid, JUNIPER, T0 + timedelta(days=100 + k * 30, minutes=j), f"meetup note {k} {j}"))
+                for j, who in enumerate([BRAM, TESS, NIGHTJAR, OKAPI, 10_001, 10_002]):
+                    s.add(msg(tid, who, T0 + timedelta(days=100 + k * 30, minutes=10 + j), f"here for meetup {k}"))
+        g = FakeGemini()
+        await self.run_with(g)
+        judged = next(p for k, p in g.calls if k.startswith("You're choosing"))
+        self.assertIn('from threads · "Lantern Meetup', judged)
+        self.assertIn("top person 50%", judged)
+
     async def test_what_isnt_the_servers_own_is_screened_out(self) -> None:
         g = FakeGemini()
         original = g.generate_json
