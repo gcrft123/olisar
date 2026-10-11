@@ -526,9 +526,12 @@ async def candidates(ctx) -> list[dict]:
         # A ritual or event that lives in its own channel or thread passes on how often it
         # came round: eight separate days, as PICK.md asks of a weekly ritual.
         own_channel = p["detector"] in ("ritual", "threads") and len(channels) == 1 and distinct_days >= 8
+        # Someone usually runs an event and posts most about it (the call-outs, the times,
+        # the thread itself), so one person may account for more of its uses than of a word's.
+        top_cap = 0.6 if p["detector"] in ("ritual", "threads") else 0.35
         # The hard filters (PICK.md).
-        if people < floor or top_share > 0.35 or months < 3:
-            out(f"{people} people (needs {floor}), top person {top_share:.0%} (at most 35%), {months} months (needs 3)")
+        if people < floor or top_share > top_cap or months < 3:
+            out(f"{people} people (needs {floor}), top person {top_share:.0%} (at most {top_cap:.0%}), {months} months (needs 3)")
             continue
         if len(channels) < 2 and not own_channel:
             out(f"one channel, on {distinct_days} days")
