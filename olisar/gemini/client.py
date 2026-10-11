@@ -19,9 +19,18 @@ from google.genai import types
 
 from olisar import runtime_keys
 from olisar.config import settings
-from olisar.gemini import spend, tier
-from olisar.gemini.models import SEARCH_FREE_CHAIN, image_model_chain, model_chain
-from olisar.gemini.quota import next_reset, read_refusal
+from olisar.gemini import spend, tier, trace
+from olisar.gemini.models import (
+    RANKED_NAMES,
+    SEARCH_FREE_CHAIN,
+    image_model_chain,
+    is_alias,
+    model_chain,
+    note_alias,
+    thinking_for,
+)
+from olisar.gemini.pricing import request_cost
+from olisar.gemini.quota import next_reset, quota_day, read_refusal
 from olisar.gemini.rate_limiter import (
     BudgetSpent,
     RateLimitExceeded,
@@ -47,6 +56,11 @@ _SERVER_ERROR_COOLDOWN = 15.0  # short skip of a model that just returned a 5xx
 # every reply until someone ships a new list.
 _MODEL_RETIRED = 404
 _RETIRED_COOLDOWN = 3600.0
+
+# How Google words a 404 for a model it still serves, just not to newer projects (the Gemini
+# 2.5 pair). Not a retirement: nothing in the chain needs editing, and the model is left out
+# of this key's day (RateLimiter.withhold) rather than retried every hour.
+NOT_FOR_THIS_PROJECT = "no longer available to new users"
 
 # Optional features whose support genuinely varies across the chain. A 400 naming one of
 # these means "this model can't do that" and should cost us the next model; any other 400
@@ -196,7 +210,37 @@ def was_truncated(resp) -> bool:
 # aliases move between generations (gemini-flash-lite-latest became a Gemini 3 model,
 # which rejects thinking_budget=0 outright), so the API's answer is the only reliable
 # source. Cleared on restart, which is when an alias could have moved again.
+#
+# A rejected thinking_budget is kept under the model's name. A rejected thinking level is
+# kept as "<model>|level:<level>", since a model that won't take one level may take another.
 _THINKING_REJECTED: set[str] = set()
+
+
+def _thinking_config(
+    candidate: str, thinking_budget: int | None, thinking_level: str | None
+) -> tuple[types.ThinkingConfig, str] | None:
+    """The thinking_config to send ``candidate``, and the key a 400 for it is remembered
+    under, or None to send none. A thinking level (model routing's tiers) wins over a
+    budget; without one, the budget goes where it always has."""
+    if thinking_level is not None:
+        how = thinking_for(candidate, thinking_level)
+        if how is not None:
+            kind, value = how
+            if kind == "budget":
+                if candidate in _THINKING_REJECTED:
+                    return None
+                return types.ThinkingConfig(thinking_budget=value), candidate
+            key = f"{candidate}|level:{value}"
+            if key in _THINKING_REJECTED:
+                return None
+            return types.ThinkingConfig(thinking_level=types.ThinkingLevel(str(value).upper())), key
+    if (
+        thinking_budget is not None
+        and _supports_thinking(candidate)
+        and candidate not in _THINKING_REJECTED
+    ):
+        return types.ThinkingConfig(thinking_budget=thinking_budget), candidate
+    return None
 
 
 def _supports_thinking(model: str) -> bool:
@@ -246,8 +290,8 @@ class GeminiClient:
 
     async def _raw_generate(
         self, *, contents, config, model: str, chain: list[str] | None = None,
-        thinking_budget: int | None = None, source: str = "other",
-        grounding: int = 0, fall_back_on: tuple[int, ...] = (),
+        thinking_budget: int | None = None, thinking_level: str | None = None,
+        source: str = "other", grounding: int = 0, fall_back_on: tuple[int, ...] = (),
     ):
         """Generate, walking the model fallback chain. The first immediately
         available model is used; if it errors transiently — a 429 (rate limit) or a
@@ -259,6 +303,10 @@ class GeminiClient:
 
         Pass ``chain`` to override the default chat ranking (e.g. the vision
         chain); otherwise it's derived from ``model`` via ``model_chain``.
+
+        ``thinking_level`` (minimal, low, medium or high; model routing's tiers) asks each
+        candidate for that much thinking, sent as the nearest level it takes, or as a
+        budget on a Gemini 2.5 model. It wins over ``thinking_budget``.
 
         ``fall_back_on`` adds status codes that should also move to the next model
         instead of raising — grounded search passes ``(400,)`` because not every model
@@ -305,17 +353,9 @@ class GeminiClient:
                 # Per-candidate config: only the thinking-capable models in the chain
                 # get thinking_config; the 2.0/1.x fallbacks would 400 on the field.
                 cand_config = config
-                sent_thinking = (
-                    thinking_budget is not None
-                    and _supports_thinking(candidate)
-                    and candidate not in _THINKING_REJECTED
-                )
-                if sent_thinking:
-                    cand_config = config.model_copy(
-                        update={"thinking_config": types.ThinkingConfig(
-                            thinking_budget=thinking_budget
-                        )}
-                    )
+                thinking = _thinking_config(candidate, thinking_budget, thinking_level)
+                if thinking is not None:
+                    cand_config = config.model_copy(update={"thinking_config": thinking[0]})
                 try:
                     resp = await client.aio.models.generate_content(
                         model=candidate, contents=contents, config=cand_config
@@ -325,13 +365,16 @@ class GeminiClient:
                     # thinking_budget=0 on a model that can't switch thinking off.
                     # Retry it once with the field dropped, and remember, so this costs
                     # one request per model per process instead of failing forever.
-                    if getattr(exc, "code", None) != 400 or not sent_thinking:
+                    if getattr(exc, "code", None) != 400 or thinking is None:
                         raise
-                    _THINKING_REJECTED.add(candidate)
+                    _THINKING_REJECTED.add(thinking[1])
                     log.warning(
-                        "gemini %s rejected thinking_budget=%s (%s); retrying without it "
-                        "and omitting it for this model from now on",
-                        candidate, thinking_budget, _api_error_detail(exc),
+                        "gemini %s rejected %s (%s); retrying without it and omitting it "
+                        "for this model from now on",
+                        candidate,
+                        f"thinking level {thinking_level}" if "|level:" in thinking[1]
+                        else f"thinking_budget={thinking[0].thinking_budget}",
+                        _api_error_detail(exc),
                     )
                     resp = await client.aio.models.generate_content(
                         model=candidate, contents=contents, config=config
@@ -356,6 +399,11 @@ class GeminiClient:
                         pass
                     elif refusal.daily:
                         await mark_spent(candidate, refusal.limit, key=kid)
+                        # Refused on another model's quota: a -latest alias, counted against
+                        # the model it points to. That model is out for the day too.
+                        if refusal.model and refusal.model != candidate and refusal.model in RANKED_NAMES:
+                            note_alias(candidate, refusal.model)
+                            await mark_spent(refusal.model, refusal.limit, key=kid)
                     else:
                         limiter.penalize(candidate, reason="a rate limit (429)")
                 elif code in _TRANSIENT_5XX:
@@ -365,6 +413,12 @@ class GeminiClient:
                     limiter.penalize(
                         candidate, seconds=_SERVER_ERROR_COOLDOWN, reason=f"a {code} error"
                     )
+                elif code == _MODEL_RETIRED and NOT_FOR_THIS_PROJECT in _api_error_detail(exc).lower():
+                    log.info(
+                        "gemini %s isn't served to this key's project; leaving it out of the "
+                        "chain for this key", candidate,
+                    )
+                    limiter.withhold(candidate)
                 elif code == _MODEL_RETIRED:
                     log.error(
                         "gemini %s is gone: %s | dropping it for now and trying the next "
@@ -401,11 +455,27 @@ class GeminiClient:
                     raise  # non-transient error — surface it, don't mask
                 continue  # fall back to the next model in the chain
 
+            if is_alias(candidate):
+                note_alias(candidate, getattr(resp, "model_version", None))
             tokens, input_tokens, output_tokens = token_split(resp)
             await record_usage(
                 candidate, tokens, grounding=grounding, source=source,
                 input_tokens=input_tokens, output_tokens=output_tokens,
             )
+            reply_trace = trace.current.get()
+            if reply_trace is not None:
+                # Tokens counted before the split are input, as the spend total counts them.
+                unsplit = max(0, tokens - input_tokens - output_tokens)
+                thoughts = getattr(getattr(resp, "usage_metadata", None), "thoughts_token_count", 0)
+                reply_trace.add(trace.Served(
+                    model=candidate, source=source,
+                    input_tokens=input_tokens + unsplit, output_tokens=output_tokens,
+                    cost=request_cost(
+                        candidate, quota_day(),
+                        input_tokens=input_tokens + unsplit, output_tokens=output_tokens,
+                    ),
+                    thinking_tokens=thoughts if isinstance(thoughts, int) else 0,
+                ))
             if probing:
                 # A model Google had refused for the day took a request: billing was turned
                 # on, most likely, so ask again rather than wait out the last answer.
@@ -451,9 +521,11 @@ class GeminiClient:
         contents: list,
         system_instruction: str,
         model: str | None = None,
+        chain: list[str] | None = None,
         temperature: float = 0.9,
         max_output_tokens: int = 1024,
         thinking_budget: int | None = 0,
+        thinking_level: str | None = None,
         source: str = "other",
     ) -> GenResult:
         model = model or settings.gemini_chat_model
@@ -463,8 +535,8 @@ class GeminiClient:
             max_output_tokens=max_output_tokens,
         )
         resp = await self._raw_generate(
-            contents=contents, config=config, model=model,
-            thinking_budget=thinking_budget, source=source,
+            contents=contents, config=config, model=model, chain=chain,
+            thinking_budget=thinking_budget, thinking_level=thinking_level, source=source,
         )
         tokens = (
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0
@@ -520,6 +592,7 @@ class GeminiClient:
         max_output_tokens: int = 2048,
         force_text: bool = False,
         thinking_budget: int | None = 1024,
+        thinking_level: str | None = None,
         source: str = "other",
     ):
         """One tool-enabled turn. Returns the raw response so the caller can read
@@ -555,7 +628,7 @@ class GeminiClient:
         )
         return await self._raw_generate(
             contents=contents, config=config, model=model, chain=chain,
-            thinking_budget=thinking_budget, source=source,
+            thinking_budget=thinking_budget, thinking_level=thinking_level, source=source,
         )
 
     async def caption_images(

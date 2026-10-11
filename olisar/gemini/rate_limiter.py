@@ -37,7 +37,14 @@ from olisar.db.models import (
     UsageSource,
 )
 from olisar.gemini import spend
-from olisar.gemini.models import RANKED_NAMES, model_chain, rpm_for
+from olisar.gemini.models import (
+    AUTO,
+    RANKED_NAMES,
+    aliases_of,
+    model_chain,
+    quota_model,
+    rpm_for,
+)
 from olisar.gemini.quota import aware, next_reset, quota_day, quota_hour
 
 log = logging.getLogger("olisar.gemini.ratelimit")
@@ -45,6 +52,10 @@ log = logging.getLogger("olisar.gemini.ratelimit")
 # How long to avoid a model after it returns 429. Most 429s are per-minute; this
 # self-heals while keeping replies fast via fallback.
 COOLDOWN_SECONDS = 120.0
+
+# How long a model Google doesn't serve to the key's project (RateLimiter.withhold) is left out
+# before it's asked again.
+WITHHELD_SECONDS = 24 * 3600.0
 
 # How often a model Google refused for the day is asked again anyway. The refusal holds
 # until midnight Pacific on a free-tier key, but turning on billing lifts it at once, and
@@ -62,8 +73,12 @@ def key_id(key: str | None) -> str | None:
 
 def reply_chain(default_model: str | None) -> list[str]:
     """The fallback chain a server replies through: its ``default_model`` (else
-    GEMINI_CHAT_MODEL, as the pipeline does) and everything ranked below it."""
-    return model_chain(default_model or settings.gemini_chat_model)
+    GEMINI_CHAT_MODEL, as the pipeline does) and everything ranked below it. Automatic
+    (``AUTO``) starts where GEMINI_CHAT_MODEL does: routing sends some replies lower, never
+    past the end of this chain, and Pro is extra to it."""
+    if not default_model or default_model == AUTO:
+        default_model = settings.gemini_chat_model
+    return model_chain(default_model)
 
 
 async def chains_in_use(session) -> dict[int, list[str]]:
@@ -127,6 +142,9 @@ class RateLimiter:
         self._paid_keys: set[str] = set()
         # Global (all-model) rolling 60s window of (timestamp, tokens), for peak TPM.
         self._tokens: deque[tuple[float, int]] = deque()
+        # Models Google doesn't serve to the key's project at all: the key's fingerprint, and
+        # when Google said so (monotonic). See withhold.
+        self._withheld: dict[str, tuple[str | None, float]] = {}
 
     def _clean(self, model: str, now: float) -> None:
         dq = self._calls[model]
@@ -134,7 +152,9 @@ class RateLimiter:
             dq.popleft()
 
     def state(self, model: str) -> str:
-        """'ok' | 'spent' | 'cooldown' | 'rpm_full' — without reserving a slot."""
+        """'ok' | 'withheld' | 'spent' | 'cooldown' | 'rpm_full' — without reserving a slot."""
+        if self.withheld(model):
+            return "withheld"
         if self.spent_at(model) is not None:
             return "spent"
         now = time.monotonic()
@@ -178,10 +198,34 @@ class RateLimiter:
             )
         self._key = key
 
+    def withhold(self, model: str) -> None:
+        """Google doesn't serve ``model`` to this key's project (it answered 404 "no longer
+        available to new users", as it does for the Gemini 2.5 pair on a newer project).
+        Left out of the chain and of the day's allowance for this key, and asked again after
+        WITHHELD_SECONDS."""
+        self._withheld[model] = (self._key, time.monotonic())
+
+    def withheld(self, model: str) -> bool:
+        entry = self._withheld.get(model)
+        if entry is None:
+            return False
+        if entry[0] != self._key or time.monotonic() - entry[1] > WITHHELD_SECONDS:
+            del self._withheld[model]
+            return False
+        return True
+
     def spent_at(self, model: str) -> datetime | None:
         """When Google refused ``model`` for the rest of today, or None if it hasn't. A
         refusal from an earlier day has been cleared by the reset, and one for another key
-        says nothing about this one."""
+        says nothing about this one. A -latest alias is out when the model it points to is:
+        they share one allowance (models.quota_model)."""
+        own = self._own_spent_at(model)
+        if own is not None:
+            return own
+        twin = quota_model(model)
+        return self._own_spent_at(twin) if twin != model else None
+
+    def _own_spent_at(self, model: str) -> datetime | None:
         entry = self._spent.get(model)
         if entry is None:
             return None
@@ -210,6 +254,10 @@ class RateLimiter:
         replies sends one request, not one each."""
         if self.spent_at(model) is None:
             return False
+        # An alias out because its model is shares that model's hourly ask: asking through
+        # either answers for both.
+        if self._own_spent_at(model) is None:
+            model = quota_model(model)
         now = time.monotonic()
         if now < self._probe_at.get(model, 0.0):
             return False
@@ -217,16 +265,24 @@ class RateLimiter:
         return True
 
     def recover(self, model: str) -> bool:
-        """Google took a request for ``model``, so it isn't out after all. True if it was
-        parked."""
-        self._probe_at.pop(model, None)
-        return self._spent.pop(model, None) is not None
+        """Google took a request for ``model``, so it isn't out after all, and nor is
+        anything sharing its allowance. True if any of them was parked."""
+        names = {model, quota_model(model), *aliases_of(model), *aliases_of(quota_model(model))}
+        recovered = False
+        for name in names:
+            self._probe_at.pop(name, None)
+            recovered = self._spent.pop(name, None) is not None or recovered
+        return recovered
 
     def chain_spent(self, chain: list[str] | None = None) -> bool:
         """True when Google has refused every model in ``chain`` for the day. Pass the
         chain the bot actually replies through (``union_chain(chains_in_use(...))``); the
         default is the whole ranking."""
-        return all(self.spent_at(name) is not None for name in chain or RANKED_NAMES)
+        # A model the project can't use at all is as out as one refused for the day.
+        return all(
+            self.spent_at(name) is not None or self.withheld(name)
+            for name in chain or RANKED_NAMES
+        )
 
     def back_in(self, model: str) -> float:
         """Seconds until a resting model can take a request again: the rest of its cooldown,
@@ -270,10 +326,15 @@ class RateLimiter:
         self._cooldown_until[model] = time.monotonic() + seconds
         log.info("model %s parked for %.0fs after %s", model, seconds, reason)
 
-    async def acquire(self, model: str) -> None:
-        """Block until `model` has a free slot. For single-model callers that
-        can't fall back (embeddings, grounded search). Raises RateLimitExceeded rather
-        than waiting for the daily reset, which can be most of a day away."""
+    async def acquire(self, model: str, n: int = 1) -> None:
+        """Block until `model` has ``n`` free slots, and take them. For single-model callers
+        that can't fall back (embeddings, grounded search). Raises RateLimitExceeded rather
+        than waiting for the daily reset, which can be most of a day away.
+
+        ``n`` is for an embedding batch: Google counts each text in it as a request against
+        the per-minute and daily limits, so a batch of 50 takes 50 slots, not one."""
+        limit = rpm_for(model, self.paid)
+        n = max(1, min(n, limit))  # a batch bigger than a minute's slots waits for an empty minute
         while True:
             if self.spent_at(model) is not None and not self.claim_probe(model):
                 raise RateLimitExceeded(model, "daily")
@@ -284,10 +345,12 @@ class RateLimiter:
                 continue
             self._clean(model, now)
             dq = self._calls[model]
-            if len(dq) >= rpm_for(model, self.paid):
-                await asyncio.sleep(max(60.0 - (now - dq[0]) + 0.05, 0.1))
+            if len(dq) + n > limit:
+                # Wait until enough of the oldest calls have aged out to make room.
+                await asyncio.sleep(max(60.0 - (now - dq[len(dq) + n - limit - 1]) + 0.05, 0.1))
                 continue
-            dq.append(time.monotonic())
+            stamp = time.monotonic()
+            dq.extend([stamp] * n)
             return
 
 
@@ -305,12 +368,12 @@ class _UsageBuffer:
 
     def add(self, *, day: date, hour: int, model: str, tokens: int, grounding: int,
             source: str, rpm: int, rpm_at: datetime, tpm: int, key: str | None,
-            input_tokens: int = 0, output_tokens: int = 0) -> None:
+            input_tokens: int = 0, output_tokens: int = 0, requests: int = 1) -> None:
         m = self.models.setdefault((day, model), {
             "requests": 0, "tokens": 0, "input": 0, "output": 0, "grounding": 0,
             "peak_rpm": 0, "peak_rpm_at": rpm_at, "key": key,
         })
-        m["requests"] += 1
+        m["requests"] += requests
         m["tokens"] += tokens
         m["input"] += input_tokens
         m["output"] += output_tokens
@@ -319,9 +382,9 @@ class _UsageBuffer:
         if rpm > m["peak_rpm"]:
             m["peak_rpm"], m["peak_rpm_at"] = rpm, rpm_at
         h = self.hours.setdefault((day, hour, model), [0, 0])
-        h[0] += 1
+        h[0] += requests
         h[1] += tokens
-        self.sources[(day, source)] = self.sources.get((day, source), 0) + 1
+        self.sources[(day, source)] = self.sources.get((day, source), 0) + requests
         self.peak_tpm[day] = max(self.peak_tpm.get(day, 0), tpm)
 
     def merge(self, other: "_UsageBuffer") -> None:
@@ -449,7 +512,7 @@ def _retry_soon() -> None:
 
 async def record_usage(
     model: str, tokens: int, grounding: int = 0, source: str = "other", *,
-    input_tokens: int = 0, output_tokens: int = 0, images: int = 0,
+    input_tokens: int = 0, output_tokens: int = 0, images: int = 0, requests: int = 1,
 ) -> None:
     """Persist per-day usage for the dashboard. Best-effort — never blocks a reply.
 
@@ -460,7 +523,8 @@ async def record_usage(
 
     ``input_tokens`` and ``output_tokens`` are ``tokens`` split the way Google prices them,
     and ``images`` the images the request made; together they're what the request cost
-    (olisar.gemini.spend), which the budget counts against.
+    (olisar.gemini.spend), which the budget counts against. ``requests`` is how many
+    requests Google counts it as: one, except an embedding batch, which is one per text.
 
     Called from inside a ``session_scope`` (a reply, a background job), the write waits
     until that scope has ended: its session may hold SQLite's write lock, and writing on
@@ -477,7 +541,7 @@ async def record_usage(
         _pending_usage.add(
             day=day, hour=quota_hour(now), model=model, tokens=tokens,
             grounding=grounding, source=source, rpm=rpm, rpm_at=now, tpm=tpm, key=limiter.key,
-            input_tokens=input_tokens, output_tokens=output_tokens,
+            input_tokens=input_tokens, output_tokens=output_tokens, requests=requests,
         )
         spend.add(
             model, day, input_tokens=input_tokens + max(0, tokens - input_tokens - output_tokens),

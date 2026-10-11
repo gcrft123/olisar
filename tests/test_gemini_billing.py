@@ -300,6 +300,41 @@ class BudgetTests(unittest.TestCase):
 GUILD = 1001
 
 
+class BudgetReplyTests(unittest.TestCase):
+    """A budget set to stop gets its own reply. It used to get the rate-limit one, which
+    tells members to try again in a minute about something that lasts until the 1st."""
+
+    def _sandbox(self, exc, custom=None):
+        from olisar import pipeline
+
+        session = MagicMock()
+        config = SimpleNamespace(default_model="gemini-3.8-flash", command_messages=custom or {})
+        session.get = AsyncMock(side_effect=lambda model, key: config if model is GuildConfig else None)
+        with patch.object(pipeline, "gather_enabled", new=AsyncMock(side_effect=RuntimeError)), \
+                patch.object(pipeline, "_run_tool_loop", new=AsyncMock(side_effect=exc)):
+            return asyncio.run(pipeline.generate_sandbox_reply(
+                session, guild_id=1, messages=[{"role": "user", "content": "hi"}],
+            ))
+
+    def test_a_spent_budget_says_so(self):
+        from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+        out = self._sandbox(BudgetSpent("gemini-3.8-flash"))
+        self.assertEqual(out, DEFAULT_COMMAND_MESSAGES["budget_spent"])
+        self.assertIn("1st", out)
+
+    def test_the_operator_can_reword_it(self):
+        out = self._sandbox(BudgetSpent("x"), {"budget_spent": "out of credits till next month"})
+        self.assertEqual(out, "out of credits till next month")
+
+    def test_a_rate_limit_still_gets_the_rate_limit_reply(self):
+        from olisar.gemini.rate_limiter import RateLimitExceeded
+        from olisar.messages import DEFAULT_COMMAND_MESSAGES
+
+        out = self._sandbox(RateLimitExceeded("gemini-3.8-flash", "daily"))
+        self.assertEqual(out, DEFAULT_COMMAND_MESSAGES["rate_limit"])
+
+
 class SearchCapTests(unittest.IsolatedAsyncioTestCase):
     """Each server's search cap counts that server's searches: a day's on a free key, a
     month's on a billed one. It used to count the whole install's."""

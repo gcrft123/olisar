@@ -14,16 +14,22 @@ import React, { useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import { botName } from './botname'
 import { Icon } from './icons'
+import { modelName } from './models'
 import { Loading, PageHead } from './pages'
 import { Badge, Section, Segmented, useAsync, usePoll } from './ui'
 
 type ChainModel = {
   model: string
+  // A -latest alias names the model whose daily allowance it draws on (it points to that
+  // model), when that model is in the chain too. The two rows are one allowance.
+  shares: string | null
   requests: number
   tokens: number
   limit: number
   limit_from_google: boolean
-  state: 'ok' | 'resting' | 'spent'
+  // 'unavailable': Google doesn't serve the model to this key's project at all (the Gemini
+  // 2.5 pair on a newer one). It has no allowance and counts nothing.
+  state: 'ok' | 'resting' | 'spent' | 'unavailable'
   back_in: number | null
   spent_at: string | null
   cost: number
@@ -49,7 +55,7 @@ type Live = {
   reset_at: string
   chain: ChainModel[]
   memory_search: { model: string; requests: number; limit: number; spent: boolean }
-  web_search: { requests: number; limit: number; period: 'day' | 'month'; spent: boolean }
+  web_search: { requests: number; limit: number; period: 'day' | 'month'; spent: boolean; unavailable?: boolean }
   billing: Billing
 }
 
@@ -62,7 +68,17 @@ type Summary = {
   busiest_minute: { model: string; requests: number; limit: number; at: string | null } | null
   last_ran_out: string | null
   days: { day: string; requests: number; ran_out_at: string | null; cost: number }[]
+  routing?: {
+    today: Partial<Record<Tier, TierRow>>
+    month: Partial<Record<Tier, TierRow>>
+    standard_model: string
+  }
 }
+
+// Model routing's daily rollup, per tier (olisar/routing). `standard_cost` is what the same
+// replies would have cost on the standard tier's model.
+type Tier = 'light' | 'standard' | 'deep'
+type TierRow = { replies: number; escalated: number; capped: number; cost: number; standard_cost: number }
 
 // When the reading arrived, and how far the server's clock is from this one, so countdowns
 // run between polls and "in 8h 12m" doesn't inherit a wrong clock on this machine.
@@ -109,28 +125,25 @@ function pacificDay(ms: number) {
 }
 const daysBetween = (a: string, b: string) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000)
 
-/** "gemini-3.1-flash-lite" → "Gemini 3.1 Flash-Lite", "gemini-flash-latest" → "Gemini Flash
- *  (latest)". A model it doesn't recognise keeps its id. */
-function modelName(id: string) {
-  const m = id.match(/^gemini-(?:(\d[\d.]*)-)?(flash-lite|flash|pro)(?:-(latest|preview))?$/)
-  if (!m) return id
-  const [, version, family, tag] = m
-  const fam = family === 'flash-lite' ? 'Flash-Lite' : family[0].toUpperCase() + family.slice(1)
-  return `Gemini ${version ? version + ' ' : ''}${fam}${tag === 'latest' ? ' (latest)' : ''}`
-}
 
 // ── Reading ─────────────────────────────────────────────────────────────────
-type Row = ChainModel & { i: number; backAt: number | null; left: number }
+type Row = ChainModel & { i: number; backAt: number | null; left: number; used: number }
 
 function reading(live: Received, clientNow: number) {
   const t = clientNow + live.skew
+  // Requests per allowance: an alias's count goes to the model it shares with.
+  const bucket = (m: ChainModel) => m.shares ?? m.model
+  const usedBy: Record<string, number> = {}
+  for (const m of live.chain) usedBy[bucket(m)] = (usedBy[bucket(m)] ?? 0) + m.requests
   const chain: Row[] = live.chain.map((m, i) => {
     const backAt = m.back_in != null ? live.receivedAt + m.back_in * 1000 : null
     // A countdown that ran out between polls is back already; the next poll will agree.
     const state = m.state === 'resting' && backAt != null && backAt <= clientNow ? 'ok' : m.state
-    return { ...m, i, backAt, state, left: m.state === 'spent' ? 0 : Math.max(0, m.limit - m.requests) }
+    const used = usedBy[bucket(m)] ?? m.requests
+    const gone = m.state === 'spent' || m.state === 'unavailable'
+    return { ...m, i, backAt, state, used, left: gone ? 0 : Math.max(0, m.limit - used) }
   })
-  const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent')
+  const allSpent = chain.length > 0 && chain.every((m) => m.state === 'spent' || m.state === 'unavailable')
   // Past a billed key's budget, replies go to the cheapest model alone, or nowhere.
   const budgetOut = live.tier === 'paid' && live.billing?.state === 'over'
   // The first model that can take a request. With every one resting for a moment, the one
@@ -142,10 +155,12 @@ function reading(live: Received, clientNow: number) {
     : chain.find((m) => m.state === 'ok')
       ?? chain.filter((m) => m.state === 'resting').sort((a, b) => (a.backAt ?? 0) - (b.backAt ?? 0))[0]
       ?? null
-  const capTotal = chain.reduce((s, m) => s + m.limit, 0)
+  // A shared allowance counts once, on the model that owns it.
+  const owners = chain.filter((m) => !m.shares)
+  const capTotal = owners.reduce((s, m) => s + m.limit, 0)
   const usedTotal = chain.reduce((s, m) => s + m.requests, 0)
   const tokens = chain.reduce((s, m) => s + m.tokens, 0)
-  const left = chain.reduce((s, m) => s + m.left, 0)
+  const left = owners.reduce((s, m) => s + m.left, 0)
   const reset = Date.parse(live.reset_at)
   // Today's pace: everything counted since Google's day began, spread over the hours so far.
   const hours = Math.max(0.25, (t - Date.parse(live.day_start)) / 3.6e6)
@@ -207,6 +222,7 @@ export function Usage({ onGo }: { onGo?: (tab: string) => void } = {}) {
       )}
       <Now R={R} live={live.data} stale={stale} onGo={onGo} />
       <Chain R={R} stale={stale} />
+      <Routing R={R} data={summary.data} />
       <Features data={summary.data} range={range} setRange={setRange} />
       <Stats R={R} data={summary.data} day={live.data.day} />
     </div>
@@ -250,8 +266,8 @@ function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: bool
         </div>
         {R.cur && !R.allSpent ? (
           <>
-            <div className="u-cur">{modelName(R.cur.model)}</div>
-            <div className="u-cur-id">{R.cur.model}</div>
+            <div className="u-cur">{modelName(R.cur.shares ?? R.cur.model)}</div>
+            <div className="u-cur-id">{R.cur.shares ?? R.cur.model}</div>
           </>
         ) : <div className="u-cur none">No model left</div>}
       </div>
@@ -263,7 +279,7 @@ function Now({ R, live, stale, onGo }: { R: Reading; live: Received; stale: bool
             : <SideMeter label="Memory search" used={memory.requests} limit={memory.limit} spent={memory.spent} />}
           <SideMeter
             label={web.period === 'month' ? 'Free web searches' : 'Web search'}
-            used={web.requests} limit={web.limit} spent={web.spent}
+            used={web.requests} limit={web.limit} spent={web.spent} unavailable={web.unavailable}
           />
         </div>
       </div>
@@ -362,8 +378,16 @@ function Meter({ used, limit, out, lost, className }: { used: number; limit: num
   )
 }
 
-function SideMeter({ label, used, limit, spent }: { label: string; used: number; limit: number; spent: boolean }) {
+function SideMeter({ label, used, limit, spent, unavailable }: { label: string; used: number; limit: number; spent: boolean; unavailable?: boolean }) {
   const left = spent ? 0 : Math.max(0, limit - used)
+  if (unavailable) {
+    return (
+      <div className="u-side">
+        <span>{label}</span>
+        <span className="v"><s>not on this key</s></span>
+      </div>
+    )
+  }
   return (
     <div className="u-side">
       <span>{label}</span>
@@ -374,7 +398,8 @@ function SideMeter({ label, used, limit, spent }: { label: string; used: number;
 }
 
 // ── Fallback chain ──────────────────────────────────────────────────────────
-function Status({ m, R }: { m: Row; R: Reading }) {
+function Status({ m, R, viaAlias = false }: { m: Row; R: Reading; viaAlias?: boolean }) {
+  if (m.state === 'unavailable') return <Badge icon="minus-circle">Not on this key</Badge>
   if (m.state === 'spent') {
     return (
       <>
@@ -383,6 +408,8 @@ function Status({ m, R }: { m: Row; R: Reading }) {
       </>
     )
   }
+  // Answering through its -latest alias, which isn't shown: it's the same model.
+  if (viaAlias) return <Badge tone="success" icon="play-circle">Replying</Badge>
   if (m.state === 'resting') {
     return <Badge tone="info" busy>Back in<span className="num">{mmss((m.backAt ?? 0) - R.clientNow)}</span></Badge>
   }
@@ -391,6 +418,11 @@ function Status({ m, R }: { m: Row; R: Reading }) {
 }
 
 function Chain({ R, stale }: { R: Reading; stale: boolean }) {
+  // A -latest alias is another name for a model in the chain, so it isn't shown: its
+  // requests and cost count in that model's row.
+  const isAlias = (m: Row) => !!m.shares && R.chain.some((o) => o.model === m.shares)
+  const aliasesOf = (m: Row) => R.chain.filter((a) => isAlias(a) && a.shares === m.model)
+  let rank = 0
   return (
     <Section stacked title="Fallback chain">
       <table className={'u-chain' + (stale ? ' stale' : '')}>
@@ -404,25 +436,33 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
         </thead>
         <tbody>
           {R.chain.map((m) => {
-            const isCur = !R.allSpent && R.cur?.i === m.i
+            if (isAlias(m)) return null
+            const viaAlias = !R.allSpent && R.cur?.shares === m.model
+            const isCur = !R.allSpent && (R.cur?.i === m.i || viaAlias)
             const out = m.state === 'spent'
+            rank += 1
+            const aliases = aliasesOf(m)
+            const cost = m.cost + aliases.reduce((s, a) => s + a.cost, 0)
+            const requests = m.requests + aliases.reduce((s, a) => s + a.requests, 0)
             return (
-              <tr key={m.model} className={(isCur ? 'cur' : '') + (out ? ' gone' : '')}>
-                <th scope="row" className="c-rank">{m.i + 1}</th>
+              <tr key={m.model} className={(isCur ? 'cur' : '') + (out || m.state === 'unavailable' ? ' gone' : '')}>
+                <th scope="row" className="c-rank">{rank}</th>
                 <td>
                   <span className="m-name">{modelName(m.model)}</span>
                   <span className="m-id">{m.model}</span>
-                  <div className="m-status"><Status m={m} R={R} /></div>
+                  <div className="m-status"><Status m={m} R={R} viaAlias={viaAlias} /></div>
                 </td>
-                <td className="c-status"><div className="st"><Status m={m} R={R} /></div></td>
+                <td className="c-status"><div className="st"><Status m={m} R={R} viaAlias={viaAlias} /></div></td>
                 <td className="c-today">
-                  {R.paid ? (
+                  {m.state === 'unavailable' ? (
+                    <div className="today"><span className="v wide"><s>—</s></span></div>
+                  ) : R.paid ? (
                     <div className="today">
-                      <span className="v wide"><span className="left-v">{usd(m.cost)}</span><s> · {n(m.requests)} req</s></span>
+                      <span className="v wide"><span className="left-v">{usd(cost)}</span><s> · {n(requests)} req</s></span>
                     </div>
                   ) : (
                     <div className="today">
-                      <Meter used={m.requests} limit={m.limit} out={out} lost={out && m.requests < m.limit} />
+                      <Meter used={m.used} limit={m.limit} out={out} lost={out && m.used < m.limit} />
                       <span className="v"><span className="left-v">{n(m.left)}</span><s> / {n(m.limit)}</s></span>
                     </div>
                   )}
@@ -432,6 +472,60 @@ function Chain({ R, stale }: { R: Reading; stale: boolean }) {
           })}
         </tbody>
       </table>
+    </Section>
+  )
+}
+
+// ── Model routing ───────────────────────────────────────────────────────────
+const TIERS: { key: Tier; label: string }[] = [
+  { key: 'light', label: 'Light' },
+  { key: 'standard', label: 'Standard' },
+  { key: 'deep', label: 'Deep' },
+]
+
+/** Replies per routing tier, and what routing did to the bill. Absent until a reply has been
+ *  routed this month. */
+function Routing({ R, data }: { R: Reading; data: Summary }) {
+  const routing = data.routing
+  const month = routing?.month ?? {}
+  const today = routing?.today ?? {}
+  const sum = (f: keyof TierRow) => TIERS.reduce((s, t) => s + (month[t.key]?.[f] ?? 0), 0)
+  if (!routing || !sum('replies')) return null
+  const diff = sum('standard_cost') - sum('cost')
+  const head = modelName(routing.standard_model)
+  return (
+    <Section stacked title="Model routing">
+      <table className="u-chain u-route">
+        <thead>
+          <tr>
+            <th scope="col">Tier</th>
+            <th scope="col" className="c-n">Today</th>
+            <th scope="col" className="c-n">This month</th>
+            <th scope="col" className="c-n">{R.paid ? 'Cost this month' : 'Would cost'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {TIERS.map((t) => {
+            const m = month[t.key]
+            const note = t.key === 'light' && m?.escalated
+              ? `${n(m.escalated)} handed up`
+              : t.key === 'deep' && m?.capped ? `${n(m.capped)} kept off Pro` : ''
+            return (
+              <tr key={t.key}>
+                <th scope="row">{t.label}{note && <span className="r-note">{note}</span>}</th>
+                <td className="c-n">{n(today[t.key]?.replies ?? 0)}</td>
+                <td className="c-n">{n(m?.replies ?? 0)}</td>
+                <td className="c-n">{usd(m?.cost ?? 0)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <p className="u-route-note">
+        {R.paid
+          ? `About ${usd(Math.abs(diff))} ${diff >= 0 ? 'less' : 'more'} this month than replying with ${head} throughout.`
+          : `${n((month.light?.replies ?? 0) - (month.light?.escalated ?? 0))} replies went to Flash-Lite this month instead of ${head}.`}
+      </p>
     </Section>
   )
 }

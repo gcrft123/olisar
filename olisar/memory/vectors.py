@@ -184,11 +184,17 @@ async def upsert_embedding(
     session: AsyncSession, table: str, rowid: int, vector: Sequence[float]
 ) -> None:
     """Insert/replace one embedding row, keyed to the parent's primary key and filed under
-    the parent row's guild, which is read from the row itself (so it must be flushed)."""
+    the parent row's guild, which is read from the row itself (so it must be flushed).
+
+    Delete, then insert: a vec0 table ignores ``OR REPLACE`` and answers a second vector for
+    the same rowid with ``UNIQUE constraint failed``. A row whose text changed after it was
+    embedded (an edited memory) could then never be embedded again, and the background pass
+    paid for the same batch of embeddings every 20 seconds, failing each time."""
     assert table in VECTOR_TABLES, f"unknown vector table {table!r}"
+    await session.execute(text(f"DELETE FROM {table} WHERE rowid = :rowid"), {"rowid": rowid})
     await session.execute(
         text(
-            f"INSERT OR REPLACE INTO {table}(rowid, guild_id, embedding) "
+            f"INSERT INTO {table}(rowid, guild_id, embedding) "
             f"SELECT id, guild_id, :emb FROM {VECTOR_TABLES[table]} WHERE id = :rowid"
         ),
         {"rowid": rowid, "emb": serialize(vector)},

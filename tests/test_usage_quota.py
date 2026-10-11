@@ -36,18 +36,20 @@ from olisar.db.models import (
 )
 from olisar.gemini import rate_limiter as rl
 from olisar.gemini.client import GeminiClient
-from olisar.gemini.models import RANKED, RANKED_NAMES, model_chain
+from olisar.gemini.models import RANKED, RANKED_NAMES, model_chain, quota_model
 from olisar.gemini.quota import day_start, next_reset, quota_day, quota_hour, read_refusal
 from olisar.gemini.rate_limiter import RateLimiter, RateLimitExceeded, key_id
 
 
-def _quota_429(quota_id: str, value: str = "250", retry: str | None = None):
+def _quota_429(
+    quota_id: str, value: str = "250", retry: str | None = None, model: str = "gemini-3.5-flash"
+):
     details = [{
         "@type": "type.googleapis.com/google.rpc.QuotaFailure",
         "violations": [{
             "quotaMetric": "generativelanguage.googleapis.com/generate_content_free_tier_requests",
             "quotaId": quota_id,
-            "quotaDimensions": {"location": "global", "model": "gemini-3.5-flash"},
+            "quotaDimensions": {"location": "global", "model": model},
             "quotaValue": value,
         }],
     }]
@@ -102,6 +104,10 @@ class RefusalTests(unittest.TestCase):
         }]}}
         self.assertEqual(read_refusal(genai_errors.APIError(429, body)).limit, 250)
 
+    def test_a_daily_refusal_names_whose_quota_it_was(self):
+        refusal = read_refusal(_quota_429(DAILY, "20", model="gemini-3.8-flash"))
+        self.assertEqual((refusal.limit, refusal.model), (20, "gemini-3.8-flash"))
+
     def test_a_per_minute_quota_is_not_daily(self):
         refusal = read_refusal(_quota_429(PER_MINUTE, "10", retry="23s"))
         self.assertFalse(refusal.daily)
@@ -117,12 +123,96 @@ class RefusalTests(unittest.TestCase):
         self.assertTrue(read_refusal(err).daily)
 
 
+class AliasTests(unittest.TestCase):
+    """A -latest alias and the model it points to are one daily allowance (measured
+    2026-10-10: Google refuses the alias naming the model's quota)."""
+
+    def test_an_alias_is_out_when_its_model_is(self):
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-3.8-flash")
+        self.assertEqual(limiter.state("gemini-flash-latest"), "spent")
+        self.assertEqual(limiter.state("gemini-flash-lite-latest"), "ok")
+
+    def test_an_answer_through_either_frees_both(self):
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-3.8-flash")
+        limiter.exhaust("gemini-flash-latest")
+        self.assertTrue(limiter.recover("gemini-flash-latest"))
+        self.assertEqual(limiter.state("gemini-3.8-flash"), "ok")
+
+    def test_they_share_the_hourly_ask(self):
+        # Two hours ago is yesterday for the first two hours after Google's reset, which
+        # clears the refusal and leaves nothing to ask about: pin the quota day.
+        day = patch("olisar.gemini.rate_limiter.quota_day", return_value=date(2026, 10, 10))
+        day.start()
+        self.addCleanup(day.stop)
+        limiter = RateLimiter()
+        limiter.exhaust("gemini-3.8-flash", datetime.now(timezone.utc) - timedelta(hours=2))
+        self.assertTrue(limiter.claim_probe("gemini-flash-latest"))
+        self.assertFalse(limiter.claim_probe("gemini-3.8-flash"))
+
+    def test_a_reply_says_where_an_alias_points_now(self):
+        from olisar.gemini import models
+
+        before = models.quota_model("gemini-flash-latest")
+        self.addCleanup(models.note_alias, "gemini-flash-latest", before)
+        models.note_alias("gemini-flash-latest", "gemini-3.9-flash")
+        self.assertEqual(models.quota_model("gemini-flash-latest"), "gemini-3.9-flash")
+        models.note_alias("gemini-flash-latest", MagicMock())  # a stand-in, not a name
+        self.assertEqual(models.quota_model("gemini-flash-latest"), "gemini-3.9-flash")
+
+
+class WithheldTests(unittest.TestCase):
+    """Google serves the Gemini 2.5 pair only to projects that used it before. On a newer
+    one it's no allowance at all, and the chain and the page shouldn't count it."""
+
+    def test_a_withheld_model_is_skipped_for_its_key(self):
+        limiter = RateLimiter()
+        limiter.use_key("k1")
+        limiter.withhold("gemini-2.5-flash")
+        self.assertEqual(limiter.state("gemini-2.5-flash"), "withheld")
+        limiter.use_key("k2")  # another key may be another project
+        self.assertEqual(limiter.state("gemini-2.5-flash"), "ok")
+
+    def test_the_chain_is_out_when_the_rest_is_spent(self):
+        limiter = RateLimiter()
+        for name in RANKED_NAMES:
+            if "2.5" in name:
+                limiter.withhold(name)
+            else:
+                limiter.exhaust(name)
+        self.assertTrue(limiter.chain_spent())
+
+    def test_googles_404_for_a_newer_project_withholds_rather_than_retires(self):
+        client = GeminiClient()
+        ok = MagicMock()
+        ok.usage_metadata.total_token_count = 5
+        sdk = MagicMock()
+        sdk.aio.models.generate_content = AsyncMock(side_effect=[genai_errors.APIError(404, {"error": {
+            "code": 404, "status": "NOT_FOUND",
+            "message": "This model models/gemini-2.5-flash is no longer available to new users.",
+        }}), ok])
+        client.aclient = AsyncMock(return_value=sdk)
+        limiter = MagicMock()
+        limiter.state.return_value = "ok"
+        with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), patch(
+            "olisar.gemini.client.record_usage", new=AsyncMock()
+        ):
+            asyncio.run(client._raw_generate(
+                contents="hi", config=MagicMock(), model="gemini-2.5-flash",
+                chain=["gemini-2.5-flash", "gemini-3.5-flash-lite"],
+            ))
+        limiter.withhold.assert_called_once_with("gemini-2.5-flash")
+        limiter.penalize.assert_not_called()
+
+
 class LimiterTests(unittest.TestCase):
     def test_a_spent_model_is_skipped_until_the_reset(self):
         limiter = RateLimiter()
         limiter.exhaust(RANKED_NAMES[0])
         self.assertEqual(limiter.state(RANKED_NAMES[0]), "spent")
-        self.assertEqual(limiter.state(RANKED_NAMES[1]), "ok")
+        # RANKED_NAMES[1] is its -latest alias, out with it; the next model of its own isn't.
+        self.assertEqual(limiter.state(RANKED_NAMES[2]), "ok")
 
     def test_the_reset_clears_it(self):
         limiter = RateLimiter()
@@ -226,6 +316,31 @@ class ClientTests(unittest.TestCase):
         limiter, spent = self._run(_quota_429(DAILY, "250"))
         spent.assert_awaited_once_with(RANKED_NAMES[0], 250, key=None)
         limiter.penalize.assert_not_called()
+
+    def test_an_alias_refused_on_its_models_quota_parks_both(self):
+        """gemini-flash-latest is counted against the model it points to; refused for the
+        day, both are out, and the chain shouldn't ask the other to find out."""
+        client = GeminiClient()
+        sdk = MagicMock()
+        ok = MagicMock()
+        ok.usage_metadata.total_token_count = 5
+        sdk.aio.models.generate_content = AsyncMock(
+            side_effect=[_quota_429(DAILY, "20", model="gemini-3.8-flash"), ok]
+        )
+        client.aclient = AsyncMock(return_value=sdk)
+        limiter = MagicMock()
+        limiter.state.return_value = "ok"
+        spent = AsyncMock()
+        with patch("olisar.gemini.client.get_rate_limiter", return_value=limiter), patch(
+            "olisar.gemini.client.record_usage", new=AsyncMock()
+        ), patch("olisar.gemini.client.mark_spent", new=spent):
+            asyncio.run(client._raw_generate(
+                contents="hi", config=MagicMock(), model="gemini-flash-latest",
+                chain=["gemini-flash-latest", "gemini-3.6-flash"],
+            ))
+        self.assertEqual(
+            [c.args[0] for c in spent.await_args_list], ["gemini-flash-latest", "gemini-3.8-flash"]
+        )
 
     def test_a_per_minute_429_rests_it_as_before(self):
         limiter, spent = self._run(_quota_429(PER_MINUTE, "10"))
@@ -571,7 +686,9 @@ class KeySwapTests(_Db):
                 await self._ask(client)
             self.assertEqual(caught.exception.__cause__.code, 429)
             self.assertTrue(self.limiter.chain_spent())
-            self.assertEqual(len(sent), len(RANKED_NAMES))
+            # One refusal per allowance: a -latest alias is out with the model it points to,
+            # so it isn't asked again to find that out.
+            self.assertEqual(len(sent), len({quota_model(m) for m in RANKED_NAMES}))
 
             self.key["value"] = "KEY-B"
             sent.clear()
@@ -613,6 +730,34 @@ class EndpointTests(_Db):
         third = data["chain"][2]
         self.assertEqual((third["requests"], third["limit"], third["state"]), (40, RANKED[2].rpd, "ok"))
 
+    async def test_an_alias_shares_its_models_allowance(self):
+        await self._seed("gemini-3.8-flash", 12)
+        await self._seed("gemini-flash-latest", 3)
+        data = await self._live()
+        head, alias = data["chain"][0], data["chain"][1]
+        self.assertEqual((head["model"], head["shares"]), ("gemini-3.8-flash", None))
+        self.assertEqual((alias["model"], alias["shares"]), ("gemini-flash-latest", "gemini-3.8-flash"))
+        self.assertEqual(alias["limit"], head["limit"])
+        await rl.mark_spent("gemini-3.8-flash", 20)
+        data = await self._live()
+        self.assertEqual(data["chain"][1]["state"], "spent")
+
+    async def test_no_free_web_search_without_the_25_models(self):
+        """A free key searches on the Gemini 2.5 pair alone, which a newer project doesn't
+        get: the page mustn't promise 500 searches a day there."""
+        from olisar.gemini.models import SEARCH_FREE_CHAIN
+
+        self.assertFalse((await self._live())["web_search"]["unavailable"])
+        for name in SEARCH_FREE_CHAIN:
+            self.limiter.withhold(name)
+        self.assertTrue((await self._live())["web_search"]["unavailable"])
+
+    async def test_a_withheld_model_has_no_allowance(self):
+        self.limiter.withhold("gemini-2.5-flash")
+        data = await self._live()
+        row = next(m for m in data["chain"] if m["model"] == "gemini-2.5-flash")
+        self.assertEqual((row["state"], row["limit"]), ("unavailable", 0))
+
     async def test_live_uses_googles_limit_once_it_named_one(self):
         await self._seed(RANKED_NAMES[0], 20, day=quota_day() - timedelta(days=3), quota_limit=20)
         data = await self._live()
@@ -621,12 +766,13 @@ class EndpointTests(_Db):
 
     async def test_live_reports_spent_and_resting_models(self):
         await rl.mark_spent(RANKED_NAMES[0], 250)
-        self.limiter.penalize(RANKED_NAMES[1], seconds=48)
+        self.limiter.penalize(RANKED_NAMES[2], seconds=48)
         data = await self._live()
-        states = [m["state"] for m in data["chain"][:3]]
-        self.assertEqual(states, ["spent", "resting", "ok"])
+        states = [m["state"] for m in data["chain"][:4]]
+        # The second is the head's -latest alias: one allowance, out with it.
+        self.assertEqual(states, ["spent", "spent", "resting", "ok"])
         self.assertIsNotNone(data["chain"][0]["spent_at"])
-        self.assertLessEqual(data["chain"][1]["back_in"], 48)
+        self.assertLessEqual(data["chain"][2]["back_in"], 48)
         self.assertEqual(data["reset_at"], next_reset().isoformat())
 
     async def test_memory_search_and_web_search_have_their_own_limits(self):

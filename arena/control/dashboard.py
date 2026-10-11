@@ -179,6 +179,21 @@ class Dashboard:
         """One-shot convenience over :meth:`chat`."""
         return await self.chat([{"role": "user", "content": text}])
 
+    async def chat_routed(self, messages: list[dict]) -> dict:
+        """:meth:`chat`, with where model routing sent the reply: ``{"reply", "route"}``,
+        ``route`` null when the guild isn't routed (olisar/routing)."""
+        return await self._call("POST", "/api/sandbox/chat", json={"messages": messages}) or {}
+
+    # ── billing and model routing ─────────────────────────────────────────
+
+    async def billing(self) -> dict:
+        return await self._call("GET", "/api/billing")
+
+    async def set_billing(self, **fields: Any) -> dict:
+        """Budget, Gemini images and the routing switches (``routing_free``,
+        ``routing_paid``)."""
+        return await self._call("PUT", "/api/billing", json=fields)
+
     # ── destructive, and deliberately explicit ────────────────────────────
 
     async def clear_glossary(self) -> int:

@@ -4,6 +4,7 @@ import { api } from './api'
 import { botName } from './botname'
 import { DOCS, DOC_GROUPS } from './docs'
 import { Icon, CloseX, type BadgeIconName, type IconName } from './icons'
+import { modelName } from './models'
 import { Modal, confirmDialog, fromToasts, promptDialog, restoreFocus, toast } from './overlays'
 import { rectToViewport, uiScale } from './theme'
 import { hasFeedbackHost, openFeedback, reportBody } from './feedback'
@@ -112,7 +113,19 @@ export function Persona() {
 // ── Test chat (enclosed sandbox: persona + KB + tools, but no memory) ──
 // A slide-over drawer launched from the Persona page so persona edits can be tried
 // live. Save the persona first — the sandbox reads the saved persona, not the draft.
-type ChatMsg = { role: 'user' | 'assistant'; content: string }
+// Where model routing sent a reply (POST /api/sandbox/chat's `route`), null when the server
+// isn't routed.
+type ChatRoute = { tier: 'light' | 'standard' | 'deep'; model: string; escalated: string; capped: string }
+type ChatMsg = { role: 'user' | 'assistant'; content: string; route?: ChatRoute | null }
+
+const TIER_LABEL = { light: 'Light', standard: 'Standard', deep: 'Deep' } as const
+
+/** "Light · Gemini 3.5 Flash-Lite", or "Light, handed up · Gemini 3.8 Flash" for a light
+ *  reply the standard tier finished. */
+function routeLine(r: ChatRoute) {
+  const tier = r.escalated ? 'Light, handed up' : TIER_LABEL[r.tier] ?? r.tier
+  return r.model ? `${tier} · ${modelName(r.model)}` : tier
+}
 
 // The chat itself (transcript + composer); the drawer below provides the shell. `onReport`
 // closes the drawer before Feedback opens over the page, so the two overlays don't stack.
@@ -138,7 +151,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
     setErr(null)
     try {
       const res = await api.sandboxChat(next.map((m) => ({ role: m.role, content: m.content })))
-      setMessages([...next, { role: 'assistant', content: res?.reply || '…' }])
+      setMessages([...next, { role: 'assistant', content: res?.reply || '…', route: res?.route ?? null }])
     } catch (e: any) {
       setErr(e?.message || 'Something went wrong. Try again.')
     } finally {
@@ -174,6 +187,7 @@ function SandboxChat({ onReport }: { onReport: (message: string) => void }) {
             <div className="sb-bubble">
               {m.role === 'assistant' ? <Markdown md={m.content} /> : m.content}
             </div>
+            {m.route && <div className="sb-route">{routeLine(m.route)}</div>}
           </div>
         ))}
         {busy && (
@@ -350,7 +364,8 @@ export function Behavior() {
     const {
       pin_actions: _pin, allowed_role_ids: _allow, blocked_role_ids: _block,
       member_portal_enabled: _portal, member_portal_show_persona: _portalPersona,
-      remote_access_configured: _remote, gemini_tier: _tier, ...cfg
+      remote_access_configured: _remote, gemini_tier: _tier,
+      routing: _routing, routing_head: _routingHead, ...cfg
     } = configEd.data
     await api.putConfig({
       ...cfg,
@@ -385,7 +400,17 @@ export function Behavior() {
   // The input still needs to hold the literal text, or typing "oli, " would lose the comma
   // the moment it round-tripped through the array. So: text here, array in the draft.
   const triggers = triggerText ?? (Array.isArray(data.name_triggers) ? data.name_triggers.join(', ') : (data.name_triggers ?? ''))
-  const modelOpts = (models ?? []).map((m) => ({ value: m.name, label: `${m.name} — ${m.label}` }))
+  // Automatic is model routing's: a model per message when routing is on (API keys page),
+  // and the default model's chain when it's off.
+  const modelOpts = [
+    { value: 'auto', label: 'Automatic' },
+    ...(models ?? []).map((m) => ({ value: m.name, label: `${m.name} — ${m.label}` })),
+  ]
+  // A server already pinned to a model the list leaves out (a -latest alias) keeps it shown.
+  if (data.default_model && !modelOpts.some((o) => o.value === data.default_model)) {
+    modelOpts.push({ value: data.default_model, label: data.default_model })
+  }
+  const headLabel = (models ?? []).find((m) => m.name === data.routing_head)?.label ?? data.routing_head
   const qh = pro.quiet_hours || {}
   const quietOn = 'start' in qh
   const setQuiet = (next: any) => setP('quiet_hours', next)
@@ -498,9 +523,13 @@ export function Behavior() {
             // nothing saying the model list had failed to load — the operator was left to
             // recall what the alternatives were.
             ? <>Couldn’t load the model list ({modelsQ.error}) — only the current setting is shown. <button className="linklike" onClick={() => modelsQ.reload()}>Try again</button></>
-            : `If this model is rate limited, ${botName()} falls back to the next best one.`}
+            : data.default_model !== 'auto'
+              ? `If this model is rate limited, ${botName()} falls back to the next best one.`
+              : data.routing
+                ? 'Picks a model for each message.'
+                : `Model routing is off under API keys, so this starts on ${headLabel}.`}
         >
-          <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={modelOpts.length ? modelOpts : [{ value: data.default_model, label: data.default_model }]} />
+          <Select value={data.default_model} onChange={(v) => set('default_model', v)} options={models?.length ? modelOpts : [{ value: data.default_model, label: data.default_model === 'auto' ? 'Automatic' : data.default_model }]} />
         </Field>
         {/* Google's search allowance is daily on a free key, and only on its Gemini 2.5
             models, and monthly on a billed one, so the cap follows the key. */}
@@ -572,7 +601,8 @@ const MSG_LABELS: Record<string, string> = {
   forget_me: '/forget-me', forget_me_optout: '/forget-me (opt-out line)',
   dm_indexing: '/dm-indexing',
   proactive: '/olisar proactive', privacy: '/privacy',
-  rate_limit: 'When rate-limited', blank_fallback: 'When it draws a blank',
+  rate_limit: 'When rate-limited', budget_spent: 'When the budget is spent',
+  blank_fallback: 'When it draws a blank',
   access_denied: 'When access is denied',
   tool_pin_prompt: 'When a tool needs the PIN',
 }
@@ -3503,7 +3533,10 @@ async function removeKey(field: string, label: string): Promise<boolean> {
   return true
 }
 
-type BillingSettings = { monthly_budget_usd: number; budget_action: 'stop' | 'cheapest'; gemini_images: boolean }
+type BillingSettings = {
+  monthly_budget_usd: number; budget_action: 'stop' | 'cheapest'; gemini_images: boolean
+  routing_free: boolean; routing_paid: boolean; routing_pro: boolean
+}
 type Billing = BillingSettings & { tier: 'free' | 'paid' | null; checked_at: string | null }
 
 export function ApiKeys() {
@@ -3585,6 +3618,9 @@ export function ApiKeys() {
   // The saved key's tier: what the budget and Gemini images depend on.
   const paid = b?.tier === 'paid'
   const geminiImages = paid && !!bval('gemini_images')
+  // Model routing keeps one switch per tier, so turning billing on brings back the choice
+  // made for it. Until Google has said which tier the key is on, it's the free one's.
+  const routingKey: 'routing_paid' | 'routing_free' = paid ? 'routing_paid' : 'routing_free'
 
   return (
     <>
@@ -3632,6 +3668,25 @@ export function ApiKeys() {
               />
             </Field>
           </>
+        )}
+        {b && (
+          <Field
+            label="Model routing"
+            desc={paid
+              ? 'Automatically routes to the best model for each request.'
+              : 'Easy messages go to Flash-Lite, saving Flash for the rest of the day.'}
+          >
+            <Toggle value={!!bval(routingKey)} onChange={(v) => setB(routingKey, v)} />
+          </Field>
+        )}
+        {/* Pro only answers through routing's deep tier, and only on a billed key. */}
+        {paid && bval('routing_paid') && (
+          <Field
+            label="Use Gemini Pro for hard questions"
+            desc={<>Smarter but slower and more expensive. See <button className="linklike" onClick={() => window.dispatchEvent(new CustomEvent('olisar:open-doc', { detail: 'models' }))}>Docs</button> for more information on pricing.</>}
+          >
+            <Toggle value={!!bval('routing_pro')} onChange={(v) => setB('routing_pro', v)} />
+          </Field>
         )}
         {b && (
           <Field
