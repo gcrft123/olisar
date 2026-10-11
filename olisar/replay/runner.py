@@ -228,7 +228,7 @@ async def advance(run_id: int, roster: Roster, *, client=None) -> str:
     try:
         for step in STEPS[STEPS.index(start_step):]:
             await store.save(run_id, step=step)
-            await ctx.tell(force=True, phase=PHASE[step])
+            await ctx.tell(force=True, phase=PHASE[step], **({"chapters": chapters(ctx.report)} if PHASE[step] == 3 else {}))
             await STEP_FN[step](ctx)
             await ctx.keep()
     except BudgetSpent:
