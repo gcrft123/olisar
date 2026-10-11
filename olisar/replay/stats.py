@@ -46,6 +46,11 @@ def iso(value: datetime | None) -> str | None:
     return value.isoformat().replace("+00:00", "Z") if value else None
 
 
+def parse(value: str) -> datetime:
+    """An ISO time the report wrote (stats.iso) back into a datetime."""
+    return aware(datetime.fromisoformat(value.replace("Z", "+00:00")))
+
+
 def infer_offset(hours: list[int]) -> int | None:
     """The server's UTC offset in whole hours, from when it's quietest: the six quietest
     hours in a row are taken as 2 to 8 a.m. None with too little to go on."""
