@@ -20,6 +20,8 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 
 Animated avatars played nonstop in the memories around the form, so a ring with a few of them in it never sat still.
 
+Usage's By feature chart always gave its own rows to the same five features, so on a day when chiming in or web search outnumbered the glossary, the bigger feature was buried in the catch-all bucket while the smaller one kept its row. Its bars and the console's progress bars also lost their rounded ends when short, because they were sized by scaling.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -162,6 +164,12 @@ Animated avatars played nonstop in the memories around the form, so a ring with 
 
 [b028fad] — An animated avatar in a memory, on the final server screen or in a replay, shows its first frame and plays only while the memory is hovered.
 
+[d677ef5] — Usage's By feature chart gives a row to the range's five busiest features, largest first, and lists the rest under a last row named Other instead of Everything else.
+
+[d677ef5] — By feature's colors go by position in the ranking, so a feature's color can change between Today, 7 days and 30 days.
+
+[d677ef5] — By feature calls Olisar describing posted images Image descriptions instead of Image, and calls untagged requests Uncategorized instead of Other.
+
 ### Fixed
 
 [bc8bc14] — The messages a replay quotes keep their GIFs, uploads and stickers, instead of showing links and markers like `[sticker: Wave]`.
@@ -231,6 +239,10 @@ Animated avatars played nonstop in the memories around the form, so a ring with 
 [3e08eef] — A quota test no longer fails for the two hours after Google's daily reset.
 
 [2a9e5a3] — A welcome message Olisar writes in two or three beats arrives as that many messages, not one message with line breaks in it.
+
+[1ec94d5] — Short bars keep round ends like long ones, in By feature's legend and in the progress bars for channel indexing and update downloads.
+
+[1ec94d5] — Usage's quota meters round the left end of their fill to match the right.
 
 ## [2.0] — 2026-10-01
 
