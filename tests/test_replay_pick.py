@@ -228,6 +228,15 @@ class MediaAndHighlightTests(_Pick):
         sticker = next(m for m in first if m["who"] == str(TESS))
         self.assertEqual((sticker["text"], sticker["media"][0]["name"]), ("", "Wave"))
 
+    async def test_a_quoted_image_loses_the_caption_olisar_wrote_for_it(self) -> None:
+        async with session_scope() as s:
+            s.add(msg(GENERAL, BRAM, T0 + timedelta(minutes=13), "should i do it\n[image: sliders.png]\n"
+                      "[image description: Four sliders [Sociopathic to Empathetic] on a dark card.]"))
+        report = await self.run_with(FakeGemini())
+        quoted = next(m for m in report["first"]["messages"] if m["who"] == str(BRAM))
+        self.assertEqual(quoted["text"], "should i do it")
+        self.assertEqual(quoted["media"][0]["kind"], "image")
+
     async def test_an_image_is_served_from_a_fresh_address(self) -> None:
         from types import SimpleNamespace
         report = await self.run_with(FakeGemini())
