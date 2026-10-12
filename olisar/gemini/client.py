@@ -7,6 +7,7 @@ Tool/function calling is layered on in Phase 3.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -23,10 +24,12 @@ from olisar.gemini import spend, tier, trace
 from olisar.gemini.models import (
     RANKED_NAMES,
     SEARCH_FREE_CHAIN,
+    aliases_of,
     image_model_chain,
     is_alias,
     model_chain,
     note_alias,
+    quota_model,
     thinking_for,
 )
 from olisar.gemini.pricing import request_cost
@@ -47,6 +50,16 @@ log = logging.getLogger("olisar.gemini")
 # briefly skip the failing one — rather than hammering an overloaded model.
 _TRANSIENT_5XX = {500, 502, 503, 504}
 _SERVER_ERROR_COOLDOWN = 15.0  # short skip of a model that just returned a 5xx
+
+
+def _rest_overloaded(limiter, model: str, reason: str) -> None:
+    """Briefly skip a model that's overloaded, and every name for it: a -latest alias and
+    the model it points to are one model, so falling back from one to the other only meets
+    the same overload again (a replay's judge did, and took three minutes)."""
+    target = quota_model(model)
+    for name in dict.fromkeys((model, target, *aliases_of(target))):
+        limiter.penalize(name, seconds=_SERVER_ERROR_COOLDOWN, reason=reason)
+
 
 # A retired model: `404 ... is no longer available`. Unambiguously about that model and
 # nothing else, so it must cost the next model rather than the whole request — a 404 used
@@ -292,6 +305,7 @@ class GeminiClient:
         self, *, contents, config, model: str, chain: list[str] | None = None,
         thinking_budget: int | None = None, thinking_level: str | None = None,
         source: str = "other", grounding: int = 0, fall_back_on: tuple[int, ...] = (),
+        timeout: float | None = None,
     ):
         """Generate, walking the model fallback chain. The first immediately
         available model is used; if it errors transiently — a 429 (rate limit) or a
@@ -313,6 +327,10 @@ class GeminiClient:
         in the chat chain accepts the google_search tool, and "this one can't ground"
         should cost us the next model, not the whole request. ``grounding=1`` marks the
         call as a web search in the usage rollup.
+
+        ``timeout`` gives each model that many seconds to answer before it's treated like a
+        5xx: briefly skipped, and the next model asked. Background work that would rather
+        have a lesser model's answer than wait out an overload passes it; None waits.
 
         On a billed key past its monthly budget (olisar.gemini.spend), this raises
         ``BudgetSpent`` if the operator chose to stop there, and otherwise answers on the
@@ -336,6 +354,16 @@ class GeminiClient:
         # answered. This skip used to be silent, so "the reply came from a worse model"
         # and "the reply came from the preferred one" looked identical in the logs.
         skipped: list[str] = []
+
+        async def ask(candidate: str, cfg):
+            call = client.aio.models.generate_content(model=candidate, contents=contents, config=cfg)
+            if timeout is None:
+                return await call
+            try:
+                return await asyncio.wait_for(call, timeout)
+            except TimeoutError:
+                raise TimeoutError(f"{candidate} didn't answer within {timeout:.0f}s") from None
+
         for candidate in chain:
             state = limiter.state(candidate)
             probing = state == "spent" and limiter.claim_probe(candidate)
@@ -357,9 +385,7 @@ class GeminiClient:
                 if thinking is not None:
                     cand_config = config.model_copy(update={"thinking_config": thinking[0]})
                 try:
-                    resp = await client.aio.models.generate_content(
-                        model=candidate, contents=contents, config=cand_config
-                    )
+                    resp = await ask(candidate, cand_config)
                 except genai_errors.APIError as exc:
                     # A model that won't take our thinking_config — most often
                     # thinking_budget=0 on a model that can't switch thinking off.
@@ -376,9 +402,14 @@ class GeminiClient:
                         else f"thinking_budget={thinking[0].thinking_budget}",
                         _api_error_detail(exc),
                     )
-                    resp = await client.aio.models.generate_content(
-                        model=candidate, contents=contents, config=config
-                    )
+                    resp = await ask(candidate, config)
+            except TimeoutError as exc:
+                # Slow, not failed: most often the same overload a 503 reports, met before
+                # Google gave up on the request.
+                last_error = exc
+                log.warning("gemini %s; falling back to next model", exc)
+                _rest_overloaded(limiter, candidate, "a timeout")
+                continue
             except genai_errors.APIError as exc:
                 code = getattr(exc, "code", None)
                 last_error = exc
@@ -410,9 +441,7 @@ class GeminiClient:
                     log.warning(
                         "gemini %s error code=%s; falling back to next model", candidate, code
                     )
-                    limiter.penalize(
-                        candidate, seconds=_SERVER_ERROR_COOLDOWN, reason=f"a {code} error"
-                    )
+                    _rest_overloaded(limiter, candidate, f"a {code} error")
                 elif code == _MODEL_RETIRED and NOT_FOR_THIS_PROJECT in _api_error_detail(exc).lower():
                     log.info(
                         "gemini %s isn't served to this key's project; leaving it out of the "
@@ -554,11 +583,13 @@ class GeminiClient:
         max_output_tokens: int = 2048,
         thinking_budget: int | None = 0,
         source: str = "other",
+        timeout: float | None = None,
     ) -> JsonResult:
         """One request in JSON mode, for background work that reads an answer rather than
         showing one. Says which model answered and what it cost in tokens, so a caller
         running many of these can keep its own account. The answer is parsed here; a
-        model that ignored JSON mode still counts if its text holds one object."""
+        model that ignored JSON mode still counts if its text holds one object.
+        ``timeout`` is per model, as in _raw_generate."""
         model = model or settings.gemini_chat_model
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -568,7 +599,7 @@ class GeminiClient:
         )
         resp = await self._raw_generate(
             contents=contents, config=config, model=model, chain=chain,
-            thinking_budget=thinking_budget, source=source,
+            thinking_budget=thinking_budget, source=source, timeout=timeout,
         )
         _, input_tokens, output_tokens = token_split(resp)
         text = safe_text(resp)
