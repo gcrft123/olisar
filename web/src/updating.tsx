@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { createForm, SHAPE, type Form, type Mood } from './form'
 import { CheckMark, CloseX, Icon } from './icons'
@@ -216,7 +216,7 @@ function Screen({ p, du }: { p: Progress; du: DesktopUpdates }) {
                       total ? (
                         <div className="progress" role="progressbar" aria-label="Download"
                           aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((received / total) * 100)}>
-                          <div className="progress-fill" style={{ transform: `scaleX(${Math.min(1, received / total)})` }} />
+                          <div className="progress-fill" style={{ '--fill': `${Math.min(100, (received / total) * 100)}%` } as CSSProperties} />
                         </div>
                       ) : (
                         <div className="progress indeterminate" role="progressbar" aria-label="Download">

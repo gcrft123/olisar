@@ -57,8 +57,8 @@ The donut stays, with four changes:
 
 - It counts only requests against the chain's daily limits. Memory search has its own limit, so its requests are out; on the dev fixture they were a quarter of the old donut.
 - It opens on Today. 7 days and 30 days are one click away.
-- Each feature keeps its color whatever the range: Replies, Summaries, Impressions, Glossary, Image descriptions, then Everything else, always in that order round the ring. That order passes the colorblind check for neighbors on this ground; the old rank order put green beside rose, 4.5 apart under deuteranopia where the check wants 8.
-- Everything else lists what's in it on one line under its row, instead of in a tooltip. Bars beside the legend carry the comparison the ring is bad at.
+- The range's five busiest features get a row each, largest first, and Other holds the rest, always last. (It first fixed the five to Replies, Summaries, Impressions, Glossary and Image descriptions, which buried a busy feature like chiming in under what was then called Everything else.) Hues go by position, blue, amber, teal, rose, violet, then gray: that order passes the colorblind check for neighbors on this ground, where the old rank palette put green beside rose, 4.5 apart under deuteranopia where the check wants 8.
+- Other lists what's in it on one line under its row, instead of in a tooltip. Bars beside the legend carry the comparison the ring is bad at.
 
 ### Stats
 
