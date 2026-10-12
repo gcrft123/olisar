@@ -116,6 +116,10 @@ The first replay of a real server showed what a seeded one hadn't. Much of a ser
 
 [ce47625] — A thread named for an event that comes round again can be Olisar's pick, where before its name ruled it out like a channel's.
 
+[c400363] — A replay quotes what someone wrote under an image without the caption Olisar wrote for the image, which it showed as part of their message.
+
+[23b5ce6] — One of the first five who said hello with a sticker, a GIF or an image is labeled "A sticker: Wave", "A GIF" or "An image" instead of an empty quote, and a long first message is cut at a word.
+
 [b296278] — An event with its own threads, or a weekly ritual, can be Olisar's pick when its host posts up to 60% of what's said about it. The cap was 35%, as for a word, and most events have a host who posts more than that.
 
 [091c1a2] — The API keys page asks Google about billing each time the Gemini key is typed, saved or removed, instead of showing an answer up to a day old. Turning billing off used to go on showing "Works · billing on".
