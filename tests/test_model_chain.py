@@ -10,6 +10,7 @@ can't do that" without also saying it about a request that is simply wrong.
 
 from __future__ import annotations
 
+import asyncio
 import unittest
 
 from google.genai import errors as genai_errors
@@ -32,6 +33,9 @@ from olisar.gemini.models import (
 # returns metadata for them, so only a real generation reveals it — which is how these sat
 # in the chains unnoticed, one of them heading the vision chain.
 RETIRED = ("gemini-2.0-flash", "gemini-2.0-flash-lite")
+
+# How long a scripted model takes to answer when it's stuck: far past any test's timeout.
+SLOW = 30.0
 
 
 class _Err(genai_errors.APIError):
@@ -189,9 +193,9 @@ class Capability400Tests(unittest.TestCase):
 class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
     """How _raw_generate actually reacts, walking a scripted chain."""
 
-    async def _walk(self, outcomes: dict[str, object]):
-        """Run the chain; each model either raises its scripted error or returns a resp.
-        Returns (served_model, attempted_models)."""
+    async def _walk(self, outcomes: dict[str, object], *, limiter=None, timeout: float | None = None):
+        """Run the chain; each model either raises its scripted error, takes SLOW seconds
+        to answer, or returns a resp. Returns (served_model, attempted_models)."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from olisar.gemini.client import GeminiClient
@@ -203,6 +207,8 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
             outcome = outcomes[model]
             if isinstance(outcome, Exception):
                 raise outcome
+            if isinstance(outcome, float):
+                await asyncio.sleep(outcome)
             resp = MagicMock()
             resp.usage_metadata = None
             resp.__served__ = model
@@ -211,15 +217,16 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
         client = GeminiClient()
         sdk = MagicMock()
         sdk.aio.models.generate_content = AsyncMock(side_effect=fake_generate)
-        limiter = MagicMock()
-        limiter.state.return_value = "ok"
+        if limiter is None:
+            limiter = MagicMock()
+            limiter.state.return_value = "ok"
 
         with patch.object(GeminiClient, "aclient", AsyncMock(return_value=sdk)), patch(
             "olisar.gemini.client.get_rate_limiter", return_value=limiter
         ), patch("olisar.gemini.client.record_usage", new=AsyncMock()):
             resp = await client._raw_generate(
                 contents=[], config=MagicMock(), model=RANKED_NAMES[0],
-                chain=list(outcomes), thinking_budget=None,
+                chain=list(outcomes), thinking_budget=None, timeout=timeout,
             )
         return resp.__served__, attempted
 
@@ -251,6 +258,37 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
         served, attempted = await self._walk({"first": None, "second": None})
         self.assertEqual(served, "first")
         self.assertEqual(attempted, ["first"])
+
+    async def test_a_model_that_doesnt_answer_in_time_hands_off_to_the_next_one(self):
+        """Under load Google can take minutes to answer rather than refuse with a 503. A
+        replay waited almost four minutes on one such answer."""
+        served, attempted = await self._walk({"stuck": SLOW, "alive": None}, timeout=0.05)
+        self.assertEqual(served, "alive")
+        self.assertEqual(attempted, ["stuck", "alive"])
+
+    async def test_without_a_timeout_a_slow_model_is_waited_for(self):
+        """Replies pass no timeout, and wait as they always have."""
+        served, _ = await self._walk({"slow": 0.05, "alive": None})
+        self.assertEqual(served, "slow")
+
+    async def test_a_chain_where_nobody_answers_in_time_says_so(self):
+        with self.assertRaisesRegex(TimeoutError, "didn't answer within"):
+            await self._walk({"stuck": SLOW, "also-stuck": SLOW}, timeout=0.05)
+
+    async def test_an_overloaded_model_isnt_asked_again_by_its_alias(self):
+        """gemini-flash-latest is gemini-3.8-flash under another name. A replay's judge
+        fell back from one to the other after a 503 and waited three minutes on the same
+        overload; the next model along answers instead."""
+        from olisar.gemini.rate_limiter import RateLimiter
+
+        for name, failure, timeout in (("503", _Err(503, "The model is overloaded."), None), ("timeout", SLOW, 0.05)):
+            with self.subTest(name):
+                served, attempted = await self._walk(
+                    {"gemini-3.8-flash": failure, "gemini-flash-latest": None, "gemini-3.6-flash": None},
+                    limiter=RateLimiter(), timeout=timeout,
+                )
+                self.assertEqual(served, "gemini-3.6-flash")
+                self.assertEqual(attempted, ["gemini-3.8-flash", "gemini-3.6-flash"])
 
 
 if __name__ == "__main__":
