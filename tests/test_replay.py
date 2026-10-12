@@ -286,6 +286,20 @@ class StatsRunTests(_Case):
                          [("Olisar", "Pinecone", "chat"), ("Pinecone", "Olisar", "chat")])
         self.assertEqual(run.progress["chapters"], 6 - 1)   # no pick yet
 
+    async def test_the_pick_says_its_step(self) -> None:
+        """The pick has nothing to count, so the console tells it by the run's step
+        (web/src/replay.tsx) rather than sitting on the last moment's line."""
+        rid = await self.new_run()
+        seen = []
+
+        async def pick(ctx) -> None:
+            run = await self.run_row(rid)
+            seen.append((run.step, run.progress["phase"]))
+
+        with mock.patch("olisar.replay.pick.run", pick):
+            self.assertEqual(await runner.advance(rid, FakeRoster()), "done")
+        self.assertEqual(seen, [("pick", 2)])
+
     async def test_every_request_has_a_deadline(self) -> None:
         """A model stuck behind an overload is left for the next one, not waited on."""
         from olisar.replay import llm

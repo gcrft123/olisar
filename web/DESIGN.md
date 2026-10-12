@@ -736,7 +736,8 @@ Each sheet has one primary button, at the first-run screens' 38px. The start she
 settings: it says what's read and what it costs, and Start says what it would do when it can't
 start cleanly (Start anyway, Watch it, or off with the reason in a note under it). Remembering is
 four steps (`.rp-steps`, the breathing accent dot on the current one, a hollow grey one when it
-stops) over a live line whose numbers climb rather than jump. The form never sits behind text:
+stops) over a live line whose numbers climb rather than jump. When a step has nothing to count
+(the pick, at the end of Reading), the line says what it's doing. The form never sits behind text:
 the dust fades out above the sheets (`Framing.yb`, the mask's floor).
 
 **The replay** is beats in chapters. Narration (`.rp-narr`) has four slots, title, body, extra and
