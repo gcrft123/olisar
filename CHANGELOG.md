@@ -164,6 +164,8 @@ Making a replay could stall for minutes after the last moment was found. The nex
 
 [eae3086] — With billing on, Olisar sends Gemini 3.1 Pro at most 20 requests a minute, under the 25 Google allows a Tier 1 key.
 
+[e8fcdc6] — Model routing under API keys has one help line, "Automatically routes to the best model for each request.", with billing on or off.
+
 [b028fad] — An animated avatar in a memory, on the final server screen or in a replay, shows its first frame and plays only while the memory is hovered.
 
 [d677ef5] — Usage's By feature chart gives a row to the range's five busiest features, largest first, and lists the rest under a last row named Other instead of Everything else.
