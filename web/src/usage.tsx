@@ -532,22 +532,22 @@ function Routing({ R, data }: { R: Reading; data: Summary }) {
 
 // ── By feature ──────────────────────────────────────────────────────────────
 // Only requests against the chain's daily limits: memory search has its own, and on a busy
-// day it was a quarter of the old donut. Each feature keeps its hue whatever the range, in
-// the order that clears the colorblind check for neighbours round the ring.
-const FEATURES = [
-  { key: 'conversation', label: 'Replies' },
-  { key: 'summary', label: 'Summaries' },
-  { key: 'persona', label: 'Impressions' },
-  { key: 'glossary', label: 'Glossary' },
-  { key: 'vision', label: 'Image' },
-  { key: 'else', label: 'Everything else' },
-]
-const NAMED = new Set(FEATURES.map((f) => f.key))
-// What "Everything else" is made of, keyed by the `source` each Gemini call is tagged with.
-const OTHER_LABEL: Record<string, string> = {
+// day it was a quarter of the old donut. The five busiest features in the range get a row
+// each, largest first, and the rest go under Other. Hues follow rank, in the order
+// that clears the colorblind check for neighbours round the ring.
+//
+// Keyed by the `source` each Gemini call is tagged with. Ties, and an empty range, fall back
+// to this order, so a quiet day still lists the usual five.
+const FEATURE_LABEL: Record<string, string> = {
+  conversation: 'Replies', summary: 'Summaries', persona: 'Impressions', glossary: 'Glossary', vision: 'Image descriptions',
   proactivity: 'Chiming in', grounding: 'Web search', catchup: 'Catch-up', extension: 'Extensions',
-  review: 'Extension reviews', canary: 'Health checks', status: 'Status', image: 'Making images', replay: 'Replays', other: 'Other',
+  review: 'Extension reviews', canary: 'Health checks', status: 'Status', image: 'Making images', replay: 'Replays', other: 'Uncategorized',
 }
+const FEATURE_ORDER = Object.keys(FEATURE_LABEL)
+const TOP_FEATURES = 5
+// Untagged calls. A row of its own would sit beside Other saying the same thing.
+const UNTAGGED = 'other'
+const rankOf = (k: string) => (FEATURE_ORDER.includes(k) ? FEATURE_ORDER.indexOf(k) : FEATURE_ORDER.length)
 const RANGES: { value: Range; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: '7', label: '7 days' },
@@ -557,14 +557,15 @@ const RANGES: { value: Range; label: string }[] = [
 function Features({ data, range, setRange }: { data: Summary; range: Range; setRange: (r: Range) => void }) {
   const [hl, setHl] = useState(-1)
   const src = data.features[range] || {}
-  const rows = FEATURES.map((f, i) => {
-    if (f.key !== 'else') return { ...f, i, value: src[f.key] || 0, parts: null }
-    const parts = Object.entries(src)
-      .filter(([k, v]) => !NAMED.has(k) && v > 0)
-      .map(([k, v]) => ({ label: OTHER_LABEL[k] || k, value: v }))
-      .sort((a, b) => b.value - a.value)
-    return { ...f, i, value: parts.reduce((s, p) => s + p.value, 0), parts }
-  })
+  const ranked = [...new Set([...FEATURE_ORDER, ...Object.keys(src)])]
+    .map((key) => ({ key, label: FEATURE_LABEL[key] || key, value: src[key] || 0 }))
+    .sort((a, b) => b.value - a.value || rankOf(a.key) - rankOf(b.key))
+  const top = ranked.filter((f) => f.key !== UNTAGGED).slice(0, TOP_FEATURES)
+  const parts = ranked.filter((f) => !top.includes(f) && f.value > 0)
+  const rows = [
+    ...top.map((f, i) => ({ ...f, i, parts: null })),
+    { key: 'else', label: 'Other', i: top.length, value: parts.reduce((s, p) => s + p.value, 0), parts },
+  ]
   const total = rows.reduce((s, r) => s + r.value, 0)
   const max = Math.max(1, ...rows.map((r) => r.value))
   const pct = (v: number) => (total ? Math.round((v / total) * 100) : 0)
@@ -608,12 +609,14 @@ function Features({ data, range, setRange }: { data: Summary; range: Range; setR
           <text className="u-ring-sub" x={c} y={c + 24} textAnchor="middle">{focus ? focus.label : 'Requests'}</text>
         </svg>
         <div className="u-legend" onPointerLeave={() => setHl(-1)}>
+          {/* Keyed by slot, not feature: when a range reorders the features, each bar grows or
+              shrinks from where its slot was instead of a new one appearing at full length. */}
           {rows.map((row) => (
-            <React.Fragment key={row.key}>
+            <React.Fragment key={row.i}>
               <div className={`u-lg u-f${row.i}` + (row.i === hl ? ' hl' : '')} onPointerEnter={() => setHl(row.i)}>
                 <span className="sw" />
                 <span className="nm">{row.label}</span>
-                <span className="bar" style={{ transform: `scaleX(${row.value / max})` }} />
+                <span className="bar" style={{ '--fill': `${(row.value / max) * 100}%` } as React.CSSProperties} />
                 <span className="val">{n(row.value)}</span>
                 <span className="pc">{pct(row.value)}%</span>
               </div>

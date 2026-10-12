@@ -2973,8 +2973,10 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .rx-dim { color: var(--text-3); }
 .progress { height: 7px; background: var(--bg-inset); border: 1px solid var(--border); border-radius: var(--radius-pill); overflow: hidden; }
 .progress.sm { height: 6px; }
+/* `--fill` clips the fill to length rather than scaling it: scaleX squashes the round end
+   flat on a short fill. */
 .progress-fill { height: 100%; width: 100%; background: var(--accent); border-radius: var(--radius-pill);
-  transform-origin: 0 50%; transition: transform 0.5s var(--ease-out); }
+  clip-path: inset(0 calc(100% - var(--fill, 0%)) 0 0 round var(--radius-pill)); transition: clip-path 0.5s var(--ease-out); }
 .progress.indeterminate { position: relative; }
 .progress.indeterminate .progress-bar { position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: var(--radius-pill); animation: rx-indef 1.2s ease-in-out infinite; }
 /* `left` is a layout property; the bar is the only moving thing in an indeterminate
@@ -3281,20 +3283,21 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-now.stale :is(.u-hero, .u-cur, .u-cur-id, .u-side-limits, .u-pace),
 .u-chain.stale tbody { opacity: 0.55; }
 
-/* A meter filled with what's left: --used clips the fill in from the left. */
+/* A meter filled with what's left: --used clips the fill in from the left, rounding the cut
+   so both ends of the fill match. */
 .u-mini {
   position: relative; width: 72px; height: 6px; border-radius: 3px; flex: none;
   background: var(--bg-inset); box-shadow: inset 0 0 0 1px var(--border);
 }
 .u-mini i {
   position: absolute; inset: 0; border-radius: 3px; background: var(--accent);
-  clip-path: inset(0 0 0 var(--used)); transition: clip-path 0.5s var(--ease-out);
+  clip-path: inset(0 0 0 var(--used) round 3px); transition: clip-path 0.5s var(--ease-out);
 }
-.u-mini.out i { clip-path: inset(0 0 0 100%); }
+.u-mini.out i { clip-path: inset(0 0 0 100% round 3px); }
 /* Quota Google says is gone although Olisar never counted it: something else on the same
    Google Cloud project used it. */
 .u-lost {
-  position: absolute; inset: 0 0 0 var(--used); border-radius: 0 3px 3px 0;
+  position: absolute; inset: 0 0 0 var(--used); border-radius: 3px;
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--text-3) 42%, transparent) 0 1.5px, transparent 1.5px 5px);
 }
 
@@ -3353,7 +3356,8 @@ input[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 
 .u-lg.hl { background: var(--bg-inset); }
 .u-lg .sw { width: 10px; height: 10px; border-radius: 3px; background: currentColor; }
 .u-lg .nm { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.u-lg .bar { height: 6px; border-radius: 3px; background: currentColor; transform-origin: left; transition: transform 0.4s var(--ease-out); }
+/* Clipped to `--fill` like .progress-fill, so a short bar keeps round ends. */
+.u-lg .bar { height: 6px; border-radius: 3px; background: currentColor; clip-path: inset(0 calc(100% - var(--fill)) 0 0 round 3px); transition: clip-path 0.4s var(--ease-out); }
 .u-lg .val { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); text-align: right; font-variant-numeric: tabular-nums; }
 .u-lg .pc { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-3); text-align: right; font-variant-numeric: tabular-nums; }
 .u-lg-parts { padding: 0 0 4px 22px; font-size: 12px; color: var(--text-3); line-height: 1.7; }

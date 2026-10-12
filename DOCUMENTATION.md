@@ -3408,7 +3408,7 @@ Once model routing has handled a reply this month, a table shows how many replie
 
 #### By feature
 
-Where the requests went today, or over the last 7 or 30 days: **Replies**, **Summaries**, **Impressions**, **Glossary**, **Image** and **Everything else**, which lists its parts underneath (chiming in, web search, catch-up, extensions and a few smaller ones). **Image** is Olisar describing posted images. Images Gemini makes show under **Everything else** as making images; Cloudflare's aren't counted here. Memory search isn't counted either, since it has its own limit.
+Where the requests went today, or over the last 7 or 30 days. The five features that made the most requests in that range each get a row, largest first, and **Other** lists the rest underneath it. **Image descriptions** is Olisar describing posted images, and **Making images** is Gemini drawing them; Cloudflare's images aren't counted here. Memory search isn't counted either, since it has its own limit.
 
 #### Stats
 

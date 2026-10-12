@@ -124,7 +124,7 @@ const USAGE_SCENES: Record<string, UsageScene> = {
 USAGE_SCENES.stale = { ...USAGE_SCENES.afternoon, stale: true }
 const USAGE_SPLIT_TODAY: Record<string, number> = {
   conversation: 452, summary: 196, persona: 141, glossary: 88, vision: 74,
-  proactivity: 58, grounding: 45, catchup: 21, extension: 16, canary: 14, status: 9,
+  proactivity: 158, grounding: 92, catchup: 21, extension: 16, canary: 14, status: 9,
 }
 const USAGE_SPLIT_7: Record<string, number> = {
   conversation: 9820, summary: 4310, persona: 3050, glossary: 1920, vision: 1480,
