@@ -224,7 +224,7 @@ export function withNames(text: string, names: string[]): string {
 export const discordLink = (guild: string, m: Msg) => `https://discord.com/channels/${guild}/${m.ch}/${m.id}`
 
 export const QUOTE_MAX = 220
-/** A quote over 220 characters, cut at a word. */
-export const clip = (t: string) => (t.length > QUOTE_MAX ? t.slice(0, QUOTE_MAX - 8).replace(/\s+\S*$/, '') + '…' : t)
+/** A quote over 220 characters (or `max`), cut at a word. */
+export const clip = (t: string, max = QUOTE_MAX) => (t.length > max ? t.slice(0, max - 8).replace(/\s+\S*$/, '') + '…' : t)
 
 export const isGap = (m: Msg | Gap): m is Gap => 'gap' in m
