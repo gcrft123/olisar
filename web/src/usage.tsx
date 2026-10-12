@@ -616,7 +616,7 @@ function Features({ data, range, setRange }: { data: Summary; range: Range; setR
               <div className={`u-lg u-f${row.i}` + (row.i === hl ? ' hl' : '')} onPointerEnter={() => setHl(row.i)}>
                 <span className="sw" />
                 <span className="nm">{row.label}</span>
-                <span className="bar" style={{ transform: `scaleX(${row.value / max})` }} />
+                <span className="bar" style={{ '--fill': `${(row.value / max) * 100}%` } as React.CSSProperties} />
                 <span className="val">{n(row.value)}</span>
                 <span className="pc">{pct(row.value)}%</span>
               </div>
