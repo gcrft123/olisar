@@ -7,6 +7,9 @@
   Members asking Olisar something mid-replay still get the head of the chain.
 * On the record. Requests, tokens and an estimate of the cost go on the run, and the calls
   are tagged ``replay`` for the Usage page.
+* Not stuck. A model that hasn't answered within its kind's DEADLINE is left for the next one
+  in the chain. Under load Google can take minutes to answer rather than refuse: one replay
+  waited almost four minutes for one short line, with nothing new on the screen.
 
 Three kinds of model, by what the step needs: ``lite`` (reading moments, the checks), the
 ``strong`` head of the chat chain with thinking (PICK.md's judge), and the server's own
@@ -35,6 +38,9 @@ PACE_SHARE = 0.5          # the replay waits while a model's minute is this full
 PACE_WAIT_MAX = 90.0      # and gives up waiting (and just asks) after this long
 MINUTE_RETRIES = 5        # a chain full for the minute is waited out this many times
 MINUTE_WAIT = 60.0
+# Seconds each model gets to answer, by kind. A moment takes Flash-Lite about a second and
+# the judge about thirty seconds, so these only cut off a model stuck behind an overload.
+DEADLINE = {"lite": 30.0, "strong": 120.0, "chat": 60.0}
 
 
 def chain_for(kind: str, guild_model: str | None = None) -> list[str]:
@@ -113,7 +119,7 @@ class Asker:
                 result = await client.generate_json(
                     contents=[prompt], system_instruction=system, chain=chain, model=chain[0],
                     temperature=temperature, max_output_tokens=max_output_tokens,
-                    thinking_budget=thinking_budget, source=SOURCE,
+                    thinking_budget=thinking_budget, source=SOURCE, timeout=DEADLINE[kind],
                 )
                 break
             except RateLimitExceeded:

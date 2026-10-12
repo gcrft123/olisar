@@ -286,6 +286,18 @@ class StatsRunTests(_Case):
                          [("Olisar", "Pinecone", "chat"), ("Pinecone", "Olisar", "chat")])
         self.assertEqual(run.progress["chapters"], 6 - 1)   # no pick yet
 
+    async def test_every_request_has_a_deadline(self) -> None:
+        """A model stuck behind an overload is left for the next one, not waited on."""
+        from olisar.replay import llm
+
+        rid = await self.new_run()
+        self.assertEqual(await runner.advance(rid, FakeRoster()), "done")
+        fake = llm.get_gemini()
+        asked = dict(zip((sys for sys, _ in fake.calls), fake.timeouts))
+        self.assertEqual(asked["You read one stretch of a Disc"], llm.DEADLINE["lite"])
+        self.assertEqual(asked["You're Olisar, a member of the"], llm.DEADLINE["chat"])
+        self.assertTrue(all(t in llm.DEADLINE.values() for t in fake.timeouts))
+
     async def test_what_a_replay_never_shows(self) -> None:
         rid = await self.new_run()
         await runner.advance(rid, FakeRoster())
