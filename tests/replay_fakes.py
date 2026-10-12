@@ -15,10 +15,12 @@ class FakeGemini:
     def __init__(self, **o) -> None:
         self.o = o
         self.calls: list[tuple[str, str]] = []
+        self.timeouts: list[float | None] = []
 
-    async def generate_json(self, *, contents, system_instruction, chain, model, temperature, max_output_tokens, thinking_budget, source):
+    async def generate_json(self, *, contents, system_instruction, chain, model, temperature, max_output_tokens, thinking_budget, source, timeout=None):
         prompt, sys = contents[0], system_instruction
         self.calls.append((sys[:30], prompt))
+        self.timeouts.append(timeout)
         if sys.startswith("You read one stretch"):
             data = self.moment(prompt, sys)
         elif sys.startswith("You help find"):
