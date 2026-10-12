@@ -1312,7 +1312,7 @@ function SearchIndexCard() {
           {data.running && (
             <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}
               aria-label="Channels indexed">
-              <div className="progress-fill" style={{ transform: `scaleX(${pct / 100})` }} />
+              <div className="progress-fill" style={{ '--fill': `${pct}%` } as React.CSSProperties} />
             </div>
           )}
           {channels.length > 0 && (
