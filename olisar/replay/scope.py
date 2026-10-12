@@ -150,6 +150,10 @@ _CHANNEL = re.compile(r"<#(\d+)>")
 _ROLE = re.compile(r"<@&(\d+)>")
 _EMOJI = re.compile(r"<a?:([A-Za-z0-9_~]+):\d+>")
 _TIME = re.compile(r"<t:(\d+)(?::[tTdDfFR])?>")
+# The caption Olisar wrote for an image, which the index keeps at the end of the message
+# (olisar/memory/media.py). Nobody said it, and the replay shows the image itself. It runs to
+# the end because a caption can hold a "]" of its own.
+_CAPTION = re.compile(r"\s*\[image description: .*\Z", re.DOTALL)
 TEXT_LIMIT = 1000
 
 
@@ -158,7 +162,7 @@ def clean_text(text: str, *, nameable, channel_of) -> str:
     name stays ``<@id>``, for the name to be filled in when it's served (store.present);
     anyone else is "@someone" for good. ``nameable(id)`` says which; ``channel_of(id)``
     gives a channel's name or None."""
-    text = text or ""
+    text = _CAPTION.sub("", text or "")
     text = _USER.sub(lambda m: m.group(0) if nameable(int(m.group(1))) else "@someone", text)
     text = _CHANNEL.sub(lambda m: "#" + (channel_of(int(m.group(1))) or "channel"), text)
     text = _ROLE.sub("@role", text)
