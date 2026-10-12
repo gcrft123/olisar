@@ -113,8 +113,9 @@ function report(stress: boolean) {
     founders: [
       { who: '101', at: first[0].at, count: 41233, msg: first[0] },
       { who: '102', at: first[1].at, count: 28907, msg: first[1] },
+      // Said hello with a sticker, no words.
+      { who: '104', at: first[2].at, count: 19882, msg: first[2] },
       { who: '103', at: at(2021, 3, 15, 19, 40), count: 33410, msg: msg('103', at(2021, 3, 15, 19, 40), 'juniper sent me. i was promised snacks') },
-      { who: '104', at: at(2021, 3, 17, 18, 2), count: 19882, msg: msg('104', at(2021, 3, 17, 18, 2), 'hi!! is this the book club or the other thing') },
       { who: null, at: at(2021, 3, 19, 20, 0), count: null, msg: null, gone: true },
     ],
     arrivals: {

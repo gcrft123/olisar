@@ -608,8 +608,10 @@ export function createScene(o: SceneOpts) {
     const day = shortDate(f.at, tz).replace(/, \d{4}$/, '')
     if (!f.who) return { kind: 'left', foot: day, label: 'Someone' }
     const said = f.msg
+    // Plenty of people say hello with a sticker or a GIF, which there's no room to show here.
+    const words = !said ? '' : said.text ? `“${clip(said.text, 60)}”` : mediaWord(said)
     return {
-      kind: 'member', who: f.who, foot: day, more: said ? `“${clip(said.text).slice(0, 60)}”` : '', label: `${nm(f.who)}, ${day}`,
+      kind: 'member', who: f.who, foot: day, more: words, label: `${nm(f.who)}, ${day}`,
       open: () => [
         head(said ? `#${said.chn} · ${longDate(said.at, tz)}` : longDate(f.at, tz)),
         face(av(f.who), 56, 'rp-av rp-mo-av'),
