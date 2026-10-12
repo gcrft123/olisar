@@ -22,6 +22,8 @@ Animated avatars played nonstop in the memories around the form, so a ring with 
 
 Usage's By feature chart always gave its own rows to the same five features, so on a day when chiming in or web search outnumbered the glossary, the bigger feature was buried in the catch-all bucket while the smaller one kept its row. Its bars and the console's progress bars also lost their rounded ends when short, because they were sized by scaling.
 
+Making a replay could stall for minutes after the last moment was found. The next step, choosing what the server is known for, is one long request to Gemini, and the screen showed nothing new while it ran. When Gemini was busy, that request and the one after it could each take several minutes, because nothing gave up on a slow answer. On one busy night it also tried the same busy model again under a second name.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -243,6 +245,12 @@ Usage's By feature chart always gave its own rows to the same five features, so 
 [1ec94d5] — Short bars keep round ends like long ones, in By feature's legend and in the progress bars for channel indexing and update downloads.
 
 [1ec94d5] — Usage's quota meters round the left end of their fill to match the right.
+
+[5cae432] — A replay asks the next model when one takes too long to answer, instead of waiting minutes on a busy one.
+
+[5cae432] — After a model fails because it's busy, Olisar skips it under its other name too, instead of asking the same model again as gemini-flash-latest.
+
+[dae4817] — While a replay picks what the server is known for, the remembering screen says so instead of staying on the last moment found.
 
 ## [2.0] — 2026-10-01
 
