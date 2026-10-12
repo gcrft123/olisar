@@ -159,7 +159,7 @@ const WHERE = ['#general · 2021', '#games · 2021', '#general · 2022', '#memes
 function progress(secs: number) {
   const k = (a: number, b: number) => Math.max(0, Math.min(1, (secs - a) / (b - a)))
   const phase = secs < 4.2 ? 0 : secs < 6.4 ? 1 : secs < 11 ? 2 : secs < RUN_SECONDS - 1 ? 3 : 4
-  const moments = Math.round(31 * k(6.6, 10.6))
+  const moments = Math.round(31 * k(6.6, 9.4))
   return {
     phase, read: Math.round(412880 * k(0, 4)), total: 412880, where: WHERE[Math.floor(secs * 2.5) % WHERE.length],
     people: 1143, channels: 18, years: 5, moments, chapters: 6,
@@ -172,11 +172,12 @@ function run(now: number) {
   const secs = (now - started) / 1000
   const halted = (MODE === 'paused' || MODE === 'failed' || MODE === 'stopped') && !retried
   if (!halted && secs >= RUN_SECONDS) { started = 0; finished = true; return null }
-  const p = progress(halted ? 8.2 : secs)
+  const t = halted ? 8.2 : secs
+  const p = progress(t)
   return {
     id: 7,
     status: halted ? MODE : secs < 0.5 ? 'queued' : 'running',
-    step: ['gather', 'count', 'moments', 'write', 'check'][Math.min(4, p.phase)],
+    step: p.phase === 2 && t >= 9.6 ? 'pick' : ['gather', 'count', 'moments', 'write', 'check'][Math.min(4, p.phase)],
     progress: p,
     started_by: MODE === 'busy' ? { id: '1089266822827737191', name: 'okapi' } : { id: ME, name: 'gcrft123' },
     mine: MODE !== 'busy',

@@ -373,6 +373,10 @@ function RememberSheet({ on, server, run, busy, retry, stale }: {
     line = <><span className="num">{fmt(read)}</span> {one(read, 'message', 'messages')} read {p.where ? <span className="rp-where">{p.where}</span> : null}</>
   } else if (phase === 1) {
     line = <><span className="num">{fmt(people)}</span> {one(people, 'person', 'people')} · <span className="num">{fmt(channels)}</span> {one(channels, 'channel', 'channels')} · <span className="num">{fmt(p.years || 1)}</span> {(p.years || 1) === 1 ? 'year' : 'years'}</>
+  } else if (phase === 2 && run?.step === 'pick') {
+    // The pick (olisar/replay/pick.py) comes after the last moment and has nothing to count:
+    // mostly one request, half a minute or more. Without this the line looks stuck.
+    line = <>{found} · finding what this server is known for</>
   } else if (phase === 2) {
     line = <>Found <span className="num">{fmt(moments)}</span> {Math.round(moments) === 1 ? 'moment' : 'moments'} {p.where ? <span className="rp-where">{p.where}</span> : null}</>
   } else if (phase === 3) {
