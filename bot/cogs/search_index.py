@@ -27,7 +27,7 @@ from olisar.db.engine import session_scope
 from olisar.db.models import Guild, GuildChannelInfo, Message, SearchMessage
 from olisar.gemini.vision import describe_images
 from olisar.memory.media import description_marker
-from olisar.memory.writer import record_search_message
+from olisar.memory.writer import dm_index_backlog, record_search_message
 from olisar.peers import is_member_author
 
 log = logging.getLogger("olisar.search_index")
@@ -211,27 +211,18 @@ class SearchIndex(commands.Cog):
     async def _backfill_dm_index(self) -> None:
         """Index DM conversations into the search corpus from the message table (guild 0).
         Discord can't page DM history, but every DM is already stored in ``message``, so
-        the DM index is built from there — oldest-first, bounded per tick. Honours the
-        per-user DM opt-out and dedup inside record_search_message."""
+        the DM index is built from there — oldest-first, bounded per tick. The backlog
+        query leaves out what record_search_message would skip, so a page of messages
+        it will never index can't hold back the ones after it."""
         try:
             async with session_scope() as session:
-                already = select(SearchMessage.message_id).where(SearchMessage.guild_id == 0)
-                todo = [
-                    m
-                    for m in (
-                        await session.scalars(
-                            select(Message)
-                            .where(
-                                Message.guild_id == 0,
-                                Message.author_is_bot == False,  # noqa: E712
-                                Message.message_id.notin_(already),
-                            )
-                            .order_by(Message.created_at.asc())
-                            .limit(DM_INDEX_PER_TICK)
-                        )
-                    ).all()
-                    if (m.content or "").strip()
-                ]
+                todo = (
+                    await session.scalars(
+                        dm_index_backlog()
+                        .order_by(Message.created_at.asc())
+                        .limit(DM_INDEX_PER_TICK)
+                    )
+                ).all()
                 if not todo:
                     return
                 names = await name_map(session, {m.author_id for m in todo})
