@@ -24,6 +24,8 @@ Usage's By feature chart always gave its own rows to the same five features, so 
 
 Making a replay could stall for minutes after the last moment was found. The next step, choosing what the server is known for, is one long request to Gemini, and the screen showed nothing new while it ran. When Gemini was busy, that request and the one after it could each take several minutes, because nothing gave up on a slow answer. On one busy night it also tried the same busy model again under a second name.
 
+The Direct messages row on the Knowledge page said it was indexing forever. It counted every stored DM as owed to the search index, but a DM with no text, like an image sent on its own, or one from someone opted out of search is never indexed, so a single one kept the row from finishing. Indexing DM history had the same blind spot: it kept picking those messages up again, and enough of them would have stopped it reaching newer ones.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -257,6 +259,10 @@ Making a replay could stall for minutes after the last moment was found. The nex
 [5cae432] — After a model fails because it's busy, Olisar skips it under its other name too, instead of asking the same model again as gemini-flash-latest.
 
 [dae4817] — While a replay picks what the server is known for, the remembering screen says so instead of staying on the last moment found.
+
+[65d5c37] — The Direct messages row on the Knowledge page says done once every DM that can be indexed is.
+
+[65d5c37] — Indexing DM history passes over the DMs it will never index instead of reading them again every 40 seconds.
 
 ## [2.0] — 2026-10-01
 

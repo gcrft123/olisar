@@ -23,7 +23,7 @@ from olisar.db.models import (
 )
 from olisar.knowledge import sources
 from olisar.knowledge.refresh import REFRESHABLE_TYPES
-from olisar.memory.writer import clear_search_index, rearm_search_index
+from olisar.memory.writer import clear_search_index, dm_index_backlog, rearm_search_index
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"])
 
@@ -176,6 +176,15 @@ async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
             )
             or 0
         )
+        # Done is measured against what the DM backfill would still index, not every DM:
+        # an image-only message or an opted-out author's is never indexed, so comparing
+        # with dm_msgs left the row saying "indexing" forever.
+        dm_pending = int(
+            await session.scalar(
+                select(func.count()).select_from(dm_index_backlog().subquery())
+            )
+            or 0
+        )
     channels = []
     done = indexing = queued = 0
     for c in chans:
@@ -198,7 +207,7 @@ async def reindex_status(gctx: GuildContext = Depends(require_guild_admin)):
     # One aggregate "Direct messages" row for all DM channels (shown once there's DM
     # activity). Its index is rebuilt from the message table by the DM backfill pass.
     if dm_msgs > 0:
-        dm_status = "done" if dm_indexed >= dm_msgs else "indexing"
+        dm_status = "indexing" if dm_pending else "done"
         channels.append({
             "channel_id": "dm",
             "name": "Direct messages",

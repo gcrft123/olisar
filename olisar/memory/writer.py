@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Select, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.db.models import (
@@ -459,6 +459,44 @@ async def record_search_message(
         )
     )
     return True
+
+
+def dm_index_backlog() -> Select:
+    """Stored DMs that ``record_search_message`` would index but the index doesn't hold yet.
+
+    The same gates for guild 0, in SQL: from a person, with text, and from an author whose
+    guild-0 profile isn't opted out of memory, search or DMs and isn't paused (or, with no
+    profile, who has no /forget-me opt-out). The per-channel indexing switch is left out
+    because DM channels never have a ``GuildChannelInfo`` row. The DM backfill reads its work
+    from here so a message it will always skip can't be picked again every tick, and the
+    Knowledge page counts it to tell when the DM index has caught up."""
+    profile = select(UserProfile.user_id).where(
+        UserProfile.user_id == Message.author_id, UserProfile.guild_id == 0
+    )
+    blocked = profile.where(
+        or_(
+            UserProfile.memory_opt_out.is_(True),
+            UserProfile.search_opt_out.is_(True),
+            UserProfile.dm_opt_out.is_(True),
+            UserProfile.pause_until > utcnow(),
+        )
+    )
+    opted_out_without_profile = and_(
+        ~profile.exists(),
+        select(MemoryOptOut.user_id).where(MemoryOptOut.user_id == Message.author_id).exists(),
+    )
+    return select(Message).where(
+        Message.guild_id == 0,
+        Message.author_is_bot.is_(False),
+        # Discord won't send a whitespace-only message, so this is the image-, sticker- or
+        # attachment-only case that strip() turns away.
+        func.trim(func.coalesce(Message.content, ""), " \t\r\n") != "",
+        ~blocked.exists(),
+        ~opted_out_without_profile,
+        Message.message_id.notin_(
+            select(SearchMessage.message_id).where(SearchMessage.guild_id == 0)
+        ),
+    )
 
 
 # How many rows of each kind ``bot_activity`` keeps. The feed shows a couple of dozen items
