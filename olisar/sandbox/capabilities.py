@@ -15,6 +15,7 @@ Two invariants:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -137,6 +138,10 @@ class Invocation:
     blob_seq: int = 0
     blob_total_bytes: int = 0
     attachment_ops: int = 0
+    # When the run's wall budget runs out (time.monotonic()), set by runner._invoke. A host
+    # call still going then is cancelled and the run killed, so a capability that can be slow
+    # sizes itself to what's left. None outside a sandbox run.
+    deadline: float | None = None
 
 
 class PermissionError_(Exception):
@@ -618,6 +623,30 @@ async def _files(inv: Invocation, method: str, args: list) -> Any:
 
 # ── model generation (spends the installing operator's own model quota) ──────
 _GENERATE_MAX_TOKENS = 1200  # hard ceiling regardless of what the extension asks for
+# host.generate's time limits. Without them, a model Google never answered held the call
+# until the sandbox killed the run: on 2026-11-02 a welcome message hung past an event
+# hook's 60s budget (engine.EVENT_WALL_SECONDS) and nothing was posted, not even an error
+# the extension could catch. A normal extension generation takes a second or two.
+#
+# The call may use this share of the time the run has left, and returns an error the
+# extension can catch when it's spent; the rest is the extension's, to post what it got or
+# handle the failure. Each model gets at most _GENERATE_ATTEMPT_TIMEOUT, and never more than
+# _GENERATE_ATTEMPT_SHARE of the call, so a stalled first model always leaves a second one a
+# full attempt.
+_GENERATE_RUN_SHARE = 2 / 3
+_GENERATE_ATTEMPT_SHARE = 0.45
+_GENERATE_ATTEMPT_TIMEOUT = 20.0
+_GENERATE_MIN_SECONDS = 1.0  # less than this left isn't worth starting a request
+
+
+def _generate_limits(inv: Invocation) -> tuple[float | None, float]:
+    """``(seconds the whole call may take or None, seconds per model)`` for this run."""
+    if inv.deadline is None:
+        return None, _GENERATE_ATTEMPT_TIMEOUT
+    total = (inv.deadline - time.monotonic()) * _GENERATE_RUN_SHARE
+    if total < _GENERATE_MIN_SECONDS:
+        raise TimeoutError("there isn't enough time left in this run to generate text")
+    return total, min(_GENERATE_ATTEMPT_TIMEOUT, total * _GENERATE_ATTEMPT_SHARE)
 
 
 async def _persona_system(inv: Invocation) -> str:
@@ -730,11 +759,19 @@ async def _generate(inv: Invocation, opts: dict) -> str | list[str]:
             system = system + "\n\n── For this generation ──\n" + note
         contents = [types.Content(role="user", parts=[types.Part(text=task)])]
 
-    result = await get_gemini().generate(
-        contents=contents,
-        system_instruction=system, max_output_tokens=max_tokens,
-        source="extension",
-    )
+    total, per_model = _generate_limits(inv)
+    try:
+        result = await asyncio.wait_for(
+            get_gemini().generate(
+                contents=contents,
+                system_instruction=system, max_output_tokens=max_tokens,
+                source="extension", timeout=per_model,
+            ),
+            total,
+        )
+    except TimeoutError as exc:
+        # _raw_generate's own message names the model when the chain ran out first.
+        raise TimeoutError(str(exc) or f"no model answered within {total:.0f}s") from None
     # The delivery marker never leaves the host. The generation runs on the persona system
     # prompt, which teaches the model to separate beats with SPLIT_MARKER for bot/replies.py
     # to turn into consecutive messages — but an extension has no idea the marker means

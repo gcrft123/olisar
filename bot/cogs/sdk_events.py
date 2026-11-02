@@ -64,6 +64,18 @@ class _EventBridge:
         if channel is None or not hasattr(channel, "send"):
             log.info("event send: channel %s not usable in guild %s", channel_id, self.guild.id)
             return
+        sent = await self._deliver(channel, payload)
+        if sent:
+            log.info(
+                "event send: %s posted %d message(s) to #%s in guild %s",
+                self.ext_key, sent, cid, self.guild.id,
+            )
+        else:
+            log.info("event send: %s had nothing to post to #%s", self.ext_key, cid)
+
+    async def _deliver(self, channel: Any, payload: Any) -> int:
+        """Post ``payload`` and return how many Discord messages that took."""
+        sent = 0
         if isinstance(payload, list):
             for i, piece in enumerate(payload):
                 if i:
@@ -71,7 +83,8 @@ class _EventBridge:
                 await _pace(channel, typing_seconds(piece))
                 for chunk in chunk_text(piece):
                     await channel.send(content=chunk)
-            return
+                    sent += 1
+            return sent
         p = self._unpack(payload)
         embed = _to_embed(p.get("embed"))
         view = _build_view(list(p.get("components") or []), ext_key=self.ext_key) if p.get("components") else None
@@ -83,7 +96,8 @@ class _EventBridge:
         content = p.get("content")
         # Chunk defensively under Discord's 2000-char limit; embed + components + files ride
         # the first chunk so persistent buttons keep working across restarts.
-        chunks = chunk_text(str(content)) if content else [None]
+        # Blank content chunks to nothing, which would drop the embed riding on it too.
+        chunks = (chunk_text(str(content)) if content else []) or [None]
         first = True
         for chunk in chunks:
             kwargs: dict = {}
@@ -97,7 +111,9 @@ class _EventBridge:
                 kwargs["files"] = files
             if kwargs:
                 await channel.send(**kwargs)
+                sent += 1
             first = False
+        return sent
 
     async def reply(self, payload: Any) -> None:
         raise RuntimeError("reply() isn't available in an event handler — use host.discord.send(channelId, …)")
@@ -156,6 +172,10 @@ async def _dispatch(guild: discord.Guild, event_name: str, ctx: dict) -> None:
                 )
         except Exception:  # noqa: BLE001
             log.exception("sdk event %s/%s failed", ext_key, event_name)
+        else:
+            # With the send line above, this tells "posted" from "ran and chose not to"
+            # (Welcome with no channel or prompt set), which used to look identical.
+            log.info("sdk event %s/%s ran in guild %s", ext_key, event_name, guild.id)
 
 
 class SdkEvents(commands.Cog):

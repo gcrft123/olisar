@@ -14,8 +14,10 @@ to it, so it is first-party only and never reaches past the extension's own serv
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import tempfile
+import time
 import unittest
 from datetime import timedelta
 from pathlib import Path
@@ -38,6 +40,7 @@ from olisar.db.models import (
 )
 from olisar.extensions import sdk_builtins
 from olisar.persona import SPLIT_MARKER
+from olisar.sandbox import engine
 from olisar.sandbox.capabilities import Invocation, PermissionError_, dispatch
 
 GUILD, OTHER_GUILD = 1, 2
@@ -230,6 +233,86 @@ class WelcomeUsesTheChannelTest(_Case):
         self.assertIn("warmly welcome rook", task)
         channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
 
+    async def test_a_model_that_never_answers_still_gets_a_greeting(self) -> None:
+        """Production, 2026-11-02: the model never answered, the sandbox killed the run at
+        the event budget, and the new member got nothing. host.generate now gives up with
+        time to spare, so welcome.js catches the error and its persona-only retry posts.
+
+        Runs the real sandbox and deadline on a 6s budget: the first generation hangs, the
+        call gives up at two-thirds of it (4s), and the retry has the remaining 2s."""
+        async with self.scope() as s:
+            await sdk_builtins.seed(s)
+            s.add(ExtensionState(
+                guild_id=GUILD, key="welcome", enabled=True,
+                settings={"channel_id": str(WELCOME), "prompt": "warmly welcome {user}"},
+            ))
+        channel = SimpleNamespace(send=AsyncMock())
+        guild = SimpleNamespace(
+            id=GUILD, get_channel=lambda cid: channel if cid == WELCOME else None,
+        )
+        answer = self.gemini.generate
+
+        async def first_one_hangs(**kw):
+            if not self.gemini.calls:
+                self.gemini.calls.append(kw)
+                await asyncio.Event().wait()  # Google never answers
+            return await answer(**kw)
+
+        self.gemini.generate = first_one_hangs
+
+        with patch.object(engine, "EVENT_WALL_SECONDS", 6.0), self.assertLogs(
+            "olisar.cogs.sdk_events", "INFO"
+        ) as logs:
+            await sdk_events._dispatch(guild, "memberJoin", {
+                "event": "memberJoin", "guildId": str(GUILD),
+                "member": {
+                    "id": "900", "displayName": "rook", "username": "rook_",
+                    "mention": "<@900>", "bot": False,
+                },
+            })
+
+        self.assertEqual(len(self.gemini.calls), 2)
+        # Each model got under half of the call, so a stalled first one leaves a second room.
+        self.assertAlmostEqual(self.gemini.calls[0]["timeout"], 6.0 * 2 / 3 * 0.45, delta=0.2)
+        self.assertNotIn("You're talking in", self.gemini.system)
+        channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
+        self.assertFalse(any("failed" in line for line in logs.output), logs.output)
+        self.assertTrue(
+            any(f"welcome posted 1 message(s) to #{WELCOME}" in line for line in logs.output),
+            logs.output,
+        )
+
+
+class GenerateTimeLimitTest(_Case):
+    """host.generate inside a run: always back before the sandbox's deadline."""
+
+    async def _generate_with(self, seconds_left: float, gemini) -> None:
+        self.gemini.generate = gemini
+        async with self.scope() as session:
+            inv = Invocation(
+                ext_key="test", permissions={"model.generate"}, guild_id=GUILD,
+                session=session, trusted=True, deadline=time.monotonic() + seconds_left,
+            )
+            await dispatch(inv, "generate", "run", [{"task": "say hi"}])
+
+    async def test_a_hung_model_is_given_up_on_with_time_left_in_the_run(self) -> None:
+        asked: list[dict] = []
+
+        async def hangs(**kw):
+            asked.append(kw)
+            await asyncio.Event().wait()
+
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "no model answered within"):
+            await self._generate_with(3.0, hangs)
+        self.assertLess(time.monotonic() - started, 2.5)  # gave up at ~2s, not at the 3s kill
+        self.assertAlmostEqual(asked[0]["timeout"], 3.0 * 2 / 3 * 0.45, delta=0.1)
+
+    async def test_too_little_time_left_refuses_without_asking(self) -> None:
+        asked = AsyncMock()
+        with self.assertRaisesRegex(TimeoutError, "isn't enough time left"):
+            await self._generate_with(1.0, asked)
+        asked.assert_not_awaited()
 
 class ChannelPromptTest(_Case):
     async def test_a_mention_works_like_an_id(self) -> None:

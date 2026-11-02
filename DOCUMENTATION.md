@@ -2595,6 +2595,8 @@ With `channelId`, the model sees what a reply in that channel would: the channel
 - When a member set off the run with a command, a button or a message Olisar is replying to, the channel has to be one that member can open.
 - It can't be used while replying to a DM.
 
+A call can take up to two-thirds of the time your handler has left. If no model answers by then, it throws, which leaves the last third for your handler to catch the error and respond. When one model is slow, the next one is tried before that limit runs out.
+
 #### host.discord.send
 
 ```ts

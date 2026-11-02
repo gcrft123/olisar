@@ -40,6 +40,7 @@ async def _invoke(
 
     def job() -> Any:
         deadline = time.monotonic() + wall_seconds
+        inv.deadline = deadline
 
         # A host call counts against the run's wall budget like the extension's own time
         # does: a slow one (a drip-fed fetch) is cancelled when the budget runs out, rather
