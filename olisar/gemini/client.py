@@ -556,7 +556,9 @@ class GeminiClient:
         thinking_budget: int | None = 0,
         thinking_level: str | None = None,
         source: str = "other",
+        timeout: float | None = None,
     ) -> GenResult:
+        """``timeout`` bounds each model's attempt, as in ``_raw_generate``."""
         model = model or settings.gemini_chat_model
         config = types.GenerateContentConfig(
             system_instruction=system_instruction,
@@ -566,6 +568,7 @@ class GeminiClient:
         resp = await self._raw_generate(
             contents=contents, config=config, model=model, chain=chain,
             thinking_budget=thinking_budget, thinking_level=thinking_level, source=source,
+            timeout=timeout,
         )
         tokens = (
             resp.usage_metadata.total_token_count if resp.usage_metadata is not None else 0

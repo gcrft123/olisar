@@ -38,6 +38,7 @@ from olisar.db.models import (
 )
 from olisar.extensions import sdk_builtins
 from olisar.persona import SPLIT_MARKER
+from olisar.sandbox import engine
 from olisar.sandbox.capabilities import Invocation, PermissionError_, dispatch
 
 GUILD, OTHER_GUILD = 1, 2
@@ -228,6 +229,44 @@ class WelcomeUsesTheChannelTest(_Case):
         self.assertNotIn("You're talking in", self.gemini.system)
         (role, task), = self.gemini.lines
         self.assertIn("warmly welcome rook", task)
+        channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
+
+    async def test_a_generation_that_times_out_still_gets_a_greeting(self) -> None:
+        """Production, 2026-11-02: the model never answered, the event budget ran out, and
+        the new member got nothing. host.generate now bounds each model's attempt, so a
+        stall reaches welcome.js as an error and its persona-only retry gets the message out."""
+        async with self.scope() as s:
+            await sdk_builtins.seed(s)
+            s.add(ExtensionState(
+                guild_id=GUILD, key="welcome", enabled=True,
+                settings={"channel_id": str(WELCOME), "prompt": "warmly welcome {user}"},
+            ))
+        channel = SimpleNamespace(send=AsyncMock())
+        guild = SimpleNamespace(
+            id=GUILD, get_channel=lambda cid: channel if cid == WELCOME else None,
+        )
+        answer = self.gemini.generate
+
+        async def first_one_stalls(**kw):
+            if not self.gemini.calls:
+                self.gemini.calls.append(kw)
+                raise TimeoutError("gemini-x didn't answer within 20s")
+            return await answer(**kw)
+
+        self.gemini.generate = first_one_stalls
+
+        await sdk_events._dispatch(guild, "memberJoin", {
+            "event": "memberJoin", "guildId": str(GUILD),
+            "member": {
+                "id": "900", "displayName": "rook", "username": "rook_",
+                "mention": "<@900>", "bot": False,
+            },
+        })
+
+        self.assertEqual(len(self.gemini.calls), 2)
+        for call in self.gemini.calls:
+            self.assertLess(call["timeout"], engine.EVENT_WALL_SECONDS / 2)
+        self.assertNotIn("You're talking in", self.gemini.system)
         channel.send.assert_awaited_once_with(content=f"<@900> {BOT_REPLY}")
 
 
