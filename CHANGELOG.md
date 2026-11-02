@@ -26,6 +26,8 @@ Making a replay could stall for minutes after the last moment was found. The nex
 
 The Direct messages row on the Knowledge page said it was indexing forever. It counted every stored DM as owed to the search index, but a DM with no text, like an image sent on its own, or one from someone opted out of search is never indexed, so a single one kept the row from finishing. Indexing DM history had the same blind spot: it kept picking those messages up again, and enough of them would have stopped it reaching newer ones.
 
+A new member could go ungreeted because one request to Gemini never came back. Text an extension asked for had no time limit, so the stalled request held the welcome until the sandbox stopped it, and the fallback to another model never got a turn. An extension's request now gives up with time left over: a slow model hands off to the next one, and when none answers the extension gets an error it can act on.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -263,6 +265,12 @@ The Direct messages row on the Knowledge page said it was indexing forever. It c
 [65d5c37] — The Direct messages row on the Knowledge page says done once every DM that can be indexed is.
 
 [65d5c37] — Indexing DM history passes over the DMs it will never index instead of reading them again every 40 seconds.
+
+[e9ff152] — Text an extension asks Gemini for takes at most two-thirds of the time its handler has left and moves to the next model when one is slow, so a welcome message still goes out when the first model stalls.
+
+[7c43cdf] — The bot's log records when an event hook such as Welcome runs and how many messages it posted.
+
+[d8fc40c] — An extension's event post keeps its embed, buttons and files when its text is blank.
 
 ## [2.0] — 2026-10-01
 
