@@ -96,7 +96,8 @@ class _EventBridge:
         content = p.get("content")
         # Chunk defensively under Discord's 2000-char limit; embed + components + files ride
         # the first chunk so persistent buttons keep working across restarts.
-        chunks = chunk_text(str(content)) if content else [None]
+        # Blank content chunks to nothing, which would drop the embed riding on it too.
+        chunks = (chunk_text(str(content)) if content else []) or [None]
         first = True
         for chunk in chunks:
             kwargs: dict = {}
