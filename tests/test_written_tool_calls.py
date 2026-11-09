@@ -110,6 +110,65 @@ class WhatCountsAsATypedCall(unittest.TestCase):
         self.assertIsNone(_typed_call("react(emoji={[1]})", NAMES))
 
 
+class GeminisOwnCallSyntax(unittest.TestCase):
+    """On 2026-11-09 Flash 3.8 answered a DM of word salad with the message
+    `call:default_api:react{emoji:🏥}`, Gemini's own call syntax written out as text."""
+
+    def test_the_line_that_was_sent(self):
+        self.assertEqual(
+            _typed_call("call:default_api:react{emoji:🏥}", NAMES), ("react", {"emoji": "🏥"})
+        )
+
+    def test_with_its_string_delimiters(self):
+        for quote in ("<ctrl46>", "<escape>"):
+            with self.subTest(quote=quote):
+                self.assertEqual(
+                    _typed_call(f"call:default_api:react{{emoji:{quote}🏥{quote}}}", NAMES),
+                    ("react", {"emoji": "🏥"}),
+                )
+
+    def test_without_default_api_and_inside_call_tokens(self):
+        self.assertEqual(
+            _typed_call("<start_function_call>call:react{emoji:🔥}<end_function_call>", NAMES),
+            ("react", {"emoji": "🔥"}),
+        )
+
+    def test_several_arguments_and_a_quoted_comma(self):
+        self.assertEqual(
+            _typed_call(
+                "call:default_api:web_search{query:<ctrl46>star citizen, 4.3<ctrl46>, count:3,"
+                " fresh:true}",
+                NAMES,
+            ),
+            ("web_search", {"query": "star citizen, 4.3", "count": 3, "fresh": True}),
+        )
+
+    def test_no_arguments(self):
+        self.assertEqual(_typed_call("call:default_api:catchup{}", NAMES), ("catchup", {}))
+
+    def test_not_a_call(self):
+        for line in (
+            "call:default_api:generate_image{prompt:a cat}",  # not one of this reply's tools
+            "call:default_api:react{emoji:}",  # an empty value
+            "call:default_api:react{emoji:{a:1}}",  # a nested value
+            "call:default_api:react{emoji:🏥} and then some",
+            "call me at 5:30 {maybe}",
+        ):
+            with self.subTest(line=line):
+                self.assertIsNone(_typed_call(line, NAMES))
+
+    def test_through_the_loop_it_becomes_the_reaction(self):
+        out, ctx, _ = TheLoop()._loop(["call:default_api:react{emoji:🏥}"])
+        self.assertEqual((out, ctx.silent), ("", "🏥"))
+
+    def test_next_to_words_it_is_made_and_the_words_sent(self):
+        actions = _actions()
+        self.assertEqual(
+            _settle("lol\ncall:default_api:react{emoji:🏥}", _ctx(actions)), "lol"
+        )
+        actions.react.assert_awaited_once_with("🏥")
+
+
 class SplittingAReply(unittest.TestCase):
     def test_a_reply_that_is_only_a_call(self):
         self.assertEqual(
