@@ -28,6 +28,8 @@ The Direct messages row on the Knowledge page said it was indexing forever. It c
 
 A new member could go ungreeted because one request to Gemini never came back. Text an extension asked for had no time limit, so the stalled request held the welcome until the sandbox stopped it, and the fallback to another model never got a turn. An extension's request now gives up with time left over: a slow model hands off to the next one, and when none answers the extension gets an error it can act on.
 
+A member sent Olisar a DM of word salad, and it answered with the line `call:default_api:react{emoji:🏥}`. Gemini had written its reaction out in its own call syntax instead of making it, and Olisar only recognized calls written the other way Gemini types them. The same day, every DM reply Gemini 3.8 Flash answered took between one and six and a half minutes, because a reply waited on a slow model for as long as Google took.
+
 ### New
 
 [17b8395] — Admins and co-admins can make a memory replay of a server from its search index, built in the background by the bot so it keeps going with the console closed.
@@ -271,6 +273,10 @@ A new member could go ungreeted because one request to Gemini never came back. T
 [7c43cdf] — The bot's log records when an event hook such as Welcome runs and how many messages it posted.
 
 [d8fc40c] — An extension's event post keeps its embed, buttons and files when its text is blank.
+
+[04ea3ed] — A reaction or other tool call the model writes out in Gemini's own call syntax is made or asked again instead of being sent as the reply.
+
+[6f0825c] — A reply gives each model 60 seconds to answer, then asks the next one in the chain.
 
 ## [2.0] — 2026-10-01
 

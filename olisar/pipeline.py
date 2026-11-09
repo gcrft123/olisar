@@ -374,20 +374,67 @@ _MARKER_RE = re.compile(
 _BARE_MARKER_RE = re.compile(re.escape(_MARKER_HEAD.strip("[ ")) + r"\s+(\S+)", re.IGNORECASE)
 _TOOL_FENCE_RE = re.compile(r"`{3}\s*tool_(?:code|call)\s*")
 _REACTION_TOOLS = frozenset({"react", "acknowledge"})
+# Gemini's own call syntax, leaked as text: on 2026-11-09 Flash 3.8 sent a DM
+# `call:default_api:react{emoji:🏥}`. A string value comes wrapped in <ctrl46> (Gemma's
+# <escape>) when those tokens survive, and bare when they don't.
+_NATIVE_CALL_RE = re.compile(
+    r"(?:<start_function_call>)?call:(?:default_api:)?(\w+)\{(.*)\}(?:<end_function_call>)?",
+    re.DOTALL,
+)
+_NATIVE_QUOTE = r"(?:<ctrl46>|<escape>)"
+_NATIVE_ARG_RE = re.compile(
+    rf"\s*(\w+)\s*:\s*(?:{_NATIVE_QUOTE}(.*?){_NATIVE_QUOTE}|([^,{{}}]*?))\s*(?:,|$)",
+    re.DOTALL,
+)
 
 
 def _declared(tools: list) -> set[str]:
     return {d.name for t in tools for d in (t.function_declarations or [])}
 
 
+def _native_value(raw: str):
+    """A bare value in Gemini's call syntax: a number, true or false, else the text."""
+    lowered = raw.lower()
+    if lowered in ("true", "false"):
+        return lowered == "true"
+    for kind in (int, float):
+        try:
+            return kind(raw)
+        except ValueError:
+            pass
+    return raw
+
+
+def _native_call(text: str, names: set[str]) -> tuple[str, dict] | None:
+    """``text`` as a call in Gemini's own syntax to a tool this reply declares, or None.
+    A nested or empty value doesn't parse, so the text counts as prose."""
+    match = _NATIVE_CALL_RE.fullmatch(text)
+    if not match or match.group(1) not in names:
+        return None
+    body, args, pos = match.group(2), {}, 0
+    while pos < len(body.rstrip()):
+        arg = _NATIVE_ARG_RE.match(body, pos)
+        if not arg or arg.end() == pos:
+            return None
+        key, quoted, bare = arg.groups()
+        if quoted is None and not bare:
+            return None
+        args[key] = quoted if quoted is not None else _native_value(bare)
+        pos = arg.end()
+    return match.group(1), args
+
+
 def _typed_call(text: str, names: set[str]) -> tuple[str, dict] | None:
     """``text`` as a tool call the model typed instead of making, or None.
 
-    Read as a Python expression, since that's the shape Gemini writes calls in, and
-    ``ast`` parses one without running it. Only a bare call (or ``default_api.``'s) to a
-    tool this reply declares, with literal keyword arguments, counts, so a line of code in
-    an ordinary answer doesn't."""
+    Two shapes count. Gemini's own call syntax, ``call:default_api:react{emoji:🔥}``, and a
+    Python expression, read with ``ast``, which parses one without running it. Only a bare
+    call (or ``default_api.``'s) to a tool this reply declares, with literal keyword
+    arguments, counts, so a line of code in an ordinary answer doesn't."""
     text = text.strip().strip("`").strip()
+    native = _native_call(text, names)
+    if native:
+        return native
     # Not only SyntaxError: a long run of unary minus signs is a MemoryError in the parser,
     # and literal_eval raises TypeError for an unhashable set. Anything that fails is prose.
     try:
@@ -521,6 +568,13 @@ def _lookup_cap(tool: str, routing: Routing | None) -> int:
     return LOOKUP_CALL_CAP
 
 
+# How long one model gets to answer a reply's request before the next model in its chain is
+# asked. On 2026-11-09 Gemini 3.8 Flash took 1 to 6.5 minutes on each of five DM replies, one
+# request apiece with about 23 visible tokens, while 3.6 Flash answered in 2 to 5 seconds.
+# Pro on a deep reply answered in 8 to 14 seconds in testing.
+REPLY_ATTEMPT_TIMEOUT = 60.0
+
+
 def _model_args(model: str | None, routing: Routing | None) -> dict:
     """The model, chain and thinking for a reply's next request: its route's when it's
     routed, else the server's model as before routing."""
@@ -580,6 +634,7 @@ async def _complete_truncated(
                 tools=tools,
                 force_text=True,
                 source="conversation",
+                timeout=REPLY_ATTEMPT_TIMEOUT,
                 **_model_args(model, routing),
             )
         except Exception:
@@ -616,6 +671,7 @@ async def _force_final_answer(
             tools=tools,
             force_text=True,
             source="conversation",
+            timeout=REPLY_ATTEMPT_TIMEOUT,
             **_model_args(model, routing),
         )
         text = _response_text(resp)
@@ -645,6 +701,7 @@ async def _force_final_answer(
                 contents=contents,
                 system_instruction=nudged,
                 source="conversation",
+                timeout=REPLY_ATTEMPT_TIMEOUT,
                 **args,
             )
             if result.text:
@@ -686,6 +743,7 @@ async def _run_tool_loop(
             system_instruction=system_instruction,
             tools=tools,
             source="conversation",
+            timeout=REPLY_ATTEMPT_TIMEOUT,
             **_model_args(model, routing),
         )
         calls = _function_calls(resp)
