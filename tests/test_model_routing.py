@@ -497,10 +497,12 @@ class EscalationTests(unittest.TestCase):
         executed.assert_awaited()
 
     def test_an_unrouted_reply_sends_the_servers_model(self):
+        from olisar.pipeline import REPLY_ATTEMPT_TIMEOUT
+
         out, calls, _ = self._loop([_resp_text("hi")], None)
         self.assertEqual(calls[0].kwargs, {
             "contents": [], "system_instruction": "sys", "tools": calls[0].kwargs["tools"],
-            "source": "conversation", "model": None,
+            "source": "conversation", "timeout": REPLY_ATTEMPT_TIMEOUT, "model": None,
         })
 
     def test_a_deep_reply_runs_one_web_search(self):

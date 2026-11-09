@@ -568,6 +568,13 @@ def _lookup_cap(tool: str, routing: Routing | None) -> int:
     return LOOKUP_CALL_CAP
 
 
+# How long one model gets to answer a reply's request before the next model in its chain is
+# asked. On 2026-11-09 Gemini 3.8 Flash took 1 to 6.5 minutes on each of five DM replies, one
+# request apiece with about 23 visible tokens, while 3.6 Flash answered in 2 to 5 seconds.
+# Pro on a deep reply answered in 8 to 14 seconds in testing.
+REPLY_ATTEMPT_TIMEOUT = 60.0
+
+
 def _model_args(model: str | None, routing: Routing | None) -> dict:
     """The model, chain and thinking for a reply's next request: its route's when it's
     routed, else the server's model as before routing."""
@@ -627,6 +634,7 @@ async def _complete_truncated(
                 tools=tools,
                 force_text=True,
                 source="conversation",
+                timeout=REPLY_ATTEMPT_TIMEOUT,
                 **_model_args(model, routing),
             )
         except Exception:
@@ -663,6 +671,7 @@ async def _force_final_answer(
             tools=tools,
             force_text=True,
             source="conversation",
+            timeout=REPLY_ATTEMPT_TIMEOUT,
             **_model_args(model, routing),
         )
         text = _response_text(resp)
@@ -692,6 +701,7 @@ async def _force_final_answer(
                 contents=contents,
                 system_instruction=nudged,
                 source="conversation",
+                timeout=REPLY_ATTEMPT_TIMEOUT,
                 **args,
             )
             if result.text:
@@ -733,6 +743,7 @@ async def _run_tool_loop(
             system_instruction=system_instruction,
             tools=tools,
             source="conversation",
+            timeout=REPLY_ATTEMPT_TIMEOUT,
             **_model_args(model, routing),
         )
         calls = _function_calls(resp)

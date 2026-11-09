@@ -11,6 +11,7 @@ can't do that" without also saying it about a request that is simply wrong.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import unittest
 
 from google.genai import errors as genai_errors
@@ -193,14 +194,13 @@ class Capability400Tests(unittest.TestCase):
 class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
     """How _raw_generate actually reacts, walking a scripted chain."""
 
-    async def _walk(self, outcomes: dict[str, object], *, limiter=None, timeout: float | None = None):
-        """Run the chain; each model either raises its scripted error, takes SLOW seconds
-        to answer, or returns a resp. Returns (served_model, attempted_models)."""
+    @contextlib.contextmanager
+    def _scripted(self, outcomes: dict[str, object], attempted: list[str], *, limiter=None):
+        """A GeminiClient whose models each raise their scripted error, take SLOW seconds
+        to answer, or answer. Each model it asks is added to ``attempted``."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
         from olisar.gemini.client import GeminiClient
-
-        attempted: list[str] = []
 
         async def fake_generate(*, model, contents, config):
             attempted.append(model)
@@ -211,6 +211,9 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(outcome)
             resp = MagicMock()
             resp.usage_metadata = None
+            resp.function_calls = []
+            resp.candidates = []
+            resp.text = f"answer from {model}"
             resp.__served__ = model
             return resp
 
@@ -224,6 +227,14 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(GeminiClient, "aclient", AsyncMock(return_value=sdk)), patch(
             "olisar.gemini.client.get_rate_limiter", return_value=limiter
         ), patch("olisar.gemini.client.record_usage", new=AsyncMock()):
+            yield client
+
+    async def _walk(self, outcomes: dict[str, object], *, limiter=None, timeout: float | None = None):
+        """Run the chain. Returns (served_model, attempted_models)."""
+        from unittest.mock import MagicMock
+
+        attempted: list[str] = []
+        with self._scripted(outcomes, attempted, limiter=limiter) as client:
             resp = await client._raw_generate(
                 contents=[], config=MagicMock(), model=RANKED_NAMES[0],
                 chain=list(outcomes), thinking_budget=None, timeout=timeout,
@@ -267,7 +278,6 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attempted, ["stuck", "alive"])
 
     async def test_without_a_timeout_a_slow_model_is_waited_for(self):
-        """Replies pass no timeout, and wait as they always have."""
         served, _ = await self._walk({"slow": 0.05, "alive": None})
         self.assertEqual(served, "slow")
 
@@ -289,6 +299,27 @@ class ChainWalkTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(served, "gemini-3.6-flash")
                 self.assertEqual(attempted, ["gemini-3.8-flash", "gemini-3.6-flash"])
+
+    async def test_a_reply_moves_on_from_a_model_that_doesnt_answer_in_time(self):
+        """2026-11-09: Gemini 3.8 Flash took up to 6.5 minutes on each DM reply while 3.6
+        Flash answered in seconds. A reply now gives each model REPLY_ATTEMPT_TIMEOUT."""
+        from unittest.mock import patch
+
+        from olisar.pipeline import _run_tool_loop
+        from olisar.tools import ToolContext
+
+        attempted: list[str] = []
+        ctx = ToolContext(
+            session=None, cfg_guild=0, channel_id=0, user_id=0, display_name="tester",
+        )
+        with self._scripted({"stuck": SLOW, "alive": None}, attempted) as client, patch(
+            "olisar.pipeline.get_gemini", return_value=client
+        ), patch("olisar.pipeline.REPLY_ATTEMPT_TIMEOUT", 0.05), patch(
+            "olisar.gemini.client.model_chain", return_value=["stuck", "alive"]
+        ):
+            out = await _run_tool_loop([], "sys", "stuck", ctx, tools=[])
+        self.assertEqual(out, "answer from alive")
+        self.assertEqual(attempted, ["stuck", "alive"])
 
 
 if __name__ == "__main__":

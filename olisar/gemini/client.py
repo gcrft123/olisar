@@ -628,6 +628,7 @@ class GeminiClient:
         thinking_budget: int | None = 1024,
         thinking_level: str | None = None,
         source: str = "other",
+        timeout: float | None = None,
     ):
         """One tool-enabled turn. Returns the raw response so the caller can read
         `.function_calls`. Automatic function calling is disabled — we run the
@@ -645,7 +646,9 @@ class GeminiClient:
 
         ``chain`` overrides the models to try, as in ``_raw_generate``. The self-test passes
         a single-model chain: it has to report on the model it named, and silently falling
-        back would let a broken model pass because a healthy one answered for it."""
+        back would let a broken model pass because a healthy one answered for it.
+
+        ``timeout`` bounds each model's attempt, as in ``_raw_generate``."""
         model = model or settings.gemini_chat_model
         tool_config = None
         if force_text:
@@ -663,6 +666,7 @@ class GeminiClient:
         return await self._raw_generate(
             contents=contents, config=config, model=model, chain=chain,
             thinking_budget=thinking_budget, thinking_level=thinking_level, source=source,
+            timeout=timeout,
         )
 
     async def caption_images(
