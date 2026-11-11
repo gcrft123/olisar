@@ -101,7 +101,7 @@ jobs:
 
   macos:
     needs: [version-check, mac-preflight] # version-check opens the draft it uploads to; preflight gates the build
-    runs-on: macos-14 # Apple Silicon → arm64 .dmg
+    runs-on: macos-15 # Apple Silicon → arm64 .dmg
     # Build the venv on uv's own CPython, never the runner image's. sqlite-vec is loaded
     # through SQLite's extension API, which needs --enable-loadable-sqlite-extensions, and
     # the macOS image's preinstalled 3.13 is built without it. `python-version: '3.13'`

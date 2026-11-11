@@ -17,7 +17,7 @@ on:
 
 jobs:
   preflight:
-    runs-on: macos-14 # same runner image the release builds on
+    runs-on: macos-15 # same runner image the release builds on
     steps:
       - uses: actions/checkout@v4
 
