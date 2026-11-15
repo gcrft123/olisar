@@ -310,6 +310,13 @@ _BLANK_LINE = re.compile(r"\n[ \t]*\n")
 # rather than a run of beats.
 _STRUCTURED_LINE = re.compile(r"\s*(?:[-*+•]\s|\d+[.)]\s|#{1,6}\s|>|\|)")
 
+# An emoji with a word pressed straight against it is a break the model left out: "yellow
+# dustballs 💀could swear nyx had that tint". It learned the shape from its own earlier
+# replies, which reached it with nothing between their pieces (see context._JOINERS), and
+# replies written that way are still in channel history. Flags (regional indicators) are
+# left out of the range, since "🇺🇸USA" is one beat.
+_JAMMED_EMOJI = re.compile(r"(?<=[\U0001F300-\U0001FAFF☀-➿️])(?=[A-Za-z])")
+
 
 def _lines(paragraph: str) -> list[str]:
     """A paragraph's lines as separate beats, or the paragraph whole where splitting it
@@ -321,7 +328,7 @@ def _lines(paragraph: str) -> list[str]:
         or any(line.rstrip().endswith(":") for line in lines[:-1])
     ):
         return [paragraph]
-    return lines
+    return [beat for line in lines for beat in _JAMMED_EMOJI.split(line)]
 
 
 def _beats(chunk: str) -> list[str]:

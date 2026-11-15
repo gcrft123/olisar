@@ -142,6 +142,22 @@ class SplitMessagesTest(unittest.TestCase):
         body = f"try this:\n{fence}\nx = 1\n\ny = 2\n{fence}"
         self.assertEqual(split_messages(body), [body])
 
+    def test_an_emoji_jammed_against_a_word_breaks_there(self) -> None:
+        """Production sent this as one message on 2026-11-15."""
+        self.assertEqual(
+            split_messages("forgot you were the expert on yellow dustballs 💀could swear nyx had that tint"),
+            ["forgot you were the expert on yellow dustballs 💀", "could swear nyx had that tint"],
+        )
+
+    def test_an_emoji_with_a_space_after_it_stays_in_its_line(self) -> None:
+        self.assertEqual(split_messages("💀 that skeleton speaks"), ["💀 that skeleton speaks"])
+        self.assertEqual(split_messages("🇺🇸USA"), ["🇺🇸USA"])
+
+    def test_a_jammed_emoji_in_a_list_or_code_stays_put(self) -> None:
+        self.assertEqual(split_messages("- a 💀b\n- c"), ["- a 💀b\n- c"])
+        fence = "`" * 3
+        self.assertEqual(split_messages(f"{fence}\nx = '💀a'\n{fence}"), [f"{fence}\nx = '💀a'\n{fence}"])
+
     def test_marker_and_blank_lines_combine(self) -> None:
         self.assertEqual(split_messages("a[[break]]b\n\nc"), ["a", "b", "c"])
 

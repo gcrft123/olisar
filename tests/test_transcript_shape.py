@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from olisar.context import GAP_SECONDS, _elapsed, build_contents, speaker_name
-from olisar.persona import DEFAULT_SLANG_DENSITY, SERVER_TYPES, room_notes
+from olisar.persona import DEFAULT_SLANG_DENSITY, SERVER_TYPES, SPLIT_MARKER, room_notes
 from olisar.proactivity import reaction_score
 
 BOT_ID = 99
@@ -60,7 +60,10 @@ class FakeSession:
 
 
 def _texts(contents):
-    return [(c.role, p.text) for c in contents for p in c.parts if getattr(p, "text", None)]
+    """Each line of the transcript, without the newline that joins it to the line before."""
+    return [
+        (c.role, p.text.removeprefix("\n")) for c in contents for p in c.parts if getattr(p, "text", None)
+    ]
 
 
 def _build(session, **kw):
@@ -100,6 +103,31 @@ class ReplyStructureTest(unittest.TestCase):
         session = FakeSession([_row(10, 5, "hi", ago=10)], {5: "kaz"})
         _build(session)
         self.assertEqual(session.queries, 2)  # the window + the name lookup, nothing more
+
+
+class MergedTurnTest(unittest.TestCase):
+    """Gemini reads a turn's parts run together, so a merged turn carries its separators."""
+
+    def test_a_reply_sent_in_pieces_reads_with_its_break_markers(self) -> None:
+        rows = [
+            _row(10, 5, "look at the gen map", ago=30),
+            _row(11, BOT_ID, "wait hold on 💀", is_bot=True, ago=20),
+            _row(12, BOT_ID, "that line points right at gen", is_bot=True, ago=19),
+        ]
+        contents, _ = _build(FakeSession(rows, {5: "kaz"}))
+        model = [c for c in contents if c.role == "model"][0]
+        self.assertEqual(
+            "".join(p.text for p in model.parts),
+            f"wait hold on 💀 {SPLIT_MARKER} that line points right at gen",
+        )
+
+    def test_consecutive_members_read_as_separate_lines(self) -> None:
+        rows = [_row(10, 5, "yo", ago=20), _row(11, 6, "hey", ago=10)]
+        contents, _ = _build(FakeSession(rows, {5: "kaz", 6: "rin"}))
+        self.assertEqual(
+            "".join(p.text for p in contents[0].parts),
+            "kaz: yo\nrin: hey\nWumpus: so what do you reckon",
+        )
 
 
 class GapMarkerTest(unittest.TestCase):

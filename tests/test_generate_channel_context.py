@@ -65,8 +65,9 @@ class _Gemini:
 
     @property
     def lines(self) -> list[tuple[str, str]]:
+        """Each transcript line, without the newline that joins it to the line before."""
         return [
-            (c.role, p.text)
+            (c.role, p.text.removeprefix("\n"))
             for c in self.calls[-1]["contents"]
             for p in c.parts
             if getattr(p, "text", None)
