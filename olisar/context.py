@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from olisar.db.models import Message, Persona, UserProfile
-from olisar.persona import DEFAULT_PERSONA_NAME
+from olisar.persona import DEFAULT_PERSONA_NAME, SPLIT_MARKER
 
 RECENT_WINDOW = 12  # messages of history to include
 
@@ -222,11 +222,21 @@ async def _reply_targets(
     }
 
 
+# Gemini reads a turn's text parts run together with nothing between them, so a merged
+# turn needs its separators written in. Olisar's own consecutive messages are one reply
+# it sent in pieces, and without the marker between them the model saw "wait hold on 💀"
+# and "that line points at gen" as "💀that line points at gen", then wrote its next
+# replies the same way: six production replies went out as one message with the emoji
+# jammed against the next beat, each after such a turn in its history. Members' lines
+# get the newline a transcript has between speakers.
+_JOINERS = {"model": f" {SPLIT_MARKER} ", "user": "\n"}
+
+
 def _append(contents: list, role: str, text: str) -> None:
     """Append text, merging into the previous turn if it has the same role
-    (Gemini prefers alternating roles)."""
+    (Gemini prefers alternating roles), separated as ``_JOINERS`` says."""
     if contents and contents[-1].role == role:
-        contents[-1].parts.append(types.Part(text=text))
+        contents[-1].parts.append(types.Part(text=_JOINERS.get(role, "\n") + text))
     else:
         contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
 
