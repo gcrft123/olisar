@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+Some replies Olisar meant as two messages went out as one, with an emoji pressed against the next word: "forgot you were the expert on yellow dustballs 💀could swear nyx had that same ugly tint lately". Nothing was dropping a break. Gemini reads the parts of a turn run together, so each reply Olisar had sent in pieces came back to it in the history as one glued line, and it wrote new replies the same way. Members' lines in the history were glued the same way, speaker into speaker.
+
+### Fixed
+
+[9e328c5] — Olisar's earlier replies reach the model with a break between their messages, and members' lines with a line break between them.
+
+[5bab206] — A reply with an emoji run straight into a word is sent as two messages, split at the emoji.
+
 ## [2.1] — 2026-11-11
 
 Six things said or did something other than what Olisar actually does. The worst was a security one: the install screen lets you leave an imported extension's capabilities unticked, and saving its code in the editor quietly granted them all back. A waiting server's history was still read and its images described on the operator's Gemini quota, and a few lines in the console and docs described behavior Olisar doesn't have. Separately, when Olisar wrote a reply as two lines, it arrived as one message with a line break in it instead of two messages. Welcome messages did the same with every break, because an extension had no way to send generated text as more than one message.
